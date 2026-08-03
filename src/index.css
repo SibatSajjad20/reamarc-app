@@ -1,0 +1,264 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  :root {
+    --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  body.dark, html.dark {
+    background-color: #09090b;
+    color: #f4f4f5;
+    color-scheme: dark;
+  }
+
+  body.light, html.light {
+    background-color: #f8fafc;
+    color: #0f172a;
+    color-scheme: light;
+  }
+}
+
+#root {
+  width: 100%;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Light Theme Overrides & Adaptations */
+html.light {
+  /* Main Backgrounds */
+  .bg-zinc-950 {
+    background-color: #f8fafc !important;
+  }
+  .bg-zinc-950\/95 {
+    background-color: rgba(248, 250, 252, 0.95) !important;
+  }
+  .bg-zinc-950\/90 {
+    background-color: rgba(248, 250, 252, 0.9) !important;
+  }
+  .bg-zinc-950\/80 {
+    background-color: rgba(248, 250, 252, 0.85) !important;
+  }
+  .bg-zinc-950\/60 {
+    background-color: rgba(248, 250, 252, 0.65) !important;
+  }
+  .bg-zinc-950\/40 {
+    background-color: rgba(248, 250, 252, 0.4) !important;
+  }
+  
+  /* Cards & Surface Panels */
+  .bg-zinc-900 {
+    background-color: #ffffff !important;
+  }
+  .bg-zinc-900\/95 {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+  }
+  .bg-zinc-900\/90 {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+  }
+  .bg-zinc-900\/80 {
+    background-color: rgba(255, 255, 255, 0.95) !important;
+  }
+  .bg-zinc-900\/70 {
+    background-color: rgba(255, 255, 255, 0.9) !important;
+  }
+  .bg-zinc-900\/60 {
+    background-color: rgba(255, 255, 255, 0.8) !important;
+  }
+  .bg-zinc-900\/40 {
+    background-color: #ffffff !important;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+  }
+
+  /* Sub-elements / Input Backgrounds */
+  .bg-zinc-800 {
+    background-color: #f1f5f9 !important;
+  }
+  .bg-zinc-800\/90 {
+    background-color: rgba(241, 245, 249, 0.95) !important;
+  }
+  .bg-zinc-800\/80 {
+    background-color: rgba(241, 245, 249, 0.9) !important;
+  }
+  .bg-zinc-800\/60 {
+    background-color: rgba(241, 245, 249, 0.7) !important;
+  }
+  .bg-zinc-800\/40 {
+    background-color: rgba(241, 245, 249, 0.5) !important;
+  }
+  .bg-zinc-700 {
+    background-color: #e2e8f0 !important;
+  }
+
+  /* Modal Backdrop Overlays */
+  .bg-black\/80 {
+    background-color: rgba(15, 23, 42, 0.45) !important;
+  }
+  .bg-black\/70 {
+    background-color: rgba(15, 23, 42, 0.35) !important;
+  }
+  .bg-black\/60 {
+    background-color: rgba(15, 23, 42, 0.25) !important;
+  }
+
+  /* Ring Colors for Badges & Avatars */
+  .ring-zinc-950 {
+    --tw-ring-color: #f8fafc !important;
+  }
+  .ring-zinc-900 {
+    --tw-ring-color: #ffffff !important;
+  }
+
+  /* Borders */
+  .border-zinc-800,
+  .border-zinc-800\/80,
+  .border-zinc-800\/60,
+  .border-zinc-800\/50,
+  .border-zinc-800\/40 {
+    border-color: #e2e8f0 !important;
+  }
+
+  .border-zinc-700,
+  .border-zinc-700\/80,
+  .border-zinc-700\/60,
+  .border-zinc-700\/50 {
+    border-color: #cbd5e1 !important;
+  }
+
+  /* Typography / Text */
+  .text-zinc-100 {
+    color: #0f172a !important;
+  }
+  .text-zinc-200 {
+    color: #1e293b !important;
+  }
+  .text-zinc-300 {
+    color: #334155 !important;
+  }
+  .text-zinc-400 {
+    color: #475569 !important;
+  }
+  .text-zinc-500 {
+    color: #64748b !important;
+  }
+  .text-zinc-600 {
+    color: #94a3b8 !important;
+  }
+
+  .placeholder-zinc-500::placeholder,
+  .placeholder-zinc-600::placeholder {
+    color: #94a3b8 !important;
+  }
+
+  /* Interactive Hovers */
+  .hover\:bg-zinc-800:hover {
+    background-color: #e2e8f0 !important;
+  }
+  .hover\:bg-zinc-800\/80:hover {
+    background-color: #e2e8f0 !important;
+  }
+  .hover\:bg-zinc-800\/60:hover {
+    background-color: #f1f5f9 !important;
+  }
+  .hover\:bg-zinc-900:hover {
+    background-color: #f8fafc !important;
+  }
+  .hover\:bg-zinc-900\/80:hover {
+    background-color: #e2e8f0 !important;
+  }
+  .hover\:bg-zinc-900\/60:hover {
+    background-color: #f1f5f9 !important;
+  }
+  .hover\:bg-zinc-950:hover {
+    background-color: #f1f5f9 !important;
+  }
+  .hover\:border-zinc-700:hover,
+  .hover\:border-zinc-700\/80:hover {
+    border-color: #94a3b8 !important;
+  }
+  .hover\:text-zinc-100:hover,
+  .hover\:text-zinc-200:hover,
+  .hover\:text-zinc-300:hover {
+    color: #0f172a !important;
+  }
+  .group:hover .group-hover\:text-white {
+    color: #0f172a !important;
+  }
+  .group:hover .group-hover\:text-zinc-100 {
+    color: #0f172a !important;
+  }
+
+  /* Inbox Task Selection & Active Highlights */
+  .bg-indigo-950\/30 {
+    background-color: rgba(238, 242, 255, 0.9) !important;
+  }
+  .border-indigo-500\/60 {
+    border-color: #6366f1 !important;
+  }
+
+  /* Shadows for Popups & Elevated Menus */
+  .shadow-2xl {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.05) !important;
+  }
+  .shadow-xl {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04) !important;
+  }
+
+  /* Keyboard keys */
+  kbd {
+    background-color: #e2e8f0 !important;
+    border-color: #cbd5e1 !important;
+    color: #334155 !important;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar-thumb {
+    background: #cbd5e1;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+  }
+}
+
+/* Custom sleek scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
