@@ -3,6 +3,7 @@ import type { ViewType, Workspace, ThemeMode } from './types';
 import { Sidebar } from './components/Sidebar';
 import { PerformanceMarketing } from './components/views/PerformanceMarketing';
 import { AdminPanel } from './components/admin/AdminPanel';
+import { DailyLogView } from './components/views/DailyLogView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -16,7 +17,7 @@ function AppInner() {
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
-    return saved && ['marketing', 'admin'].includes(saved)
+    return saved && ['marketing', 'admin', 'daily-log'].includes(saved)
       ? saved
       : 'marketing';
   });
@@ -45,29 +46,32 @@ function AppInner() {
           setCurrentView('marketing');
           localStorage.setItem('reamarc_active_view', 'marketing');
         }
+      } else if (currentPath === 'daily-log' || currentPath === 'daily_log') {
+        setCurrentView('daily-log');
+        localStorage.setItem('reamarc_active_view', 'daily-log');
       } else if (currentPath === 'marketing') {
         setCurrentView('marketing');
         localStorage.setItem('reamarc_active_view', 'marketing');
-      } else if (currentPath !== '' && !currentPath.startsWith('api')) {
-        window.history.replaceState(null, '', '/marketing');
-        setCurrentView('marketing');
-        localStorage.setItem('reamarc_active_view', 'marketing');
-      } else {
-        if (user.role !== 'admin' && currentView !== 'marketing') {
-          setCurrentView('marketing');
-          localStorage.setItem('reamarc_active_view', 'marketing');
-        }
       }
     };
 
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, currentView]);
+  }, [user]);
 
   const handleSelectView = (view: ViewType) => {
-    const allowedViews = user?.role === 'admin' ? ['marketing', 'admin'] : ['marketing'];
+    const allowedViews: ViewType[] = user?.role === 'admin'
+      ? ['marketing', 'daily-log', 'admin']
+      : ['marketing', 'daily-log'];
     const targetView = allowedViews.includes(view) ? view : 'marketing';
+
+    try {
+      window.history.pushState(null, '', `/${targetView}`);
+    } catch (e) {
+      // Fallback if browser history pushState fails
+    }
+
     setCurrentView(targetView);
     localStorage.setItem('reamarc_active_view', targetView);
   };
@@ -184,13 +188,19 @@ function AppInner() {
           </div>
         )}
 
+        {currentView === 'daily-log' && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <DailyLogView />
+          </div>
+        )}
+
         {currentView === 'admin' && user?.role === 'admin' && (
           <div className="flex-1 flex flex-col h-full overflow-y-auto p-6 view-enter">
             <AdminPanel />
           </div>
         )}
 
-        {currentView !== 'marketing' && currentView !== 'admin' && (
+        {currentView !== 'marketing' && currentView !== 'admin' && currentView !== 'daily-log' && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
               selectedWorkspace={selectedWorkspace}

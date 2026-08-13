@@ -1,4 +1,4 @@
-export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing';
+export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log';
 
 export type PlatformType = 'Instagram' | 'LinkedIn' | 'Facebook' | 'Twitter';
 
