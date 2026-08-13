@@ -76,6 +76,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     apiClient.setOnUnauthorized(() => {
+      apiClient.setToken(null);
       setUser(null);
     });
 
@@ -84,6 +85,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (payload: LoginPayload) => {
     const res = await authService.login(payload);
+    if (res.access_token) {
+      apiClient.setToken(res.access_token);
+    }
     setUser(res.user);
     const wsList = res.user.workspace_ids || res.user.workspaceIds || [];
     if (wsList.length > 0) {
@@ -94,12 +98,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (payload: RegisterPayload) => {
     const res = await authService.register(payload);
+    if (res.access_token) {
+      apiClient.setToken(res.access_token);
+    }
     setUser(res.user);
     closeAuthModal();
   };
 
   const logout = async () => {
     await authService.logout();
+    apiClient.setToken(null);
     setUser(null);
   };
 

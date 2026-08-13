@@ -42,9 +42,28 @@ class ApiClient {
   private baseUrl: string;
   private onUnauthorizedCallback?: () => void;
   private activeWorkspaceId: string | null = null;
+  private token: string | null = typeof window !== 'undefined' ? localStorage.getItem('reamarc_token') : null;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
+  }
+
+  public setToken(token: string | null) {
+    this.token = token;
+    if (typeof window !== 'undefined') {
+      if (token) {
+        localStorage.setItem('reamarc_token', token);
+      } else {
+        localStorage.removeItem('reamarc_token');
+      }
+    }
+  }
+
+  public getToken(): string | null {
+    if (!this.token && typeof window !== 'undefined') {
+      this.token = localStorage.getItem('reamarc_token');
+    }
+    return this.token;
   }
 
   public setOnUnauthorized(callback: () => void) {
@@ -69,9 +88,11 @@ class ApiClient {
       }
     }
 
+    const currentToken = this.getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
       ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),
     };
@@ -136,9 +157,11 @@ class ApiClient {
       }
     }
 
+    const currentToken = this.getToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
       ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),
     };

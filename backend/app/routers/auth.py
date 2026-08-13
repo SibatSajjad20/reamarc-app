@@ -24,16 +24,19 @@ router = APIRouter(
 )
 limiter = Limiter(key_func=get_remote_address)
 
-_COOKIE_OPTS = dict(httponly=True, samesite="lax", secure=settings.COOKIE_SECURE)
-
-
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
-    response.set_cookie(key="access_token", value=access_token, **_COOKIE_OPTS)
+    is_prod = settings.IS_PRODUCTION
+    cookie_opts = dict(
+        httponly=True,
+        samesite="none" if is_prod else "lax",
+        secure=True if is_prod else settings.COOKIE_SECURE
+    )
+    response.set_cookie(key="access_token", value=access_token, **cookie_opts)
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
-        **_COOKIE_OPTS,
+        **cookie_opts,
     )
 
 
