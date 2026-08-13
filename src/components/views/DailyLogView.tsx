@@ -54,6 +54,236 @@ const DEFAULT_ROW_HEIGHT = 44;
 const MIN_ZOOM = 70;
 const MAX_ZOOM = 130;
 
+// ─── Custom Matrix Select Cell Component ───────────────────────────────────────
+interface MatrixSelectCellProps {
+  value: string;
+  options: string[];
+  columnKey: string;
+  onChange: (val: string) => void;
+}
+
+const MatrixSelectCell: React.FC<MatrixSelectCellProps> = ({
+  value,
+  options,
+  columnKey,
+  onChange,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isOpen]);
+
+  // Special Styling for Task Status
+  if (columnKey === 'task_status') {
+    const getStatusTheme = (status: string) => {
+      switch (status) {
+        case 'Completed':
+          return {
+            pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25',
+            dot: 'bg-emerald-500',
+            iconColor: 'text-emerald-600 dark:text-emerald-400',
+            activeOpt: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold',
+          };
+        case 'Blocker':
+          return {
+            pill: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/25',
+            dot: 'bg-rose-500 animate-pulse',
+            iconColor: 'text-rose-600 dark:text-rose-400',
+            activeOpt: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold',
+          };
+        case 'Incomplete':
+        default:
+          return {
+            pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25',
+            dot: 'bg-amber-500',
+            iconColor: 'text-amber-600 dark:text-amber-400',
+            activeOpt: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold',
+          };
+      }
+    };
+
+    const currentTheme = getStatusTheme(value || 'Incomplete');
+
+    return (
+      <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          className={`w-full flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs select-none ${currentTheme.pill}`}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${currentTheme.dot}`} />
+            <span className="truncate">{value || 'Incomplete'}</span>
+          </div>
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 opacity-70 transition-transform duration-150 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-36 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+            {options.map((opt) => {
+              const optTheme = getStatusTheme(opt);
+              const isSelected = value === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none ${
+                    isSelected
+                      ? optTheme.activeOpt
+                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${optTheme.dot}`} />
+                    <span>{opt}</span>
+                  </div>
+                  {isSelected && <Check className={`w-3.5 h-3.5 ${optTheme.iconColor}`} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Special Styling for Task Type
+  if (columnKey === 'task_type') {
+    const getTypeTheme = (type: string) => {
+      switch (type) {
+        case 'Scheduled Task':
+          return {
+            pill: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-400/30 hover:bg-sky-500/25',
+            dot: 'bg-sky-500',
+            iconColor: 'text-sky-600 dark:text-sky-400',
+            activeOpt: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 font-bold',
+          };
+        case 'Runtime Task':
+        default:
+          return {
+            pill: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-400/30 hover:bg-purple-500/25',
+            dot: 'bg-purple-500',
+            iconColor: 'text-purple-600 dark:text-purple-400',
+            activeOpt: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 font-bold',
+          };
+      }
+    };
+
+    const currentTheme = getTypeTheme(value || 'Scheduled Task');
+
+    return (
+      <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
+        <button
+          type="button"
+          onClick={() => setIsOpen((prev) => !prev)}
+          className={`w-full flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs select-none ${currentTheme.pill}`}
+        >
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className={`w-2 h-2 rounded-full shrink-0 ${currentTheme.dot}`} />
+            <span className="truncate">{value || 'Scheduled Task'}</span>
+          </div>
+          <ChevronDown
+            className={`w-3.5 h-3.5 shrink-0 opacity-70 transition-transform duration-150 ${
+              isOpen ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+
+        {isOpen && (
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-40 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+            {options.map((opt) => {
+              const optTheme = getTypeTheme(opt);
+              const isSelected = value === opt;
+              return (
+                <button
+                  key={opt}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt);
+                    setIsOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none ${
+                    isSelected
+                      ? optTheme.activeOpt
+                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${optTheme.dot}`} />
+                    <span>{opt}</span>
+                  </div>
+                  {isSelected && <Check className={`w-3.5 h-3.5 ${optTheme.iconColor}`} />}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Generic Dropdown for other custom columns
+  return (
+    <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/70 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-800 dark:text-zinc-200 transition-all cursor-pointer select-none"
+      >
+        <span className="truncate">{value || 'Select option...'}</span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform duration-150 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[130px] w-full bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+          {options.map((opt) => {
+            const isSelected = value === opt;
+            return (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => {
+                  onChange(opt);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer select-none ${
+                  isSelected
+                    ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                    : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                }`}
+              >
+                <span className="truncate">{opt}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const DailyLogView: React.FC = () => {
   const { activeWorkspaceId, user, role } = useAuth();
   const isAdmin = role === 'admin' || user?.role === 'admin';
@@ -1047,69 +1277,23 @@ export const DailyLogView: React.FC = () => {
                               <td
                                 key={col.key}
                                 style={{ width: `${colW}px` }}
-                                className="p-2 border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-hidden"
+                                className="p-2 border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-visible relative"
                               >
                                 {col.type === 'select' ? (
-                                  col.key === 'task_type' ? (
-                                    <div className="flex items-center justify-center w-full">
-                                      <select
-                                        value={val}
-                                        onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                        className={`w-full px-3 py-1 rounded-full text-xs font-semibold text-center cursor-pointer outline-none transition-all shadow-xs ${
-                                          val === 'Scheduled Task'
-                                            ? 'bg-sky-500/15 text-sky-600 dark:text-sky-300 border border-sky-400/30'
-                                            : 'bg-purple-500/15 text-purple-600 dark:text-purple-300 border border-purple-400/30'
-                                        }`}
-                                      >
-                                        {(col.options || ['Scheduled Task', 'Runtime Task']).map((opt) => (
-                                          <option
-                                            key={opt}
-                                            value={opt}
-                                            className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                                          >
-                                            {opt}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  ) : col.key === 'task_status' ? (
-                                    <div className="flex items-center justify-center w-full">
-                                      <select
-                                        value={val}
-                                        onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                        className={`w-full px-3 py-1 rounded-full text-xs font-semibold text-center cursor-pointer outline-none transition-all shadow-xs ${
-                                          val === 'Completed'
-                                            ? 'bg-emerald-600 text-white'
-                                            : val === 'Blocker'
-                                            ? 'bg-rose-600 text-white'
-                                            : 'bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-400/40'
-                                        }`}
-                                      >
-                                        {(col.options || ['Completed', 'Incomplete', 'Blocker']).map((opt) => (
-                                          <option
-                                            key={opt}
-                                            value={opt}
-                                            className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
-                                          >
-                                            {opt}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-                                  ) : (
-                                    <select
-                                      value={val}
-                                      onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                      className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none cursor-pointer"
-                                    >
-                                      <option value="">Select option...</option>
-                                      {col.options?.map((opt) => (
-                                        <option key={opt} value={opt} className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
-                                          {opt}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  )
+                                  <MatrixSelectCell
+                                    value={val}
+                                    options={
+                                      col.options && col.options.length > 0
+                                        ? col.options
+                                        : col.key === 'task_type'
+                                        ? ['Scheduled Task', 'Runtime Task']
+                                        : col.key === 'task_status'
+                                        ? ['Completed', 'Incomplete', 'Blocker']
+                                        : []
+                                    }
+                                    columnKey={col.key}
+                                    onChange={(newVal) => handleCellChange(entry.id, col.key, newVal)}
+                                  />
                                 ) : col.type === 'date' ? (
                                   <input
                                     type="text"
