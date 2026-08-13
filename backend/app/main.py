@@ -110,7 +110,7 @@ app.include_router(marketing.router, prefix=settings.API_V1_STR)
 
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "healthy", "message": "Backend is online"}
 
