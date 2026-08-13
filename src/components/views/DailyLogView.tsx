@@ -602,17 +602,18 @@ export const DailyLogView: React.FC = () => {
           </div>
 
           {/* Date Filter Dropdown */}
-          <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shadow-2xs">
+          <div className="relative flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shadow-2xs">
             <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
             <select
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="bg-transparent text-sm font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none cursor-pointer pr-1"
+              className="bg-transparent text-sm font-semibold text-zinc-800 dark:text-zinc-200 border-0 border-none outline-none ring-0 shadow-none focus:outline-none focus:ring-0 focus:border-none focus:shadow-none appearance-none cursor-pointer pr-4 select-none"
             >
-              <option value="all">All Dates</option>
-              <option value="today">Today</option>
-              <option value="week">Past 7 Days</option>
+              <option value="all" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">All Dates</option>
+              <option value="today" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Today</option>
+              <option value="week" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Past 7 Days</option>
             </select>
+            <ChevronDown className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 absolute right-3 pointer-events-none" />
           </div>
 
           {/* Add Row Button */}
