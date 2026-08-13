@@ -726,35 +726,9 @@ export const DailyLogView: React.FC = () => {
           }}
           className="flex-1 flex flex-col"
         >
-          {/* Excel Column Letters Header Bar (A, B, C, D...) */}
-          <div className="flex items-center bg-slate-200 dark:bg-[#121217] border-b border-slate-300 dark:border-zinc-800 text-[11px] font-mono text-slate-600 dark:text-zinc-400 shrink-0">
-            <div className="w-14 py-1 text-center font-bold border-r border-slate-300 dark:border-zinc-800 shrink-0 bg-slate-200 dark:bg-[#121217]">
-              #
-            </div>
-            <div className="flex-1 flex overflow-hidden">
-              {columns.map((col, idx) => {
-                const colW = columnWidths[col.key] || 150;
-                return (
-                  <div
-                    key={col.key}
-                    style={{ width: `${colW}px` }}
-                    className="py-1 text-center font-bold border-r border-slate-300 dark:border-zinc-800 shrink-0 relative group"
-                  >
-                    <span>{getColumnLetter(idx)}</span>
-                    <div
-                      onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                      className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/50 group-hover:bg-slate-400/30 z-20"
-                    />
-                  </div>
-                );
-              })}
-            </div>
-            <div className="w-12 shrink-0"></div>
-          </div>
-
           {/* Table View */}
           {isLoading ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-400 dark:text-zinc-500">
+            <div className="h-64 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
               <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
               <span className="text-xs font-medium">Loading sheet entries...</span>
             </div>
@@ -762,10 +736,10 @@ export const DailyLogView: React.FC = () => {
             <div className="flex-1 overflow-x-auto">
               <table className="w-full border-collapse text-xs text-left table-fixed">
                 <thead>
-                  {/* Table Header Row (#1) matching screenshot dark blue styling */}
-                  <tr className="bg-[#1e293b] text-white font-semibold text-xs border-b border-slate-700">
-                    <th className="w-14 p-2 text-center font-mono text-[11px] text-slate-300 border-r border-slate-700/60 sticky left-0 bg-[#1e293b] z-10 shrink-0">
-                      1
+                  {/* Modern Elevated Table Header Row */}
+                  <tr className="bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 shadow-2xs">
+                    <th className="w-14 p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800 sticky left-0 bg-zinc-100 dark:bg-[#12141c] z-20 shrink-0 select-none">
+                      #
                     </th>
                     {columns.map((col) => {
                       const colW = columnWidths[col.key] || 150;
@@ -777,10 +751,10 @@ export const DailyLogView: React.FC = () => {
                         <th
                           key={col.key}
                           style={{ width: `${colW}px` }}
-                          className="p-2.5 font-medium tracking-tight border-r border-slate-700/60 text-slate-100 relative group overflow-visible"
+                          className="p-2.5 font-semibold tracking-tight border-r border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors"
                         >
-                          <div className="flex items-center justify-between gap-1">
-                            <span className="truncate" title={col.label}>
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
                               {col.label}
                             </span>
                             <button
@@ -789,10 +763,10 @@ export const DailyLogView: React.FC = () => {
                                 e.stopPropagation();
                                 setOpenFilterColKey(isFilterOpen ? null : col.key);
                               }}
-                              className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
+                              className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
                                 hasActiveFilter
-                                  ? 'bg-indigo-500 text-white font-bold'
-                                  : 'text-slate-400 hover:text-white hover:bg-slate-700/60'
+                                  ? 'bg-indigo-600 text-white font-bold shadow-2xs'
+                                  : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/80 dark:hover:bg-zinc-800'
                               }`}
                               title={`Filter by ${col.label}`}
                             >
@@ -803,23 +777,23 @@ export const DailyLogView: React.FC = () => {
                           {/* Column Resize Handle */}
                           <div
                             onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-400 z-20"
+                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
                           />
 
                           {/* ─── PER-COLUMN FILTER POPOVER ────────────────────────────── */}
                           {isFilterOpen && (
                             <div
                               onClick={(e) => e.stopPropagation()}
-                              className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-slate-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-slate-900 dark:text-zinc-100 space-y-3 font-normal"
+                              className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 space-y-3 font-normal"
                             >
-                              <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-2">
+                              <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
                                 <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
                                   <Filter className="w-3.5 h-3.5" />
                                   <span>Filter: {col.label}</span>
                                 </span>
                                 <button
                                   onClick={() => setOpenFilterColKey(null)}
-                                  className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
+                                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
@@ -840,11 +814,11 @@ export const DailyLogView: React.FC = () => {
                                           )
                                         )
                                       }
-                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-300 cursor-pointer"
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
                                     >
                                       <ChevronLeft className="w-3.5 h-3.5" />
                                     </button>
-                                    <span className="text-slate-800 dark:text-zinc-200">
+                                    <span className="text-zinc-800 dark:text-zinc-200">
                                       {calendarViewDate.toLocaleString('default', {
                                         month: 'long',
                                         year: 'numeric',
@@ -860,14 +834,14 @@ export const DailyLogView: React.FC = () => {
                                           )
                                         )
                                       }
-                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-300 cursor-pointer"
+                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
                                     >
                                       <ChevronRight className="w-3.5 h-3.5" />
                                     </button>
                                   </div>
 
                                   {/* Day Name Headers */}
-                                  <div className="grid grid-cols-7 text-center text-[10px] font-bold text-slate-400 dark:text-zinc-500">
+                                  <div className="grid grid-cols-7 text-center text-[10px] font-bold text-zinc-400 dark:text-zinc-500">
                                     <span>Su</span>
                                     <span>Mo</span>
                                     <span>Tu</span>
@@ -898,8 +872,8 @@ export const DailyLogView: React.FC = () => {
                                           }}
                                           className={`py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
                                             isSelected
-                                              ? 'bg-indigo-600 text-white shadow-xs'
-                                              : 'hover:bg-indigo-50 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-200'
+                                              ? 'bg-indigo-600 text-white shadow-2xs'
+                                              : 'hover:bg-indigo-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200'
                                           }`}
                                         >
                                           {dayNum}
@@ -924,7 +898,7 @@ export const DailyLogView: React.FC = () => {
                               ) : col.type === 'select' ? (
                                 /* 2. DROPDOWN OPTIONS FILTER POPOVER */
                                 <div className="space-y-1.5">
-                                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                                  <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
                                     Select Option
                                   </div>
                                   {(col.options || []).map((opt) => {
@@ -943,7 +917,7 @@ export const DailyLogView: React.FC = () => {
                                         className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
                                           isSelected
                                             ? 'bg-indigo-600 text-white font-bold'
-                                            : 'bg-slate-50 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                                            : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                                         }`}
                                       >
                                         <span>{opt}</span>
@@ -958,7 +932,7 @@ export const DailyLogView: React.FC = () => {
                                         handleClearColumnFilter(col.key);
                                         setOpenFilterColKey(null);
                                       }}
-                                      className="w-full mt-2 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer"
+                                      className="w-full mt-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
                                     >
                                       Clear Filter
                                     </button>
@@ -972,14 +946,14 @@ export const DailyLogView: React.FC = () => {
                                     placeholder={`Filter ${col.label}...`}
                                     value={columnFilters[col.key] || ''}
                                     onChange={(e) => handleSetColumnFilter(col.key, e.target.value)}
-                                    className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                    className="w-full px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                     autoFocus
                                   />
 
                                   {/* Auto-extracted existing dataset values (e.g. Ahmed, Haris, Ali) */}
                                   {existingUniqueValues.length > 0 && (
                                     <div className="space-y-1">
-                                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                                         Existing Values ({existingUniqueValues.length})
                                       </span>
                                       <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
@@ -999,7 +973,7 @@ export const DailyLogView: React.FC = () => {
                                               className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer text-left truncate ${
                                                 isSelected
                                                   ? 'bg-indigo-600 text-white font-bold'
-                                                  : 'bg-slate-50 dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-zinc-800'
+                                                  : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                                               }`}
                                             >
                                               <span className="truncate">{valStr}</span>
@@ -1011,19 +985,19 @@ export const DailyLogView: React.FC = () => {
                                     </div>
                                   )}
 
-                                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-200 dark:border-zinc-800">
+                                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-200 dark:border-zinc-800">
                                     <button
                                       onClick={() => {
                                         handleClearColumnFilter(col.key);
                                         setOpenFilterColKey(null);
                                       }}
-                                      className="px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-400 text-xs font-semibold hover:bg-slate-200 dark:hover:bg-zinc-700 cursor-pointer"
+                                      className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
                                     >
                                       Clear
                                     </button>
                                     <button
                                       onClick={() => setOpenFilterColKey(null)}
-                                      className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shadow-xs cursor-pointer"
+                                      className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shadow-2xs cursor-pointer"
                                     >
                                       Apply
                                     </button>
@@ -1035,16 +1009,16 @@ export const DailyLogView: React.FC = () => {
                         </th>
                       );
                     })}
-                    <th className="w-12 p-2.5 text-center bg-[#1e293b] shrink-0"></th>
+                    <th className="w-12 p-2.5 text-center bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 shrink-0"></th>
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-200 dark:divide-zinc-800/60">
+                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
                   {filteredEntries.length === 0 ? (
                     <tr>
                       <td
                         colSpan={columns.length + 2}
-                        className="py-12 text-center text-slate-400 dark:text-zinc-500 text-xs font-medium"
+                        className="py-12 text-center text-zinc-400 dark:text-zinc-500 text-xs font-medium"
                       >
                         No daily log entries found matching criteria for{' '}
                         <span className="font-semibold text-indigo-500">{activeSheet}</span>.
@@ -1057,10 +1031,10 @@ export const DailyLogView: React.FC = () => {
                         <tr
                           key={entry.id}
                           style={{ height: `${customH}px` }}
-                          className="hover:bg-slate-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative"
+                          className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative"
                         >
-                          {/* Serial Number Row Index — Fixes #1 bug: starts strictly at 1 */}
-                          <td className="w-14 p-2 text-center font-mono text-[11px] text-slate-500 dark:text-zinc-400 border-r border-slate-200 dark:border-zinc-800/60 bg-slate-50/50 dark:bg-zinc-950/40 sticky left-0 group-hover:bg-slate-100 dark:group-hover:bg-zinc-900 select-none font-bold">
+                          {/* Serial Number Row Index */}
+                          <td className="w-14 p-2 text-center font-mono text-xs text-zinc-500 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 sticky left-0 group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 select-none font-bold">
                             {rowIndex + 1}
                           </td>
 
@@ -1073,7 +1047,7 @@ export const DailyLogView: React.FC = () => {
                               <td
                                 key={col.key}
                                 style={{ width: `${colW}px` }}
-                                className="p-2 border-r border-slate-200 dark:border-zinc-800/60 align-middle overflow-hidden"
+                                className="p-2 border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-hidden"
                               >
                                 {col.type === 'select' ? (
                                   col.key === 'task_type' ? (
@@ -1091,7 +1065,7 @@ export const DailyLogView: React.FC = () => {
                                           <option
                                             key={opt}
                                             value={opt}
-                                            className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100"
+                                            className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
                                           >
                                             {opt}
                                           </option>
@@ -1115,7 +1089,7 @@ export const DailyLogView: React.FC = () => {
                                           <option
                                             key={opt}
                                             value={opt}
-                                            className="bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100"
+                                            className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100"
                                           >
                                             {opt}
                                           </option>
@@ -1126,11 +1100,11 @@ export const DailyLogView: React.FC = () => {
                                     <select
                                       value={val}
                                       onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                      className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 text-xs outline-none cursor-pointer"
+                                      className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none cursor-pointer"
                                     >
                                       <option value="">Select option...</option>
                                       {col.options?.map((opt) => (
-                                        <option key={opt} value={opt} className="bg-white dark:bg-zinc-900">
+                                        <option key={opt} value={opt} className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">
                                           {opt}
                                         </option>
                                       ))}
@@ -1141,21 +1115,21 @@ export const DailyLogView: React.FC = () => {
                                     type="text"
                                     value={val}
                                     onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 text-xs font-mono outline-none"
+                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 font-mono outline-none"
                                   />
                                 ) : col.key === 'task_description' || col.key === 'revisions_done' ? (
                                   <textarea
                                     rows={1}
                                     value={val}
                                     onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 text-xs outline-none resize-none leading-relaxed align-middle"
+                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none resize-none leading-relaxed align-middle"
                                   />
                                 ) : (
                                   <input
                                     type="text"
                                     value={val}
                                     onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-zinc-700 text-xs outline-none"
+                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none"
                                   />
                                 )}
                               </td>
@@ -1166,7 +1140,7 @@ export const DailyLogView: React.FC = () => {
                           <td className="w-12 p-2 text-center align-middle relative">
                             <button
                               onClick={() => handleDeleteRow(entry.id)}
-                              className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-rose-500 transition-opacity p-1 cursor-pointer"
+                              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-500 transition-opacity p-1 cursor-pointer"
                               title="Delete Row"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
@@ -1188,32 +1162,32 @@ export const DailyLogView: React.FC = () => {
         </div>
       </div>
 
-      {/* Excel-Style Bottom Sheet Navigation Bar (August 2026 onwards) */}
-      <div className="bg-slate-200 dark:bg-[#121217] border-t border-slate-300 dark:border-zinc-800 px-3 py-1.5 flex items-center justify-between gap-3 text-xs shrink-0">
-        <div className="flex items-center gap-1 overflow-x-auto scrollbar-none py-0.5">
+      {/* Modern Bottom Sheet Navigation Bar (August 2026 onwards) */}
+      <div className="bg-zinc-100 dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 px-4 py-2 flex items-center justify-between gap-3 text-xs shrink-0 shadow-xs">
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
           <button
             onClick={handleAddRow}
-            className="p-1 rounded hover:bg-slate-300 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 cursor-pointer"
+            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
             title="Add New Row"
           >
             <Plus className="w-4 h-4" />
           </button>
 
-          <button className="p-1 rounded hover:bg-slate-300 dark:hover:bg-zinc-800 text-slate-600 dark:text-zinc-400 cursor-pointer">
+          <button className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer">
             <Grid className="w-4 h-4" />
           </button>
 
-          <div className="h-4 w-px bg-slate-300 dark:bg-zinc-700 mx-1" />
+          <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
 
           {/* Month Sheet Tabs (Aug 2026+) */}
           {availableSheets.map((sheet) => (
             <button
               key={sheet}
               onClick={() => handleSheetChange(sheet)}
-              className={`flex items-center gap-1.5 px-3.5 py-1 rounded-t-md text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                 activeSheet === sheet
                   ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-zinc-900 text-slate-700 dark:text-zinc-400 hover:bg-slate-300 dark:hover:bg-zinc-800'
+                  : 'bg-zinc-200/70 dark:bg-zinc-800/70 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700'
               }`}
             >
               <span>{sheet}</span>
@@ -1223,10 +1197,10 @@ export const DailyLogView: React.FC = () => {
         </div>
 
         {/* Count and Statistics Footer Indicator */}
-        <div className="flex items-center gap-4 text-[11px] font-mono text-slate-600 dark:text-zinc-400 shrink-0">
+        <div className="flex items-center gap-4 text-xs font-mono text-zinc-600 dark:text-zinc-400 shrink-0">
           <span>
-            Count:{' '}
-            <strong className="text-slate-900 dark:text-zinc-100 font-bold">{filteredEntries.length}</strong>
+            Total Rows:{' '}
+            <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{filteredEntries.length}</strong>
           </span>
         </div>
       </div>
