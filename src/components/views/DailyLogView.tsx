@@ -54,6 +54,14 @@ const DEFAULT_ROW_HEIGHT = 44;
 const MIN_ZOOM = 70;
 const MAX_ZOOM = 130;
 
+const NON_FILTERABLE_KEYS = new Set([
+  'task_description',
+  'revisions_done',
+  'deliverables',
+  'hours_utilized',
+  'remarks',
+]);
+
 // ─── Custom Matrix Select Cell Component ───────────────────────────────────────
 interface MatrixSelectCellProps {
   value: string;
@@ -1038,9 +1046,10 @@ export const DailyLogView: React.FC = () => {
                   </th>
                   {columns.map((col) => {
                     const colW = columnWidths[col.key] || 150;
-                    const hasActiveFilter = Boolean(columnFilters[col.key]);
-                    const isFilterOpen = openFilterColKey === col.key;
-                    const existingUniqueValues = getUniqueValuesForColumn(col.key);
+                    const isFilterable = !NON_FILTERABLE_KEYS.has(col.key);
+                    const hasActiveFilter = isFilterable && Boolean(columnFilters[col.key]);
+                    const isFilterOpen = isFilterable && openFilterColKey === col.key;
+                    const existingUniqueValues = isFilterable ? getUniqueValuesForColumn(col.key) : [];
 
                     return (
                       <th
@@ -1048,10 +1057,11 @@ export const DailyLogView: React.FC = () => {
                         style={{ width: `${colW}px`, minWidth: `${colW}px` }}
                         className="sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors"
                       >
-                          <div className="flex items-center justify-between gap-1.5">
-                            <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
-                              {col.label}
-                            </span>
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
+                            {col.label}
+                          </span>
+                          {isFilterable && (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -1067,20 +1077,21 @@ export const DailyLogView: React.FC = () => {
                             >
                               <Filter className="w-3.5 h-3.5" />
                             </button>
-                          </div>
+                          )}
+                        </div>
 
-                          {/* Column Resize Handle */}
+                        {/* Column Resize Handle */}
+                        <div
+                          onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
+                          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
+                        />
+
+                        {/* ─── PER-COLUMN FILTER POPOVER ────────────────────────────── */}
+                        {isFilterable && isFilterOpen && (
                           <div
-                            onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
-                          />
-
-                          {/* ─── PER-COLUMN FILTER POPOVER ────────────────────────────── */}
-                          {isFilterOpen && (
-                            <div
-                              onClick={(e) => e.stopPropagation()}
-                              className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 space-y-3 font-normal"
-                            >
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 space-y-3 font-normal"
+                          >
                               <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
                                 <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
                                   <Filter className="w-3.5 h-3.5" />
