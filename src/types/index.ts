@@ -1,4 +1,4 @@
-export type ViewType = 'inbox' | 'campaigns' | 'knowledge' | 'settings';
+export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing';
 
 export type PlatformType = 'Instagram' | 'LinkedIn' | 'Facebook' | 'Twitter';
 
@@ -6,8 +6,11 @@ export type ToneType = 'Professional' | 'Punchy' | 'Witty' | 'Empathetic' | 'Bol
 
 export type ThemeMode = 'dark' | 'light';
 
+export type MarketingPlatform = 'Meta' | 'Google' | 'TikTok' | 'WhatsApp' | 'Other';
+export type MarketingStatus = 'Active' | 'Paused' | 'Error' | 'Stopped';
+
 export interface InboxTask {
-  id: number;
+  id: string;
   campaign: string;
   platform: PlatformType;
   date: string;
@@ -18,6 +21,7 @@ export interface InboxTask {
   targetAudience?: string;
   hashtags?: string[];
   lastModified?: string;
+  versions?: string[];
 }
 
 export interface DayPlan {
@@ -39,12 +43,13 @@ export interface Campaign {
   tone: ToneType;
   createdAt: string;
   plan?: DayPlan[];
+  matrixRows?: any[];
 }
 
 export interface KnowledgeSource {
   id: string;
   name: string;
-  type: 'pdf' | 'url';
+  type: 'pdf' | 'docx' | 'txt' | 'md' | 'url';
   sizeOrTokens: string;
   workspaceId: string;
   dateAdded: string;
@@ -67,4 +72,26 @@ export interface ToastMessage {
   title: string;
   description?: string;
   type: 'success' | 'info' | 'error' | 'warning';
+}
+
+export interface MarketingMatrixRow {
+  campaign_id: string;
+  workspace_id: string;
+  workspace_name: string;
+  campaign_name: string;
+  platform: MarketingPlatform;
+  objective: string;
+  industry: string;
+  budget_set: number;
+  status: MarketingStatus;
+  metric_id: string;
+  date: string;
+  ad_spend: number;
+  cpl_cpa: number;
+  leads_conversions: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  avg_frequency: number;
+  remarks: string;
 }

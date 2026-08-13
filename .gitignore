@@ -7,37 +7,63 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Node / Build Outputs
+node_modules/
+dist/
+dist-ssr/
+.next/
+out/
+build/
 *.local
 
-# Editor directories and files
-.vscode/*
-!.vscode/extensions.json
-.idea
+# Environment & Config Files
+.env
+.env.local
+.env.development.local
+.env.production.local
+
+# Editor & OS Directories
+.vscode/
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-# --- Backend Ignores ---
+*.code-workspace
+
+# Python Virtual Environments & Caches
 .venv/
+venv/
+backend/venv/
 __pycache__/
 *.pyc
-.env
 
-# --- Frontend Ignores ---
-node_modules/
-.next/
-out/
-build/
-.env.local
-.env.development.local
-.env.production.local
+# ── Document & Plan Exclusions ──────────────────────────────────────────
+WORKFLOW_AND_SETUP.md
+IMPROVEMENT_PLAN.md
+FLOW.md
+DEPLOYMENT_GUIDE.md
+DECISIONS.md
+copywriting-agent-trd-v1.md
+copywriting-agent-prd-v1.md
+Apex Campaign Content Plan.xlsx
+docs/google_ads_integration_guide.md
 
-# --- OS / IDE Ignores ---
-.DS_Store
-.vscode/
-.idea/
+# General Documentation, Markdown & Excel Files
+*.md
+!README.md
+docs/
+*.xlsx
+*.xls
+*.csv
+
+# Python Testing & Temp Files
+test_*.py
+*_test.py
+tests/
+scratch/
+tmp/
+scripts/
+backend/scripts/

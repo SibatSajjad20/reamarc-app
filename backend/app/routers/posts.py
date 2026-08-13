@@ -1,119 +1,150 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from typing import List, Optional, Union
-from app.schemas.post import PostResponse, PostSaveDraft, PolishRequest
-from app.core.security import get_current_user
+import uuid
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from typing import List, Optional
+from datetime import datetime, timezone
+from app.schemas.post import PostResponse, PostSaveDraft, PolishRequest, BulkPostAction, FeedbackRewriteRequest
+from app.schemas.error import ErrorResponse
+from app.core.security import get_current_user, require_editor_or_admin
 from app.database import get_database
-from app.services.llm import polish_copy_with_gemini
+from app.services.llm import polish_copy_with_gemini, generate_post_from_brief, rewrite_copy_with_feedback
+from app.services.obsidian_service import save_campaign_to_obsidian
 
-router = APIRouter(prefix="/posts", tags=["Posts & Inbox"])
 
-INITIAL_POSTS: List[dict] = [
-  {
-    "id": 101,
-    "campaign": "Nova Luxury Living Showcase",
-    "platform": "Instagram",
-    "date": "Today, 4:00 PM",
-    "dayNumber": 3,
-    "workspaceId": "ws-1",
-    "status": "pending",
-    "targetAudience": "HNW Investors & Homebuyers",
-    "copy": "Floor-to-ceiling glass, private infinity pools, and zero-compromise craftsmanship. 🏛️\n\nNova Residences offer unparalleled urban tranquility in the heart of downtown. Only 4 penthouse suites remain available for private viewing.\n\nDM 'NOVA' for exclusive floor plans and investor deck access.",
-    "lastModified": "10 mins ago",
-  },
-  {
-    "id": 102,
-    "campaign": "TechFlow Enterprise Q3 Launch",
-    "platform": "LinkedIn",
-    "date": "Tomorrow, 9:00 AM",
-    "dayNumber": 1,
-    "workspaceId": "ws-2",
-    "status": "pending",
-    "targetAudience": "VPs of Engineering & CTOs",
-    "copy": "Legacy CI/CD pipelines are costing engineering teams an average of 14 hours per developer every month in build downtime.\n\nHere is how TechFlow's new distributed caching architecture slashes pipeline runtimes by 65% without requiring custom YAML rewrites:\n\n1. Autonomous artifact deduplication\n2. Parallel test execution threads\n3. Zero-trust security container scanning\n\nRead our technical whitepaper below 👇",
-    "lastModified": "1 hour ago",
-  },
-  {
-    "id": 103,
-    "campaign": "Nova Luxury Living Showcase",
-    "platform": "LinkedIn",
-    "date": "Apr 2, 10:30 AM",
-    "dayNumber": 4,
-    "workspaceId": "ws-1",
-    "status": "pending",
-    "targetAudience": "HNW Investors",
-    "copy": "Real Estate vs Equities: Why prime residential assets continue to act as the ultimate hedge against market volatility.\n\nAnalyzing our Q1 portfolio performance metrics across 12 tier-1 developments.",
-    "lastModified": "Yesterday",
-  },
-]
+router = APIRouter(
+    prefix="/posts",
+    tags=["Posts & Inbox"],
+    responses={
+        400: {"model": ErrorResponse, "description": "Bad Request"},
+        401: {"model": ErrorResponse, "description": "Unauthorized"},
+        404: {"model": ErrorResponse, "description": "Not Found"},
+        500: {"model": ErrorResponse, "description": "Internal Server Error"},
+    }
+)
+
+def post_access_query(post_id: str, current_user: dict) -> dict:
+    if current_user.get("role") == "admin":
+        return {"id": str(post_id)}
+    allowed_ws = current_user.get("workspace_ids", [])
+    return {
+        "id": str(post_id),
+        "$or": [
+            {"workspaceId": {"$in": allowed_ws}},
+            {"workspace_id": {"$in": allowed_ws}},
+            {"user_id": current_user["id"]}
+        ]
+    }
+
+async def _update_post_copy_with_version(db, query: dict, new_copy: str) -> dict:
+    """Helper to update post copy while saving the previous copy in versions history."""
+    post = await db.posts.find_one(query)
+    if not post:
+        return None
+
+    old_copy = post.get("copy", "")
+    versions = list(post.get("versions") or [])
+    if old_copy and (not versions or versions[-1] != old_copy):
+        versions.append(old_copy)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.posts.update_one(
+        query,
+        {"$set": {"copy": new_copy, "versions": versions, "lastModified": now_iso}}
+    )
+    return await db.posts.find_one(query, {"_id": 0})
+
+async def _auto_advance_campaign_and_schedule_next(db, current_user: dict, campaign_id: str):
+    """Helper to increment campaign currentDay and schedule Day N+1 post in inbox."""
+    user_role = current_user.get("role", "viewer")
+    user_id = current_user.get("id")
+    allowed_ws = current_user.get("workspace_ids", [])
+
+    camp_query = {"id": campaign_id} if user_role == "admin" else {
+        "id": campaign_id,
+        "$or": [
+            {"workspaceId": {"$in": allowed_ws}},
+            {"workspace_id": {"$in": allowed_ws}},
+            {"user_id": user_id}
+        ]
+    }
+
+    campaign = await db.campaigns.find_one(camp_query)
+    if not campaign:
+        return
+
+    cur_day = campaign.get("currentDay", 1)
+    tot_days = campaign.get("totalDays", 7)
+    plan = campaign.get("plan", [])
+
+    if cur_day < tot_days and cur_day < len(plan):
+        next_day_num = cur_day + 1
+        next_item = plan[cur_day]  # index cur_day is Day N+1 item
+
+        await db.campaigns.update_one(
+            camp_query,
+            {"$inc": {"currentDay": 1}}
+        )
+
+        # Ensure next day's post does not already exist
+        existing = await db.posts.find_one({
+            "campaign_id": campaign_id,
+            "dayNumber": next_day_num
+        })
+
+        if not existing:
+            iso_now = datetime.now(timezone.utc).isoformat()
+            new_post = {
+                "id": f"post-{uuid.uuid4().hex[:8]}",
+                "campaign_id": campaign_id,
+                "campaign": campaign["title"],
+                "platform": next_item.get("platform", "LinkedIn"),
+                "date": iso_now,
+                "target_date": iso_now,
+                "dayNumber": next_day_num,
+                "workspaceId": campaign.get("workspaceId", ""),
+                "status": "pending",
+                "targetAudience": campaign.get("targetAudience", "General Audience"),
+                "copy": f"{next_item.get('preview')}\n\nGenerated by Reamarc AI for {campaign.get('targetAudience', 'your audience')}.",
+                "lastModified": iso_now,
+                "user_id": user_id,
+                "versions": [],
+            }
+            await db.posts.insert_one(new_post)
+
+    elif cur_day >= tot_days:
+        await db.campaigns.update_one(
+            camp_query,
+            {"$set": {"status": "Completed"}}
+        )
 
 @router.get("/inbox", response_model=List[PostResponse])
-async def list_inbox_tasks(workspace_id: Optional[str] = None):
+async def list_inbox_tasks(
+    workspace_id: Optional[str] = Query(None, alias="workspaceId"),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=500),
+    current_user: dict = Depends(get_current_user)
+):
     db = get_database()
-    if db is not None:
-        query = {"status": "pending"}
-        if workspace_id:
-            query["workspaceId"] = workspace_id
-        
-        cursor = db.posts.find(query, {"_id": 0})
-        posts = await cursor.to_list(length=100)
-        return posts
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
-    # Fallback to local memory if db is not connected
-    if workspace_id:
-        return [p for p in INITIAL_POSTS if p["workspaceId"] == workspace_id and p["status"] == "pending"]
-    return [p for p in INITIAL_POSTS if p["status"] == "pending"]
-
-@router.post("/{post_id}/approve")
-async def approve_post(post_id: Union[int, str], current_user: dict = Depends(get_current_user)):
-    db = get_database()
-    if db is not None:
-        try:
-            int_id = int(post_id)
-        except ValueError:
-            int_id = post_id
-            
-        result = await db.posts.update_one(
-            {"$or": [{"id": post_id}, {"id": int_id}, {"id": str(post_id)}]},
-            {"$set": {"status": "approved"}}
-        )
-        if result.matched_count > 0 or result.modified_count > 0:
-            return {"message": "Post approved & scheduled for publishing", "post_id": post_id}
+    query = {"status": "pending"}
+    if workspace_id and workspace_id != "all":
+        query["$or"] = [{"workspaceId": workspace_id}, {"workspace_id": workspace_id}]
     else:
-        for post in INITIAL_POSTS:
-            if str(post["id"]) == str(post_id):
-                post["status"] = "approved"
-                return {"message": "Post approved & scheduled for publishing", "post_id": post_id}
-                
-    raise HTTPException(status_code=404, detail="Post not found")
+        if current_user.get("role") != "admin":
+            allowed_ws = current_user.get("workspace_ids", [])
+            query["$or"] = [
+                {"workspaceId": {"$in": allowed_ws}},
+                {"workspace_id": {"$in": allowed_ws}},
+                {"user_id": current_user["id"]}
+            ]
 
-@router.patch("/{post_id}/draft")
-async def save_draft(post_id: Union[int, str], draft_in: PostSaveDraft, current_user: dict = Depends(get_current_user)):
-    db = get_database()
-    if db is not None:
-        try:
-            int_id = int(post_id)
-        except ValueError:
-            int_id = post_id
-
-        query = {"$or": [{"id": post_id}, {"id": int_id}, {"id": str(post_id)}]}
-        result = await db.posts.update_one(
-            query,
-            {"$set": {"copy": draft_in.copy, "lastModified": "Just now"}}
-        )
-        if result.matched_count > 0 or result.modified_count > 0:
-            updated_post = await db.posts.find_one(query, {"_id": 0})
-            return {"message": "Draft updated successfully", "post": updated_post}
-    else:
-        for post in INITIAL_POSTS:
-            if str(post["id"]) == str(post_id):
-                post["copy"] = draft_in.copy
-                post["lastModified"] = "Just now"
-                return {"message": "Draft updated successfully", "post": post}
-                
-    raise HTTPException(status_code=404, detail="Post not found")
+    cursor = db.posts.find(query, {"_id": 0}).skip(skip).limit(limit)
+    posts = await cursor.to_list(length=limit)
+    return posts
 
 @router.post("/polish")
-async def polish_copy(req: PolishRequest, current_user: dict = Depends(get_current_user)):
+async def polish_copy(req: PolishRequest, current_user: dict = Depends(require_editor_or_admin)):
     polished = await polish_copy_with_gemini(
         copy=req.copy,
         action_type=req.action_type,
@@ -121,38 +152,199 @@ async def polish_copy(req: PolishRequest, current_user: dict = Depends(get_curre
     )
     return {"polished_copy": polished}
 
-@router.post("/{post_id}/regenerate-full")
-async def regenerate_full_post(post_id: Union[int, str], current_user: dict = Depends(get_current_user)):
+@router.post("/bulk-approve")
+async def bulk_approve_posts(req: BulkPostAction, current_user: dict = Depends(require_editor_or_admin)):
     db = get_database()
     if db is None:
-        raise HTTPException(status_code=500, detail="Database connection unavailable.")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
-    try:
-        int_id = int(post_id)
-    except ValueError:
-        int_id = post_id
+    approved_count = 0
+    for pid in req.post_ids:
+        query = post_access_query(str(pid), current_user)
+        post = await db.posts.find_one(query)
+        if post and post.get("status") != "approved":
+            await db.posts.update_one(query, {"$set": {"status": "approved"}})
+            approved_count += 1
+            cid = post.get("campaign_id")
+            if cid:
+                await _auto_advance_campaign_and_schedule_next(db, current_user, cid)
 
-    query = {"$or": [{"id": post_id}, {"id": int_id}, {"id": str(post_id)}]}
-    post = await db.posts.find_one(query, {"_id": 0})
+    return {"message": f"Successfully approved {approved_count} posts", "approved_count": approved_count}
 
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found.")
+@router.post("/bulk-reject")
+async def bulk_reject_posts(req: BulkPostAction, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
-    campaign_name = post.get("campaign", "Brand Strategy")
-    target_audience = post.get("targetAudience", "B2B Decision Makers")
-    platform = post.get("platform", "LinkedIn")
-
-    # Use Gemini to generate brand new full script copy
-    fresh_copy = await polish_copy_with_gemini(
-        copy=f"Campaign: {campaign_name}\nAudience: {target_audience}\nCurrent Draft Focus: {post.get('copy', '')}",
-        action_type="creative_angle",
-        platform=platform
+    str_ids = [str(pid) for pid in req.post_ids]
+    if current_user.get("role") == "admin":
+        reject_filter = {"id": {"$in": str_ids}}
+    else:
+        allowed_ws = current_user.get("workspace_ids", [])
+        reject_filter = {
+            "id": {"$in": str_ids},
+            "$or": [
+                {"workspaceId": {"$in": allowed_ws}},
+                {"workspace_id": {"$in": allowed_ws}},
+                {"user_id": current_user["id"]}
+            ]
+        }
+    result = await db.posts.update_many(
+        reject_filter,
+        {"$set": {"status": "rejected"}}
     )
+    return {"message": f"Successfully rejected {result.modified_count} posts", "rejected_count": result.modified_count}
 
+
+@router.post("/{post_id}/approve")
+
+async def approve_post(post_id: str, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    post = await db.posts.find_one(query)
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+
+    await db.posts.update_one(query, {"$set": {"status": "approved"}})
+
+    # Auto advance parent campaign currentDay & push Day N+1 post to inbox
+    cid = post.get("campaign_id")
+    if cid:
+        await _auto_advance_campaign_and_schedule_next(db, current_user, cid)
+
+    # Sync to Obsidian
+    try:
+        workspace_name = "Main Workspace"
+        ws_id = post.get("workspaceId")
+        if ws_id:
+            ws = await db.workspaces.find_one({"id": ws_id})
+            if ws and "name" in ws:
+                workspace_name = ws["name"]
+
+        save_campaign_to_obsidian(
+            campaign_name=f"{post.get('campaign', 'Campaign Post')} - Day {post.get('dayNumber', 1)}",
+            workspace_name=workspace_name,
+            content_concept=f"Platform: {post.get('platform', '')} | Day {post.get('dayNumber', 1)}",
+            creative_copy=post.get("copy", ""),
+            status="Approved"
+        )
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"Failed to sync approved post to Obsidian: {e}")
+
+    return {"message": "Post approved & scheduled for publishing", "post_id": post_id}
+
+
+@router.post("/{post_id}/reject")
+async def reject_post(post_id: str, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    result = await db.posts.update_one(query, {"$set": {"status": "rejected"}})
+    if result.matched_count == 0 and result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+    return {"message": "Post rejected", "post_id": post_id}
+
+@router.patch("/{post_id}/draft")
+async def save_draft(post_id: str, draft_in: PostSaveDraft, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    updated_post = await _update_post_copy_with_version(db, query, draft_in.copy)
+    if not updated_post:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+    return {"message": "Draft updated successfully", "post": updated_post}
+
+@router.post("/{post_id}/revert")
+async def revert_post_version(post_id: str, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    post = await db.posts.find_one(query, {"_id": 0})
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+
+    versions = list(post.get("versions") or [])
+    if not versions:
+        raise HTTPException(status_code=400, detail="No previous post copy versions available to revert.")
+
+    previous_copy = versions.pop()
+    now_iso = datetime.now(timezone.utc).isoformat()
     await db.posts.update_one(
         query,
-        {"$set": {"copy": fresh_copy, "lastModified": "Just now (AI Regenerated)"}}
+        {"$set": {"copy": previous_copy, "versions": versions, "lastModified": now_iso}}
     )
 
     updated_post = await db.posts.find_one(query, {"_id": 0})
-    return {"message": "Post script regenerated with Gemini AI", "post": updated_post}
+    return {"message": "Reverted to previous copy version", "post": updated_post}
+
+@router.post("/{post_id}/regenerate-full")
+async def regenerate_full_post(post_id: str, current_user: dict = Depends(require_editor_or_admin)):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    post = await db.posts.find_one(query, {"_id": 0})
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+
+    fresh_copy = await generate_post_from_brief(
+        campaign_name=post.get("campaign", "Brand Strategy"),
+        target_audience=post.get("targetAudience", "B2B Decision Makers"),
+        platform=post.get("platform", "LinkedIn"),
+        day_topic=post.get("copy", "")[:200],
+    )
+
+    if not fresh_copy:
+        fresh_copy = f"Discover how {post.get('campaign', 'our solution')} elevates performance for {post.get('targetAudience', 'your team')}."
+
+    updated_post = await _update_post_copy_with_version(db, query, fresh_copy)
+    return {"message": "Post copy regenerated successfully", "post": updated_post}
+
+@router.post("/{post_id}/feedback-rewrite")
+async def feedback_rewrite_post(
+    post_id: str,
+    req: FeedbackRewriteRequest,
+    current_user: dict = Depends(require_editor_or_admin)
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    query = post_access_query(post_id, current_user)
+    post = await db.posts.find_one(query, {"_id": 0})
+
+    if not post:
+        raise HTTPException(status_code=404, detail="Post not found or permission denied.")
+
+    # Fetch workspace brand context if available
+    ws_id = post.get("workspaceId")
+    brand_context = ""
+    if ws_id:
+        workspace = await db.workspaces.find_one({"id": ws_id, "user_id": current_user["id"]})
+        if workspace:
+            brand_context = workspace.get("brandGuidelines", "")
+
+    rewritten_copy = await rewrite_copy_with_feedback(
+        copy=post.get("copy", ""),
+        feedback=req.feedback,
+        preset_tags=req.preset_tags or [],
+        platform=post.get("platform", "LinkedIn"),
+        brand_context=brand_context
+    )
+
+    updated_post = await _update_post_copy_with_version(db, query, rewritten_copy)
+    return {"message": "Post copy rewritten guided by reviewer feedback", "post": updated_post}
+

@@ -6,7 +6,8 @@ interface ToastContextType {
   addToast: (
     title: string,
     description?: string,
-    type?: 'success' | 'info' | 'warning' | 'error'
+    type?: 'success' | 'info' | 'warning' | 'error',
+    duration?: number
   ) => void;
   removeToast: (id: string) => void;
 }
@@ -24,16 +25,22 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     (
       title: string,
       description?: string,
-      type: 'success' | 'info' | 'warning' | 'error' = 'info'
+      type: 'success' | 'info' | 'warning' | 'error' = 'info',
+      duration: number = 2200
     ) => {
       const id = `toast-${Date.now()}-${Math.random()}`;
       const newToast: ToastMessage = { id, title, description, type };
-      setToasts((prev) => [...prev, newToast]);
 
-      // Auto dismiss after 4 seconds
+      setToasts((prev) => {
+        // Cap active toasts to max 3 concurrent items to prevent clutter and screen pileup
+        const trimmed = prev.length >= 3 ? prev.slice(prev.length - 2) : prev;
+        return [...trimmed, newToast];
+      });
+
+      // Auto dismiss after 2.2s by default (or custom duration)
       setTimeout(() => {
         removeToast(id);
-      }, 4000);
+      }, duration);
     },
     [removeToast]
   );

@@ -26,7 +26,7 @@ export const INITIAL_WORKSPACES: Workspace[] = [
 
 export const INITIAL_INBOX_TASKS: InboxTask[] = [
   {
-    id: 1,
+    id: '1',
     campaign: 'Nova Luxury Villas',
     platform: 'Instagram',
     date: 'Today',
@@ -38,7 +38,7 @@ export const INITIAL_INBOX_TASKS: InboxTask[] = [
     lastModified: '10 mins ago',
   },
   {
-    id: 2,
+    id: '2',
     campaign: 'TechFlow Q3 Webinar',
     platform: 'LinkedIn',
     date: 'Today',
@@ -50,7 +50,7 @@ export const INITIAL_INBOX_TASKS: InboxTask[] = [
     lastModified: '1 hour ago',
   },
   {
-    id: 3,
+    id: '3',
     campaign: 'Nova Property Tips',
     platform: 'Facebook',
     date: 'Tomorrow',
@@ -62,7 +62,7 @@ export const INITIAL_INBOX_TASKS: InboxTask[] = [
     lastModified: '3 hours ago',
   },
   {
-    id: 4,
+    id: '4',
     campaign: 'Reamarc Internal Hiring',
     platform: 'LinkedIn',
     date: 'Today',

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { AuthUser, LoginPayload, RegisterPayload } from '../types/auth';
+import type { AuthUser, LoginPayload, RegisterPayload, UserRole } from '../types/auth';
 import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 
@@ -7,6 +7,9 @@ interface AuthContextType {
   user: AuthUser | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  role: UserRole;
+  activeWorkspaceId: string | null;
+  setActiveWorkspaceId: (id: string | null) => void;
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
@@ -21,8 +24,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState<string | null>(() => {
+    return localStorage.getItem('reamarc_active_workspace_id') || 'ws-main';
+  });
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
   const [authModalMode, setAuthModalMode] = useState<'login' | 'register'>('login');
+
+  const setActiveWorkspaceId = useCallback((id: string | null) => {
+    setActiveWorkspaceIdState(id);
+    if (id) {
+      localStorage.setItem('reamarc_active_workspace_id', id);
+      apiClient.setWorkspaceId(id);
+    } else {
+      localStorage.removeItem('reamarc_active_workspace_id');
+      apiClient.setWorkspaceId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeWorkspaceId) {
+      apiClient.setWorkspaceId(activeWorkspaceId);
+    }
+  }, [activeWorkspaceId]);
 
   const openAuthModal = useCallback((mode: 'login' | 'register' = 'login') => {
     setAuthModalMode(mode);
@@ -38,31 +61,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const currentUser = await authService.getMe();
       setUser(currentUser);
+      const wsList = currentUser.workspace_ids || currentUser.workspaceIds || [];
+      if (wsList.length > 0 && (!activeWorkspaceId || !wsList.includes(activeWorkspaceId))) {
+        if (currentUser.role !== 'admin') {
+          setActiveWorkspaceId(wsList[0]);
+        }
+      }
     } catch {
       setUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [activeWorkspaceId, setActiveWorkspaceId]);
 
   useEffect(() => {
-    // Interceptor callback for 401 Unauthorized responses
     apiClient.setOnUnauthorized(() => {
       setUser(null);
-      localStorage.removeItem('reamarc_access_token');
     });
 
-    const token = localStorage.getItem('reamarc_access_token');
-    if (token) {
-      fetchCurrentUser();
-    } else {
-      setIsLoading(false);
-    }
+    fetchCurrentUser();
   }, [fetchCurrentUser]);
 
   const login = async (payload: LoginPayload) => {
     const res = await authService.login(payload);
     setUser(res.user);
+    const wsList = res.user.workspace_ids || res.user.workspaceIds || [];
+    if (wsList.length > 0) {
+      setActiveWorkspaceId(wsList[0]);
+    }
     closeAuthModal();
   };
 
@@ -83,6 +109,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: Boolean(user),
         isLoading,
+        role: user?.role || 'editor',
+        activeWorkspaceId,
+        setActiveWorkspaceId,
         login,
         register,
         logout,

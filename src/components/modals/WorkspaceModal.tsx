@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Building2, Palette, Sparkles, Briefcase } from 'lucide-react';
 import type { Workspace } from '../../types';
 
@@ -29,6 +30,29 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   const [brandColor, setBrandColor] = useState('bg-indigo-600');
   const [industry, setIndustry] = useState('General B2B');
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Lock body scroll when modal is open and revert to auto on close/unmount
+  useEffect(() => {
+    if (isOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'auto';
+    }
+    return () => {
+      document.body.style.overflow = 'auto';
+    };
+  }, [isOpen]);
+
+  // Handle Escape key to close modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (workspaceToEdit) {
@@ -66,9 +90,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-6">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-black/60 backdrop-blur-xs animate-fadeIn p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        className="relative w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-6 animate-scaleIn"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
@@ -83,7 +115,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-zinc-400 hover:text-zinc-200 rounded-xl hover:bg-zinc-800 transition-colors"
+            className="p-2 text-zinc-400 hover:text-zinc-200 rounded-xl hover:bg-zinc-800 transition-colors cursor-pointer"
+            title="Close (Esc)"
           >
             <X className="w-5 h-5" />
           </button>
@@ -144,7 +177,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   key={c.value}
                   type="button"
                   onClick={() => setBrandColor(c.value)}
-                  className={`w-8 h-8 rounded-full ${c.value} border-2 transition-all ${
+                  className={`w-8 h-8 rounded-full ${c.value} border-2 transition-all cursor-pointer ${
                     brandColor === c.value
                       ? 'border-white scale-110 shadow-lg shadow-indigo-500/20'
                       : 'border-transparent opacity-60 hover:opacity-100'
@@ -159,14 +192,14 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition-colors"
+              className="px-4 py-2.5 rounded-xl border border-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
             >
               {isSubmitting ? (
                 <>
@@ -179,6 +212,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

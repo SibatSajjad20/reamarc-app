@@ -18,14 +18,32 @@ export class ApiError extends Error {
 
 interface RequestOptions extends RequestInit {
   timeout?: number;
-  token?: string | null;
 }
+
+const getBaseUrl = (): string => {
+  const globalProcess = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined;
+  const envUrl =
+    globalProcess?.env?.NEXT_PUBLIC_API_URL ||
+    (import.meta as any).env?.NEXT_PUBLIC_API_URL ||
+    (import.meta as any).env?.VITE_API_URL ||
+    'http://localhost:8000/api/v1';
+
+  let cleaned = envUrl.trim().replace(/\/$/, '');
+  if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
+    cleaned = `${cleaned}/api/v1`;
+  }
+  return cleaned;
+};
+
+export const API_BASE_URL = getBaseUrl();
+
 
 class ApiClient {
   private baseUrl: string;
   private onUnauthorizedCallback?: () => void;
+  private activeWorkspaceId: string | null = null;
 
-  constructor(baseUrl: string = 'http://localhost:8000/api/v1') {
+  constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
   }
 
@@ -33,27 +51,30 @@ class ApiClient {
     this.onUnauthorizedCallback = callback;
   }
 
-  private getAuthToken(): string | null {
-    return localStorage.getItem('reamarc_access_token');
+  public setWorkspaceId(workspaceId: string | null) {
+    this.activeWorkspaceId = workspaceId;
   }
 
   public async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { timeout = 15000, token, headers: customHeaders, ...fetchOptions } = options;
+    const { timeout = 15000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-    const authToken = token !== undefined ? token : this.getAuthToken();
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),
     };
-
-    if (authToken) {
-      headers['Authorization'] = `Bearer ${authToken}`;
-    }
 
     const config: RequestInit = {
       ...fetchOptions,
@@ -87,6 +108,77 @@ class ApiClient {
     } catch (err: any) {
       clearTimeout(timeoutId);
       if (err.name === 'AbortError') {
+        if (externalSignal?.aborted) {
+          const abortErr = new ApiError('Request aborted.', 499);
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
+        throw new ApiError('Request timed out. Please check your network connection.', 408);
+      }
+      if (err instanceof ApiError) {
+        throw err;
+      }
+      throw new ApiError(err.message || 'Network communication failure.', 500);
+    }
+  }
+
+  public async requestWithHeaders<T>(endpoint: string, options: RequestOptions = {}): Promise<{ data: T; headers: Headers }> {
+    const { timeout = 15000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
+
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
+      ...(customHeaders as Record<string, string>),
+    };
+
+    const config: RequestInit = {
+      ...fetchOptions,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    };
+
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, config);
+      clearTimeout(timeoutId);
+
+      let data: any = null;
+      const contentType = response.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+      }
+
+      if (!response.ok) {
+        if (response.status === 401 && this.onUnauthorizedCallback) {
+          this.onUnauthorizedCallback();
+        }
+
+        const errorMessage =
+          data?.detail || data?.message || `API Request failed with status ${response.status}`;
+        throw new ApiError(errorMessage, response.status, data);
+      }
+
+      return { data: data as T, headers: response.headers };
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err.name === 'AbortError') {
+        if (externalSignal?.aborted) {
+          const abortErr = new ApiError('Request aborted.', 499);
+          abortErr.name = 'AbortError';
+          throw abortErr;
+        }
         throw new ApiError('Request timed out. Please check your network connection.', 408);
       }
       if (err instanceof ApiError) {

@@ -1,7 +1,13 @@
+export type UserRole = 'admin' | 'editor' | 'viewer' | 'client';
+
 export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  role: UserRole;
+  is_active?: boolean;
+  workspace_ids?: string[];
+  workspaceIds?: string[];
 }
 
 export interface LoginPayload {

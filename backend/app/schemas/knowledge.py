@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from typing import Optional
 
 class KnowledgeSourceCreate(BaseModel):
     name: str = Field(..., min_length=2)
@@ -14,3 +15,4 @@ class KnowledgeSourceResponse(BaseModel):
     workspaceId: str
     dateAdded: str
     status: str
+    extracted_text: Optional[str] = None
