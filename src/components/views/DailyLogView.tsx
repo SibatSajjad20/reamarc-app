@@ -295,6 +295,20 @@ export const DailyLogView: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [dateFilter, setDateFilter] = useState<string>('all');
+  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState<boolean>(false);
+  const dateDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isDateDropdownOpen) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (dateDropdownRef.current && !dateDropdownRef.current.contains(e.target as Node)) {
+        setIsDateDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [isDateDropdownOpen]);
+
   const [isColumnModalOpen, setIsColumnModalOpen] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -786,6 +800,11 @@ export const DailyLogView: React.FC = () => {
     return result;
   }, [entries, searchQuery, dateFilter, columnFilters, columns]);
 
+  // Compute Total Table Width for reliable horizontal scrolling and sticky columns
+  const totalTableWidth = useMemo(() => {
+    return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 48;
+  }, [columns, columnWidths]);
+
   // Compute Excel Column Header Letters A, B, C...
   const getColumnLetter = (index: number): string => {
     let letter = '';
@@ -831,19 +850,60 @@ export const DailyLogView: React.FC = () => {
             )}
           </div>
 
-          {/* Date Filter Dropdown */}
-          <div className="relative flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shadow-2xs">
-            <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-            <select
-              value={dateFilter}
-              onChange={(e) => setDateFilter(e.target.value)}
-              className="bg-transparent text-sm font-semibold text-zinc-800 dark:text-zinc-200 border-0 border-none outline-none ring-0 shadow-none focus:outline-none focus:ring-0 focus:border-none focus:shadow-none appearance-none cursor-pointer pr-4 select-none"
+          {/* Custom Date Filter Popover */}
+          <div className="relative" ref={dateDropdownRef}>
+            <button
+              type="button"
+              onClick={() => setIsDateDropdownOpen((prev) => !prev)}
+              className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 rounded-xl px-3.5 py-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200 transition-all shadow-2xs cursor-pointer select-none"
             >
-              <option value="all" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">All Dates</option>
-              <option value="today" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Today</option>
-              <option value="week" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Past 7 Days</option>
-            </select>
-            <ChevronDown className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 absolute right-3 pointer-events-none" />
+              <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
+              <span>
+                {dateFilter === 'today'
+                  ? 'Today'
+                  : dateFilter === 'week'
+                  ? 'Past 7 Days'
+                  : 'All Dates'}
+              </span>
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 ${
+                  isDateDropdownOpen ? 'rotate-180' : ''
+                }`}
+              />
+            </button>
+
+            {isDateDropdownOpen && (
+              <div className="absolute left-0 top-full mt-1.5 z-50 w-48 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+                {[
+                  { id: 'all', label: 'All Dates', sub: 'Show all recorded entries' },
+                  { id: 'today', label: 'Today', sub: 'Only entries logged for today' },
+                  { id: 'week', label: 'Past 7 Days', sub: 'Entries from past 7 days' },
+                ].map((opt) => {
+                  const isSelected = dateFilter === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setDateFilter(opt.id);
+                        setIsDateDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+                        isSelected
+                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div className="flex flex-col">
+                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{opt.label}</span>
+                        <span className="text-[10px] text-zinc-400 font-normal">{opt.sub}</span>
+                      </div>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 ml-2" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Add Row Button */}
@@ -948,13 +1008,14 @@ export const DailyLogView: React.FC = () => {
       )}
 
       {/* Grid Canvas Wrapper with Scaled Zoom */}
-      <div className="flex-1 overflow-auto bg-white dark:bg-[#0b0b0e] relative flex flex-col">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full">
         <div
           style={{
             zoom: `${zoomLevel}%`,
-            minWidth: '100%',
+            width: `${totalTableWidth}px`,
+            minWidth: `${totalTableWidth}px`,
           }}
-          className="flex-1 flex flex-col"
+          className="min-w-full flex flex-col"
         >
           {/* Table View */}
           {isLoading ? (
@@ -963,26 +1024,30 @@ export const DailyLogView: React.FC = () => {
               <span className="text-xs font-medium">Loading sheet entries...</span>
             </div>
           ) : (
-            <div className="flex-1 overflow-x-auto">
-              <table className="w-full border-collapse text-xs text-left table-fixed">
-                <thead>
-                  {/* Modern Elevated Table Header Row */}
-                  <tr className="bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-10 shadow-2xs">
-                    <th className="w-14 p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800 sticky left-0 bg-zinc-100 dark:bg-[#12141c] z-20 shrink-0 select-none">
-                      #
-                    </th>
-                    {columns.map((col) => {
-                      const colW = columnWidths[col.key] || 150;
-                      const hasActiveFilter = Boolean(columnFilters[col.key]);
-                      const isFilterOpen = openFilterColKey === col.key;
-                      const existingUniqueValues = getUniqueValuesForColumn(col.key);
+            <table
+              className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
+              style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
+            >
+              <thead className="sticky top-0 z-30 shadow-2xs">
+                <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
+                  <th
+                    style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
+                    className="p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 left-0 bg-zinc-100 dark:bg-[#12141c] z-30 select-none shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                  >
+                    #
+                  </th>
+                  {columns.map((col) => {
+                    const colW = columnWidths[col.key] || 150;
+                    const hasActiveFilter = Boolean(columnFilters[col.key]);
+                    const isFilterOpen = openFilterColKey === col.key;
+                    const existingUniqueValues = getUniqueValuesForColumn(col.key);
 
-                      return (
-                        <th
-                          key={col.key}
-                          style={{ width: `${colW}px` }}
-                          className="p-2.5 font-semibold tracking-tight border-r border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors"
-                        >
+                    return (
+                      <th
+                        key={col.key}
+                        style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                        className="sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors"
+                      >
                           <div className="flex items-center justify-between gap-1.5">
                             <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
                               {col.label}
@@ -1239,7 +1304,10 @@ export const DailyLogView: React.FC = () => {
                         </th>
                       );
                     })}
-                    <th className="w-12 p-2.5 text-center bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 shrink-0"></th>
+                    <th
+                      style={{ width: '48px', minWidth: '48px' }}
+                      className="p-2.5 text-center bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 shrink-0"
+                    />
                   </tr>
                 </thead>
 
@@ -1263,8 +1331,11 @@ export const DailyLogView: React.FC = () => {
                           style={{ height: `${customH}px` }}
                           className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative"
                         >
-                          {/* Serial Number Row Index */}
-                          <td className="w-14 p-2 text-center font-mono text-xs text-zinc-500 dark:text-zinc-400 border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 sticky left-0 group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 select-none font-bold">
+                          {/* Sticky Serial Number Column Index */}
+                          <td
+                            style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
+                            className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50 dark:bg-[#0f1117] sticky left-0 z-20 group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 select-none shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                          >
                             {rowIndex + 1}
                           </td>
 
@@ -1276,8 +1347,8 @@ export const DailyLogView: React.FC = () => {
                             return (
                               <td
                                 key={col.key}
-                                style={{ width: `${colW}px` }}
-                                className="p-2 border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-visible relative"
+                                style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-visible relative"
                               >
                                 {col.type === 'select' ? (
                                   <MatrixSelectCell
@@ -1321,7 +1392,10 @@ export const DailyLogView: React.FC = () => {
                           })}
 
                           {/* Row Actions Delete */}
-                          <td className="w-12 p-2 text-center align-middle relative">
+                          <td
+                            style={{ width: '48px', minWidth: '48px' }}
+                            className="p-2 text-center align-middle relative border-b border-zinc-200 dark:border-zinc-800/80"
+                          >
                             <button
                               onClick={() => handleDeleteRow(entry.id)}
                               className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-500 transition-opacity p-1 cursor-pointer"
@@ -1341,10 +1415,9 @@ export const DailyLogView: React.FC = () => {
                   )}
                 </tbody>
               </table>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
       {/* Modern Bottom Sheet Navigation Bar (August 2026 onwards) */}
       <div className="bg-zinc-100 dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 px-4 py-2 flex items-center justify-between gap-3 text-xs shrink-0 shadow-xs">
@@ -1422,12 +1495,12 @@ export const DailyLogView: React.FC = () => {
                 <select
                   value={newFieldType}
                   onChange={(e) => setNewFieldType(e.target.value as any)}
-                  className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-800 dark:text-zinc-200 cursor-pointer"
+                  className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 cursor-pointer"
                 >
-                  <option value="text">Text Input</option>
-                  <option value="select">Dropdown Menu</option>
-                  <option value="date">Date Picker</option>
-                  <option value="number">Numeric</option>
+                  <option value="text" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Text Input</option>
+                  <option value="select" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Dropdown Menu</option>
+                  <option value="date" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Date Picker</option>
+                  <option value="number" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Numeric</option>
                 </select>
                 <button
                   type="button"
@@ -1480,12 +1553,12 @@ export const DailyLogView: React.FC = () => {
                       newCols[idx].type = e.target.value as any;
                       setColumns(newCols);
                     }}
-                    className="px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-slate-800 dark:text-zinc-200 cursor-pointer"
+                    className="px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-zinc-900 dark:text-zinc-100 cursor-pointer"
                   >
-                    <option value="text">Text</option>
-                    <option value="select">Dropdown</option>
-                    <option value="date">Date</option>
-                    <option value="number">Number</option>
+                    <option value="text" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Text</option>
+                    <option value="select" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Dropdown</option>
+                    <option value="date" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Date</option>
+                    <option value="number" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Number</option>
                   </select>
                   <button
                     type="button"
