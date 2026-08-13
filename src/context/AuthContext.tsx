@@ -106,9 +106,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
-    await authService.logout();
-    apiClient.setToken(null);
-    setUser(null);
+    try {
+      await authService.logout();
+    } catch {
+      // Ignore network errors on logout
+    } finally {
+      apiClient.setToken(null);
+      setUser(null);
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('reamarc_token');
+      }
+    }
   };
 
   return (
