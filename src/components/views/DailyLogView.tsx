@@ -1032,7 +1032,7 @@ export const DailyLogView: React.FC = () => {
                 <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
                   <th
                     style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                    className="p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 left-0 bg-zinc-100 dark:bg-[#12141c] z-30 select-none shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                    className="p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
                   >
                     #
                   </th>
@@ -1331,10 +1331,10 @@ export const DailyLogView: React.FC = () => {
                           style={{ height: `${customH}px` }}
                           className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative"
                         >
-                          {/* Sticky Serial Number Column Index */}
+                          {/* Serial Number Column Index */}
                           <td
                             style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                            className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50 dark:bg-[#0f1117] sticky left-0 z-20 group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 select-none shadow-[2px_0_5px_-2px_rgba(0,0,0,0.1)]"
+                            className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900"
                           >
                             {rowIndex + 1}
                           </td>
