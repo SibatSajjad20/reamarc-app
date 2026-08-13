@@ -578,27 +578,36 @@ export const DailyLogView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
       {/* Top Toolbar Bar */}
-      <div className="px-5 py-3 bg-white dark:bg-[#0f0f13] border-b border-slate-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 shadow-xs shrink-0">
+      <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
         <div className="flex items-center gap-3 flex-wrap">
           {/* Search Filter */}
-          <div className="relative min-w-64">
-            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+          <div className="relative w-72 sm:w-80 group">
+            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500 group-focus-within:text-indigo-500 transition-colors pointer-events-none" />
             <input
               type="text"
               placeholder="Search resource, project, task..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-3 py-1.5 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg text-xs text-slate-800 dark:text-zinc-200 placeholder:text-slate-400 dark:placeholder:text-zinc-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              className="w-full pl-10 pr-9 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Date Filter Dropdown */}
-          <div className="flex items-center gap-1 bg-slate-50 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg px-2 py-1 text-xs">
-            <CalendarIcon className="w-3.5 h-3.5 text-slate-400" />
+          <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all shadow-2xs">
+            <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
             <select
               value={dateFilter}
               onChange={(e) => setDateFilter(e.target.value)}
-              className="bg-transparent text-xs text-slate-700 dark:text-zinc-300 font-medium focus:outline-none cursor-pointer"
+              className="bg-transparent text-sm font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none cursor-pointer pr-1"
             >
               <option value="all">All Dates</option>
               <option value="today">Today</option>
@@ -609,20 +618,20 @@ export const DailyLogView: React.FC = () => {
           {/* Add Row Button */}
           <button
             onClick={handleAddRow}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white text-xs font-medium shadow-xs transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none"
           >
-            <Plus className="w-3.5 h-3.5" />
+            <Plus className="w-4 h-4 stroke-[2.5]" />
             <span>Add Row</span>
           </button>
         </div>
 
         {/* Controls Right: Zoom, Reset Layout, Custom Columns (Admin Only), AI Summary */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2.5 flex-wrap">
           {/* Active Column Filters Clear Indicator */}
           {Object.keys(columnFilters).length > 0 && (
             <button
               onClick={() => setColumnFilters({})}
-              className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-300 text-xs font-semibold hover:bg-amber-500/20 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-bold hover:bg-amber-500/25 transition-all cursor-pointer shadow-2xs"
               title="Clear all active column filters"
             >
               <X className="w-3.5 h-3.5" />
@@ -631,35 +640,35 @@ export const DailyLogView: React.FC = () => {
           )}
 
           {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg p-0.5 text-xs">
+          <div className="flex items-center gap-1 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs">
             <button
               onClick={() => setZoomLevel((z) => Math.max(MIN_ZOOM, z - 10))}
               disabled={zoomLevel <= MIN_ZOOM}
-              className="p-1 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded text-slate-600 dark:text-zinc-400 disabled:opacity-40 cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center hover:bg-white dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-300 disabled:opacity-30 transition-all cursor-pointer"
               title="Zoom Out"
             >
-              <ZoomOut className="w-3.5 h-3.5" />
+              <ZoomOut className="w-4 h-4" />
             </button>
-            <span className="px-1.5 font-mono text-[11px] font-bold text-slate-700 dark:text-zinc-300 min-w-10 text-center select-none">
+            <span className="px-2 font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200 min-w-11 text-center select-none">
               {zoomLevel}%
             </span>
             <button
               onClick={() => setZoomLevel((z) => Math.min(MAX_ZOOM, z + 10))}
               disabled={zoomLevel >= MAX_ZOOM}
-              className="p-1 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded text-slate-600 dark:text-zinc-400 disabled:opacity-40 cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center hover:bg-white dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-300 disabled:opacity-30 transition-all cursor-pointer"
               title="Zoom In"
             >
-              <ZoomIn className="w-3.5 h-3.5" />
+              <ZoomIn className="w-4 h-4" />
             </button>
           </div>
 
           {/* Reset Layout Button */}
           <button
             onClick={handleResetLayout}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800 text-xs font-medium transition-colors cursor-pointer"
+            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/80 text-sm font-semibold shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
             title="Reset Column Widths, Row Heights & Zoom"
           >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+            <RotateCcw className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
             <span>Reset Layout</span>
           </button>
 
@@ -667,10 +676,10 @@ export const DailyLogView: React.FC = () => {
           {isAdmin && (
             <button
               onClick={() => setIsColumnModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-zinc-900 dark:hover:bg-zinc-800 text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-800 text-xs font-medium transition-colors cursor-pointer"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/80 text-sm font-semibold shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
               title="Custom Field Configuration (Admin Only)"
             >
-              <Settings2 className="w-3.5 h-3.5 text-slate-500 dark:text-zinc-400" />
+              <Settings2 className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
               <span>Columns</span>
             </button>
           )}
@@ -679,12 +688,12 @@ export const DailyLogView: React.FC = () => {
           <button
             onClick={handleSummarizeAI}
             disabled={isSummarizing}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white text-sm font-bold shadow-md shadow-indigo-600/25 hover:shadow-lg hover:shadow-indigo-600/35 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer disabled:opacity-50 select-none"
           >
             {isSummarizing ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Sparkles className="w-3.5 h-3.5 text-purple-200" />
+              <Sparkles className="w-4 h-4 text-purple-200 animate-pulse" />
             )}
             <span>+ Summarize this data</span>
           </button>
