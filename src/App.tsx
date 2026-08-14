@@ -163,13 +163,9 @@ function AppInner() {
       <Sidebar
         currentView={currentView}
         onSelectView={handleSelectView}
-        workspaces={workspaces}
-        selectedWorkspace={selectedWorkspace}
-        onSelectWorkspace={handleSelectWorkspace}
         onSignOut={handleSignOut}
         theme={theme}
         onToggleTheme={handleToggleTheme}
-        onAddWorkspace={handleOpenCreateWorkspace}
       />
 
       {/* Main View Display Area */}
@@ -179,6 +175,8 @@ function AppInner() {
             <PerformanceMarketing
               selectedWorkspace={selectedWorkspace}
               workspaces={workspaces}
+              onSelectWorkspace={handleSelectWorkspace}
+              onOpenCreateAccount={handleOpenCreateWorkspace}
             />
           </div>
         )}
@@ -200,6 +198,8 @@ function AppInner() {
             <PerformanceMarketing
               selectedWorkspace={selectedWorkspace}
               workspaces={workspaces}
+              onSelectWorkspace={handleSelectWorkspace}
+              onOpenCreateAccount={handleOpenCreateWorkspace}
             />
           </div>
         )}

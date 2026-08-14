@@ -11,18 +11,15 @@ import {
   Building,
   Send,
   Lock,
-  CheckCircle2,
   Loader2,
 } from 'lucide-react';
 import type { UserRole } from '../../types/auth';
-import type { Workspace } from '../../types';
 import type { CreateMemberPayload } from '../../types/admin';
 
 interface AddMemberModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (payload: CreateMemberPayload) => Promise<void>;
-  workspaces: Workspace[];
   defaultRole?: UserRole;
 }
 
@@ -39,7 +36,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
-  workspaces,
   defaultRole = 'member',
 }) => {
   const [fullName, setFullName] = useState('');
@@ -51,9 +47,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [passwordMode, setPasswordMode] = useState<'invite' | 'manual'>('invite');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [isActive, setIsActive] = useState(true);
-  const [selectedWsIds, setSelectedWsIds] = useState<string[]>(() =>
-    workspaces.length > 0 ? [workspaces[0].id] : []
-  );
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -69,7 +62,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setPasswordMode('invite');
       setTemporaryPassword('');
       setIsActive(true);
-      setSelectedWsIds(workspaces.length > 0 ? [workspaces[0].id] : []);
       setErrorMsg(null);
       document.body.style.overflow = 'hidden';
     } else {
@@ -78,7 +70,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     return () => {
       document.body.style.overflow = 'auto';
     };
-  }, [isOpen, defaultRole, workspaces]);
+  }, [isOpen, defaultRole]);
 
   // Handle Escape key to close modal
   useEffect(() => {
@@ -92,12 +84,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   }, [isOpen, onClose]);
 
   if (!isOpen) return null;
-
-  const toggleWs = (id: string) => {
-    setSelectedWsIds((prev) =>
-      prev.includes(id) ? prev.filter((w) => w !== id) : [...prev, id]
-    );
-  };
 
   const handleGeneratePassword = () => {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*';
@@ -145,7 +131,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         temporary_password: passwordMode === 'manual' ? temporaryPassword.trim() : undefined,
         send_invite_email: passwordMode === 'invite',
         is_active: isActive,
-        workspace_ids: role === 'admin' ? workspaces.map((w) => w.id) : selectedWsIds,
       });
       onClose();
     } catch (err: any) {
@@ -163,7 +148,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       }}
     >
       <div
-        className="w-full max-w-xl max-h-[90vh] flex flex-col bg-white dark:bg-[#12141c] rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 animate-scaleIn overflow-hidden"
+        className="w-full max-w-lg max-h-[90vh] flex flex-col bg-white dark:bg-[#12141c] rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 animate-scaleIn overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -174,7 +159,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Add Team Member</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Create member account, assign roles and workspace access</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Onboard member to the agency directory and configure access</p>
             </div>
           </div>
           <button
@@ -195,7 +180,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           )}
 
-          {/* Row 1: Full Name & Email */}
+          {/* Full Name & Email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
@@ -228,7 +213,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Row 2: Role Selection (Two-Tier: Member vs Admin) */}
+          {/* Role Selection (Two-Tier: Member vs Admin) */}
           <div>
             <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
               <Shield className="w-3.5 h-3.5 text-indigo-500" />
@@ -239,14 +224,14 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                 {
                   id: 'member' as UserRole,
                   label: 'Member',
-                  badge: 'Standard Access',
-                  desc: 'Internal team logging, submits own daily work logs, isolated view.',
+                  badge: 'Standard',
+                  desc: 'Submits own daily work logs, isolated log view.',
                 },
                 {
                   id: 'admin' as UserRole,
                   label: 'Admin',
-                  badge: 'Full Privileges',
-                  desc: 'Full system management, view/edit all logs, manage users & workspace settings.',
+                  badge: 'Full Access',
+                  desc: 'Full management: view all logs, manage team & ad accounts.',
                 },
               ].map((r) => {
                 const isSelected = role === r.id;
@@ -281,7 +266,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Row 3: Department & Designation */}
+          {/* Department & Designation */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
@@ -326,7 +311,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Row 4: Initial Password / Invite Option */}
+          {/* Initial Password / Invite Option */}
           <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-3">
             <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
               <Key className="w-3.5 h-3.5 text-indigo-500" />
@@ -392,7 +377,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             )}
           </div>
 
-          {/* Row 5: Active Status Toggle */}
+          {/* Active Status Toggle */}
           <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl">
             <div>
               <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block">Active Member Status</span>
@@ -414,40 +399,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               />
             </button>
           </div>
-
-          {/* Row 6: Workspaces Selection (for Members) */}
-          {role === 'admin' ? (
-            <div className="p-3 bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 rounded-xl text-xs flex items-center gap-2 font-medium">
-              <Shield className="w-4 h-4 shrink-0" />
-              <span>Admins automatically have global access across all current and future workspaces.</span>
-            </div>
-          ) : (
-            <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                Assigned Workspaces
-              </label>
-              <div className="max-h-36 overflow-y-auto space-y-1.5 p-2 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800">
-                {workspaces.map((ws) => {
-                  const isSelected = selectedWsIds.includes(ws.id);
-                  return (
-                    <button
-                      key={ws.id}
-                      type="button"
-                      onClick={() => toggleWs(ws.id)}
-                      className={`w-full flex items-center justify-between px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                        isSelected
-                          ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-                          : 'text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <span className="truncate">{ws.name}</span>
-                      {isSelected && <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
         </form>
 
         {/* Modal Actions Footer */}

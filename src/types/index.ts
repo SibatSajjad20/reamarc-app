@@ -59,12 +59,15 @@ export interface KnowledgeSource {
 export interface Workspace {
   id: string;
   name: string;
+  platform?: string;
   brandColor: string;
   tagline?: string;
   initials: string;
   industry?: string;
   isDefault?: boolean;
 }
+
+export type AdAccount = Workspace;
 
 
 export interface ToastMessage {

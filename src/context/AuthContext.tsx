@@ -61,18 +61,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const currentUser = await authService.getMe();
       setUser(currentUser);
-      const wsList = currentUser.workspace_ids || currentUser.workspaceIds || [];
-      if (wsList.length > 0 && (!activeWorkspaceId || !wsList.includes(activeWorkspaceId))) {
-        if (currentUser.role !== 'admin') {
-          setActiveWorkspaceId(wsList[0]);
-        }
-      }
     } catch {
       setUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, [activeWorkspaceId, setActiveWorkspaceId]);
+  }, []);
 
   useEffect(() => {
     apiClient.setOnUnauthorized(() => {
@@ -89,10 +83,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       apiClient.setToken(res.access_token);
     }
     setUser(res.user);
-    const wsList = res.user.workspace_ids || res.user.workspaceIds || [];
-    if (wsList.length > 0) {
-      setActiveWorkspaceId(wsList[0]);
-    }
     closeAuthModal();
   };
 

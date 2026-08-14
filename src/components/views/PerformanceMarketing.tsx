@@ -9,12 +9,14 @@ import {
   TrendingUp, Loader2, CalendarDays, RefreshCcw,
   AlertTriangle, ChevronLeft, ChevronRight, KeyRound,
   ZoomIn, ZoomOut, RotateCcw, MoveVertical,
-  Building2
+  ChevronDown, Check, Plus
 } from 'lucide-react';
 
 interface Props {
-  selectedWorkspace: Workspace | null;
-  workspaces: Workspace[];
+  selectedWorkspace?: Workspace | null;
+  workspaces?: Workspace[];
+  onSelectWorkspace?: (ws: Workspace | null) => void;
+  onOpenCreateAccount?: () => void;
 }
 
 const PLATFORM_COLORS: Record<string, string> = {
@@ -53,13 +55,31 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 
 const DEFAULT_ROW_HEIGHT = 44;
 
-export const PerformanceMarketing: React.FC<Props> = ({ selectedWorkspace, workspaces }) => {
+export const PerformanceMarketing: React.FC<Props> = ({
+  selectedWorkspace = null,
+  workspaces = [],
+  onSelectWorkspace,
+  onOpenCreateAccount,
+}) => {
   const { role } = useAuth();
   const { addToast } = useToast();
   
   const { rows, hiddenCount, showInactive, toggleShowInactive, isLoading, error, selectedDate, changeDate, triggerSyncNow, refetch } = useMarketingMatrix(selectedWorkspace?.id);
   const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
+        setIsAccountMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_perf_zoom');
@@ -315,14 +335,14 @@ export const PerformanceMarketing: React.FC<Props> = ({ selectedWorkspace, works
     changeDate(d.toISOString().split('T')[0]);
   };
 
-  // Current Ad Account / Workspace Header Label
+  // Current Ad Account Header Label
   const currentAdAccountInfo = useMemo(() => {
     if (!selectedWorkspace || selectedWorkspace.id === 'ALL' || selectedWorkspace.id === 'all') {
       return {
-        title: 'All Workspaces (Global Performance Tracker)',
-        subtitle: 'Viewing aggregated ad performance metrics across all connected ad accounts',
-        badge: 'All Workspaces Context',
-        color: 'bg-orange-500/10 text-orange-600 dark:text-orange-400 border-orange-500/20',
+        title: 'All Ad Accounts (Aggregated View)',
+        subtitle: 'Viewing performance metrics and campaigns across all connected client ad accounts',
+        badge: 'All Ad Accounts',
+        color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
       };
     }
     return {
@@ -371,35 +391,125 @@ export const PerformanceMarketing: React.FC<Props> = ({ selectedWorkspace, works
 
   return (
     <div className="flex flex-col h-full min-w-0 bg-slate-50 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 p-6 overflow-hidden transition-colors">
-      {/* Dynamic Header Displaying Current Ad Account / Workspace */}
+      {/* Dynamic Header with Integrated Ad Account Selector */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-500/20 text-orange-600 dark:text-orange-400">
-            <Building2 className="w-6 h-6" />
+        <div className="flex items-center gap-3.5">
+          {/* Ad Account Selector Dropdown */}
+          <div className="relative" ref={accountMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+              className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-2xs transition-all cursor-pointer select-none"
+            >
+              <div
+                className={`w-6 h-6 rounded-lg text-[10px] font-extrabold flex items-center justify-center text-white ${
+                  selectedWorkspace?.brandColor || 'bg-indigo-600'
+                }`}
+              >
+                {selectedWorkspace?.initials || 'ALL'}
+              </div>
+              <div className="text-left">
+                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block leading-tight">
+                  {selectedWorkspace ? selectedWorkspace.name : 'All Ad Accounts'}
+                </span>
+                <span className="text-[10px] text-zinc-400 block leading-tight">
+                  {selectedWorkspace ? (selectedWorkspace.platform || 'Client Brand') : 'Consolidated Overview'}
+                </span>
+              </div>
+              <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ml-1 ${isAccountMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isAccountMenuOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-64 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-scaleIn">
+                <div className="px-2 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Filter by Ad Account
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectWorkspace?.(null);
+                    setIsAccountMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                    !selectedWorkspace
+                      ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                  }`}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
+                      ALL
+                    </div>
+                    <span>All Ad Accounts (Aggregated)</span>
+                  </div>
+                  {!selectedWorkspace && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                </button>
+
+                {workspaces.map((ws) => (
+                  <button
+                    key={ws.id}
+                    type="button"
+                    onClick={() => {
+                      onSelectWorkspace?.(ws);
+                      setIsAccountMenuOpen(false);
+                    }}
+                    className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                      selectedWorkspace?.id === ws.id
+                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
+                        : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center text-white shrink-0 ${ws.brandColor || 'bg-indigo-600'}`}>
+                        {ws.initials}
+                      </div>
+                      <span className="truncate">{ws.name}</span>
+                    </div>
+                    {selectedWorkspace?.id === ws.id && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                  </button>
+                ))}
+
+                {onOpenCreateAccount && (
+                  <>
+                    <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-1" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsAccountMenuOpen(false);
+                        onOpenCreateAccount();
+                      }}
+                      className="w-full flex items-center gap-2 p-2 rounded-xl text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Connect New Ad Account</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
+
           <div>
-            <h1 className="text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
               {currentAdAccountInfo.title}
             </h1>
-            
-            {/* Status Breakdown Badges & Figures */}
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-xs font-bold shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="flex flex-wrap items-center gap-2 mt-1.5">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                 Active: {statusCounts.Active}
               </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-xs font-bold shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-amber-500" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[11px] font-bold shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                 Paused: {statusCounts.Paused}
               </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-xs font-bold shadow-xs">
-                <span className="w-2 h-2 rounded-full bg-rose-500" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-[11px] font-bold shadow-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                 Errors: {statusCounts.Error + statusCounts.Stopped}
               </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-orange-500/10 text-orange-700 dark:text-orange-300 border border-orange-500/20 text-xs font-bold shadow-xs">
-                Showing {rows.length} Active/Spend Campaigns {hiddenCount > 0 && !showInactive ? `(${hiddenCount} Hidden Paused)` : showInactive ? `(All Historical)` : ''}
+              <span className="text-[11px] text-slate-400 dark:text-slate-500 ml-1">
+                • Showing {rows.length} Campaigns {hiddenCount > 0 && !showInactive ? `(${hiddenCount} Hidden)` : ''}
               </span>
-              <span className="text-xs text-slate-400 dark:text-slate-500 ml-1">• {selectedDate}</span>
             </div>
           </div>
         </div>

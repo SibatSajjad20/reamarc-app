@@ -53,16 +53,8 @@ async def _fetch_daily_matrix_rows_for_response(
     include_inactive: bool = False,
 ) -> Tuple[List[DailyMatrixRowResponse], int]:
     campaign_filter = {}
-    if workspace_id and workspace_id != "ALL":
+    if workspace_id and workspace_id not in ("ALL", "all", "global"):
         campaign_filter["workspace_id"] = workspace_id
-    else:
-        user_role = current_user.get("role", "viewer")
-        if user_role != "admin":
-            user_ws_ids = current_user.get("workspace_ids", [])
-            if user_ws_ids:
-                campaign_filter["workspace_id"] = {"$in": user_ws_ids}
-            else:
-                return [], 0
 
     campaigns_cursor = db.marketing_campaigns.find(campaign_filter, {"_id": 0})
     campaigns = await campaigns_cursor.to_list(length=None)

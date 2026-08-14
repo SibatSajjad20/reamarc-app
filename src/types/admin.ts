@@ -8,7 +8,6 @@ export interface AdminMember {
   department?: string;
   designation?: string;
   is_active: boolean;
-  workspace_ids?: string[];
   created_at?: string;
 }
 
@@ -23,7 +22,6 @@ export interface CreateMemberPayload {
   temporary_password?: string;
   send_invite_email?: boolean;
   is_active?: boolean;
-  workspace_ids?: string[];
 }
 
 export type AdminCreateUserPayload = CreateMemberPayload;
@@ -34,20 +32,43 @@ export interface UpdateMemberPayload {
   department?: string;
   designation?: string;
   is_active?: boolean;
-  workspace_ids?: string[];
 }
 
 export type AdminUpdateUserPayload = UpdateMemberPayload;
 
-export interface AdminCreateWorkspacePayload {
+export interface AdAccount {
+  id: string;
   name: string;
+  platform?: string;
+  industry?: string;
+  brandColor: string;
+  brand_color?: string;
+  initials: string;
+  account_id?: string;
+  pixel_id?: string;
+  isDefault?: boolean;
+  created_at?: string;
+}
+
+export interface CreateAdAccountPayload {
+  name: string;
+  platform?: string;
   industry?: string;
   brand_color?: string;
   initials?: string;
+  account_id?: string;
+  pixel_id?: string;
 }
 
-export interface AdminAssignWorkspacePayload {
-  user_id: string;
-  workspace_id: string;
-  action: 'assign' | 'remove';
+export interface UpdateAdAccountPayload {
+  name?: string;
+  platform?: string;
+  industry?: string;
+  brand_color?: string;
+  initials?: string;
+  account_id?: string;
+  pixel_id?: string;
 }
+
+export type AdminCreateWorkspacePayload = CreateAdAccountPayload;
+export type AdminUpdateWorkspacePayload = UpdateAdAccountPayload;

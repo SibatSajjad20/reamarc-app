@@ -4,12 +4,16 @@ import type {
   AdminUser,
   CreateMemberPayload,
   UpdateMemberPayload,
+  AdAccount,
+  CreateAdAccountPayload,
+  UpdateAdAccountPayload,
   AdminCreateWorkspacePayload,
-  AdminAssignWorkspacePayload,
+  AdminUpdateWorkspacePayload,
 } from '../types/admin';
 import type { Workspace } from '../types';
 
 export const adminService = {
+  // --- Team Member Management ---
   async getMembers(params?: { search?: string; department?: string; role?: string; is_active?: boolean }): Promise<AdminMember[]> {
     let query = '';
     if (params) {
@@ -32,6 +36,23 @@ export const adminService = {
     return apiClient.patch<AdminMember>(`/admin/members/${userId}`, payload);
   },
 
+  // --- Ad Account & Brand Management ---
+  async getAdAccounts(): Promise<AdAccount[]> {
+    return apiClient.get<AdAccount[]>('/admin/ad-accounts');
+  },
+
+  async createAdAccount(payload: CreateAdAccountPayload): Promise<AdAccount> {
+    return apiClient.post<AdAccount>('/admin/ad-accounts', payload);
+  },
+
+  async updateAdAccount(accountId: string, payload: UpdateAdAccountPayload): Promise<AdAccount> {
+    return apiClient.patch<AdAccount>(`/admin/ad-accounts/${accountId}`, payload);
+  },
+
+  async deleteAdAccount(accountId: string): Promise<any> {
+    return apiClient.delete(`/admin/ad-accounts/${accountId}`);
+  },
+
   // Compatibility aliases
   async getUsers(): Promise<AdminUser[]> {
     return this.getMembers();
@@ -46,10 +67,14 @@ export const adminService = {
   },
 
   async createWorkspace(payload: AdminCreateWorkspacePayload): Promise<Workspace> {
-    return apiClient.post<Workspace>('/admin/workspaces', payload);
+    return this.createAdAccount(payload);
   },
 
-  async assignWorkspace(payload: AdminAssignWorkspacePayload): Promise<any> {
-    return apiClient.post('/admin/workspaces/assign', payload);
+  async updateWorkspace(workspaceId: string, payload: AdminUpdateWorkspacePayload): Promise<Workspace> {
+    return this.updateAdAccount(workspaceId, payload);
+  },
+
+  async deleteWorkspace(workspaceId: string): Promise<any> {
+    return this.deleteAdAccount(workspaceId);
   },
 };

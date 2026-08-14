@@ -142,7 +142,7 @@ const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) =>
 };
 
 export const DailyLogView: React.FC = () => {
-  const { activeWorkspaceId, user, role } = useAuth();
+  const { user, role } = useAuth();
   const isAdmin = role === 'admin' || user?.role === 'admin';
 
   const [columns, setColumns] = useState<DailyLogColumn[]>(DEFAULT_COLUMNS);
@@ -260,7 +260,7 @@ export const DailyLogView: React.FC = () => {
 
   useEffect(() => {
     fetchSheetsAndData();
-  }, [fetchSheetsAndData, activeWorkspaceId]);
+  }, [fetchSheetsAndData]);
 
   // Switch Month Sheet Tab
   const handleSheetChange = async (sheetName: string) => {

@@ -9,8 +9,6 @@ export interface AuthUser {
   department?: string;
   designation?: string;
   is_active?: boolean;
-  workspace_ids?: string[];
-  workspaceIds?: string[];
 }
 
 export interface LoginPayload {

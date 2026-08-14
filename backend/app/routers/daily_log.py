@@ -3,13 +3,12 @@ from typing import List, Optional
 from datetime import datetime, timezone
 import uuid
 from app.database import get_database
-from app.core.security import get_current_user, get_workspace_context, require_admin
+from app.core.security import get_current_user, require_admin
 from app.schemas.daily_log import (
     DailyLogEntryCreate,
     DailyLogEntryUpdate,
     DailyLogEntryResponse,
     DailyLogColumn,
-    DailyLogColumnsConfig,
 )
 from app.models.user import UserRole
 
@@ -54,6 +53,7 @@ DEFAULT_COLUMNS: List[dict] = [
 # --- System start date: August 2026 ---
 SYSTEM_START_YEAR = 2026
 SYSTEM_START_MONTH = 8  # August
+GLOBAL_CONFIG_KEY = "global_org_daily_log"
 
 
 def _get_current_month_sheet() -> str:
@@ -90,14 +90,14 @@ def _generate_sheet_list() -> List[str]:
 
 @router.get("/columns", response_model=List[DailyLogColumn])
 async def get_columns(
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
+    """Retrieve organization Daily Log columns schema."""
     db = get_database()
     if db is None:
         return DEFAULT_COLUMNS
 
-    config = await db.daily_log_columns.find_one({"workspace_id": workspace_id})
+    config = await db.daily_log_columns.find_one({"$or": [{"key": GLOBAL_CONFIG_KEY}, {"workspace_id": {"$exists": True}}]})
     if config and "columns" in config:
         return config["columns"]
     return DEFAULT_COLUMNS
@@ -106,7 +106,6 @@ async def get_columns(
 @router.put("/columns", response_model=List[DailyLogColumn])
 async def update_columns(
     columns: List[DailyLogColumn],
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(require_admin),
 ):
     """Update column schema (Strictly Admin only)."""
@@ -116,8 +115,8 @@ async def update_columns(
 
     col_dicts = [col.model_dump() for col in columns]
     await db.daily_log_columns.update_one(
-        {"workspace_id": workspace_id},
-        {"$set": {"workspace_id": workspace_id, "columns": col_dicts, "updated_at": datetime.now(timezone.utc).isoformat()}},
+        {"key": GLOBAL_CONFIG_KEY},
+        {"$set": {"key": GLOBAL_CONFIG_KEY, "columns": col_dicts, "updated_at": datetime.now(timezone.utc).isoformat()}},
         upsert=True,
     )
     return columns
@@ -125,7 +124,6 @@ async def update_columns(
 
 @router.get("/sheets", response_model=List[str])
 async def get_sheets(
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
     sheets = _generate_sheet_list()
@@ -134,7 +132,7 @@ async def get_sheets(
     if db is None:
         return sheets
 
-    existing_sheets = await db.daily_log_entries.distinct("month_sheet", {"workspace_id": workspace_id})
+    existing_sheets = await db.daily_log_entries.distinct("month_sheet")
     for sheet in existing_sheets:
         if sheet and sheet not in sheets:
             sheets.append(sheet)
@@ -149,11 +147,11 @@ async def get_entries(
     end_date: Optional[str] = Query(None, description="End date for bounded query (YYYY-MM-DD)"),
     user_id: Optional[str] = Query(None, description="Filter by user id (Admin only)"),
     resource_name: Optional[str] = Query(None, description="Filter by resource / member name"),
+    client_project: Optional[str] = Query(None, description="Filter by client / project"),
     task_status: Optional[str] = Query(None, description="Filter by task status"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
-    limit: int = Query(200, ge=1, le=1000, description="Max entries to return"),
+    limit: int = Query(300, ge=1, le=2000, description="Max entries to return"),
     skip: int = Query(0, ge=0, description="Number of entries to skip for pagination"),
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -161,7 +159,7 @@ async def get_entries(
         return []
 
     # Scoped Query Filter Construction
-    query_filter: dict = {"workspace_id": workspace_id}
+    query_filter: dict = {}
 
     # ROLE-BASED SCOPING:
     # If user is a Member, strictly restrict to their own logs
@@ -193,6 +191,8 @@ async def get_entries(
         # Default bounded scope: current month sheet
         query_filter["month_sheet"] = _get_current_month_sheet()
 
+    if client_project:
+        query_filter["client_project"] = {"$regex": client_project, "$options": "i"}
     if task_status:
         query_filter["task_status"] = task_status
     if task_type:
@@ -210,6 +210,7 @@ async def get_entries(
     result = []
     for doc in entries:
         doc["id"] = doc.get("id") or str(doc.get("_id"))
+        doc["workspace_id"] = doc.get("workspace_id", "global")
         doc["version"] = int(doc.get("version", 1))
         # Ensure hours_utilized is float
         try:
@@ -224,7 +225,6 @@ async def get_entries(
 @router.post("/entries", response_model=DailyLogEntryResponse, status_code=status.HTTP_201_CREATED)
 async def create_entry(
     entry_in: DailyLogEntryCreate,
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -236,7 +236,7 @@ async def create_entry(
 
     entry_dict = entry_in.model_dump()
     entry_dict["id"] = f"log-{uuid.uuid4().hex[:12]}"
-    entry_dict["workspace_id"] = workspace_id
+    entry_dict["workspace_id"] = "global"
     entry_dict["user_id"] = current_user["id"]
     if not entry_dict.get("resource_name"):
         entry_dict["resource_name"] = current_user.get("name") or current_user.get("full_name", "Team Member")
@@ -257,7 +257,6 @@ async def create_entry(
 async def update_entry(
     entry_id: str,
     entry_in: DailyLogEntryUpdate,
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -265,7 +264,7 @@ async def update_entry(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
-    existing_entry = await db.daily_log_entries.find_one({"id": entry_id, "workspace_id": workspace_id})
+    existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
@@ -293,7 +292,6 @@ async def update_entry(
         update_data.pop("version", None)
         update_filter = {
             "id": entry_id,
-            "workspace_id": workspace_id,
             "version": entry_in.version,
         }
         res = await db.daily_log_entries.find_one_and_update(
@@ -303,8 +301,7 @@ async def update_entry(
         )
 
         if not res:
-            # Check if record exists with different version
-            existing = await db.daily_log_entries.find_one({"id": entry_id, "workspace_id": workspace_id})
+            existing = await db.daily_log_entries.find_one({"id": entry_id})
             if existing:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -315,7 +312,7 @@ async def update_entry(
         # Fallback update without version locking
         update_data.pop("version", None)
         res = await db.daily_log_entries.find_one_and_update(
-            {"id": entry_id, "workspace_id": workspace_id},
+            {"id": entry_id},
             {"$set": update_data, "$inc": {"version": 1}},
             return_document=True,
         )
@@ -323,6 +320,7 @@ async def update_entry(
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Log entry '{entry_id}' not found.")
 
     res["id"] = res.get("id") or str(res.get("_id"))
+    res["workspace_id"] = res.get("workspace_id", "global")
     res["version"] = int(res.get("version", 1))
     return res
 
@@ -330,7 +328,6 @@ async def update_entry(
 @router.delete("/entries/{entry_id}")
 async def delete_entry(
     entry_id: str,
-    workspace_id: str = Depends(get_workspace_context),
     current_user: dict = Depends(get_current_user),
 ):
     db = get_database()
@@ -338,7 +335,7 @@ async def delete_entry(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
-    existing_entry = await db.daily_log_entries.find_one({"id": entry_id, "workspace_id": workspace_id})
+    existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
@@ -358,7 +355,7 @@ async def delete_entry(
                 detail="You do not have permission to delete another member's log entry.",
             )
 
-    res = await db.daily_log_entries.delete_one({"id": entry_id, "workspace_id": workspace_id})
+    res = await db.daily_log_entries.delete_one({"id": entry_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 

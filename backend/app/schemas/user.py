@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional
 from app.models.user import UserRole
 
 class MemberCreate(BaseModel):
@@ -11,7 +11,6 @@ class MemberCreate(BaseModel):
     temporary_password: Optional[str] = None # Optional manual password or auto-generate
     send_invite_email: bool = True
     is_active: bool = True
-    workspace_ids: Optional[List[str]] = []
 
 class MemberUpdate(BaseModel):
     full_name: Optional[str] = None
@@ -19,7 +18,6 @@ class MemberUpdate(BaseModel):
     department: Optional[str] = None
     designation: Optional[str] = None
     is_active: Optional[bool] = None
-    workspace_ids: Optional[List[str]] = None
 
 class MemberResponse(BaseModel):
     id: str
@@ -29,5 +27,4 @@ class MemberResponse(BaseModel):
     department: Optional[str] = None
     designation: Optional[str] = None
     is_active: bool
-    workspace_ids: Optional[List[str]] = []
     created_at: Optional[str] = None

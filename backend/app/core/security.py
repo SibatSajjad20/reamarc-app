@@ -89,7 +89,7 @@ async def get_current_user(
             detail="Token payload missing required user claims.",
         )
 
-    # Fetch live user record for up-to-date role / is_active / workspace_ids / department / designation
+    # Fetch live user record for up-to-date role / is_active / department / designation
     from app.database import get_database
     db = get_database()
     user_doc = None
@@ -115,7 +115,6 @@ async def get_current_user(
         "department": user_doc.get("department") if user_doc else None,
         "designation": user_doc.get("designation") if user_doc else None,
         "is_active": user_doc.get("is_active", True) if user_doc else True,
-        "workspace_ids": user_doc.get("workspace_ids", []) if user_doc else payload.get("workspace_ids", []),
     }
 
 
@@ -157,38 +156,15 @@ async def require_member_or_admin(current_user: dict = Depends(get_current_user)
 async def get_workspace_context(
     request: Request,
     current_user: dict = Depends(get_current_user)
-) -> str:
-    """Extracts X-Workspace-ID header and verifies user authorization."""
-    workspace_id = request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id")
-    if not workspace_id:
-        if current_user.get("workspace_ids"):
-            return current_user["workspace_ids"][0]
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No workspace specified and user has no assigned workspaces.",
-        )
-
-    # Admins have access to all workspaces
-    if current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin":
-        return workspace_id
-
-    # Check user membership
-    user_workspaces = current_user.get("workspace_ids", [])
-    if workspace_id not in user_workspaces:
-        # Verify in DB if user is workspace owner or member
-        from app.database import get_database
-        db = get_database()
-        if db is not None:
-            ws = await db.workspaces.find_one({"id": workspace_id, "$or": [{"user_id": current_user["id"]}, {"member_ids": current_user["id"]}]})
-            if ws:
-                return workspace_id
-
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Access denied to workspace '{workspace_id}'. User is not a authorized member.",
-        )
-
-    return workspace_id
+) -> Optional[str]:
+    """Extracts optional X-Workspace-ID / X-Account-ID header or returns None."""
+    workspace_id = (
+        request.headers.get("X-Workspace-ID")
+        or request.headers.get("x-workspace-id")
+        or request.headers.get("X-Account-ID")
+        or request.headers.get("x-account-id")
+    )
+    return workspace_id or "global"
 
 
-require_editor_or_admin = require_roles(["admin", "member", "editor"])
+require_editor_or_admin = require_roles(["admin", "member"])

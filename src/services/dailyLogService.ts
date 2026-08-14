@@ -30,6 +30,7 @@ export const dailyLogService = {
       if (params.start_date) searchParams.append('start_date', params.start_date);
       if (params.end_date) searchParams.append('end_date', params.end_date);
       if (params.resource_name) searchParams.append('resource_name', params.resource_name);
+      if (params.client_project) searchParams.append('client_project', params.client_project);
       if (params.task_status) searchParams.append('task_status', params.task_status);
       if (params.task_type) searchParams.append('task_type', params.task_type);
       if (params.limit !== undefined) searchParams.append('limit', String(params.limit));

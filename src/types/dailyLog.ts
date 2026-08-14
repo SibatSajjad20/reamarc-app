@@ -69,6 +69,7 @@ export interface GetDailyLogEntriesParams {
   start_date?: string;
   end_date?: string;
   resource_name?: string;
+  client_project?: string;
   task_status?: string;
   task_type?: string;
   limit?: number;
