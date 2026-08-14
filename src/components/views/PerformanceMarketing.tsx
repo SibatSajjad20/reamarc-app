@@ -348,17 +348,20 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filtered Ad Accounts for Dropdown
+  // Filtered Ad Accounts for Dropdown (Sorted Alphabetically A-Z)
   const filteredDropdownAccounts = useMemo(() => {
-    if (!dropdownSearch.trim()) return workspaces;
-    const q = dropdownSearch.toLowerCase().trim();
-    return workspaces.filter(
-      (ws) =>
-        ws.name.toLowerCase().includes(q) ||
-        (ws.platform && ws.platform.toLowerCase().includes(q)) ||
-        (ws.industry && ws.industry.toLowerCase().includes(q)) ||
-        (ws.initials && ws.initials.toLowerCase().includes(q))
-    );
+    let list = [...workspaces];
+    if (dropdownSearch.trim()) {
+      const q = dropdownSearch.toLowerCase().trim();
+      list = list.filter(
+        (ws) =>
+          ws.name.toLowerCase().includes(q) ||
+          (ws.platform && ws.platform.toLowerCase().includes(q)) ||
+          (ws.industry && ws.industry.toLowerCase().includes(q)) ||
+          (ws.initials && ws.initials.toLowerCase().includes(q))
+      );
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [workspaces, dropdownSearch]);
 
   const [zoomLevel, setZoomLevel] = useState<number>(() => {

@@ -27,10 +27,11 @@ export function useWorkspaces(enabled: boolean = true) {
     if (!enabled) return;
     const data = await execute();
     if (data) {
-      setWorkspaces(data);
+      const sorted = [...data].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+      setWorkspaces(sorted);
       const savedWsId = localStorage.getItem('reamarc_selected_workspace_id') || localStorage.getItem('reamarc_active_workspace_id');
       if (savedWsId && savedWsId !== 'ALL') {
-        const found = data.find((w) => w.id === savedWsId);
+        const found = sorted.find((w) => w.id === savedWsId);
         if (found) {
           setSelectedWorkspaceState(found);
           apiClient.setWorkspaceId(found.id);
@@ -51,14 +52,20 @@ export function useWorkspaces(enabled: boolean = true) {
   ) => {
     if (workspaceToEdit) {
       const updated = await workspaceService.updateWorkspace(workspaceToEdit.id, data);
-      setWorkspaces((prev) => prev.map((w) => (w.id === updated.id ? updated : w)));
+      setWorkspaces((prev) =>
+        prev
+          .map((w) => (w.id === updated.id ? updated : w))
+          .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+      );
       if (selectedWorkspace?.id === updated.id) {
         setSelectedWorkspace(updated);
       }
       return { workspace: updated, isNew: false };
     } else {
       const created = await workspaceService.createWorkspace(data);
-      setWorkspaces((prev) => [...prev, created]);
+      setWorkspaces((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+      );
       setSelectedWorkspace(created);
       return { workspace: created, isNew: true };
     }

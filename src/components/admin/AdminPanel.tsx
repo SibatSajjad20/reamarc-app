@@ -147,15 +147,16 @@ export const AdminPanel: React.FC = () => {
     });
   }, [members, searchQuery, roleFilter, selectedDept, statusFilter]);
 
-  // Filtered ad accounts
+  // Filtered ad accounts (Sorted Alphabetically A-Z)
   const filteredAccounts = useMemo(() => {
-    return workspaces.filter(
+    const list = workspaces.filter(
       (ws) =>
         ws.name.toLowerCase().includes(accountSearchQuery.toLowerCase()) ||
         (ws.industry && ws.industry.toLowerCase().includes(accountSearchQuery.toLowerCase())) ||
         (ws.platform && ws.platform.toLowerCase().includes(accountSearchQuery.toLowerCase())) ||
         ws.id.toLowerCase().includes(accountSearchQuery.toLowerCase())
     );
+    return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
   }, [workspaces, accountSearchQuery]);
 
   const adminCount = members.filter((m) => m.role === 'admin').length;

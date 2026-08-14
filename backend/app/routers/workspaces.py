@@ -62,6 +62,7 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
             seen.add(ws_id)
             unique_workspaces.append(normalize_workspace(ws))
 
+    unique_workspaces.sort(key=lambda w: w.get("name", "").lower())
     return unique_workspaces
 
 
