@@ -44,14 +44,22 @@ def _format_member_resp(doc: dict) -> dict:
 
 
 def _format_account_resp(doc: dict) -> dict:
+    name = doc.get("name", "Ad Account")
+    platform = doc.get("platform")
+    if not platform or platform in ("Meta / Google", "Meta Ads / Google Ads"):
+        if any(k in name.lower() for k in ["ed&c", "ednc", "elegant design"]):
+            platform = "Meta & Google"
+        else:
+            platform = "Meta Ads"
+
     return {
         "id": doc.get("id") or str(doc.get("_id")),
-        "name": doc.get("name", "Ad Account"),
-        "platform": doc.get("platform", "Meta Ads"),
+        "name": name,
+        "platform": platform,
         "industry": doc.get("industry", "General B2B"),
         "brandColor": doc.get("brandColor") or doc.get("brand_color", "bg-indigo-600"),
         "brand_color": doc.get("brand_color") or doc.get("brandColor", "bg-indigo-600"),
-        "initials": doc.get("initials") or doc.get("name", "AD")[:2].upper(),
+        "initials": doc.get("initials") or name[:2].upper(),
         "account_id": doc.get("account_id"),
         "pixel_id": doc.get("pixel_id"),
         "isDefault": doc.get("isDefault", False),

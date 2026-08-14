@@ -498,10 +498,35 @@ export const AdminPanel: React.FC = () => {
                   </div>
 
                   <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      <span>{acc.platform || 'Meta / Google'}</span>
-                    </span>
+                    <div>
+                      {(() => {
+                        const nameLower = (acc.name || '').toLowerCase();
+                        const isMulti =
+                          (acc.platform && acc.platform.toLowerCase().includes('google')) ||
+                          nameLower.includes('ed&c') ||
+                          nameLower.includes('ednc') ||
+                          nameLower.includes('elegant design');
+
+                        if (isMulti) {
+                          return (
+                            <div className="flex items-center gap-1.5">
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20">
+                                Meta Ads
+                              </span>
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                                Google Ads
+                              </span>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20">
+                            Meta Ads
+                          </span>
+                        );
+                      })()}
+                    </div>
                     <div className="flex items-center gap-1.5">
                       <button
                         type="button"

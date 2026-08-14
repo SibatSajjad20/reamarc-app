@@ -8,8 +8,9 @@ import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 import {
   TrendingUp, Loader2, CalendarDays, RefreshCcw,
   AlertTriangle, ChevronLeft, ChevronRight, KeyRound,
-  ZoomIn, ZoomOut, RotateCcw, MoveVertical,
-  ChevronDown, Check, Plus
+  ZoomIn, RotateCcw, MoveVertical,
+  ChevronDown, Check, Plus, Search, SlidersHorizontal,
+  X
 } from 'lucide-react';
 
 interface Props {
@@ -67,18 +68,41 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const { rows, hiddenCount, showInactive, toggleShowInactive, isLoading, error, selectedDate, changeDate, triggerSyncNow, refetch } = useMarketingMatrix(selectedWorkspace?.id);
   const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Ad Account Dropdown State
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
+  const [dropdownSearch, setDropdownSearch] = useState('');
   const accountMenuRef = useRef<HTMLDivElement>(null);
+
+  // View Settings Popover State
+  const [isViewSettingsOpen, setIsViewSettingsOpen] = useState(false);
+  const viewSettingsRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
       }
+      if (viewSettingsRef.current && !viewSettingsRef.current.contains(event.target as Node)) {
+        setIsViewSettingsOpen(false);
+      }
     };
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  // Filtered Ad Accounts for Dropdown
+  const filteredDropdownAccounts = useMemo(() => {
+    if (!dropdownSearch.trim()) return workspaces;
+    const q = dropdownSearch.toLowerCase().trim();
+    return workspaces.filter(
+      (ws) =>
+        ws.name.toLowerCase().includes(q) ||
+        (ws.platform && ws.platform.toLowerCase().includes(q)) ||
+        (ws.industry && ws.industry.toLowerCase().includes(q)) ||
+        (ws.initials && ws.initials.toLowerCase().includes(q))
+    );
+  }, [workspaces, dropdownSearch]);
 
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     try {
@@ -335,24 +359,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
     changeDate(d.toISOString().split('T')[0]);
   };
 
-  // Current Ad Account Header Label
-  const currentAdAccountInfo = useMemo(() => {
-    if (!selectedWorkspace || selectedWorkspace.id === 'ALL' || selectedWorkspace.id === 'all') {
-      return {
-        title: 'All Ad Accounts (Aggregated View)',
-        subtitle: 'Viewing performance metrics and campaigns across all connected client ad accounts',
-        badge: 'All Ad Accounts',
-        color: 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border-indigo-500/20',
-      };
-    }
-    return {
-      title: `${selectedWorkspace.name} Ad Account`,
-      subtitle: `Viewing active performance metrics & campaign matrix for ${selectedWorkspace.name}`,
-      badge: selectedWorkspace.industry || 'Performance Marketing',
-      color: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20',
-    };
-  }, [selectedWorkspace]);
-
   const columns = [
     { key: 'sr', label: 'Sr', minW: 50, align: 'center' as const },
     { key: 'workspace_name', label: 'Client / Account', minW: 140, align: 'left' as const },
@@ -391,250 +397,403 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full min-w-0 bg-slate-50 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 p-6 overflow-hidden transition-colors">
-      {/* Dynamic Header with Integrated Ad Account Selector */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-5 pb-4 border-b border-slate-200 dark:border-slate-800">
-        <div className="flex items-center gap-3.5">
-          {/* Ad Account Selector Dropdown */}
+      {/* Redesigned Performance Marketing Header & Toolbar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-zinc-200 dark:border-zinc-800/80">
+        {/* Left: Ad Account Switcher & Live KPI Counters */}
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Ad Account Dropdown Trigger */}
           <div className="relative" ref={accountMenuRef}>
             <button
               type="button"
               onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
-              className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 shadow-2xs transition-all cursor-pointer select-none"
+              className="flex items-center gap-3 px-3.5 py-2 rounded-xl bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 hover:border-indigo-500/50 shadow-2xs hover:shadow-xs transition-all cursor-pointer select-none"
             >
               <div
-                className={`w-6 h-6 rounded-lg text-[10px] font-extrabold flex items-center justify-center text-white ${
+                className={`w-7 h-7 rounded-lg text-white font-extrabold text-xs flex items-center justify-center shadow-2xs shrink-0 ${
                   selectedWorkspace?.brandColor || 'bg-indigo-600'
                 }`}
               >
                 {selectedWorkspace?.initials || 'ALL'}
               </div>
-              <div className="text-left">
-                <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 block leading-tight">
-                  {selectedWorkspace ? selectedWorkspace.name : 'All Ad Accounts'}
-                </span>
-                <span className="text-[10px] text-zinc-400 block leading-tight">
-                  {selectedWorkspace ? (selectedWorkspace.platform || 'Client Brand') : 'Consolidated Overview'}
+              <div className="text-left min-w-[120px]">
+                <div className="flex items-center gap-1.5 leading-tight">
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-[160px]">
+                    {selectedWorkspace ? selectedWorkspace.name : 'All Ad Accounts'}
+                  </span>
+                  {selectedWorkspace && (
+                    (() => {
+                      const isMulti =
+                        (selectedWorkspace.platform && selectedWorkspace.platform.toLowerCase().includes('google')) ||
+                        selectedWorkspace.name.toLowerCase().includes('ed&c') ||
+                        selectedWorkspace.name.toLowerCase().includes('ednc') ||
+                        selectedWorkspace.name.toLowerCase().includes('elegant design');
+                      return isMulti ? (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          Meta+Google
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                          Meta
+                        </span>
+                      );
+                    })()
+                  )}
+                </div>
+                <span className="text-[10px] text-zinc-400 font-medium block leading-tight mt-0.5">
+                  {selectedWorkspace ? (selectedWorkspace.industry || 'Ad Account') : 'Consolidated Agency Matrix'}
                 </span>
               </div>
-              <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform ml-1 ${isAccountMenuOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${isAccountMenuOpen ? 'rotate-180 text-indigo-500' : ''}`} />
             </button>
 
-            {/* Dropdown Menu */}
+            {/* Dropdown Menu Popover with Search & Scrollbar */}
             {isAccountMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 w-64 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl z-50 p-2 space-y-1 animate-scaleIn">
-                <div className="px-2 py-1 text-[10px] font-bold text-zinc-400 uppercase tracking-wider">
-                  Filter by Ad Account
+              <div className="absolute left-0 top-full mt-2 w-84 max-w-[90vw] bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl z-50 p-2 space-y-2 animate-scaleIn">
+                {/* Search Input Box */}
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search 28+ ad accounts..."
+                    value={dropdownSearch}
+                    onChange={(e) => setDropdownSearch(e.target.value)}
+                    className="w-full pl-8.5 pr-7 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition"
+                    autoFocus
+                  />
+                  {dropdownSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setDropdownSearch('')}
+                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSelectWorkspace?.(null);
-                    setIsAccountMenuOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                    !selectedWorkspace
-                      ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
-                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className="w-5 h-5 rounded bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">
-                      ALL
-                    </div>
-                    <span>All Ad Accounts (Aggregated)</span>
-                  </div>
-                  {!selectedWorkspace && <Check className="w-3.5 h-3.5 text-indigo-600" />}
-                </button>
 
-                {workspaces.map((ws) => (
-                  <button
-                    key={ws.id}
-                    type="button"
-                    onClick={() => {
-                      onSelectWorkspace?.(ws);
-                      setIsAccountMenuOpen(false);
-                    }}
-                    className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
-                      selectedWorkspace?.id === ws.id
-                        ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold'
-                        : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className={`w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center text-white shrink-0 ${ws.brandColor || 'bg-indigo-600'}`}>
-                        {ws.initials}
+                {/* Scrollable Accounts List */}
+                <div className="max-h-[320px] overflow-y-auto space-y-1 pr-1" style={{ scrollbarWidth: 'thin' }}>
+                  {/* All Accounts Option */}
+                  {!dropdownSearch && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectWorkspace?.(null);
+                        setIsAccountMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                        !selectedWorkspace
+                          ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800/80'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-6 h-6 rounded-lg bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center shadow-2xs">
+                          ALL
+                        </div>
+                        <div className="text-left">
+                          <p className="font-bold text-xs">All Ad Accounts (Aggregated)</p>
+                          <p className="text-[10px] text-zinc-400">Total blended portfolio metrics</p>
+                        </div>
                       </div>
-                      <span className="truncate">{ws.name}</span>
-                    </div>
-                    {selectedWorkspace?.id === ws.id && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                  </button>
-                ))}
+                      {!selectedWorkspace && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                    </button>
+                  )}
 
-                {onOpenCreateAccount && (
-                  <>
-                    <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-1" />
+                  {filteredDropdownAccounts.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-zinc-400">
+                      No ad accounts found for "{dropdownSearch}".
+                    </div>
+                  ) : (
+                    filteredDropdownAccounts.map((ws) => {
+                      const isSelected = selectedWorkspace?.id === ws.id;
+                      const isMulti =
+                        (ws.platform && ws.platform.toLowerCase().includes('google')) ||
+                        ws.name.toLowerCase().includes('ed&c') ||
+                        ws.name.toLowerCase().includes('ednc') ||
+                        ws.name.toLowerCase().includes('elegant design');
+
+                      return (
+                        <button
+                          key={ws.id}
+                          type="button"
+                          onClick={() => {
+                            onSelectWorkspace?.(ws);
+                            setIsAccountMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center justify-between p-2 rounded-xl text-xs transition-colors cursor-pointer ${
+                            isSelected
+                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800/80'
+                              : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 text-left">
+                            <div
+                              className={`w-6 h-6 rounded-lg text-[10px] font-bold flex items-center justify-center text-white shrink-0 shadow-2xs ${
+                                ws.brandColor || 'bg-indigo-600'
+                              }`}
+                            >
+                              {ws.initials}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-xs truncate">{ws.name}</p>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {isMulti ? (
+                                  <div className="flex items-center gap-1">
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                      Meta
+                                    </span>
+                                    <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                      Google
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                                    Meta Ads
+                                  </span>
+                                )}
+                                <span className="text-[10px] text-zinc-400 truncate">• {ws.industry || 'General B2B'}</span>
+                              </div>
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-4 h-4 text-indigo-600 shrink-0 ml-2" />}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+
+                {/* Connect Account Footer CTA */}
+                {onOpenCreateAccount && role === 'admin' && (
+                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
                     <button
                       type="button"
                       onClick={() => {
                         setIsAccountMenuOpen(false);
                         onOpenCreateAccount();
                       }}
-                      className="w-full flex items-center gap-2 p-2 rounded-xl text-xs text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold transition-colors cursor-pointer"
+                      className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition cursor-pointer"
                     >
                       <Plus className="w-3.5 h-3.5" />
                       <span>Connect New Ad Account</span>
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             )}
           </div>
 
-          <div>
-            <h1 className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
-              {currentAdAccountInfo.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-2 mt-1.5">
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-[11px] font-bold shadow-xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                Active: {statusCounts.Active}
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-[11px] font-bold shadow-xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                Paused: {statusCounts.Paused}
-              </span>
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-[11px] font-bold shadow-xs">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                Errors: {statusCounts.Error + statusCounts.Stopped}
-              </span>
-              <span className="text-[11px] text-slate-400 dark:text-slate-500 ml-1">
-                • Showing {rows.length} Campaigns {hiddenCount > 0 && !showInactive ? `(${hiddenCount} Hidden)` : ''}
-              </span>
-            </div>
+          {/* Status Counts Pill Group */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-xs font-bold shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Active: {statusCounts.Active}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-xs font-bold shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <span>Paused: {statusCounts.Paused}</span>
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-xs font-bold shadow-2xs">
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+              <span>Errors: {statusCounts.Error + statusCounts.Stopped}</span>
+            </span>
+            <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-1 font-medium hidden sm:inline">
+              • Showing {rows.length} Campaigns {hiddenCount > 0 && !showInactive ? `(${hiddenCount} Hidden)` : ''}
+            </span>
           </div>
         </div>
 
-        {/* Toolbar Controls */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Show Paused ($0 Spend) Toggle */}
-          <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 shadow-sm cursor-pointer hover:border-orange-500/30 transition-all select-none">
+        {/* Right Toolbar Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Show Paused Toggle Pill */}
+          <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition cursor-pointer select-none">
             <input
               type="checkbox"
               checked={showInactive}
               onChange={toggleShowInactive}
-              className="w-4 h-4 rounded text-orange-500 focus:ring-orange-500 focus:ring-offset-0 bg-slate-100 dark:bg-slate-800 border-slate-300 dark:border-slate-700 cursor-pointer"
+              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 cursor-pointer"
             />
-            <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-              Show Paused ($0 Spend)
+            <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+              Show Paused
             </span>
             {hiddenCount > 0 && !showInactive && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
                 +{hiddenCount}
               </span>
             )}
           </label>
 
-          {/* Date Picker */}
-          <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <button onClick={() => shiftDate(-1)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"><ChevronLeft className="w-4 h-4 text-slate-500" /></button>
-            <div className="flex items-center gap-1.5 px-2">
-              <CalendarDays className="w-3.5 h-3.5 text-orange-500" />
-              <input type="date" value={selectedDate} onChange={(e) => changeDate(e.target.value)}
-                className="bg-transparent text-xs font-bold text-slate-900 dark:text-zinc-100 focus:outline-none cursor-pointer" />
+          {/* Date Picker Group */}
+          <div className="flex items-center gap-1 bg-white dark:bg-[#12141c] p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+            <button
+              type="button"
+              onClick={() => shiftDate(-1)}
+              className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition cursor-pointer"
+              title="Previous Day"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <div className="flex items-center gap-1.5 px-1.5">
+              <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => changeDate(e.target.value)}
+                className="bg-transparent text-xs font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+              />
             </div>
-            <button onClick={() => shiftDate(1)} className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"><ChevronRight className="w-4 h-4 text-slate-500" /></button>
-            <button onClick={() => changeDate(new Date().toISOString().split('T')[0])}
-              className="px-2 py-1 rounded-lg text-[10px] font-bold text-orange-600 dark:text-orange-400 hover:bg-orange-500/10 transition-colors cursor-pointer">Today</button>
-          </div>
-
-          {/* Row Height Control */}
-          <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" title="Global Default Row Height (36px - 100px)">
-            <MoveVertical className="w-3.5 h-3.5 text-slate-400 ml-1.5" />
             <button
-              onClick={() => {
-                const next = Math.max(36, defaultRowHeight - 4);
-                setDefaultRowHeight(next);
-                try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
-              }}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors cursor-pointer text-xs font-bold"
-              title="Decrease Default Row Height"
+              type="button"
+              onClick={() => shiftDate(1)}
+              className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 transition cursor-pointer"
+              title="Next Day"
             >
-              -
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
-            <span className="px-1 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 min-w-[32px] text-center">
-              {defaultRowHeight}px
-            </span>
             <button
-              onClick={() => {
-                const next = Math.min(100, defaultRowHeight + 4);
-                setDefaultRowHeight(next);
-                try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
-              }}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors cursor-pointer text-xs font-bold"
-              title="Increase Default Row Height"
+              type="button"
+              onClick={() => changeDate(new Date().toISOString().split('T')[0])}
+              className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition cursor-pointer"
             >
-              +
+              Today
             </button>
           </div>
 
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-white dark:bg-slate-900/80 p-1 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm" title="Grid Zoom Level (80% - 120%)">
-            <button
-              onClick={() => setZoomLevel((prev) => Math.max(80, prev - 5))}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors cursor-pointer"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-1 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-300 min-w-[36px] text-center">
-              {zoomLevel}%
-            </span>
-            <button
-              onClick={() => setZoomLevel((prev) => Math.min(120, prev + 5))}
-              className="p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 transition-colors cursor-pointer"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Reset Layout Button */}
-          <button
-            onClick={resetLayout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-900/80 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:text-orange-600 text-xs font-semibold shadow-sm cursor-pointer transition-all"
-            title="Reset columns width, row height & zoom to defaults"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-orange-500" />
-            <span>Reset Layout</span>
-          </button>
-
-          {/* Refresh Data Button */}
-          <button onClick={refetch} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-orange-600 text-xs font-semibold shadow-sm cursor-pointer transition-all">
-            <RefreshCcw className="w-3.5 h-3.5" /> Refresh
-          </button>
-
-          {/* Sync Ads API Button (Admin/Member Only) */}
+          {/* Sync Ads API Button */}
           {(role === 'admin' || role === 'member') && (
             <button
+              type="button"
               onClick={handleManualSync}
               disabled={isSyncing}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600/10 border border-blue-500/30 text-blue-700 dark:text-blue-300 hover:bg-blue-600/20 text-xs font-bold shadow-sm transition-all cursor-pointer disabled:opacity-50"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition cursor-pointer disabled:opacity-50 select-none"
             >
-              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-500" /> : <RefreshCcw className="w-3.5 h-3.5 text-blue-500" />}
+              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
               <span>{isSyncing ? 'Syncing...' : 'Sync Ads API'}</span>
             </button>
           )}
 
-          {/* Ad Credentials Modal Trigger (Admin Only) */}
+          {/* Ad Credentials Trigger (Admin Only) */}
           {role === 'admin' && (
             <button
+              type="button"
               onClick={() => setIsCredsModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:text-orange-500 text-xs font-semibold shadow-sm transition-all cursor-pointer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-bold shadow-2xs transition cursor-pointer"
+              title="Configure API credentials & Pixel IDs"
             >
-              <KeyRound className="w-3.5 h-3.5 text-orange-500" />
-              <span>Ad Credentials</span>
+              <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Credentials</span>
             </button>
           )}
+
+          {/* View & Density Settings Popover */}
+          <div className="relative" ref={viewSettingsRef}>
+            <button
+              type="button"
+              onClick={() => setIsViewSettingsOpen(!isViewSettingsOpen)}
+              className={`p-2 rounded-xl border transition shadow-2xs cursor-pointer ${
+                isViewSettingsOpen
+                  ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-600 dark:text-indigo-400'
+                  : 'bg-white dark:bg-[#12141c] border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+              }`}
+              title="Grid density & zoom settings"
+            >
+              <SlidersHorizontal className="w-4 h-4" />
+            </button>
+
+            {isViewSettingsOpen && (
+              <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl z-50 p-3 space-y-3 animate-scaleIn">
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                    <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Grid View Options</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={refetch}
+                    className="p-1 text-zinc-400 hover:text-indigo-600 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                    title="Refresh data"
+                  >
+                    <RefreshCcw className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                {/* Row Height Control */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-center gap-1.5">
+                    <MoveVertical className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Row Height</span>
+                  </span>
+                  <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(36, defaultRowHeight - 4);
+                        setDefaultRowHeight(next);
+                        try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
+                      }}
+                      className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="text-[11px] font-mono font-bold px-1 min-w-[32px] text-center">
+                      {defaultRowHeight}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(100, defaultRowHeight + 4);
+                        setDefaultRowHeight(next);
+                        try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
+                      }}
+                      className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Zoom Level Control */}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-zinc-600 dark:text-zinc-400 font-medium flex items-center gap-1.5">
+                    <ZoomIn className="w-3.5 h-3.5 text-zinc-400" />
+                    <span>Zoom Level</span>
+                  </span>
+                  <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel((prev) => Math.max(80, prev - 5))}
+                      className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
+                    >
+                      -
+                    </button>
+                    <span className="text-[11px] font-mono font-bold px-1 min-w-[36px] text-center">
+                      {zoomLevel}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setZoomLevel((prev) => Math.min(120, prev + 5))}
+                      className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Reset Layout CTA */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetLayout();
+                    setIsViewSettingsOpen(false);
+                  }}
+                  className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-xs font-bold text-zinc-700 dark:text-zinc-300 bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition cursor-pointer"
+                >
+                  <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Reset All Layout Defaults</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

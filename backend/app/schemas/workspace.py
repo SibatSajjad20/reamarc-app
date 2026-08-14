@@ -3,6 +3,7 @@ from typing import Optional
 
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., example="Nova Luxury Living")
+    platform: Optional[str] = Field("Meta Ads", example="Meta Ads")
     initials: Optional[str] = Field(None, example="NL")
     brandColor: Optional[str] = Field("bg-indigo-500", example="bg-indigo-500")
     industry: Optional[str] = Field("General B2B", example="Real Estate")
@@ -10,6 +11,7 @@ class WorkspaceCreate(BaseModel):
 
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = Field(None)
+    platform: Optional[str] = Field(None)
     initials: Optional[str] = Field(None)
     brandColor: Optional[str] = Field(None)
     industry: Optional[str] = Field(None)
@@ -21,6 +23,7 @@ class GuidelinesUpdate(BaseModel):
 class WorkspaceResponse(BaseModel):
     id: str
     name: str
+    platform: Optional[str] = "Meta Ads"
     initials: str
     brandColor: str
     industry: str
@@ -29,4 +32,3 @@ class WorkspaceResponse(BaseModel):
 
     class Config:
         populate_by_name = True
-
