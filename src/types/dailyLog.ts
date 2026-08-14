@@ -13,6 +13,7 @@ export interface DailyLogColumn {
 export interface DailyLogEntry {
   id: string;
   workspace_id: string;
+  version: number;
   date: string;
   resource_name: string;
   role: string;
@@ -22,7 +23,7 @@ export interface DailyLogEntry {
   task_status: TaskStatusOption | string;
   revisions_done: string;
   deliverables: string;
-  hours_utilized: string;
+  hours_utilized: number | string;
   remarks?: string;
   month_sheet: string;
   custom_fields?: Record<string, any>;
@@ -40,8 +41,36 @@ export interface CreateDailyLogEntryPayload {
   task_status?: string;
   revisions_done?: string;
   deliverables?: string;
-  hours_utilized?: string;
+  hours_utilized?: number | string;
   remarks?: string;
   month_sheet?: string;
   custom_fields?: Record<string, any>;
+}
+
+export interface UpdateDailyLogEntryPayload {
+  version?: number;
+  date?: string;
+  resource_name?: string;
+  role?: string;
+  client_project?: string;
+  task_description?: string;
+  task_type?: string;
+  task_status?: string;
+  revisions_done?: string;
+  deliverables?: string;
+  hours_utilized?: number | string;
+  remarks?: string;
+  month_sheet?: string;
+  custom_fields?: Record<string, any>;
+}
+
+export interface GetDailyLogEntriesParams {
+  month_sheet?: string;
+  start_date?: string;
+  end_date?: string;
+  resource_name?: string;
+  task_status?: string;
+  task_type?: string;
+  limit?: number;
+  skip?: number;
 }

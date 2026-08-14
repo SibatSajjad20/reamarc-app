@@ -61,6 +61,13 @@ async def connect_to_mongo():
         await db_instance.db.ad_account_credentials.create_index([("workspace_id", 1), ("platform", 1), ("account_id", 1)], unique=True, sparse=True)
         await db_instance.db.sync_jobs.create_index([("job_key", 1)], unique=True)
 
+        # Daily Log Module indexes
+        await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("date", -1)])
+        await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("month_sheet", 1)])
+        await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("resource_name", 1), ("date", -1)])
+        await db_instance.db.daily_log_entries.create_index([("id", 1), ("workspace_id", 1)], unique=True)
+        await db_instance.db.daily_log_columns.create_index([("workspace_id", 1)], unique=True)
+
     except Exception as e:
         logger.warning(f"Could not connect to MongoDB: {e}. Running in degraded mode.")
 

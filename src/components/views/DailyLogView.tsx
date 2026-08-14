@@ -6,7 +6,10 @@ import {
   Settings2,
   Sparkles,
   Trash2,
+  Pencil,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   Grid,
   ZoomIn,
@@ -14,13 +17,15 @@ import {
   RotateCcw,
   Calendar as CalendarIcon,
   X,
-  ChevronLeft,
-  ChevronRight,
   Check,
+  ExternalLink,
+  AlertTriangle,
+  RefreshCw,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
 import { useAuth } from '../../context/AuthContext';
+import { DailyLogModal } from '../daily-log/DailyLogModal';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
@@ -62,236 +67,6 @@ const NON_FILTERABLE_KEYS = new Set([
   'remarks',
 ]);
 
-// ─── Custom Matrix Select Cell Component ───────────────────────────────────────
-interface MatrixSelectCellProps {
-  value: string;
-  options: string[];
-  columnKey: string;
-  onChange: (val: string) => void;
-}
-
-const MatrixSelectCell: React.FC<MatrixSelectCellProps> = ({
-  value,
-  options,
-  columnKey,
-  onChange,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isOpen]);
-
-  // Special Styling for Task Status
-  if (columnKey === 'task_status') {
-    const getStatusTheme = (status: string) => {
-      switch (status) {
-        case 'Completed':
-          return {
-            pill: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25',
-            dot: 'bg-emerald-500',
-            iconColor: 'text-emerald-600 dark:text-emerald-400',
-            activeOpt: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-bold',
-          };
-        case 'Blocker':
-          return {
-            pill: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/25',
-            dot: 'bg-rose-500 animate-pulse',
-            iconColor: 'text-rose-600 dark:text-rose-400',
-            activeOpt: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 font-bold',
-          };
-        case 'Incomplete':
-        default:
-          return {
-            pill: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/25',
-            dot: 'bg-amber-500',
-            iconColor: 'text-amber-600 dark:text-amber-400',
-            activeOpt: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 font-bold',
-          };
-      }
-    };
-
-    const currentTheme = getStatusTheme(value || 'Incomplete');
-
-    return (
-      <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
-          className={`w-full flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs select-none ${currentTheme.pill}`}
-        >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${currentTheme.dot}`} />
-            <span className="truncate">{value || 'Incomplete'}</span>
-          </div>
-          <ChevronDown
-            className={`w-3.5 h-3.5 shrink-0 opacity-70 transition-transform duration-150 ${
-              isOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        {isOpen && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-36 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-            {options.map((opt) => {
-              const optTheme = getStatusTheme(opt);
-              const isSelected = value === opt;
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none ${
-                    isSelected
-                      ? optTheme.activeOpt
-                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${optTheme.dot}`} />
-                    <span>{opt}</span>
-                  </div>
-                  {isSelected && <Check className={`w-3.5 h-3.5 ${optTheme.iconColor}`} />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Special Styling for Task Type
-  if (columnKey === 'task_type') {
-    const getTypeTheme = (type: string) => {
-      switch (type) {
-        case 'Scheduled Task':
-          return {
-            pill: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-400/30 hover:bg-sky-500/25',
-            dot: 'bg-sky-500',
-            iconColor: 'text-sky-600 dark:text-sky-400',
-            activeOpt: 'bg-sky-500/15 text-sky-700 dark:text-sky-300 font-bold',
-          };
-        case 'Runtime Task':
-        default:
-          return {
-            pill: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-400/30 hover:bg-purple-500/25',
-            dot: 'bg-purple-500',
-            iconColor: 'text-purple-600 dark:text-purple-400',
-            activeOpt: 'bg-purple-500/15 text-purple-700 dark:text-purple-300 font-bold',
-          };
-      }
-    };
-
-    const currentTheme = getTypeTheme(value || 'Scheduled Task');
-
-    return (
-      <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
-        <button
-          type="button"
-          onClick={() => setIsOpen((prev) => !prev)}
-          className={`w-full flex items-center justify-between gap-1.5 px-3 py-1 rounded-full text-xs font-bold border transition-all cursor-pointer shadow-2xs select-none ${currentTheme.pill}`}
-        >
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className={`w-2 h-2 rounded-full shrink-0 ${currentTheme.dot}`} />
-            <span className="truncate">{value || 'Scheduled Task'}</span>
-          </div>
-          <ChevronDown
-            className={`w-3.5 h-3.5 shrink-0 opacity-70 transition-transform duration-150 ${
-              isOpen ? 'rotate-180' : ''
-            }`}
-          />
-        </button>
-
-        {isOpen && (
-          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-1.5 z-50 w-40 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-            {options.map((opt) => {
-              const optTheme = getTypeTheme(opt);
-              const isSelected = value === opt;
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer select-none ${
-                    isSelected
-                      ? optTheme.activeOpt
-                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                  }`}
-                >
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full shrink-0 ${optTheme.dot}`} />
-                    <span>{opt}</span>
-                  </div>
-                  {isSelected && <Check className={`w-3.5 h-3.5 ${optTheme.iconColor}`} />}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Generic Dropdown for other custom columns
-  return (
-    <div className="relative flex items-center justify-center w-full" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/70 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-800 dark:text-zinc-200 transition-all cursor-pointer select-none"
-      >
-        <span className="truncate">{value || 'Select option...'}</span>
-        <ChevronDown
-          className={`w-3.5 h-3.5 shrink-0 text-zinc-400 transition-transform duration-150 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 min-w-[130px] w-full bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-          {options.map((opt) => {
-            const isSelected = value === opt;
-            return (
-              <button
-                key={opt}
-                type="button"
-                onClick={() => {
-                  onChange(opt);
-                  setIsOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer select-none ${
-                  isSelected
-                    ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                    : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                }`}
-              >
-                <span className="truncate">{opt}</span>
-                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 export const DailyLogView: React.FC = () => {
   const { activeWorkspaceId, user, role } = useAuth();
   const isAdmin = role === 'admin' || user?.role === 'admin';
@@ -305,6 +80,14 @@ export const DailyLogView: React.FC = () => {
   const [dateFilter, setDateFilter] = useState<string>('all');
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState<boolean>(false);
   const dateDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Controlled Create / Edit Modal State
+  const [isEntryModalOpen, setIsEntryModalOpen] = useState<boolean>(false);
+  const [entryModalMode, setEntryModalMode] = useState<'create' | 'edit'>('create');
+  const [selectedEntry, setSelectedEntry] = useState<DailyLogEntry | null>(null);
+
+  // OCC Warning state
+  const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isDateDropdownOpen) return;
@@ -362,197 +145,58 @@ export const DailyLogView: React.FC = () => {
     return {};
   });
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('reamarc_daily_log_zoom', String(zoomLevel));
-    } catch (e) {}
-  }, [zoomLevel]);
-
-  // ─── Resizing Logic (Columns & Rows) ──────────────────────────────────────────
-  const [resizingColKey, setResizingColKey] = useState<string | null>(null);
-  const startXRef = useRef<number>(0);
-  const startWidthRef = useRef<number>(0);
-  const columnWidthsRef = useRef(columnWidths);
-  columnWidthsRef.current = columnWidths;
-
-  const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setResizingColKey(colKey);
-    startXRef.current = e.clientX;
-    startWidthRef.current = columnWidths[colKey] || 150;
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  useEffect(() => {
-    if (!resizingColKey) return;
-    let animFrame: number | null = null;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      animFrame = requestAnimationFrame(() => {
-        const diff = e.clientX - startXRef.current;
-        const newW = Math.max(80, Math.min(600, startWidthRef.current + diff));
-        setColumnWidths((prev) => ({
-          ...prev,
-          [resizingColKey]: newW,
-        }));
-      });
-    };
-
-    const handleMouseUp = () => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      setResizingColKey(null);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      try {
-        localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(columnWidthsRef.current));
-      } catch (e) {}
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [resizingColKey]);
-
-  // Draggable Row Height
-  const [resizingRowId, setResizingRowId] = useState<string | null>(null);
-  const startYRef = useRef<number>(0);
-  const startRowHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
-  const rowHeightsRef = useRef(rowHeights);
-  rowHeightsRef.current = rowHeights;
-
-  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setResizingRowId(rowId);
-    startYRef.current = e.clientY;
-    startRowHeightRef.current = currentH;
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  useEffect(() => {
-    if (!resizingRowId) return;
-    let animFrame: number | null = null;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      animFrame = requestAnimationFrame(() => {
-        const diff = e.clientY - startYRef.current;
-        const newH = Math.max(36, Math.min(160, startRowHeightRef.current + diff));
-        setRowHeights((prev) => ({
-          ...prev,
-          [resizingRowId]: newH,
-        }));
-      });
-    };
-
-    const handleMouseUp = () => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      setResizingRowId(null);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-      try {
-        localStorage.setItem('reamarc_daily_log_row_heights', JSON.stringify(rowHeightsRef.current));
-      } catch (e) {}
-    };
-
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      if (animFrame !== null) cancelAnimationFrame(animFrame);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [resizingRowId]);
-
-  const handleResetLayout = () => {
-    const defaultW: Record<string, number> = {};
-    DEFAULT_COLUMNS.forEach((col) => {
-      defaultW[col.key] = parseInt(col.width || '150', 10);
-    });
-    setColumnWidths(defaultW);
-    setRowHeights({});
-    setZoomLevel(100);
-    setColumnFilters({});
-    try {
-      localStorage.removeItem('reamarc_daily_log_col_widths');
-      localStorage.removeItem('reamarc_daily_log_row_heights');
-      localStorage.removeItem('reamarc_daily_log_zoom');
-    } catch (e) {}
-  };
-
-  // ─── Data Loading ─────────────────────────────────────────────────────────────
-  const loadData = useCallback(async () => {
+  // ─── Fetch Sheet Tabs & Initial Data ─────────────────────────────────────────
+  const fetchSheetsAndData = useCallback(async () => {
     setIsLoading(true);
+    setOccConflictMessage(null);
     try {
-      const sheetsList = await dailyLogService.getSheets();
-      const validSheets = sheetsList.filter((s) => {
-        if (!s.includes(' - ')) return true;
-        const [month, yearStr] = s.split(' - ');
-        const year = parseInt(yearStr, 10);
-        if (year < 2026) return false;
-        if (year === 2026) {
-          const monthsBeforeAug = ['January', 'February', 'March', 'April', 'May', 'June', 'July'];
-          if (monthsBeforeAug.includes(month)) return false;
+      const [sheets, cols, logs] = await Promise.all([
+        dailyLogService.getSheets(),
+        dailyLogService.getColumns(),
+        dailyLogService.getEntries(activeSheet),
+      ]);
+
+      if (sheets && sheets.length > 0) {
+        setAvailableSheets(sheets);
+        if (!sheets.includes(activeSheet)) {
+          setActiveSheet(sheets[0]);
         }
-        return true;
-      });
+      }
 
-      setAvailableSheets(validSheets.length > 0 ? validSheets : ['August - 2026']);
-
-      const currentMonthSheet = `${new Date().toLocaleString('default', { month: 'long' })} - ${new Date().getFullYear()}`;
-      const defaultSheet = validSheets.includes(currentMonthSheet)
-        ? currentMonthSheet
-        : validSheets[0] || 'August - 2026';
-
-      setActiveSheet((prev) => (validSheets.includes(prev) ? prev : defaultSheet));
-
-      const cols = await dailyLogService.getColumns();
       if (cols && cols.length > 0) {
         setColumns(cols);
         setColumnWidths((prev) => {
-          const updated = { ...prev };
+          const next = { ...prev };
           cols.forEach((col) => {
-            if (!updated[col.key]) {
-              updated[col.key] = parseInt(col.width || '150', 10);
+            if (!next[col.key]) {
+              next[col.key] = parseInt(col.width || '150', 10);
             }
           });
-          return updated;
+          return next;
         });
       }
 
-      const logs = await dailyLogService.getEntries(activeSheet);
-      setEntries(logs);
+      setEntries(logs || []);
     } catch (err) {
-      console.error('Failed to load daily log data:', err);
+      console.error('Failed to fetch daily log sheets/entries:', err);
     } finally {
       setIsLoading(false);
     }
   }, [activeSheet]);
 
   useEffect(() => {
-    loadData();
-  }, [loadData, activeWorkspaceId]);
+    fetchSheetsAndData();
+  }, [fetchSheetsAndData, activeWorkspaceId]);
 
-  // Handle Sheet Tab Change
+  // Switch Month Sheet Tab
   const handleSheetChange = async (sheetName: string) => {
     setActiveSheet(sheetName);
     setIsLoading(true);
     setColumnFilters({});
+    setOccConflictMessage(null);
     try {
       const logs = await dailyLogService.getEntries(sheetName);
-      setEntries(logs);
+      setEntries(logs || []);
     } catch (err) {
       console.error(`Failed to fetch logs for sheet '${sheetName}':`, err);
     } finally {
@@ -560,54 +204,39 @@ export const DailyLogView: React.FC = () => {
     }
   };
 
-  // Add New Log Entry Row
-  const handleAddRow = async () => {
-    const today = new Date();
-    const todayFormatted = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear().toString().slice(2)}`;
-
-    const newEntryPayload: any = {
-      date: todayFormatted,
-      resource_name: 'Team Member',
-      role: 'Contributor',
-      client_project: 'Reamarc',
-      task_description: 'New daily task entry...',
-      task_type: 'Scheduled Task',
-      task_status: 'Incomplete',
-      revisions_done: '',
-      deliverables: '',
-      hours_utilized: '0:30',
-      remarks: '',
-      month_sheet: activeSheet,
-    };
-
-    try {
-      const created = await dailyLogService.createEntry(newEntryPayload);
-      setEntries((prev) => [created, ...prev]);
-    } catch (err) {
-      console.error('Failed to add new log entry:', err);
-    }
+  // Open Create Modal
+  const handleOpenCreateModal = () => {
+    setSelectedEntry(null);
+    setEntryModalMode('create');
+    setIsEntryModalOpen(true);
   };
 
-  // Update Field Inline
-  const handleCellChange = async (entryId: string, field: string, value: any) => {
-    setEntries((prev) =>
-      prev.map((entry) => (entry.id === entryId ? { ...entry, [field]: value } : entry))
-    );
+  // Open Edit Modal
+  const handleOpenEditModal = (entry: DailyLogEntry) => {
+    setSelectedEntry(entry);
+    setEntryModalMode('edit');
+    setIsEntryModalOpen(true);
+  };
 
-    try {
-      await dailyLogService.updateEntry(entryId, { [field]: value });
-    } catch (err) {
-      console.error(`Failed to update field '${field}' on entry '${entryId}':`, err);
+  // Handle entry saved from modal (Atomic Single Dispatch)
+  const handleEntrySaved = (savedEntry: DailyLogEntry) => {
+    if (entryModalMode === 'create') {
+      setEntries((prev) => [savedEntry, ...prev]);
+    } else {
+      setEntries((prev) => prev.map((e) => (e.id === savedEntry.id ? savedEntry : e)));
     }
   };
 
   // Delete Log Row
   const handleDeleteRow = async (entryId: string) => {
+    if (!window.confirm('Are you sure you want to delete this log entry?')) return;
     setEntries((prev) => prev.filter((entry) => entry.id !== entryId));
     try {
       await dailyLogService.deleteEntry(entryId);
     } catch (err) {
       console.error(`Failed to delete entry '${entryId}':`, err);
+      // Refetch on error
+      handleSheetChange(activeSheet);
     }
   };
 
@@ -620,181 +249,171 @@ export const DailyLogView: React.FC = () => {
       key: newKey,
       label: newFieldLabel.trim(),
       type: newFieldType,
-      options: newFieldType === 'select' ? newFieldOptions.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+      options:
+        newFieldType === 'select' && newFieldOptions.trim()
+          ? newFieldOptions.split(',').map((opt) => opt.trim()).filter(Boolean)
+          : undefined,
       editable: true,
       width: '160',
     };
 
-    const updatedCols = [...columns, newCol];
-    setColumns(updatedCols);
+    const updated = [...columns, newCol];
+    setColumns(updated);
     setColumnWidths((prev) => ({ ...prev, [newKey]: 160 }));
 
     setNewFieldLabel('');
     setNewFieldOptions('');
+    setNewFieldType('text');
   };
 
   const handleDeleteColumn = (colKey: string) => {
     if (!isAdmin) return;
-    const updatedCols = columns.filter((c) => c.key !== colKey);
-    setColumns(updatedCols);
+    const updated = columns.filter((col) => col.key !== colKey);
+    setColumns(updated);
   };
 
   const handleSaveColumns = async () => {
-    if (!isAdmin) return;
-    setIsColumnModalOpen(false);
     try {
       await dailyLogService.updateColumns(columns);
+      setIsColumnModalOpen(false);
     } catch (err) {
-      console.error('Failed to save updated columns configuration:', err);
+      console.error('Failed to save columns schema:', err);
     }
   };
 
-  // ─── AI Summarization ────────────────────────────────────────────────────────
-  const handleSummarizeAI = () => {
+  // ─── Column & Row Resizing Handlers ──────────────────────────────────────────
+  const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = columnWidths[colKey] || 150;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = (moveEvent.clientX - startX) * (100 / zoomLevel);
+      const newWidth = Math.max(90, Math.min(600, startWidth + delta));
+      setColumnWidths((prev) => {
+        const next = { ...prev, [colKey]: Math.round(newWidth) };
+        try {
+          localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const delta = (moveEvent.clientY - startY) * (100 / zoomLevel);
+      const newHeight = Math.max(34, Math.min(200, currentH + delta));
+      setRowHeights((prev) => {
+        const next = { ...prev, [rowId]: Math.round(newHeight) };
+        try {
+          localStorage.setItem('reamarc_daily_log_row_heights', JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
+    };
+
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+    };
+
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  };
+
+  // Reset Layout
+  const handleResetLayout = () => {
+    const initial: Record<string, number> = {};
+    DEFAULT_COLUMNS.forEach((col) => {
+      initial[col.key] = parseInt(col.width || '150', 10);
+    });
+    setColumnWidths(initial);
+    setRowHeights({});
+    setZoomLevel(100);
+    try {
+      localStorage.removeItem('reamarc_daily_log_col_widths');
+      localStorage.removeItem('reamarc_daily_log_row_heights');
+      localStorage.setItem('reamarc_daily_log_zoom', '100');
+    } catch (e) {}
+  };
+
+  // AI Summarization
+  const handleAiSummarize = () => {
     setIsSummarizing(true);
-    setAiSummary(null);
     setTimeout(() => {
-      const totalHours = filteredEntries.reduce((acc, curr) => {
-        const parsed = parseFloat(curr.hours_utilized?.replace(':', '.') || '0');
-        return acc + (isNaN(parsed) ? 0 : parsed);
+      const totalHours = entries.reduce((acc, curr) => {
+        const val = Number(curr.hours_utilized) || 0;
+        return acc + val;
       }, 0);
-
-      const completedCount = filteredEntries.filter((e) => e.task_status === 'Completed').length;
-      const blockerCount = filteredEntries.filter((e) => e.task_status === 'Blocker').length;
-
+      const completed = entries.filter((e) => e.task_status === 'Completed').length;
+      const blockers = entries.filter((e) => e.task_status === 'Blocker').length;
       setAiSummary(
-        `📊 AI Daily Log Summary (${activeSheet}): Total ${filteredEntries.length} tasks logged totaling approx. ${totalHours.toFixed(1)} hrs. ${completedCount} completed, ${blockerCount} blocker(s) flagged.`
+        `AI Summary (${activeSheet}): ${entries.length} tasks recorded (${completed} completed, ${blockers} blockers). Total time utilized: ${totalHours.toFixed(1)} hrs.`
       );
       setIsSummarizing(false);
-    }, 1200);
+    }, 900);
   };
 
-  // ─── Column Filter Helpers ───────────────────────────────────────────────────
-  const handleSetColumnFilter = (colKey: string, val: string) => {
-    setColumnFilters((prev) => {
-      if (!val) {
-        const copy = { ...prev };
-        delete copy[colKey];
-        return copy;
+  // Helper to extract unique values for column filter popover
+  const getUniqueValuesForColumn = (colKey: string): string[] => {
+    const setVals = new Set<string>();
+    entries.forEach((e) => {
+      const val = (e as any)[colKey];
+      if (val !== undefined && val !== null && String(val).trim() !== '') {
+        setVals.add(String(val).trim());
       }
-      return { ...prev, [colKey]: val };
     });
+    return Array.from(setVals).sort();
   };
 
-  const handleClearColumnFilter = (colKey: string) => {
-    setColumnFilters((prev) => {
-      const copy = { ...prev };
-      delete copy[colKey];
-      return copy;
-    });
-  };
-
-  // Dynamically extract distinct existing values for any column from current entries
-  const getUniqueValuesForColumn = useCallback(
-    (colKey: string): string[] => {
-      const set = new Set<string>();
-      entries.forEach((e) => {
-        const val = (e as any)[colKey];
-        if (val !== undefined && val !== null && String(val).trim() !== '') {
-          set.add(String(val).trim());
-        }
-      });
-      return Array.from(set);
-    },
-    [entries]
-  );
-
-  // Helper to parse date string like "13/8/26" or "13/08/2026" or "2026-08-13" into day, month, year
-  const parseEntryDate = (dateStr: string) => {
-    if (!dateStr) return null;
-    if (dateStr.includes('-')) {
-      const parts = dateStr.split('-');
-      if (parts.length === 3) {
-        return {
-          year: parseInt(parts[0], 10),
-          month: parseInt(parts[1], 10),
-          day: parseInt(parts[2], 10),
-        };
-      }
-    }
-    if (dateStr.includes('/')) {
-      const parts = dateStr.split('/');
-      if (parts.length >= 3) {
-        const day = parseInt(parts[0], 10);
-        const month = parseInt(parts[1], 10);
-        let year = parseInt(parts[2], 10);
-        if (year < 100) year += 2000;
-        return { day, month, year };
-      }
-    }
-    return null;
-  };
-
-  // Check if entry date matches target day, month, year
-  const matchEntryDate = (entryDateStr: string, targetDay: number, targetMonth: number, targetYear: number) => {
-    const parsed = parseEntryDate(entryDateStr);
-    if (!parsed) return false;
-    return parsed.day === targetDay && parsed.month === targetMonth && parsed.year === targetYear;
-  };
-
-  // ─── Filtered Entries (Global Search, Date Filter & Per-Column Filters) ──────
+  // Filtered Entries based on Search, Date Filter, and Column Filters
   const filteredEntries = useMemo(() => {
-    let result = entries;
+    let result = [...entries];
 
     // Global Search Filter
     if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = result.filter(
-        (e) =>
-          e.resource_name?.toLowerCase().includes(query) ||
-          e.client_project?.toLowerCase().includes(query) ||
-          e.task_description?.toLowerCase().includes(query) ||
-          e.role?.toLowerCase().includes(query) ||
-          e.task_type?.toLowerCase().includes(query) ||
-          e.task_status?.toLowerCase().includes(query)
+      const q = searchQuery.toLowerCase();
+      result = result.filter((e) =>
+        Object.values(e).some((val) =>
+          typeof val === 'string' ? val.toLowerCase().includes(q) : false
+        )
       );
     }
 
-    // Top Date Preset Filter
-    if (dateFilter !== 'all') {
+    // Date Presets Filter
+    if (dateFilter === 'today') {
       const today = new Date();
+      const todayIso = today.toISOString().split('T')[0];
+      const todayFormatted = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear().toString().slice(2)}`;
+      result = result.filter((e) => e.date === todayIso || e.date === todayFormatted);
+    } else if (dateFilter === 'week') {
+      const weekAgo = new Date();
+      weekAgo.setDate(weekAgo.getDate() - 7);
       result = result.filter((e) => {
-        const parsed = parseEntryDate(e.date);
-        if (!parsed) return true;
-
-        if (dateFilter === 'today') {
-          return (
-            parsed.day === today.getDate() &&
-            parsed.month === today.getMonth() + 1 &&
-            parsed.year === today.getFullYear()
-          );
-        } else if (dateFilter === 'week') {
-          const entryDate = new Date(parsed.year, parsed.month - 1, parsed.day);
-          const diffTime = Math.abs(today.getTime() - entryDate.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          return diffDays <= 7;
-        }
-        return true;
+        const entryDate = new Date(e.date);
+        return !isNaN(entryDate.getTime()) && entryDate >= weekAgo;
       });
     }
 
-    // Per-Column Specific Filters
-    Object.keys(columnFilters).forEach((colKey) => {
-      const filterVal = columnFilters[colKey];
-      if (!filterVal) return;
-
+    // Per-Column Discrete & Value Filters
+    Object.entries(columnFilters).forEach(([colKey, filterVal]) => {
+      if (!filterVal || filterVal === '__ALL__') return;
       const colDef = columns.find((c) => c.key === colKey);
-      if (!colDef) return;
-
-      if (colDef.type === 'date') {
-        const parts = filterVal.split('-');
-        if (parts.length === 3) {
-          const targetYear = parseInt(parts[0], 10);
-          const targetMonth = parseInt(parts[1], 10);
-          const targetDay = parseInt(parts[2], 10);
-          result = result.filter((e) => matchEntryDate((e as any)[colKey], targetDay, targetMonth, targetYear));
-        }
-      } else if (colDef.type === 'select') {
+      if (colDef?.type === 'select') {
         result = result.filter((e) => (e as any)[colKey] === filterVal);
       } else {
         const q = filterVal.toLowerCase();
@@ -808,9 +427,9 @@ export const DailyLogView: React.FC = () => {
     return result;
   }, [entries, searchQuery, dateFilter, columnFilters, columns]);
 
-  // Compute Total Table Width for reliable horizontal scrolling and sticky columns
+  // Compute Total Table Width for reliable horizontal scrolling
   const totalTableWidth = useMemo(() => {
-    return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 48;
+    return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
   }, [columns, columnWidths]);
 
   // Compute Excel Column Header Letters A, B, C...
@@ -836,19 +455,21 @@ export const DailyLogView: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
       {/* Top Toolbar Bar */}
       <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Search Filter */}
-          <div className="relative w-72 sm:w-80 group">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400 dark:text-zinc-500 group-focus-within:text-indigo-500 transition-colors pointer-events-none" />
+        {/* Search & Date Filter & Add Log Button */}
+        <div className="flex items-center gap-3 flex-1 min-w-[320px] max-w-2xl">
+          {/* Search Bar */}
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search resource, project, task..."
+              placeholder="Search logs by keyword, task, team member..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                 title="Clear search"
@@ -914,80 +535,88 @@ export const DailyLogView: React.FC = () => {
             )}
           </div>
 
-          {/* Add Row Button */}
+          {/* Add Entry Button (Opens Modal) */}
           <button
-            onClick={handleAddRow}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none"
+            type="button"
+            onClick={handleOpenCreateModal}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
           >
             <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Add Row</span>
+            <span>Add Entry</span>
           </button>
         </div>
 
         {/* Controls Right: Zoom, Reset Layout, Custom Columns (Admin Only), AI Summary */}
         <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Active Column Filters Clear Indicator */}
-          {Object.keys(columnFilters).length > 0 && (
+          {/* Zoom Level Widget */}
+          <div
+            className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
+            title="Canvas Zoom Level"
+          >
             <button
-              onClick={() => setColumnFilters({})}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs font-bold hover:bg-amber-500/25 transition-all cursor-pointer shadow-2xs"
-              title="Clear all active column filters"
-            >
-              <X className="w-3.5 h-3.5" />
-              <span>Clear Column Filters ({Object.keys(columnFilters).length})</span>
-            </button>
-          )}
-
-          {/* Zoom Controls */}
-          <div className="flex items-center gap-1 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs">
-            <button
-              onClick={() => setZoomLevel((z) => Math.max(MIN_ZOOM, z - 10))}
+              type="button"
+              onClick={() => {
+                const next = Math.max(MIN_ZOOM, zoomLevel - 5);
+                setZoomLevel(next);
+                try {
+                  localStorage.setItem('reamarc_daily_log_zoom', String(next));
+                } catch (e) {}
+              }}
               disabled={zoomLevel <= MIN_ZOOM}
-              className="w-7 h-7 flex items-center justify-center hover:bg-white dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-300 disabled:opacity-30 transition-all cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
               title="Zoom Out"
             >
-              <ZoomOut className="w-4 h-4" />
+              <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2 font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200 min-w-11 text-center select-none">
+            <span className="px-2.5 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[48px] text-center select-none">
               {zoomLevel}%
             </span>
             <button
-              onClick={() => setZoomLevel((z) => Math.min(MAX_ZOOM, z + 10))}
+              type="button"
+              onClick={() => {
+                const next = Math.min(MAX_ZOOM, zoomLevel + 5);
+                setZoomLevel(next);
+                try {
+                  localStorage.setItem('reamarc_daily_log_zoom', String(next));
+                } catch (e) {}
+              }}
               disabled={zoomLevel >= MAX_ZOOM}
-              className="w-7 h-7 flex items-center justify-center hover:bg-white dark:hover:bg-zinc-800 rounded-lg text-zinc-600 dark:text-zinc-300 disabled:opacity-30 transition-all cursor-pointer"
+              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
               title="Zoom In"
             >
-              <ZoomIn className="w-4 h-4" />
+              <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
 
           {/* Reset Layout Button */}
           <button
+            type="button"
             onClick={handleResetLayout}
-            className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/80 text-sm font-semibold shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
-            title="Reset Column Widths, Row Heights & Zoom"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
+            title="Reset columns width and zoom"
           >
-            <RotateCcw className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
+            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
             <span>Reset Layout</span>
           </button>
 
-          {/* Custom Columns & Fields Modal Button — Strictly Restricted to Admins */}
+          {/* Manage Columns (Admin Only) */}
           {isAdmin && (
             <button
+              type="button"
               onClick={() => setIsColumnModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700/80 text-sm font-semibold shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer"
-              title="Custom Field Configuration (Admin Only)"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
             >
-              <Settings2 className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
-              <span>Columns</span>
+              <Settings2 className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Customize Fields</span>
             </button>
           )}
 
-          {/* AI Summarize Button */}
+          {/* AI Summarize Action Button */}
           <button
-            onClick={handleSummarizeAI}
-            disabled={isSummarizing}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-indigo-700 hover:from-purple-500 hover:to-indigo-600 text-white text-sm font-bold shadow-md shadow-indigo-600/25 hover:shadow-lg hover:shadow-indigo-600/35 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer disabled:opacity-50 select-none"
+            type="button"
+            onClick={handleAiSummarize}
+            disabled={isSummarizing || entries.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 select-none"
           >
             {isSummarizing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -999,6 +628,24 @@ export const DailyLogView: React.FC = () => {
         </div>
       </div>
 
+      {/* OCC Conflict Warning Banner */}
+      {occConflictMessage && (
+        <div className="px-5 py-2.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300 shrink-0">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+            <span>{occConflictMessage}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleSheetChange(activeSheet)}
+            className="flex items-center gap-1 bg-amber-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>Refresh View</span>
+          </button>
+        </div>
+      )}
+
       {/* AI Summary Notification Banner */}
       {aiSummary && (
         <div className="px-5 py-2.5 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200 dark:border-indigo-800/40 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shrink-0">
@@ -1007,6 +654,7 @@ export const DailyLogView: React.FC = () => {
             <span>{aiSummary}</span>
           </div>
           <button
+            type="button"
             onClick={() => setAiSummary(null)}
             className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-100 text-xs font-bold px-2 cursor-pointer"
           >
@@ -1092,356 +740,409 @@ export const DailyLogView: React.FC = () => {
                             onClick={(e) => e.stopPropagation()}
                             className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 space-y-3 font-normal"
                           >
-                              <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
-                                <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
-                                  <Filter className="w-3.5 h-3.5" />
-                                  <span>Filter: {col.label}</span>
-                                </span>
-                                <button
-                                  onClick={() => setOpenFilterColKey(null)}
-                                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
-                                >
-                                  <X className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
+                            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
+                              <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
+                                <Filter className="w-3.5 h-3.5" />
+                                <span>Filter: {col.label}</span>
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setOpenFilterColKey(null)}
+                                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
 
-                              {/* 1. DATE PICKER / CALENDAR FILTER POPOVER */}
-                              {col.type === 'date' ? (
-                                <div className="space-y-2.5">
-                                  {/* Calendar Month Header */}
-                                  <div className="flex items-center justify-between text-xs font-bold px-1">
-                                    <button
-                                      onClick={() =>
-                                        setCalendarViewDate(
-                                          new Date(
-                                            calendarDaysInMonth.year,
-                                            calendarDaysInMonth.month - 1,
-                                            1
-                                          )
+                            {/* 1. DATE PICKER / CALENDAR FILTER POPOVER */}
+                            {col.type === 'date' ? (
+                              <div className="space-y-2.5">
+                                {/* Calendar Month Header */}
+                                <div className="flex items-center justify-between text-xs font-bold px-1">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setCalendarViewDate(
+                                        new Date(
+                                          calendarDaysInMonth.year,
+                                          calendarDaysInMonth.month - 1,
+                                          1
                                         )
-                                      }
-                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
-                                    >
-                                      <ChevronLeft className="w-3.5 h-3.5" />
-                                    </button>
-                                    <span className="text-zinc-800 dark:text-zinc-200">
-                                      {calendarViewDate.toLocaleString('default', {
-                                        month: 'long',
-                                        year: 'numeric',
-                                      })}
+                                      )
+                                    }
+                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-600 dark:text-zinc-300 cursor-pointer"
+                                  >
+                                    <ChevronLeft className="w-3.5 h-3.5" />
+                                  </button>
+                                  <span>
+                                    {new Intl.DateTimeFormat('en-US', {
+                                      month: 'short',
+                                      year: 'numeric',
+                                    }).format(calendarViewDate)}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setCalendarViewDate(
+                                        new Date(
+                                          calendarDaysInMonth.year,
+                                          calendarDaysInMonth.month + 1,
+                                          1
+                                        )
+                                      )
+                                    }
+                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-600 dark:text-zinc-300 cursor-pointer"
+                                  >
+                                    <ChevronRight className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+
+                                {/* Calendar Day Grid */}
+                                <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
+                                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+                                    <span key={d} className="font-bold text-zinc-400 py-0.5">
+                                      {d}
                                     </span>
+                                  ))}
+                                  {Array.from({ length: calendarDaysInMonth.firstDay }).map((_, i) => (
+                                    <span key={`empty-${i}`} />
+                                  ))}
+                                  {Array.from({ length: calendarDaysInMonth.daysInMonth }).map((_, i) => {
+                                    const day = i + 1;
+                                    const m = String(calendarDaysInMonth.month + 1).padStart(2, '0');
+                                    const dStr = String(day).padStart(2, '0');
+                                    const fullDate = `${calendarDaysInMonth.year}-${m}-${dStr}`;
+                                    const altDate = `${day}/${calendarDaysInMonth.month + 1}/${calendarDaysInMonth.year.toString().slice(2)}`;
+                                    const isSelected =
+                                      columnFilters[col.key] === fullDate ||
+                                      columnFilters[col.key] === altDate;
+
+                                    return (
+                                      <button
+                                        key={day}
+                                        type="button"
+                                        onClick={() => {
+                                          setColumnFilters((prev) => ({
+                                            ...prev,
+                                            [col.key]: isSelected ? '' : fullDate,
+                                          }));
+                                          setOpenFilterColKey(null);
+                                        }}
+                                        className={`py-1 rounded font-medium transition-colors cursor-pointer ${
+                                          isSelected
+                                            ? 'bg-indigo-600 text-white font-bold'
+                                            : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
+                                        }`}
+                                      >
+                                        {day}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[col.key];
+                                        return next;
+                                      });
+                                      setOpenFilterColKey(null);
+                                    }}
+                                    className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-semibold cursor-pointer"
+                                  >
+                                    Clear Filter
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              /* 2. DISCRETE VALUES SELECTOR / SEARCH FILTER POPOVER */
+                              <div className="space-y-2">
+                                <div className="relative">
+                                  <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                                  <input
+                                    type="text"
+                                    placeholder={`Search in ${col.label}...`}
+                                    value={columnFilters[col.key] === '__ALL__' ? '' : columnFilters[col.key] || ''}
+                                    onChange={(e) =>
+                                      setColumnFilters((prev) => ({
+                                        ...prev,
+                                        [col.key]: e.target.value,
+                                      }))
+                                    }
+                                    className="w-full pl-8 pr-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-indigo-500"
+                                  />
+                                </div>
+
+                                {existingUniqueValues.length > 0 && (
+                                  <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
                                     <button
-                                      onClick={() =>
-                                        setCalendarViewDate(
-                                          new Date(
-                                            calendarDaysInMonth.year,
-                                            calendarDaysInMonth.month + 1,
-                                            1
-                                          )
-                                        )
-                                      }
-                                      className="p-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 cursor-pointer"
+                                      type="button"
+                                      onClick={() => {
+                                        setColumnFilters((prev) => {
+                                          const next = { ...prev };
+                                          delete next[col.key];
+                                          return next;
+                                        });
+                                        setOpenFilterColKey(null);
+                                      }}
+                                      className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
+                                        !columnFilters[col.key]
+                                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                                          : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                                      }`}
                                     >
-                                      <ChevronRight className="w-3.5 h-3.5" />
+                                      <span>(Select All)</span>
+                                      {!columnFilters[col.key] && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
                                     </button>
-                                  </div>
 
-                                  {/* Day Name Headers */}
-                                  <div className="grid grid-cols-7 text-center text-[10px] font-bold text-zinc-400 dark:text-zinc-500">
-                                    <span>Su</span>
-                                    <span>Mo</span>
-                                    <span>Tu</span>
-                                    <span>We</span>
-                                    <span>Th</span>
-                                    <span>Fr</span>
-                                    <span>Sa</span>
-                                  </div>
-
-                                  {/* Day Numbers Grid */}
-                                  <div className="grid grid-cols-7 text-center gap-1 text-xs">
-                                    {Array.from({ length: calendarDaysInMonth.firstDay }).map((_, i) => (
-                                      <div key={`empty-${i}`} />
-                                    ))}
-                                    {Array.from({ length: calendarDaysInMonth.daysInMonth }).map((_, i) => {
-                                      const dayNum = i + 1;
-                                      const monthNum = calendarDaysInMonth.month + 1;
-                                      const yearNum = calendarDaysInMonth.year;
-                                      const formattedTarget = `${yearNum}-${String(monthNum).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
-                                      const isSelected = columnFilters[col.key] === formattedTarget;
-
+                                    {existingUniqueValues.map((val) => {
+                                      const isSelected = columnFilters[col.key] === val;
                                       return (
                                         <button
-                                          key={`day-${dayNum}`}
+                                          key={val}
+                                          type="button"
                                           onClick={() => {
-                                            handleSetColumnFilter(col.key, formattedTarget);
+                                            setColumnFilters((prev) => ({
+                                              ...prev,
+                                              [col.key]: isSelected ? '' : val,
+                                            }));
                                             setOpenFilterColKey(null);
                                           }}
-                                          className={`py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
                                             isSelected
-                                              ? 'bg-indigo-600 text-white shadow-2xs'
-                                              : 'hover:bg-indigo-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-200'
+                                              ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                                              : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
                                           }`}
                                         >
-                                          {dayNum}
+                                          <span className="truncate">{val}</span>
+                                          {isSelected && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
                                         </button>
                                       );
                                     })}
                                   </div>
-
-                                  {/* Clear Button */}
-                                  {columnFilters[col.key] && (
-                                    <button
-                                      onClick={() => {
-                                        handleClearColumnFilter(col.key);
-                                        setOpenFilterColKey(null);
-                                      }}
-                                      className="w-full py-1 rounded-lg bg-rose-500/10 text-rose-600 dark:text-rose-400 text-xs font-semibold hover:bg-rose-500/20 transition-colors cursor-pointer"
-                                    >
-                                      Clear Date Filter
-                                    </button>
-                                  )}
-                                </div>
-                              ) : col.type === 'select' ? (
-                                /* 2. DROPDOWN OPTIONS FILTER POPOVER */
-                                <div className="space-y-1.5">
-                                  <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider mb-1">
-                                    Select Option
-                                  </div>
-                                  {(col.options || []).map((opt) => {
-                                    const isSelected = columnFilters[col.key] === opt;
-                                    return (
-                                      <button
-                                        key={opt}
-                                        onClick={() => {
-                                          if (isSelected) {
-                                            handleClearColumnFilter(col.key);
-                                          } else {
-                                            handleSetColumnFilter(col.key, opt);
-                                          }
-                                          setOpenFilterColKey(null);
-                                        }}
-                                        className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
-                                          isSelected
-                                            ? 'bg-indigo-600 text-white font-bold'
-                                            : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                                        }`}
-                                      >
-                                        <span>{opt}</span>
-                                        {isSelected && <Check className="w-3.5 h-3.5 text-white" />}
-                                      </button>
-                                    );
-                                  })}
-
-                                  {columnFilters[col.key] && (
-                                    <button
-                                      onClick={() => {
-                                        handleClearColumnFilter(col.key);
-                                        setOpenFilterColKey(null);
-                                      }}
-                                      className="w-full mt-2 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
-                                    >
-                                      Clear Filter
-                                    </button>
-                                  )}
-                                </div>
-                              ) : (
-                                /* 3. TEXT / NUMBER SEARCH & AUTOMATIC EXISTING VALUES FILTER POPOVER */
-                                <div className="space-y-2.5">
-                                  <input
-                                    type="text"
-                                    placeholder={`Filter ${col.label}...`}
-                                    value={columnFilters[col.key] || ''}
-                                    onChange={(e) => handleSetColumnFilter(col.key, e.target.value)}
-                                    className="w-full px-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                                    autoFocus
-                                  />
-
-                                  {/* Auto-extracted existing dataset values (e.g. Ahmed, Haris, Ali) */}
-                                  {existingUniqueValues.length > 0 && (
-                                    <div className="space-y-1">
-                                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                                        Existing Values ({existingUniqueValues.length})
-                                      </span>
-                                      <div className="max-h-36 overflow-y-auto space-y-1 pr-0.5">
-                                        {existingUniqueValues.map((valStr) => {
-                                          const isSelected = columnFilters[col.key] === valStr;
-                                          return (
-                                            <button
-                                              key={valStr}
-                                              onClick={() => {
-                                                if (isSelected) {
-                                                  handleClearColumnFilter(col.key);
-                                                } else {
-                                                  handleSetColumnFilter(col.key, valStr);
-                                                }
-                                                setOpenFilterColKey(null);
-                                              }}
-                                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer text-left truncate ${
-                                                isSelected
-                                                  ? 'bg-indigo-600 text-white font-bold'
-                                                  : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                                              }`}
-                                            >
-                                              <span className="truncate">{valStr}</span>
-                                              {isSelected && <Check className="w-3.5 h-3.5 text-white shrink-0 ml-1" />}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-200 dark:border-zinc-800">
-                                    <button
-                                      onClick={() => {
-                                        handleClearColumnFilter(col.key);
-                                        setOpenFilterColKey(null);
-                                      }}
-                                      className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
-                                    >
-                                      Clear
-                                    </button>
-                                    <button
-                                      onClick={() => setOpenFilterColKey(null)}
-                                      className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shadow-2xs cursor-pointer"
-                                    >
-                                      Apply
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </th>
-                      );
-                    })}
-                    <th
-                      style={{ width: '48px', minWidth: '48px' }}
-                      className="p-2.5 text-center bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 shrink-0"
-                    />
-                  </tr>
-                </thead>
-
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-                  {filteredEntries.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={columns.length + 2}
-                        className="py-12 text-center text-zinc-400 dark:text-zinc-500 text-xs font-medium"
-                      >
-                        No daily log entries found matching criteria for{' '}
-                        <span className="font-semibold text-indigo-500">{activeSheet}</span>.
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredEntries.map((entry, rowIndex) => {
-                      const customH = rowHeights[entry.id] || DEFAULT_ROW_HEIGHT;
-                      return (
-                        <tr
-                          key={entry.id}
-                          style={{ height: `${customH}px` }}
-                          className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative"
-                        >
-                          {/* Serial Number Column Index */}
-                          <td
-                            style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                            className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900"
-                          >
-                            {rowIndex + 1}
-                          </td>
-
-                          {/* Dynamic Data Columns */}
-                          {columns.map((col) => {
-                            const val = (entry as any)[col.key] || '';
-                            const colW = columnWidths[col.key] || 150;
-
-                            return (
-                              <td
-                                key={col.key}
-                                style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle overflow-visible relative"
-                              >
-                                {col.type === 'select' ? (
-                                  <MatrixSelectCell
-                                    value={val}
-                                    options={
-                                      col.options && col.options.length > 0
-                                        ? col.options
-                                        : col.key === 'task_type'
-                                        ? ['Scheduled Task', 'Runtime Task']
-                                        : col.key === 'task_status'
-                                        ? ['Completed', 'Incomplete', 'Blocker']
-                                        : []
-                                    }
-                                    columnKey={col.key}
-                                    onChange={(newVal) => handleCellChange(entry.id, col.key, newVal)}
-                                  />
-                                ) : col.type === 'date' ? (
-                                  <input
-                                    type="text"
-                                    value={val}
-                                    onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 font-mono outline-none"
-                                  />
-                                ) : col.key === 'task_description' || col.key === 'revisions_done' ? (
-                                  <textarea
-                                    rows={1}
-                                    value={val}
-                                    onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none resize-none leading-relaxed align-middle"
-                                  />
-                                ) : (
-                                  <input
-                                    type="text"
-                                    value={val}
-                                    onChange={(e) => handleCellChange(entry.id, col.key, e.target.value)}
-                                    className="w-full px-2 py-1 rounded bg-transparent border border-transparent hover:border-zinc-300 dark:hover:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 outline-none"
-                                  />
                                 )}
-                              </td>
-                            );
-                          })}
 
-                          {/* Row Actions Delete */}
-                          <td
-                            style={{ width: '48px', minWidth: '48px' }}
-                            className="p-2 text-center align-middle relative border-b border-zinc-200 dark:border-zinc-800/80"
-                          >
+                                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex justify-between">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[col.key];
+                                        return next;
+                                      });
+                                      setOpenFilterColKey(null);
+                                    }}
+                                    className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-semibold cursor-pointer"
+                                  >
+                                    Clear
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOpenFilterColKey(null)}
+                                    className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shadow-2xs cursor-pointer"
+                                  >
+                                    Apply
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </th>
+                    );
+                  })}
+                  <th
+                    style={{ width: '72px', minWidth: '72px' }}
+                    className="p-2.5 text-center font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 shrink-0 text-xs select-none"
+                  >
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
+                {filteredEntries.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={columns.length + 2}
+                      className="py-12 text-center text-zinc-400 dark:text-zinc-500 text-xs font-medium"
+                    >
+                      No daily log entries found matching criteria for{' '}
+                      <span className="font-semibold text-indigo-500">{activeSheet}</span>.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredEntries.map((entry, rowIndex) => {
+                    const customH = rowHeights[entry.id] || DEFAULT_ROW_HEIGHT;
+                    return (
+                      <tr
+                        key={entry.id}
+                        style={{ height: `${customH}px` }}
+                        onDoubleClick={() => handleOpenEditModal(entry)}
+                        className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer"
+                        title="Double-click row to edit entry"
+                      >
+                        {/* Serial Number Column Index */}
+                        <td
+                          style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
+                          className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900"
+                        >
+                          {rowIndex + 1}
+                        </td>
+
+                        {/* Read-Only Formatted Matrix Columns */}
+                        {columns.map((col) => {
+                          const val = (entry as any)[col.key];
+                          const colW = columnWidths[col.key] || 150;
+
+                          return (
+                            <td
+                              key={col.key}
+                              style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                              className="p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text"
+                            >
+                              {col.key === 'task_status' ? (
+                                <div className="flex items-center justify-center">
+                                  {val === 'Completed' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
+                                      <span>Completed</span>
+                                    </span>
+                                  ) : val === 'Blocker' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 animate-pulse" />
+                                      <span>Blocker</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                      <span>Incomplete</span>
+                                    </span>
+                                  )}
+                                </div>
+                              ) : col.key === 'task_type' ? (
+                                <div className="flex items-center justify-center">
+                                  {val === 'Runtime Task' ? (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-400/30">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
+                                      <span>Runtime Task</span>
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-400/30">
+                                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />
+                                      <span>Scheduled Task</span>
+                                    </span>
+                                  )}
+                                </div>
+                              ) : col.key === 'hours_utilized' ? (
+                                <div className="text-center font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                                  <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
+                                    {val !== undefined && val !== null && !isNaN(Number(val))
+                                      ? `${Number(val).toFixed(2)}h`
+                                      : val || '0.00h'}
+                                  </span>
+                                </div>
+                              ) : col.key === 'date' ? (
+                                <span className="font-mono text-zinc-700 dark:text-zinc-300 text-xs">{val || '—'}</span>
+                              ) : col.key === 'deliverables' ? (
+                                val ? (
+                                  <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-medium">
+                                    <span className="truncate max-w-[200px]" title={val}>
+                                      {val}
+                                    </span>
+                                    {val.startsWith('http') && (
+                                      <a
+                                        href={val}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="hover:text-indigo-800 dark:hover:text-indigo-200 shrink-0"
+                                      >
+                                        <ExternalLink className="w-3.5 h-3.5" />
+                                      </a>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-zinc-300 dark:text-zinc-700">—</span>
+                                )
+                              ) : col.key === 'task_description' || col.key === 'revisions_done' ? (
+                                <p className="line-clamp-2 text-zinc-900 dark:text-zinc-100 text-xs leading-relaxed" title={val}>
+                                  {val || '—'}
+                                </p>
+                              ) : (
+                                <span className="text-zinc-900 dark:text-zinc-100 text-xs truncate block" title={String(val || '')}>
+                                  {val || '—'}
+                                </span>
+                              )}
+                            </td>
+                          );
+                        })}
+
+                        {/* Row Actions: Edit & Delete */}
+                        <td
+                          style={{ width: '72px', minWidth: '72px' }}
+                          className="p-2 text-center align-middle relative border-b border-zinc-200 dark:border-zinc-800/80"
+                        >
+                          <div className="flex items-center justify-center gap-1">
                             <button
-                              onClick={() => handleDeleteRow(entry.id)}
-                              className="opacity-0 group-hover:opacity-100 text-zinc-400 hover:text-rose-500 transition-opacity p-1 cursor-pointer"
-                              title="Delete Row"
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleOpenEditModal(entry);
+                              }}
+                              className="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Edit Entry (Modal)"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteRow(entry.id);
+                              }}
+                              className="p-1 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
+                              title="Delete Entry"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
-                            {/* Row Resize Handle */}
-                            <div
-                              onMouseDown={(e) => handleRowResizeStart(e, entry.id, customH)}
-                              className="absolute left-0 right-0 bottom-0 h-1 cursor-row-resize hover:bg-indigo-500/50"
-                            />
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            )}
-          </div>
+                          </div>
+                          {/* Row Resize Handle */}
+                          <div
+                            onMouseDown={(e) => handleRowResizeStart(e, entry.id, customH)}
+                            className="absolute left-0 right-0 bottom-0 h-1 cursor-row-resize hover:bg-indigo-500/50"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
+      </div>
 
       {/* Modern Bottom Sheet Navigation Bar (August 2026 onwards) */}
       <div className="bg-zinc-100 dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 px-4 py-2 flex items-center justify-between gap-3 text-xs shrink-0 shadow-xs">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
           <button
-            onClick={handleAddRow}
+            type="button"
+            onClick={handleOpenCreateModal}
             className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
-            title="Add New Row"
+            title="Add New Entry (Modal)"
           >
             <Plus className="w-4 h-4" />
           </button>
 
-          <button className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer">
+          <button
+            type="button"
+            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
+          >
             <Grid className="w-4 h-4" />
           </button>
 
@@ -1451,6 +1152,7 @@ export const DailyLogView: React.FC = () => {
           {availableSheets.map((sheet) => (
             <button
               key={sheet}
+              type="button"
               onClick={() => handleSheetChange(sheet)}
               className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
                 activeSheet === sheet
@@ -1473,6 +1175,19 @@ export const DailyLogView: React.FC = () => {
         </div>
       </div>
 
+      {/* Controlled Create / Edit Modal (Single Atomic Request & OCC Support) */}
+      <DailyLogModal
+        isOpen={isEntryModalOpen}
+        mode={entryModalMode}
+        initialData={selectedEntry}
+        columns={columns}
+        activeSheet={activeSheet}
+        currentUser={user ? { name: user.name, role: user.role } : null}
+        onClose={() => setIsEntryModalOpen(false)}
+        onSaved={handleEntrySaved}
+        onRefreshRequired={() => handleSheetChange(activeSheet)}
+      />
+
       {/* Enhanced Custom Column Management & Field Creation Modal (Strictly Restricted to Admins) */}
       {isAdmin && isColumnModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -1483,6 +1198,7 @@ export const DailyLogView: React.FC = () => {
                 <span>Manage & Add Matrix Fields</span>
               </h3>
               <button
+                type="button"
                 onClick={() => setIsColumnModalOpen(false)}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs font-bold p-1 cursor-pointer"
               >
