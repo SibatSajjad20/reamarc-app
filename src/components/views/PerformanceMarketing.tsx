@@ -76,8 +76,161 @@ const formatCellValue = (value: any, type?: string): string => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MEMOIZED ROW ITEM COMPONENT
+// Never re-renders during zoom or column resize, eliminating all lag
+// ─────────────────────────────────────────────────────────────────────────────
+interface RowItemProps {
+  row: any;
+  idx: number;
+  handleRowResizeStart: (e: React.MouseEvent, rowId: string, currentH: number) => void;
+}
+
+const MarketingMatrixRowItem: React.FC<RowItemProps> = React.memo(
+  ({ row, idx, handleRowResizeStart }) => {
+    const isWarning = row.status === 'Stopped' || row.status === 'Error';
+    const spendVal = Number(row.ad_spend) || 0;
+    const leadsVal = Number(row.leads_conversions) || 0;
+
+    return (
+      <tr
+        key={row.campaign_id}
+        style={{
+          height: `var(--row-${row.campaign_id}, var(--row-height))`,
+        }}
+        className={`relative border-b border-zinc-200/80 dark:border-zinc-800/80 transition-colors group ${
+          isWarning
+            ? 'bg-rose-500/5 dark:bg-rose-900/10'
+            : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40'
+        }`}
+      >
+        {/* Sr */}
+        <td className="relative px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
+          <span>{idx + 1}</span>
+          {/* Left Drag Handle for Row Height */}
+          <div
+            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, 44)}
+            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-20"
+            title="Drag vertically to adjust row height"
+          />
+        </td>
+        {/* Client / Account */}
+        <td className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+          {row.workspace_name || '—'}
+        </td>
+        {/* Industry */}
+        <td className="px-2 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+          {row.industry || '—'}
+        </td>
+        {/* Objective */}
+        <td className="px-2 text-left text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+          {row.objective}
+        </td>
+        {/* Platform Badge */}
+        <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60">
+          <span
+            className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+              PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other
+            }`}
+          >
+            {row.platform}
+          </span>
+        </td>
+        {/* Campaign Name */}
+        <td
+          className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+          title={row.campaign_name}
+        >
+          {row.campaign_name}
+        </td>
+        {/* Budget Set */}
+        <td className="px-2.5 text-right text-xs font-mono text-zinc-600 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.budget_set, 'currency')}
+        </td>
+        {/* Ad Spend */}
+        <td className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {spendVal > 0 ? (
+            <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
+              {formatCellValue(row.ad_spend, 'currency')}
+            </span>
+          ) : (
+            <span className="text-zinc-400 dark:text-zinc-600">0.00</span>
+          )}
+        </td>
+        {/* CPL / CPA */}
+        <td className="px-2.5 text-right text-xs font-mono text-zinc-700 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.cpl_cpa, 'currency')}
+        </td>
+        {/* Leads / Conversions */}
+        <td className="px-2.5 text-right text-xs font-mono font-bold border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {leadsVal > 0 ? (
+            <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+              {formatCellValue(row.leads_conversions, 'number')}
+            </span>
+          ) : (
+            <span className="text-zinc-400 dark:text-zinc-600">0</span>
+          )}
+        </td>
+        {/* Avg Frequency */}
+        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.avg_frequency, 'number')}
+        </td>
+        {/* Impressions */}
+        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.impressions, 'number')}
+        </td>
+        {/* Clicks */}
+        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.clicks, 'number')}
+        </td>
+        {/* Reach */}
+        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+          {formatCellValue(row.reach, 'number')}
+        </td>
+        {/* Remarks */}
+        <td
+          className="px-2.5 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+          title={row.remarks || ''}
+        >
+          {row.remarks || '—'}
+        </td>
+        {/* Status Badge */}
+        <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 relative">
+          <span
+            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+              row.status === 'Active'
+                ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                : row.status === 'Paused'
+                ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                row.status === 'Active'
+                  ? 'bg-emerald-500 animate-pulse'
+                  : row.status === 'Paused'
+                  ? 'bg-amber-500'
+                  : 'bg-rose-500'
+              }`}
+            />
+            <span>{row.status}</span>
+          </span>
+
+          {/* Right Row Height Resize Handle */}
+          <div
+            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, 44)}
+            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+            title="Drag to resize row height"
+          />
+        </td>
+      </tr>
+    );
+  }
+);
+MarketingMatrixRowItem.displayName = 'MarketingMatrixRowItem';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HIGH PERFORMANCE MARKETING MATRIX TABLE
-// Powered by CSS variables for 60fps lag-free resizing and instant updates
 // ─────────────────────────────────────────────────────────────────────────────
 interface MatrixTableProps {
   sortedRows: any[];
@@ -86,7 +239,6 @@ interface MatrixTableProps {
   rowHeights: Record<string, number>;
   defaultRowHeight: number;
   zoomLevel: number;
-  totalW: number;
   tableRef: React.RefObject<HTMLTableElement | null>;
   handleColumnResizeStart: (e: React.MouseEvent, colKey: string) => void;
   handleRowResizeStart: (e: React.MouseEvent, rowId: string, currentH: number) => void;
@@ -100,38 +252,37 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
     rowHeights,
     defaultRowHeight,
     zoomLevel,
-    totalW,
     tableRef,
     handleColumnResizeStart,
     handleRowResizeStart,
   }) => {
-    // Generate CSS Custom Properties dynamically for the table
+    // Generate initial CSS custom properties
     const tableStyle = useMemo(() => {
       const vars: Record<string, string> = {
         '--row-height': `${defaultRowHeight}px`,
-        width: `${totalW}px`,
-        minWidth: `${totalW}px`,
       };
       columns.forEach((c) => {
         vars[`--col-${c.key}`] = `${columnWidths[c.key] || c.minW}px`;
       });
+      Object.entries(rowHeights).forEach(([rowId, h]) => {
+        vars[`--row-${rowId}`] = `${h}px`;
+      });
       return vars as React.CSSProperties;
-    }, [columns, columnWidths, defaultRowHeight, totalW]);
+    }, [columns, columnWidths, defaultRowHeight, rowHeights]);
 
     return (
       <div className="matrix-grid-scroll flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full relative custom-scrollbar">
         <div
           style={{
             zoom: `${zoomLevel}%`,
-            width: `${totalW}px`,
-            minWidth: `${totalW}px`,
-            willChange: 'transform',
+            width: 'max-content',
+            minWidth: '100%',
           }}
         >
           <table
             ref={tableRef}
             style={tableStyle}
-            className="border-separate border-spacing-0 table-fixed text-left text-xs"
+            className="border-separate border-spacing-0 text-left text-xs min-w-full"
           >
             <colgroup>
               {columns.map((c) => (
@@ -169,153 +320,14 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
               </tr>
             </thead>
             <tbody>
-              {sortedRows.map((row, idx) => {
-                const isWarning = row.status === 'Stopped' || row.status === 'Error';
-                const customHeight = rowHeights[row.campaign_id];
-                const spendVal = Number(row.ad_spend) || 0;
-                const leadsVal = Number(row.leads_conversions) || 0;
-
-                return (
-                  <tr
-                    key={row.campaign_id}
-                    style={{
-                      height: customHeight
-                        ? `var(--row-${row.campaign_id}, ${customHeight}px)`
-                        : 'var(--row-height)',
-                    }}
-                    className={`relative border-b border-zinc-200/80 dark:border-zinc-800/80 transition-colors group ${
-                      isWarning
-                        ? 'bg-rose-500/5 dark:bg-rose-900/10'
-                        : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40'
-                    }`}
-                  >
-                    {/* Sr */}
-                    <td className="relative px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
-                      <span>{idx + 1}</span>
-                      {/* Left Drag Handle for Row Height */}
-                      <div
-                        onMouseDown={(e) =>
-                          handleRowResizeStart(e, row.campaign_id, customHeight || defaultRowHeight)
-                        }
-                        className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-20"
-                        title="Drag vertically to adjust row height"
-                      />
-                    </td>
-                    {/* Client / Account */}
-                    <td className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
-                      {row.workspace_name || '—'}
-                    </td>
-                    {/* Industry */}
-                    <td className="px-2 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
-                      {row.industry || '—'}
-                    </td>
-                    {/* Objective */}
-                    <td className="px-2 text-left text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
-                      {row.objective}
-                    </td>
-                    {/* Platform Badge */}
-                    <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${
-                          PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other
-                        }`}
-                      >
-                        {row.platform}
-                      </span>
-                    </td>
-                    {/* Campaign Name */}
-                    <td
-                      className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
-                      title={row.campaign_name}
-                    >
-                      {row.campaign_name}
-                    </td>
-                    {/* Budget Set */}
-                    <td className="px-2.5 text-right text-xs font-mono text-zinc-600 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.budget_set, 'currency')}
-                    </td>
-                    {/* Ad Spend */}
-                    <td className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {spendVal > 0 ? (
-                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
-                          {formatCellValue(row.ad_spend, 'currency')}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-400 dark:text-zinc-600">0.00</span>
-                      )}
-                    </td>
-                    {/* CPL / CPA */}
-                    <td className="px-2.5 text-right text-xs font-mono text-zinc-700 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.cpl_cpa, 'currency')}
-                    </td>
-                    {/* Leads / Conversions */}
-                    <td className="px-2.5 text-right text-xs font-mono font-bold border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {leadsVal > 0 ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
-                          {formatCellValue(row.leads_conversions, 'number')}
-                        </span>
-                      ) : (
-                        <span className="text-zinc-400 dark:text-zinc-600">0</span>
-                      )}
-                    </td>
-                    {/* Avg Frequency */}
-                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.avg_frequency, 'number')}
-                    </td>
-                    {/* Impressions */}
-                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.impressions, 'number')}
-                    </td>
-                    {/* Clicks */}
-                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.clicks, 'number')}
-                    </td>
-                    {/* Reach */}
-                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
-                      {formatCellValue(row.reach, 'number')}
-                    </td>
-                    {/* Remarks */}
-                    <td
-                      className="px-2.5 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
-                      title={row.remarks || ''}
-                    >
-                      {row.remarks || '—'}
-                    </td>
-                    {/* Status Badge */}
-                    <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 relative">
-                      <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                          row.status === 'Active'
-                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
-                            : row.status === 'Paused'
-                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
-                            : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
-                        }`}
-                      >
-                        <span
-                          className={`w-1.5 h-1.5 rounded-full ${
-                            row.status === 'Active'
-                              ? 'bg-emerald-500 animate-pulse'
-                              : row.status === 'Paused'
-                              ? 'bg-amber-500'
-                              : 'bg-rose-500'
-                          }`}
-                        />
-                        <span>{row.status}</span>
-                      </span>
-
-                      {/* Right Row Height Resize Handle */}
-                      <div
-                        onMouseDown={(e) =>
-                          handleRowResizeStart(e, row.campaign_id, customHeight || defaultRowHeight)
-                        }
-                        className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity z-20"
-                        title="Drag to resize row height"
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
+              {sortedRows.map((row, idx) => (
+                <MarketingMatrixRowItem
+                  key={row.campaign_id}
+                  row={row}
+                  idx={idx}
+                  handleRowResizeStart={handleRowResizeStart}
+                />
+              ))}
             </tbody>
           </table>
         </div>
@@ -424,12 +436,8 @@ export const PerformanceMarketing: React.FC<Props> = ({
       return 100;
     }
   });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('reamarc_perf_zoom', String(zoomLevel));
-    } catch (e) {}
-  }, [zoomLevel]);
+  const zoomLevelRef = useRef(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
 
   // Column & Row Resizing State
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
@@ -439,6 +447,8 @@ export const PerformanceMarketing: React.FC<Props> = ({
     } catch (e) {}
     return DEFAULT_COLUMN_WIDTHS;
   });
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
 
   const [defaultRowHeight, setDefaultRowHeight] = useState<number>(() => {
     try {
@@ -447,6 +457,8 @@ export const PerformanceMarketing: React.FC<Props> = ({
     } catch (e) {}
     return DEFAULT_ROW_HEIGHT;
   });
+  const defaultRowHeightRef = useRef(defaultRowHeight);
+  defaultRowHeightRef.current = defaultRowHeight;
 
   const [rowHeights, setRowHeights] = useState<Record<string, number>>(() => {
     try {
@@ -455,143 +467,141 @@ export const PerformanceMarketing: React.FC<Props> = ({
     } catch (e) {}
     return {};
   });
+  const rowHeightsRef = useRef(rowHeights);
+  rowHeightsRef.current = rowHeights;
 
   // Table DOM Ref for 60fps direct CSS property updates during mouse drag
   const tableRef = useRef<HTMLTableElement | null>(null);
 
-  // Draggable Column Width Mouse Handler
-  const [resizingCol, setResizingCol] = useState<string | null>(null);
-  const startXRef = useRef<number>(0);
-  const startWidthRef = useRef<number>(0);
-  const currentWidthRef = useRef<number>(0);
-  const columnWidthsRef = useRef(columnWidths);
-  columnWidthsRef.current = columnWidths;
-
+  // 100% Native, 60fps Draggable Column Width Handler (Zero React Re-renders during drag)
   const handleColumnResizeStart = useCallback((e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
-    setResizingCol(colKey);
-    startXRef.current = e.clientX;
-    startWidthRef.current = columnWidthsRef.current[colKey] || 100;
-    currentWidthRef.current = startWidthRef.current;
+
+    const startX = e.clientX;
+    const startW = columnWidthsRef.current[colKey] || 100;
+    let currentW = startW;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  }, []);
 
-  useEffect(() => {
-    if (!resizingCol) return;
-    let animationFrameId: number | null = null;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      animationFrameId = requestAnimationFrame(() => {
-        const diff = e.clientX - startXRef.current;
-        const newWidth = Math.max(60, Math.min(500, startWidthRef.current + diff));
-        currentWidthRef.current = newWidth;
-        if (tableRef.current) {
-          tableRef.current.style.setProperty(`--col-${resizingCol}`, `${newWidth}px`);
-        }
-      });
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const diff = moveEvent.clientX - startX;
+      currentW = Math.max(50, Math.min(600, startW + diff));
+      if (tableRef.current) {
+        tableRef.current.style.setProperty(`--col-${colKey}`, `${currentW}px`);
+      }
     };
 
-    const handleMouseUp = () => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      const finalWidth = currentWidthRef.current || startWidthRef.current;
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      columnWidthsRef.current[colKey] = currentW;
       setColumnWidths((prev) => {
-        const next = { ...prev, [resizingCol]: finalWidth };
+        const next = { ...prev, [colKey]: currentW };
         try {
           localStorage.setItem('reamarc_perf_col_widths', JSON.stringify(next));
-        } catch (e) {}
+        } catch (err) {}
         return next;
       });
-      setResizingCol(null);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
     };
 
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [resizingCol]);
-
-  // Draggable Row Height Mouse Handler
-  const [resizingRowId, setResizingRowId] = useState<string | null>(null);
-  const startYRef = useRef<number>(0);
-  const startRowHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
-  const currentRowHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
-  const rowHeightsRef = useRef(rowHeights);
-  rowHeightsRef.current = rowHeights;
-
-  const handleRowResizeStart = useCallback((e: React.MouseEvent, rowId: string, currentH: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setResizingRowId(rowId);
-    startYRef.current = e.clientY;
-    startRowHeightRef.current = currentH;
-    currentRowHeightRef.current = currentH;
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+    window.addEventListener('mouseup', onMouseUp);
   }, []);
 
-  useEffect(() => {
-    if (!resizingRowId) return;
-    let animationFrameId: number | null = null;
+  // 100% Native, 60fps Draggable Row Height Handler (Zero React Re-renders during drag)
+  const handleRowResizeStart = useCallback((e: React.MouseEvent, rowId: string, _currentH?: number) => {
+    e.preventDefault();
+    e.stopPropagation();
 
-    const handleMouseMove = (e: MouseEvent) => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      animationFrameId = requestAnimationFrame(() => {
-        const diff = e.clientY - startYRef.current;
-        const newHeight = Math.max(32, Math.min(120, startRowHeightRef.current + diff));
-        currentRowHeightRef.current = newHeight;
-        if (tableRef.current) {
-          tableRef.current.style.setProperty(`--row-${resizingRowId}`, `${newHeight}px`);
-        }
-      });
+    const startY = e.clientY;
+    const startH = rowHeightsRef.current[rowId] || defaultRowHeightRef.current;
+    let currentHVal = startH;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      const diff = moveEvent.clientY - startY;
+      currentHVal = Math.max(30, Math.min(150, startH + diff));
+      if (tableRef.current) {
+        tableRef.current.style.setProperty(`--row-${rowId}`, `${currentHVal}px`);
+      }
     };
 
-    const handleMouseUp = () => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      const finalHeight = currentRowHeightRef.current || startRowHeightRef.current;
+    const onMouseUp = () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      rowHeightsRef.current[rowId] = currentHVal;
       setRowHeights((prev) => {
-        const next = { ...prev, [resizingRowId]: finalHeight };
+        const next = { ...prev, [rowId]: currentHVal };
         try {
           localStorage.setItem('reamarc_perf_row_heights', JSON.stringify(next));
-        } catch (e) {}
+        } catch (err) {}
         return next;
       });
-      setResizingRowId(null);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
     };
 
-    window.addEventListener('mousemove', handleMouseMove, { passive: true });
-    window.addEventListener('mouseup', handleMouseUp);
-    return () => {
-      if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [resizingRowId]);
+    window.addEventListener('mousemove', onMouseMove, { passive: true });
+    window.addEventListener('mouseup', onMouseUp);
+  }, []);
 
+  // Zero-delay Row Height Increment / Decrement
+  const adjustRowHeight = useCallback((delta: number) => {
+    setDefaultRowHeight((prev) => {
+      const next = Math.max(32, Math.min(100, prev + delta));
+      defaultRowHeightRef.current = next;
+      if (tableRef.current) {
+        tableRef.current.style.setProperty('--row-height', `${next}px`);
+      }
+      try {
+        localStorage.setItem('reamarc_perf_def_row_height', String(next));
+      } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  // Zero-delay Zoom Increment / Decrement
+  const adjustZoom = useCallback((delta: number) => {
+    setZoomLevel((prev) => {
+      const next = Math.max(70, Math.min(130, prev + delta));
+      zoomLevelRef.current = next;
+      try {
+        localStorage.setItem('reamarc_perf_zoom', String(next));
+      } catch (e) {}
+      return next;
+    });
+  }, []);
+
+  // Instant Reset Layout
   const resetLayout = useCallback(() => {
-    setColumnWidths(DEFAULT_COLUMN_WIDTHS);
-    setRowHeights({});
+    columnWidthsRef.current = { ...DEFAULT_COLUMN_WIDTHS };
+    rowHeightsRef.current = {};
+    defaultRowHeightRef.current = DEFAULT_ROW_HEIGHT;
+    zoomLevelRef.current = 100;
+
     setDefaultRowHeight(DEFAULT_ROW_HEIGHT);
     setZoomLevel(100);
+    setColumnWidths({ ...DEFAULT_COLUMN_WIDTHS });
+    setRowHeights({});
+
+    if (tableRef.current) {
+      tableRef.current.style.setProperty('--row-height', `${DEFAULT_ROW_HEIGHT}px`);
+      Object.entries(DEFAULT_COLUMN_WIDTHS).forEach(([k, w]) => {
+        tableRef.current?.style.setProperty(`--col-${k}`, `${w}px`);
+      });
+    }
+
     try {
       localStorage.removeItem('reamarc_perf_col_widths');
       localStorage.removeItem('reamarc_perf_row_heights');
       localStorage.removeItem('reamarc_perf_def_row_height');
       localStorage.removeItem('reamarc_perf_zoom');
     } catch (e) {}
+
     addToast('Layout Reset', 'Grid column widths, row heights, and zoom reset to default.', 'info');
   }, [addToast]);
 
@@ -703,10 +713,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
     ],
     []
   );
-
-  const totalW = useMemo(() => {
-    return columns.reduce((sum, c) => sum + (columnWidths[c.key] || c.minW), 0);
-  }, [columns, columnWidths]);
 
   // Formatted Date string for navbar button
   const formattedDateLabel = useMemo(() => {
@@ -949,7 +955,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* Right Toolbar Controls: Separate, Dedicated Instant Action Buttons */}
+        {/* Right Toolbar Controls: 0-Delay Instant Action Buttons */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Custom Show Paused Toggle Pill */}
           <button
@@ -988,13 +994,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             </span>
             <button
               type="button"
-              onClick={() => {
-                const next = Math.max(32, defaultRowHeight - 4);
-                setDefaultRowHeight(next);
-                try {
-                  localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                } catch (e) {}
-              }}
+              onClick={() => adjustRowHeight(-4)}
               className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
               title="Decrease row height"
             >
@@ -1005,13 +1005,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             </span>
             <button
               type="button"
-              onClick={() => {
-                const next = Math.min(100, defaultRowHeight + 4);
-                setDefaultRowHeight(next);
-                try {
-                  localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                } catch (e) {}
-              }}
+              onClick={() => adjustRowHeight(4)}
               className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
               title="Increase row height"
             >
@@ -1027,7 +1021,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             </span>
             <button
               type="button"
-              onClick={() => setZoomLevel((prev) => Math.max(70, prev - 5))}
+              onClick={() => adjustZoom(-5)}
               className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
               title="Zoom out"
             >
@@ -1038,7 +1032,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             </span>
             <button
               type="button"
-              onClick={() => setZoomLevel((prev) => Math.min(130, prev + 5))}
+              onClick={() => adjustZoom(5)}
               className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
               title="Zoom in"
             >
@@ -1286,7 +1280,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
             rowHeights={rowHeights}
             defaultRowHeight={defaultRowHeight}
             zoomLevel={zoomLevel}
-            totalW={totalW}
             handleColumnResizeStart={handleColumnResizeStart}
             handleRowResizeStart={handleRowResizeStart}
           />
