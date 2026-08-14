@@ -90,7 +90,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">Multi-tenant client brand environments</p>
               </div>
             </div>
-            <HasPermission allowedRoles={['admin', 'editor']}>
+            <HasPermission allowedRoles={['admin', 'member']}>
               <button
                 onClick={onAddWorkspace}
                 className="px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
@@ -126,7 +126,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <HasPermission allowedRoles={['admin', 'editor']}>
+                  <HasPermission allowedRoles={['admin', 'member']}>
                     <button
                       onClick={() => onEditWorkspace(ws)}
                       className="p-2 rounded-lg text-slate-500 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 hover:bg-slate-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
@@ -136,7 +136,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     </button>
                   </HasPermission>
                   {workspaces.length > 1 && (
-                    <HasPermission allowedRoles={['admin', 'editor']}>
+                    <HasPermission allowedRoles={['admin', 'member']}>
                       <button
                         onClick={() => onDeleteWorkspace(ws.id)}
                         className="p-2 rounded-lg text-slate-400 dark:text-zinc-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"

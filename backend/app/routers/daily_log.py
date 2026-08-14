@@ -3,7 +3,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 import uuid
 from app.database import get_database
-from app.core.security import get_current_user, get_workspace_context
+from app.core.security import get_current_user, get_workspace_context, require_admin
 from app.schemas.daily_log import (
     DailyLogEntryCreate,
     DailyLogEntryUpdate,
@@ -11,6 +11,7 @@ from app.schemas.daily_log import (
     DailyLogColumn,
     DailyLogColumnsConfig,
 )
+from app.models.user import UserRole
 
 router = APIRouter(
     prefix="/daily-log",
@@ -106,8 +107,9 @@ async def get_columns(
 async def update_columns(
     columns: List[DailyLogColumn],
     workspace_id: str = Depends(get_workspace_context),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_admin),
 ):
+    """Update column schema (Strictly Admin only)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -145,6 +147,7 @@ async def get_entries(
     month_sheet: Optional[str] = Query(None, description="Month sheet tab filter e.g. 'August - 2026'"),
     start_date: Optional[str] = Query(None, description="Start date for bounded query (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date for bounded query (YYYY-MM-DD)"),
+    user_id: Optional[str] = Query(None, description="Filter by user id (Admin only)"),
     resource_name: Optional[str] = Query(None, description="Filter by resource / member name"),
     task_status: Optional[str] = Query(None, description="Filter by task status"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
@@ -160,6 +163,24 @@ async def get_entries(
     # Scoped Query Filter Construction
     query_filter: dict = {"workspace_id": workspace_id}
 
+    # ROLE-BASED SCOPING:
+    # If user is a Member, strictly restrict to their own logs
+    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    if not is_admin:
+        current_uid = current_user["id"]
+        current_name = current_user.get("name") or current_user.get("full_name")
+        query_filter["$or"] = [
+            {"user_id": current_uid},
+            {"user_id": {"$exists": False}, "resource_name": current_name},
+            {"user_id": None, "resource_name": current_name},
+        ]
+    else:
+        # Admin can filter by specific user_id or resource_name
+        if user_id:
+            query_filter["user_id"] = user_id
+        if resource_name:
+            query_filter["resource_name"] = {"$regex": resource_name, "$options": "i"}
+
     if start_date and end_date:
         query_filter["date"] = {"$gte": start_date, "$lte": end_date}
     elif start_date:
@@ -172,8 +193,6 @@ async def get_entries(
         # Default bounded scope: current month sheet
         query_filter["month_sheet"] = _get_current_month_sheet()
 
-    if resource_name:
-        query_filter["resource_name"] = {"$regex": resource_name, "$options": "i"}
     if task_status:
         query_filter["task_status"] = task_status
     if task_type:
@@ -218,6 +237,12 @@ async def create_entry(
     entry_dict = entry_in.model_dump()
     entry_dict["id"] = f"log-{uuid.uuid4().hex[:12]}"
     entry_dict["workspace_id"] = workspace_id
+    entry_dict["user_id"] = current_user["id"]
+    if not entry_dict.get("resource_name"):
+        entry_dict["resource_name"] = current_user.get("name") or current_user.get("full_name", "Team Member")
+    if not entry_dict.get("role"):
+        entry_dict["role"] = current_user.get("designation") or current_user.get("department") or "Contributor"
+
     entry_dict["month_sheet"] = month_sheet
     entry_dict["version"] = 1
     entry_dict["created_at"] = now_iso
@@ -238,6 +263,27 @@ async def update_entry(
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    existing_entry = await db.daily_log_entries.find_one({"id": entry_id, "workspace_id": workspace_id})
+    if not existing_entry:
+        raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
+
+    # Permissions check: Members can only update their own log entries
+    if not is_admin:
+        entry_uid = existing_entry.get("user_id")
+        entry_rname = existing_entry.get("resource_name")
+        curr_name = current_user.get("name") or current_user.get("full_name")
+        if entry_uid and entry_uid != current_user["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to edit another member's log entry.",
+            )
+        elif not entry_uid and entry_rname and entry_rname != curr_name:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to edit another member's log entry.",
+            )
 
     update_data = {k: v for k, v in entry_in.model_dump().items() if v is not None}
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
@@ -290,6 +336,27 @@ async def delete_entry(
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    existing_entry = await db.daily_log_entries.find_one({"id": entry_id, "workspace_id": workspace_id})
+    if not existing_entry:
+        raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
+
+    # Permissions check: Members can only delete their own entries
+    if not is_admin:
+        entry_uid = existing_entry.get("user_id")
+        entry_rname = existing_entry.get("resource_name")
+        curr_name = current_user.get("name") or current_user.get("full_name")
+        if entry_uid and entry_uid != current_user["id"]:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete another member's log entry.",
+            )
+        elif not entry_uid and entry_rname and entry_rname != curr_name:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You do not have permission to delete another member's log entry.",
+            )
 
     res = await db.daily_log_entries.delete_one({"id": entry_id, "workspace_id": workspace_id})
     if res.deleted_count == 0:

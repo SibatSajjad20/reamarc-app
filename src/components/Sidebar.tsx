@@ -241,7 +241,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             })}
 
             {onAddWorkspace && (
-              <HasPermission allowedRoles={['admin', 'editor']}>
+              <HasPermission allowedRoles={['admin', 'member']}>
                 <div className="h-px bg-zinc-200 dark:bg-zinc-800 my-1" />
                 <button
                   onClick={() => {

@@ -503,8 +503,8 @@ export const PerformanceMarketing: React.FC<Props> = ({ selectedWorkspace, works
             <RefreshCcw className="w-3.5 h-3.5" /> Refresh
           </button>
 
-          {/* Sync Ads API Button (Admin/Editor Only) */}
-          {(role === 'admin' || role === 'editor') && (
+          {/* Sync Ads API Button (Admin/Member Only) */}
+          {(role === 'admin' || role === 'member') && (
             <button
               onClick={handleManualSync}
               disabled={isSyncing}

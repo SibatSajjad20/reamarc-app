@@ -2,7 +2,6 @@ import React, { useState, useRef, useMemo } from 'react';
 import type { KnowledgeSource, Workspace } from '../../types';
 import { useToast } from '../../context/ToastContext';
 import { HasPermission } from '../HasPermission';
-import { useAuth } from '../../context/AuthContext';
 import {
   Brain,
   Globe,
@@ -44,7 +43,6 @@ export const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
   workspaces = [],
 }) => {
   const { addToast } = useToast();
-  const { role } = useAuth();
   const [urlInput, setUrlInput] = useState('');
   const [isScraping, setIsScraping] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -122,7 +120,6 @@ export const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    if (role === 'viewer') return;
     handleFileUpload(e.dataTransfer.files);
   };
 
@@ -197,15 +194,13 @@ export const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
           <div
             onDragOver={(e) => {
               e.preventDefault();
-              if (role !== 'viewer') setDragOver(true);
+              setDragOver(true);
             }}
             onDragLeave={() => setDragOver(false)}
             onDrop={handleDrop}
-            onClick={() => role !== 'viewer' && fileInputRef.current?.click()}
+            onClick={() => fileInputRef.current?.click()}
             className={`border-2 border-dashed rounded-3xl p-6 flex flex-col items-center justify-center text-center transition-all duration-200 relative group overflow-hidden shadow-sm ${
-              role === 'viewer'
-                ? 'cursor-not-allowed opacity-50 border-slate-300 dark:border-zinc-800 bg-white dark:bg-zinc-900/40'
-                : dragOver
+              dragOver
                 ? 'border-indigo-600 bg-indigo-50 dark:bg-indigo-500/10 cursor-pointer'
                 : 'border-slate-300 dark:border-zinc-800 hover:border-indigo-500/60 bg-white dark:bg-zinc-900/40 hover:bg-slate-100/60 dark:hover:bg-zinc-900/80 cursor-pointer'
             }`}
@@ -278,7 +273,7 @@ export const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
 
                       <button
                         type="submit"
-                        disabled={isScraping || !urlInput.trim() || role === 'viewer'}
+                        disabled={isScraping || !urlInput.trim()}
                         className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-bold transition-all shadow-md shadow-indigo-600/20 cursor-pointer"
                       >
                         {isScraping ? (
@@ -379,7 +374,7 @@ export const KnowledgeBase: React.FC<KnowledgeBaseProps> = ({
                               <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-2.5 py-1 rounded-full border border-emerald-200 dark:border-emerald-500/20">
                                 <CheckCircle2 className="w-3.5 h-3.5" /> RAG Vectorized
                               </span>
-                              <HasPermission allowedRoles={['admin', 'editor']}>
+                              <HasPermission allowedRoles={['admin', 'member']}>
                                 <button
                                   onClick={() => onDeleteSource(String(source.id))}
                                   className="p-1.5 rounded-lg text-slate-400 dark:text-zinc-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"

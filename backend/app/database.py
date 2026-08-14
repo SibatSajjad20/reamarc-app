@@ -63,10 +63,20 @@ async def connect_to_mongo():
 
         # Daily Log Module indexes
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("date", -1)])
+        await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("user_id", 1), ("date", -1)])
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("month_sheet", 1)])
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("resource_name", 1), ("date", -1)])
         await db_instance.db.daily_log_entries.create_index([("id", 1), ("workspace_id", 1)], unique=True)
         await db_instance.db.daily_log_columns.create_index([("workspace_id", 1)], unique=True)
+
+        # Consolidate legacy user roles to simplified 2-tier model ('admin' / 'member')
+        try:
+            await db_instance.db.users.update_many(
+                {"role": {"$in": ["editor", "viewer", "client"]}},
+                {"$set": {"role": "member"}}
+            )
+        except Exception:
+            pass
 
     except Exception as e:
         logger.warning(f"Could not connect to MongoDB: {e}. Running in degraded mode.")

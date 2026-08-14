@@ -119,7 +119,7 @@ export const WorkspaceAssignModal: React.FC<WorkspaceAssignModalProps> = ({
           <div className="flex items-center justify-between mb-1">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
               <ShieldCheck className="w-3.5 h-3.5 text-indigo-500" />
-              Team Access Matrix (Editors & Viewers)
+              Team Access Matrix (Members)
             </h4>
             <span className="text-[11px] text-slate-400 font-mono">
               {filteredUsers.filter((u) => (u.workspace_ids || []).includes(workspace.id)).length} Assigned

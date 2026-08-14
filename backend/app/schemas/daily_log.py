@@ -77,6 +77,7 @@ class DailyLogColumn(BaseModel):
 
 
 class DailyLogEntryCreate(BaseModel):
+    user_id: Optional[str] = None
     date: str
     resource_name: str = ""
     role: str = ""
@@ -99,6 +100,7 @@ class DailyLogEntryCreate(BaseModel):
 
 class DailyLogEntryUpdate(BaseModel):
     version: Optional[int] = Field(None, description="Current record version for Optimistic Concurrency Control (OCC)")
+    user_id: Optional[str] = None
     date: Optional[str] = None
     resource_name: Optional[str] = None
     role: Optional[str] = None
@@ -124,6 +126,7 @@ class DailyLogEntryUpdate(BaseModel):
 class DailyLogEntryResponse(BaseModel):
     id: str
     workspace_id: str
+    user_id: Optional[str] = None
     version: int = 1
     date: str
     resource_name: str

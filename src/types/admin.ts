@@ -1,28 +1,43 @@
 import type { UserRole } from './auth';
 
-export interface AdminUser {
+export interface AdminMember {
   id: string;
   email: string;
   full_name: string;
   role: UserRole;
+  department?: string;
+  designation?: string;
   is_active: boolean;
-  workspace_ids: string[];
+  workspace_ids?: string[];
+  created_at?: string;
 }
 
-export interface AdminCreateUserPayload {
-  email: string;
+export type AdminUser = AdminMember;
+
+export interface CreateMemberPayload {
   full_name: string;
-  initial_password: string;
+  email: string;
   role: UserRole;
-  workspace_ids: string[];
-}
-
-export interface AdminUpdateUserPayload {
-  full_name?: string;
-  role?: UserRole;
+  department?: string;
+  designation?: string;
+  temporary_password?: string;
+  send_invite_email?: boolean;
   is_active?: boolean;
   workspace_ids?: string[];
 }
+
+export type AdminCreateUserPayload = CreateMemberPayload;
+
+export interface UpdateMemberPayload {
+  full_name?: string;
+  role?: UserRole;
+  department?: string;
+  designation?: string;
+  is_active?: boolean;
+  workspace_ids?: string[];
+}
+
+export type AdminUpdateUserPayload = UpdateMemberPayload;
 
 export interface AdminCreateWorkspacePayload {
   name: string;

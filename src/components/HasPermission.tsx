@@ -10,7 +10,7 @@ interface HasPermissionProps {
 }
 
 export const HasPermission: React.FC<HasPermissionProps> = ({
-  allowedRoles = ['admin', 'editor'],
+  allowedRoles = ['admin', 'member'],
   children,
   fallback = null,
   disableOnly = false,

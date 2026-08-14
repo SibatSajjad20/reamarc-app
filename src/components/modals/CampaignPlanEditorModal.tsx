@@ -28,7 +28,7 @@ export const CampaignPlanEditorModal: React.FC<CampaignPlanEditorModalProps> = (
 }) => {
   const { addToast } = useToast();
   const { role } = useAuth();
-  const canEdit = role === 'admin' || role === 'editor';
+  const canEdit = role === 'admin' || role === 'member';
 
   const [activeDayEditing, setActiveDayEditing] = useState<number | null>(null);
   const [editingTopic, setEditingTopic] = useState('');
@@ -209,7 +209,7 @@ export const CampaignPlanEditorModal: React.FC<CampaignPlanEditorModalProps> = (
                         </span>
                       )}
 
-                      <HasPermission allowedRoles={['admin', 'editor']}>
+                      <HasPermission allowedRoles={['admin', 'member']}>
                         {/* Regenerate AI Button with Crystal Clear Contrast */}
                         <button
                           type="button"
@@ -271,7 +271,7 @@ export const CampaignPlanEditorModal: React.FC<CampaignPlanEditorModalProps> = (
           >
             Close
           </button>
-          <HasPermission allowedRoles={['admin', 'editor']}>
+          <HasPermission allowedRoles={['admin', 'member']}>
             <button
               onClick={handleSaveAllChanges}
               disabled={!hasPendingEdits || isSavingAll}

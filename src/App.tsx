@@ -8,7 +8,6 @@ import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthScreen } from './components/auth/AuthScreen';
-import { ClientPortal } from './components/portal/ClientPortal';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { Sparkles } from 'lucide-react';
 
@@ -157,10 +156,6 @@ function AppInner() {
     return <AuthScreen />;
   }
 
-  // Client role — isolated portal, no internal app access
-  if (user.role === 'client') {
-    return <ClientPortal />;
-  }
 
   return (
     <div className="flex h-screen w-screen bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 overflow-hidden antialiased">

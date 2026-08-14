@@ -1,26 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { Users, Building2, UserPlus, Plus, Shield, CheckCircle, XCircle, ChevronRight, Search, Edit2, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  Users,
+  Building2,
+  UserPlus,
+  Plus,
+  Shield,
+  ChevronRight,
+  Search,
+  Edit2,
+  Trash2,
+  Loader2,
+} from 'lucide-react';
 import { adminService } from '../../services/adminService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { AddMemberModal } from './AddMemberModal';
 import { WorkspaceAssignModal } from './WorkspaceAssignModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
-import type { AdminUser, AdminCreateUserPayload } from '../../types/admin';
+import type { AdminMember, CreateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import type { UserRole } from '../../types/auth';
 
+const DEPARTMENTS = ['All Departments', 'Engineering', 'AI', 'Design', 'QA', 'Marketing', 'Operations'];
+
 export const AdminPanel: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'users' | 'workspaces'>('users');
-  const [userRoleTab, setUserRoleTab] = useState<'all' | 'admin' | 'editor' | 'viewer' | 'client'>('all');
-  const [users, setUsers] = useState<AdminUser[]>([]);
-  const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(true);
+  const [activeTab, setActiveTab] = useState<'members' | 'workspaces'>('members');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'member'>('all');
+  const [selectedDept, setSelectedDept] = useState<string>('All Departments');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [members, setMembers] = useState<AdminMember[]>([]);
+  const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState('');
 
   // Modal states
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
-  const [addModalDefaultRole, setAddModalDefaultRole] = useState<UserRole>('editor');
+  const [addModalDefaultRole, setAddModalDefaultRole] = useState<UserRole>('member');
   const [selectedWsForDrawer, setSelectedWsForDrawer] = useState<Workspace | null>(null);
 
   // Workspace modal
@@ -30,48 +45,48 @@ export const AdminPanel: React.FC = () => {
   const { workspaces, saveWorkspace, deleteWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
   const { addToast } = useToast();
 
-  const fetchUsers = async () => {
+  const fetchMembers = async () => {
     try {
-      setIsLoadingUsers(true);
-      const data = await adminService.getUsers();
-      setUsers(data);
+      setIsLoadingMembers(true);
+      const data = await adminService.getMembers();
+      setMembers(data);
     } catch (err: any) {
       addToast('Error', err.message || 'Failed to load team members', 'warning');
     } finally {
-      setIsLoadingUsers(false);
+      setIsLoadingMembers(false);
     }
   };
 
   useEffect(() => {
-    fetchUsers();
+    fetchMembers();
   }, []);
 
   const handleOpenAddModal = (role?: UserRole) => {
-    setAddModalDefaultRole(role || (userRoleTab !== 'all' ? (userRoleTab as UserRole) : 'editor'));
+    setAddModalDefaultRole(role || (roleFilter !== 'all' ? roleFilter : 'member'));
     setIsAddModalOpen(true);
   };
 
-  const handleCreateUser = async (payload: AdminCreateUserPayload) => {
-    await adminService.createUser(payload);
-    addToast('Success', `User account created for ${payload.email}`, 'success');
-    fetchUsers();
+  const handleCreateMember = async (payload: CreateMemberPayload) => {
+    await adminService.createMember(payload);
+    addToast('Success', `Team member account created for ${payload.email}`, 'success');
+    fetchMembers();
   };
 
-  const handleToggleUserStatus = async (user: AdminUser) => {
+  const handleToggleMemberStatus = async (member: AdminMember) => {
     try {
-      const updated = await adminService.updateUser(user.id, { is_active: !user.is_active });
-      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)));
-      addToast('Updated', `Account status for ${user.full_name} changed`, 'info');
+      const updated = await adminService.updateMember(member.id, { is_active: !member.is_active });
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? updated : m)));
+      addToast('Updated', `Account status for ${member.full_name} changed`, 'info');
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to update user', 'warning');
+      addToast('Error', err.message || 'Failed to update member status', 'warning');
     }
   };
 
-  const handleChangeRole = async (user: AdminUser, newRole: UserRole) => {
+  const handleChangeRole = async (member: AdminMember, newRole: UserRole) => {
     try {
-      const updated = await adminService.updateUser(user.id, { role: newRole });
-      setUsers((prev) => prev.map((u) => (u.id === user.id ? updated : u)));
-      addToast('Role Updated', `${user.full_name} is now a ${newRole}`, 'success');
+      const updated = await adminService.updateMember(member.id, { role: newRole });
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? updated : m)));
+      addToast('Role Updated', `${member.full_name} is now an ${newRole}`, 'success');
     } catch (err: any) {
       addToast('Error', err.message || 'Failed to update role', 'warning');
     }
@@ -112,247 +127,346 @@ export const AdminPanel: React.FC = () => {
   const handleAssignWorkspaceUser = async (userId: string, workspaceId: string, action: 'assign' | 'remove') => {
     try {
       await adminService.assignWorkspace({ user_id: userId, workspace_id: workspaceId, action });
-      await fetchUsers();
+      await fetchMembers();
       addToast('Assigned', `Updated workspace access`, 'success');
     } catch (err: any) {
       addToast('Error', err.message || 'Failed to update assignment', 'warning');
     }
   };
 
-  // Filter users by search & active role tab
-  const filteredUsers = users.filter((u) => {
-    const matchesSearch =
-      u.full_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      u.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = userRoleTab === 'all' || u.role === userRoleTab;
-    return matchesSearch && matchesRole;
-  });
+  // Filtered members list
+  const filteredMembers = useMemo(() => {
+    return members.filter((m) => {
+      const q = searchQuery.toLowerCase();
+      const matchesSearch =
+        m.full_name.toLowerCase().includes(q) ||
+        m.email.toLowerCase().includes(q) ||
+        (m.designation && m.designation.toLowerCase().includes(q)) ||
+        (m.department && m.department.toLowerCase().includes(q));
 
-  // Filter workspaces by search
-  const filteredWorkspaces = workspaces.filter(
-    (ws) =>
-      ws.name.toLowerCase().includes(workspaceSearchQuery.toLowerCase()) ||
-      (ws.industry && ws.industry.toLowerCase().includes(workspaceSearchQuery.toLowerCase())) ||
-      ws.id.toLowerCase().includes(workspaceSearchQuery.toLowerCase())
-  );
+      const matchesRole = roleFilter === 'all' || m.role === roleFilter;
 
-  const getAddButtonLabel = () => {
-    switch (userRoleTab) {
-      case 'admin':
-        return 'Add Admin';
-      case 'editor':
-        return 'Add Editor';
-      case 'viewer':
-        return 'Add Viewer';
-      case 'client':
-        return 'Add Client';
-      default:
-        return 'Add Member';
-    }
-  };
+      const matchesDept =
+        selectedDept === 'All Departments' ||
+        (m.department && m.department.toLowerCase() === selectedDept.toLowerCase());
+
+      const matchesStatus =
+        statusFilter === 'all' ||
+        (statusFilter === 'active' && m.is_active) ||
+        (statusFilter === 'inactive' && !m.is_active);
+
+      return matchesSearch && matchesRole && matchesDept && matchesStatus;
+    });
+  }, [members, searchQuery, roleFilter, selectedDept, statusFilter]);
+
+  // Filtered workspaces
+  const filteredWorkspaces = useMemo(() => {
+    return workspaces.filter(
+      (ws) =>
+        ws.name.toLowerCase().includes(workspaceSearchQuery.toLowerCase()) ||
+        (ws.industry && ws.industry.toLowerCase().includes(workspaceSearchQuery.toLowerCase())) ||
+        ws.id.toLowerCase().includes(workspaceSearchQuery.toLowerCase())
+    );
+  }, [workspaces, workspaceSearchQuery]);
+
+  const adminCount = members.filter((m) => m.role === 'admin').length;
+  const memberCount = members.filter((m) => m.role === 'member').length;
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto animate-fadeIn">
+    <div className="space-y-6 max-w-7xl mx-auto animate-fadeIn select-none p-2 sm:p-4">
       {/* Top Header Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="p-3 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-2xl">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-6 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs">
+        <div className="flex items-center gap-3.5">
+          <div className="p-3 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-2xl border border-indigo-500/20">
             <Shield className="w-6 h-6" />
           </div>
           <div>
-            <h1 className="text-xl font-extrabold text-slate-900 dark:text-white">Admin Operations Center</h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Manage multi-tenant organization users, roles, and workspace access.
+            <h1 className="text-lg sm:text-xl font-extrabold text-zinc-900 dark:text-zinc-100">
+              Admin Operations Center
+            </h1>
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+              Manage organization team members, roles, permissions, and workspace access.
             </p>
           </div>
         </div>
 
         {/* Tab Buttons */}
-        <div className="flex items-center p-1 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/60 dark:border-slate-700/60">
+        <div className="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800 shrink-0">
           <button
-            onClick={() => setActiveTab('users')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition ${
-              activeTab === 'users'
-                ? 'bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+            type="button"
+            onClick={() => setActiveTab('members')}
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
+              activeTab === 'members'
+                ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
             }`}
           >
             <Users className="w-4 h-4" />
-            Team Members ({users.length})
+            <span>Team Members ({members.length})</span>
           </button>
           <button
+            type="button"
             onClick={() => setActiveTab('workspaces')}
-            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition ${
+            className={`flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
               activeTab === 'workspaces'
-                ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                ? 'bg-white dark:bg-zinc-800 text-indigo-600 dark:text-indigo-400 shadow-xs'
+                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
             }`}
           >
             <Building2 className="w-4 h-4" />
-            Workspaces ({workspaces.length})
+            <span>Workspaces ({workspaces.length})</span>
           </button>
         </div>
       </div>
 
       {/* TAB 1: TEAM MEMBERS */}
-      {activeTab === 'users' && (
+      {activeTab === 'members' && (
         <div className="space-y-4">
-          {/* Sub-tab Navigation for Roles */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-              {[
-                { key: 'all', label: 'All Users', count: users.length },
-                { key: 'admin', label: 'Admins', count: users.filter((u) => u.role === 'admin').length },
-                { key: 'editor', label: 'Editors', count: users.filter((u) => u.role === 'editor').length },
-                { key: 'viewer', label: 'Viewers', count: users.filter((u) => u.role === 'viewer').length },
-                { key: 'client', label: 'Clients', count: users.filter((u) => u.role === 'client').length },
-              ].map((tab) => (
-                <button
-                  key={tab.key}
-                  onClick={() => setUserRoleTab(tab.key as any)}
-                  className={`px-3 py-1.5 text-xs font-bold rounded-xl transition flex items-center gap-1.5 ${
-                    userRoleTab === tab.key
-                      ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/20'
-                      : 'bg-slate-100 dark:bg-slate-800/60 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800'
-                  }`}
-                >
-                  <span>{tab.label}</span>
-                  <span
-                    className={`px-1.5 py-0.2 text-[10px] rounded-full font-extrabold ${
-                      userRoleTab === tab.key ? 'bg-white/20 text-white' : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+          {/* Controls Bar: Role Tabs, Department Filter, Status Filter, Search, and Add Member CTA */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs">
+            {/* Left Filter Controls */}
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Role Segmented Buttons */}
+              <div className="flex items-center p-1 bg-zinc-100 dark:bg-zinc-900 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                {[
+                  { key: 'all', label: 'All Members', count: members.length },
+                  { key: 'member', label: 'Members', count: memberCount },
+                  { key: 'admin', label: 'Admins', count: adminCount },
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setRoleFilter(tab.key as any)}
+                    className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                      roleFilter === tab.key
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
                     }`}
                   >
-                    {tab.count}
-                  </span>
-                </button>
-              ))}
+                    <span>{tab.label}</span>
+                    <span
+                      className={`px-1.5 py-0.2 text-[10px] rounded-full font-bold ${
+                        roleFilter === tab.key
+                          ? 'bg-white/20 text-white'
+                          : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Department Dropdown */}
+              <div className="relative">
+                <select
+                  value={selectedDept}
+                  onChange={(e) => setSelectedDept(e.target.value)}
+                  className="px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 cursor-pointer shadow-2xs"
+                >
+                  {DEPARTMENTS.map((d) => (
+                    <option key={d} value={d} className="bg-white dark:bg-zinc-900">
+                      {d}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Status Filter */}
+              <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-900 p-1 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                {[
+                  { id: 'all', label: 'All Status' },
+                  { id: 'active', label: 'Active' },
+                  { id: 'inactive', label: 'Inactive' },
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setStatusFilter(s.id as any)}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-lg transition-colors cursor-pointer ${
+                      statusFilter === s.id
+                        ? 'bg-white dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100 shadow-2xs font-bold'
+                        : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <button
-              onClick={() => handleOpenAddModal()}
-              className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:scale-95 rounded-xl transition shadow-md shadow-blue-600/20 shrink-0"
-            >
-              <UserPlus className="w-4 h-4" />
-              {getAddButtonLabel()}
-            </button>
-          </div>
+            {/* Right: Search & Add Member Button */}
+            <div className="flex items-center gap-2.5 flex-1 sm:flex-initial min-w-[260px] justify-end">
+              <div className="relative flex-1 sm:w-64">
+                <Search className="w-4 h-4 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search name, email, role..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all shadow-2xs"
+                />
+              </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search team members by name or email..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 text-xs bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:outline-none"
-              />
+              <button
+                type="button"
+                onClick={() => handleOpenAddModal()}
+                className="flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl transition-all shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 cursor-pointer shrink-0 select-none"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Add Member</span>
+              </button>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
-            {isLoadingUsers ? (
-              <div className="p-12 text-center text-xs text-slate-400">Loading team directory...</div>
-            ) : filteredUsers.length === 0 ? (
-              <div className="p-12 text-center text-xs text-slate-400">No team members match your criteria.</div>
+          {/* Members Data Table */}
+          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
+            {isLoadingMembers ? (
+              <div className="p-16 flex flex-col items-center justify-center gap-3 text-zinc-400">
+                <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
+                <span className="text-xs font-medium">Loading team directory...</span>
+              </div>
+            ) : filteredMembers.length === 0 ? (
+              <div className="p-16 text-center text-xs text-zinc-400">
+                No team members found matching criteria.
+              </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-600 dark:text-slate-300">
-                  <thead className="bg-slate-50 dark:bg-slate-800/50 text-[11px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
+                <table className="w-full text-left text-xs text-zinc-600 dark:text-zinc-300">
+                  <thead className="bg-zinc-50 dark:bg-zinc-900/60 text-[11px] font-bold text-zinc-400 uppercase tracking-wider border-b border-zinc-200 dark:border-zinc-800">
                     <tr>
-                      <th className="px-6 py-3.5">User</th>
+                      <th className="px-6 py-3.5">Member Name</th>
                       <th className="px-6 py-3.5">Role</th>
+                      <th className="px-6 py-3.5">Department</th>
+                      <th className="px-6 py-3.5">Designation</th>
                       <th className="px-6 py-3.5">Status</th>
                       <th className="px-6 py-3.5">Assigned Workspaces</th>
                       <th className="px-6 py-3.5 text-right">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-200/60 dark:divide-slate-800/60">
-                    {filteredUsers.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition">
+                  <tbody className="divide-y divide-zinc-200/80 dark:divide-zinc-800/80">
+                    {filteredMembers.map((m) => (
+                      <tr key={m.id} className="hover:bg-zinc-50/60 dark:hover:bg-zinc-900/40 transition">
+                        {/* Member Identity */}
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-xs">
-                              {u.full_name.slice(0, 2).toUpperCase()}
+                            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs shrink-0 uppercase">
+                              {m.full_name.slice(0, 2)}
                             </div>
                             <div>
-                              <p className="font-semibold text-slate-900 dark:text-white">{u.full_name}</p>
-                              <p className="text-[11px] text-slate-400">{u.email}</p>
+                              <p className="font-bold text-zinc-900 dark:text-zinc-100">{m.full_name}</p>
+                              <p className="text-[11px] text-zinc-400 font-mono">{m.email}</p>
                             </div>
                           </div>
                         </td>
 
+                        {/* Role Badge / Selector */}
                         <td className="px-6 py-4">
-                          {u.role === 'admin' ? (
-                            <span className="px-2.5 py-1 rounded-lg text-xs font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                              Admin
+                          {m.role === 'admin' ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-400/30">
+                              <Shield className="w-3 h-3" />
+                              <span>Admin</span>
                             </span>
                           ) : (
-                            <select
-                              value={u.role}
-                              onChange={(e) => handleChangeRole(u, e.target.value as UserRole)}
-                              className="bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 text-xs font-bold capitalize text-slate-800 dark:text-slate-200 focus:outline-none"
-                            >
-                              <option value="admin">Admin</option>
-                              <option value="editor">Editor</option>
-                              <option value="viewer">Viewer</option>
-                              <option value="client">Client</option>
-                            </select>
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                              <Users className="w-3 h-3" />
+                              <span>Member</span>
+                            </span>
                           )}
                         </td>
 
+                        {/* Department Badge */}
                         <td className="px-6 py-4">
-                          {u.role === 'admin' ? (
-                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                              <CheckCircle className="w-3 h-3" /> Active
+                          {m.department ? (
+                            <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">
+                              {m.department}
+                            </span>
+                          ) : (
+                            <span className="text-zinc-400 dark:text-zinc-600">—</span>
+                          )}
+                        </td>
+
+                        {/* Designation / Job Title */}
+                        <td className="px-6 py-4">
+                          <span className="font-medium text-zinc-800 dark:text-zinc-200">
+                            {m.designation || 'Team Contributor'}
+                          </span>
+                        </td>
+
+                        {/* Status (Active / Disabled) */}
+                        <td className="px-6 py-4">
+                          {m.role === 'admin' ? (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                              <span>Active</span>
                             </span>
                           ) : (
                             <button
-                              onClick={() => handleToggleUserStatus(u)}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold transition ${
-                                u.is_active
-                                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                                  : 'bg-red-500/10 text-red-600 dark:text-red-400'
+                              type="button"
+                              onClick={() => handleToggleMemberStatus(m)}
+                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border transition cursor-pointer ${
+                                m.is_active
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                                  : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-500 border-zinc-300 dark:border-zinc-700 hover:bg-zinc-300'
                               }`}
                             >
-                              {u.is_active ? <CheckCircle className="w-3 h-3" /> : <XCircle className="w-3 h-3" />}
-                              {u.is_active ? 'Active' : 'Disabled'}
+                              <span className={`w-1.5 h-1.5 rounded-full ${m.is_active ? 'bg-emerald-500' : 'bg-zinc-400'}`} />
+                              <span>{m.is_active ? 'Active' : 'Disabled'}</span>
                             </button>
                           )}
                         </td>
 
+                        {/* Assigned Workspaces */}
                         <td className="px-6 py-4">
-                          {u.role === 'admin' ? (
+                          {m.role === 'admin' ? (
                             <span className="px-2.5 py-1 text-[11px] font-bold bg-purple-500/10 text-purple-600 dark:text-purple-400 rounded-lg border border-purple-500/20">
                               Global Access (All Workspaces)
                             </span>
                           ) : (
                             <div className="flex flex-wrap gap-1">
-                              {(u.workspace_ids || []).map((wsId) => {
-                                const ws = workspaces.find((w) => w.id === wsId);
-                                return (
-                                  <span
-                                    key={wsId}
-                                    className="px-2 py-0.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-md border border-slate-200 dark:border-slate-700"
-                                  >
-                                    {ws?.name || wsId}
-                                  </span>
-                                );
-                              })}
+                              {(m.workspace_ids && m.workspace_ids.length > 0) ? (
+                                m.workspace_ids.map((wsId) => {
+                                  const ws = workspaces.find((w) => w.id === wsId);
+                                  return (
+                                    <span
+                                      key={wsId}
+                                      className="px-2 py-0.5 text-[10px] font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-md border border-zinc-200 dark:border-zinc-700"
+                                    >
+                                      {ws?.name || wsId}
+                                    </span>
+                                  );
+                                })
+                              ) : (
+                                <span className="text-[11px] text-zinc-400 italic">No workspace assigned</span>
+                              )}
                             </div>
                           )}
                         </td>
 
+                        {/* Row Actions */}
                         <td className="px-6 py-4 text-right">
-                          {u.role === 'admin' ? (
-                            <span className="text-xs font-medium text-slate-400 italic">Immutable Admin</span>
+                          {m.role === 'admin' ? (
+                            <span className="text-xs font-medium text-zinc-400 italic">Immutable Admin</span>
                           ) : (
-                            <button
-                              onClick={() => handleToggleUserStatus(u)}
-                              className="text-xs font-semibold text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                            >
-                              {u.is_active ? 'Deactivate' : 'Activate'}
-                            </button>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => handleChangeRole(m, 'admin')}
+                                className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                              >
+                                Promote to Admin
+                              </button>
+                              <span className="text-zinc-300 dark:text-zinc-700">|</span>
+                              <button
+                                type="button"
+                                onClick={() => handleToggleMemberStatus(m)}
+                                className={`text-xs font-semibold hover:underline cursor-pointer ${
+                                  m.is_active ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                                }`}
+                              >
+                                {m.is_active ? 'Deactivate' : 'Activate'}
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -369,29 +483,30 @@ export const AdminPanel: React.FC = () => {
       {activeTab === 'workspaces' && (
         <div className="space-y-6">
           {/* Workspaces Search Bar & Create Workspace Action */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs">
             <div className="relative w-full sm:max-w-md">
-              <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
+              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-zinc-400" />
               <input
                 type="text"
                 placeholder="Search workspaces by name or industry..."
                 value={workspaceSearchQuery}
                 onChange={(e) => setWorkspaceSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 text-xs bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                className="w-full pl-10 pr-4 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all shadow-2xs"
               />
             </div>
             <button
+              type="button"
               onClick={handleOpenCreateWorkspace}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:scale-95 rounded-xl transition shadow-md shadow-indigo-600/20 cursor-pointer shrink-0"
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl transition-all shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 cursor-pointer shrink-0 select-none"
             >
               <Plus className="w-4 h-4" />
-              Create Workspace
+              <span>Create Workspace</span>
             </button>
           </div>
 
           {/* Workspaces List Grid */}
           {filteredWorkspaces.length === 0 ? (
-            <div className="p-12 text-center text-xs text-slate-400 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
+            <div className="p-16 text-center text-xs text-zinc-400 bg-white dark:bg-[#12141c] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xs">
               No workspaces match your search query.
             </div>
           ) : (
@@ -399,51 +514,54 @@ export const AdminPanel: React.FC = () => {
               {filteredWorkspaces.map((ws) => (
                 <div
                   key={ws.id}
-                  className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-4 flex flex-col justify-between hover:border-slate-300 dark:hover:border-slate-700 transition"
+                  className="p-5 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs space-y-4 flex flex-col justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
                       <div
                         className={`w-10 h-10 rounded-xl ${
                           ws.brandColor || 'bg-indigo-600'
-                        } text-white flex items-center justify-center font-bold text-sm shadow-sm`}
+                        } text-white flex items-center justify-center font-bold text-sm shadow-2xs`}
                       >
                         {ws.initials || ws.name.slice(0, 2).toUpperCase()}
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">{ws.name}</h3>
-                        <p className="text-[11px] text-slate-400">{ws.industry || 'General B2B'}</p>
+                        <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">{ws.name}</h3>
+                        <p className="text-[11px] text-zinc-400">{ws.industry || 'General B2B'}</p>
                       </div>
                     </div>
                     {ws.isDefault && (
-                      <span className="px-2 py-0.5 text-[10px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-md">
+                      <span className="px-2 py-0.5 text-[10px] font-extrabold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-md border border-indigo-500/20">
                         Default
                       </span>
                     )}
                   </div>
 
-                  <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                  <div className="pt-3 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1.5">
                       <button
+                        type="button"
                         onClick={() => handleOpenEditWorkspace(ws)}
-                        className="p-1.5 text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                         title="Edit Workspace"
                       >
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDeleteWorkspaceItem(ws)}
-                        className="p-1.5 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
                         title="Delete Workspace"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                     <button
+                      type="button"
                       onClick={() => setSelectedWsForDrawer(ws)}
-                      className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
+                      className="flex items-center gap-1 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
                     >
-                      Manage Access
+                      <span>Manage Access</span>
                       <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -458,7 +576,7 @@ export const AdminPanel: React.FC = () => {
       <AddMemberModal
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
-        onSubmit={handleCreateUser}
+        onSubmit={handleCreateMember}
         workspaces={workspaces}
         defaultRole={addModalDefaultRole}
       />
@@ -476,7 +594,7 @@ export const AdminPanel: React.FC = () => {
         isOpen={Boolean(selectedWsForDrawer)}
         onClose={() => setSelectedWsForDrawer(null)}
         workspace={selectedWsForDrawer}
-        allUsers={users}
+        allUsers={members}
         onAssign={handleAssignWorkspaceUser}
       />
     </div>

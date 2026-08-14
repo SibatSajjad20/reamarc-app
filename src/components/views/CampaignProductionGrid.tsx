@@ -49,7 +49,6 @@ import { matrixService } from '../../services/matrixService';
 import type { SmartFilterRule, SmartSort } from '../../services/matrixService';
 import { useToast } from '../../context/ToastContext';
 import { CampaignWizardModal } from '../modals/CampaignWizardModal';
-import { useAuth } from '../../context/AuthContext';
 
 
 interface MultiSelectFilterDropdownProps {
@@ -483,8 +482,7 @@ interface CampaignProductionGridProps {
 
 export const CampaignProductionGrid: React.FC<CampaignProductionGridProps> = ({ selectedWorkspace }) => {
   const { addToast } = useToast();
-  const { role } = useAuth();
-  const isViewer = role === 'viewer';
+  const isViewer = false;
   const [activeTab, setActiveTab] = useState<'production' | 'brand' | 'overview'>('production');
 
   // Zoom Controls State

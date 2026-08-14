@@ -108,7 +108,7 @@ export const CampaignManager: React.FC<CampaignManagerProps> = ({
           </div>
         </div>
 
-        <HasPermission allowedRoles={['admin', 'editor']}>
+        <HasPermission allowedRoles={['admin', 'member']}>
           <button
             onClick={() => setIsModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer"
@@ -211,7 +211,7 @@ export const CampaignManager: React.FC<CampaignManagerProps> = ({
                         )}
 
                         {onDeleteCampaign && (
-                          <HasPermission allowedRoles={['admin', 'editor']}>
+                          <HasPermission allowedRoles={['admin', 'member']}>
                             <button
                               onClick={() => setCampaignToDelete(camp)}
                               className="p-1 rounded-lg text-slate-400 dark:text-zinc-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors opacity-0 group-hover:opacity-100 cursor-pointer"
@@ -283,7 +283,7 @@ export const CampaignManager: React.FC<CampaignManagerProps> = ({
                       onClick={() => setEditorCampaign(camp)}
                       className="flex items-center gap-1.5 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 rounded-xl border border-indigo-200 dark:border-indigo-500/20 cursor-pointer"
                     >
-                      <Edit3 className="w-3.5 h-3.5" /> {role === 'admin' || role === 'editor' ? 'Edit' : 'View'} {camp.totalDays || camp.plan?.length || 7}-Day Plan <ChevronRight className="w-3.5 h-3.5" />
+                      <Edit3 className="w-3.5 h-3.5" /> {role === 'admin' || role === 'member' ? 'Edit' : 'View'} {camp.totalDays || camp.plan?.length || 7}-Day Plan <ChevronRight className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>

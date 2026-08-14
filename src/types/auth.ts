@@ -1,10 +1,13 @@
-export type UserRole = 'admin' | 'editor' | 'viewer' | 'client';
+export type UserRole = 'admin' | 'member';
 
 export interface AuthUser {
   id: string;
   email: string;
   name: string;
+  full_name?: string;
   role: UserRole;
+  department?: string;
+  designation?: string;
   is_active?: boolean;
   workspace_ids?: string[];
   workspaceIds?: string[];

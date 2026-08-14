@@ -125,7 +125,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: Boolean(user),
         isLoading,
-        role: user?.role || 'editor',
+        role: user?.role || 'member',
         activeWorkspaceId,
         setActiveWorkspaceId,
         login,

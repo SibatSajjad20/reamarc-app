@@ -5,6 +5,7 @@ import bcrypt
 from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from app.config import settings
+from app.models.user import UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 
@@ -51,6 +52,15 @@ def decode_refresh_token(token: str) -> Optional[dict]:
     except jwt.PyJWTError:
         return None
 
+def _normalize_role(raw_role: Optional[str]) -> str:
+    """Consolidates legacy roles ('editor', 'viewer', 'client') into 'member'."""
+    if not raw_role:
+        return UserRole.MEMBER.value
+    r = str(raw_role).lower().strip()
+    if r == UserRole.ADMIN.value:
+        return UserRole.ADMIN.value
+    return UserRole.MEMBER.value
+
 async def get_current_user(
     request: Request,
     token_from_header: Optional[str] = Depends(oauth2_scheme)
@@ -79,7 +89,7 @@ async def get_current_user(
             detail="Token payload missing required user claims.",
         )
 
-    # Fetch live user record for up-to-date role / is_active / workspace_ids
+    # Fetch live user record for up-to-date role / is_active / workspace_ids / department / designation
     from app.database import get_database
     db = get_database()
     user_doc = None
@@ -92,11 +102,18 @@ async def get_current_user(
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
+    effective_role = _normalize_role(
+        user_doc.get("role") if user_doc else payload.get("role")
+    )
+
     return {
         "id": user_id,
         "email": email,
         "name": payload.get("name", user_doc.get("full_name", "User") if user_doc else "User"),
-        "role": user_doc.get("role", "editor") if user_doc else payload.get("role", "editor"),
+        "full_name": user_doc.get("full_name", payload.get("name", "User")) if user_doc else "User",
+        "role": effective_role,
+        "department": user_doc.get("department") if user_doc else None,
+        "designation": user_doc.get("designation") if user_doc else None,
         "is_active": user_doc.get("is_active", True) if user_doc else True,
         "workspace_ids": user_doc.get("workspace_ids", []) if user_doc else payload.get("workspace_ids", []),
     }
@@ -104,14 +121,37 @@ async def get_current_user(
 
 def require_roles(allowed_roles: List[str]):
     """Dependency factory that enforces role-based access control."""
+    normalized_allowed = [_normalize_role(r) for r in allowed_roles]
     async def _check_role(current_user: dict = Depends(get_current_user)) -> dict:
-        if current_user.get("role") not in allowed_roles:
+        user_role = current_user.get("role", "member")
+        if user_role not in normalized_allowed and user_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Access denied. Required role(s): {', '.join(allowed_roles)}.",
             )
         return current_user
     return _check_role
+
+
+async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard strictly requiring UserRole.ADMIN."""
+    if current_user.get("role") != UserRole.ADMIN.value and current_user.get("role") != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrative privileges required.",
+        )
+    return current_user
+
+
+async def require_member_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring either member or admin privileges."""
+    role = current_user.get("role")
+    if role not in [UserRole.ADMIN.value, UserRole.MEMBER.value, "admin", "member"]:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access restricted to authorized team members and administrators.",
+        )
+    return current_user
 
 
 async def get_workspace_context(
@@ -129,7 +169,7 @@ async def get_workspace_context(
         )
 
     # Admins have access to all workspaces
-    if current_user.get("role") == "admin":
+    if current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin":
         return workspace_id
 
     # Check user membership
@@ -151,5 +191,4 @@ async def get_workspace_context(
     return workspace_id
 
 
-require_editor_or_admin = require_roles(["admin", "editor"])
-
+require_editor_or_admin = require_roles(["admin", "member", "editor"])

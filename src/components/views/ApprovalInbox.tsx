@@ -21,7 +21,6 @@ import {
 } from 'lucide-react';
 import { useToast } from '../../context/ToastContext';
 import { HasPermission } from '../HasPermission';
-import { useAuth } from '../../context/AuthContext';
 
 interface ApprovalInboxProps {
   tasks: InboxTask[];
@@ -63,7 +62,6 @@ export const ApprovalInbox: React.FC<ApprovalInboxProps> = ({
   workspaces = [],
 }) => {
   const { addToast } = useToast();
-  const { role } = useAuth();
 
   const [selectedTaskId, setSelectedTaskId] = useState<string | number | null>(
     tasks[0]?.id ?? null
@@ -309,7 +307,7 @@ export const ApprovalInbox: React.FC<ApprovalInboxProps> = ({
               </button>
 
               {selectedTaskIds.size > 0 && (
-                <HasPermission allowedRoles={['admin', 'editor']}>
+                <HasPermission allowedRoles={['admin', 'member']}>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={handleBatchApprove}
@@ -454,7 +452,7 @@ export const ApprovalInbox: React.FC<ApprovalInboxProps> = ({
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <HasPermission allowedRoles={['admin', 'editor']}>
+                  <HasPermission allowedRoles={['admin', 'member']}>
                     <button
                       onClick={() => setIsReviewModalOpen(true)}
                       className="flex items-center gap-2 px-4 py-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white text-xs font-bold transition-all cursor-pointer shadow-md shadow-indigo-600/25"
@@ -507,9 +505,8 @@ export const ApprovalInbox: React.FC<ApprovalInboxProps> = ({
                 <textarea
                   value={editedCopy}
                   onChange={(e) => setEditedCopy(e.target.value)}
-                  readOnly={role === 'viewer'}
-                  placeholder={role === 'viewer' ? "Read-only mode (Viewer access)" : "Type or edit AI generated copy script here..."}
-                  className={`w-full flex-1 bg-slate-50 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800/80 focus:border-indigo-600 dark:focus:border-indigo-500 rounded-2xl p-5 text-sm sm:text-base text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none resize-none leading-relaxed transition-all font-sans font-medium shadow-sm ${role === 'viewer' ? 'cursor-not-allowed opacity-80' : ''}`}
+                  placeholder="Type or edit AI generated copy script here..."
+                  className="w-full flex-1 bg-slate-50 dark:bg-zinc-900/40 border border-slate-200 dark:border-zinc-800/80 focus:border-indigo-600 dark:focus:border-indigo-500 rounded-2xl p-5 text-sm sm:text-base text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none resize-none leading-relaxed transition-all font-sans font-medium shadow-sm"
                 />
 
                 {/* Counters */}
@@ -532,11 +529,11 @@ export const ApprovalInbox: React.FC<ApprovalInboxProps> = ({
               {/* Editor Footer Actions */}
               <div className="p-4 border-t border-slate-200 dark:border-zinc-800/80 bg-slate-50/80 dark:bg-zinc-900/60 flex items-center justify-between shrink-0">
                 <div className="text-xs text-slate-500 dark:text-zinc-400 font-medium hidden sm:block">
-                  {role === 'viewer' ? 'Read-only mode enabled for Viewers.' : 'Review & approve for automated publishing.'}
+                  Review & approve for automated publishing.
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <HasPermission allowedRoles={['admin', 'editor']}>
+                  <HasPermission allowedRoles={['admin', 'member']}>
                     <button
                       onClick={handleUndo}
                       disabled={history.length <= 1}
