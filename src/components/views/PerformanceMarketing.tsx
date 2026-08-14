@@ -18,7 +18,6 @@ import {
   MoveVertical,
   ChevronDown,
   Check,
-  Plus,
   Search,
   SlidersHorizontal,
   X,
@@ -286,7 +285,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
   selectedWorkspace = null,
   workspaces = [],
   onSelectWorkspace,
-  onOpenCreateAccount,
 }) => {
   const { role } = useAuth();
   const { addToast } = useToast();
@@ -859,23 +857,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
                     })
                   )}
                 </div>
-
-                {/* Connect Account Footer CTA */}
-                {onOpenCreateAccount && role === 'admin' && (
-                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsAccountMenuOpen(false);
-                        onOpenCreateAccount();
-                      }}
-                      className="w-full flex items-center justify-center gap-2 p-2 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      <span>Connect New Ad Account</span>
-                    </button>
-                  </div>
-                )}
               </div>
             )}
           </div>
