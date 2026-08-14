@@ -104,29 +104,44 @@ const MarketingMatrixRowItem = React.memo<RowItemProps>(
         }`}
       >
         {/* Sr */}
-        <td className="relative px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
+        <td
+          style={{ height: 'inherit' }}
+          className="relative px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none overflow-hidden"
+        >
           <span>{idx + 1}</span>
           {/* Left Drag Handle for Row Height */}
           <div
             onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, 44)}
-            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-20"
+            className="absolute bottom-0 left-0 right-0 h-2.5 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-20"
             title="Drag vertically to adjust row height"
           />
         </td>
         {/* Client / Account */}
-        <td className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
+        >
           {row.workspace_name || '—'}
         </td>
         {/* Industry */}
-        <td className="px-2 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
+        >
           {row.industry || '—'}
         </td>
         {/* Objective */}
-        <td className="px-2 text-left text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-left text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
+        >
           {row.objective}
         </td>
         {/* Platform Badge */}
-        <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
+        >
           <span
             className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${
               PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other
@@ -137,17 +152,24 @@ const MarketingMatrixRowItem = React.memo<RowItemProps>(
         </td>
         {/* Campaign Name */}
         <td
-          className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
           title={row.campaign_name}
         >
           {row.campaign_name}
         </td>
         {/* Budget Set */}
-        <td className="px-2.5 text-right text-xs font-mono text-zinc-600 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-right text-xs font-mono text-zinc-600 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.budget_set, 'currency')}
         </td>
         {/* Ad Spend */}
-        <td className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {spendVal > 0 ? (
             <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
               {formatCellValue(row.ad_spend, 'currency')}
@@ -157,11 +179,17 @@ const MarketingMatrixRowItem = React.memo<RowItemProps>(
           )}
         </td>
         {/* CPL / CPA */}
-        <td className="px-2.5 text-right text-xs font-mono text-zinc-700 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-right text-xs font-mono text-zinc-700 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.cpl_cpa, 'currency')}
         </td>
         {/* Leads / Conversions */}
-        <td className="px-2.5 text-right text-xs font-mono font-bold border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-right text-xs font-mono font-bold border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {leadsVal > 0 ? (
             <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
               {formatCellValue(row.leads_conversions, 'number')}
@@ -171,30 +199,46 @@ const MarketingMatrixRowItem = React.memo<RowItemProps>(
           )}
         </td>
         {/* Avg Frequency */}
-        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.avg_frequency, 'number')}
         </td>
         {/* Impressions */}
-        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.impressions, 'number')}
         </td>
         {/* Clicks */}
-        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.clicks, 'number')}
         </td>
         {/* Reach */}
-        <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums overflow-hidden"
+        >
           {formatCellValue(row.reach, 'number')}
         </td>
         {/* Remarks */}
         <td
-          className="px-2.5 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+          style={{ height: 'inherit' }}
+          className="px-2.5 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60 overflow-hidden"
           title={row.remarks || ''}
         >
           {row.remarks || '—'}
         </td>
         {/* Status Badge */}
-        <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 relative">
+        <td
+          style={{ height: 'inherit' }}
+          className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 relative overflow-hidden"
+        >
           <span
             className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
               row.status === 'Active'
@@ -219,7 +263,7 @@ const MarketingMatrixRowItem = React.memo<RowItemProps>(
           {/* Right Row Height Resize Handle */}
           <div
             onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, 44)}
-            className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+            className="absolute bottom-0 left-0 right-0 h-2.5 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity z-20"
             title="Drag to resize row height"
           />
         </td>
@@ -300,7 +344,7 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
           <table
             ref={tableRef}
             style={tableStyle}
-            className="border-separate border-spacing-0 text-left text-xs min-w-full"
+            className="border-separate border-spacing-0 table-fixed text-left text-xs w-max min-w-full"
           >
             <colgroup>
               {columns.map((c) => (
@@ -322,8 +366,6 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
                       key={c.key}
                       style={{
                         width: `var(--col-${c.key}, ${columnWidths[c.key] || c.minW}px)`,
-                        minWidth: `var(--col-${c.key}, ${columnWidths[c.key] || c.minW}px)`,
-                        maxWidth: `var(--col-${c.key}, ${columnWidths[c.key] || c.minW}px)`,
                       }}
                       className={`sticky top-0 z-30 relative px-2.5 py-3 text-[11px] uppercase font-extrabold tracking-wider text-zinc-700 dark:text-zinc-300 border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#0f1117] whitespace-nowrap select-none group ${alignClass}`}
                     >
@@ -333,7 +375,7 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
                       {/* Draggable Column Resizer Handle */}
                       <div
                         onMouseDown={(e) => handleColumnResizeStart(e, c.key)}
-                        className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-30 flex items-center justify-center"
+                        className="absolute -right-1.5 top-0 bottom-0 w-3.5 cursor-col-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-30 flex items-center justify-center select-none"
                         title="Drag to resize column"
                       />
                     </th>
@@ -506,20 +548,15 @@ export const PerformanceMarketing: React.FC<Props> = ({
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
-    let rAFId: number | null = null;
     const onMouseMove = (moveEvent: MouseEvent) => {
-      if (rAFId !== null) cancelAnimationFrame(rAFId);
-      rAFId = requestAnimationFrame(() => {
-        const diff = moveEvent.clientX - startX;
-        currentW = Math.max(50, Math.min(600, startW + diff));
-        if (tableRef.current) {
-          tableRef.current.style.setProperty(`--col-${colKey}`, `${currentW}px`);
-        }
-      });
+      const diff = moveEvent.clientX - startX;
+      currentW = Math.max(45, Math.min(800, startW + diff));
+      if (tableRef.current) {
+        tableRef.current.style.setProperty(`--col-${colKey}`, `${currentW}px`);
+      }
     };
 
     const onMouseUp = () => {
-      if (rAFId !== null) cancelAnimationFrame(rAFId);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
@@ -549,20 +586,15 @@ export const PerformanceMarketing: React.FC<Props> = ({
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
 
-    let rAFId: number | null = null;
     const onMouseMove = (moveEvent: MouseEvent) => {
-      if (rAFId !== null) cancelAnimationFrame(rAFId);
-      rAFId = requestAnimationFrame(() => {
-        const diff = moveEvent.clientY - startY;
-        currentHVal = Math.max(30, Math.min(150, startH + diff));
-        if (tableRef.current) {
-          tableRef.current.style.setProperty(`--row-${rowId}`, `${currentHVal}px`);
-        }
-      });
+      const diff = moveEvent.clientY - startY;
+      currentHVal = Math.max(28, Math.min(180, startH + diff));
+      if (tableRef.current) {
+        tableRef.current.style.setProperty(`--row-${rowId}`, `${currentHVal}px`);
+      }
     };
 
     const onMouseUp = () => {
-      if (rAFId !== null) cancelAnimationFrame(rAFId);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       document.body.style.cursor = '';
@@ -584,7 +616,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
   // Instant Row Height Increment / Decrement
   const adjustRowHeight = useCallback((delta: number) => {
     setDefaultRowHeight((prev) => {
-      const next = Math.max(32, Math.min(100, prev + delta));
+      const next = Math.max(28, Math.min(120, prev + delta));
       defaultRowHeightRef.current = next;
       if (tableRef.current) {
         tableRef.current.style.setProperty('--row-height', `${next}px`);
