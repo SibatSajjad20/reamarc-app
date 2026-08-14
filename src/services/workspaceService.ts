@@ -25,7 +25,7 @@ export const workspaceService = {
   },
 
   async updateWorkspace(workspaceId: string, payload: WorkspaceUpdatePayload): Promise<Workspace> {
-    return apiClient.put<Workspace>(`/workspaces/${workspaceId}`, payload);
+    return apiClient.patch<Workspace>(`/workspaces/${workspaceId}`, payload);
   },
 
   async deleteWorkspace(workspaceId: string): Promise<{ message: string }> {

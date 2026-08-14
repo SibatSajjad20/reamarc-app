@@ -503,8 +503,9 @@ export const AdminPanel: React.FC = () => {
                     <div>
                       {(() => {
                         const nameLower = (acc.name || '').toLowerCase();
+                        const pLower = (acc.platform || '').toLowerCase();
                         const isMulti =
-                          (acc.platform && acc.platform.toLowerCase().includes('google')) ||
+                          (pLower.includes('google') && pLower.includes('meta')) ||
                           nameLower.includes('ed&c') ||
                           nameLower.includes('ednc') ||
                           nameLower.includes('elegant design');
@@ -519,6 +520,14 @@ export const AdminPanel: React.FC = () => {
                                 Google Ads
                               </span>
                             </div>
+                          );
+                        }
+
+                        if (pLower.includes('google')) {
+                          return (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-extrabold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                              Google Ads
+                            </span>
                           );
                         }
 

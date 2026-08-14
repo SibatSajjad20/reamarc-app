@@ -109,6 +109,7 @@ async def create_workspace(
 
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)
+@router.put("/{workspace_id}", response_model=WorkspaceResponse)
 async def update_workspace(
     workspace_id: str,
     ws_update: WorkspaceUpdate,

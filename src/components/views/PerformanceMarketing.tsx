@@ -152,8 +152,14 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
                     }`}
                   >
                     {/* Sr */}
-                    <td className="px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
-                      {idx + 1}
+                    <td className="relative px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
+                      <span>{idx + 1}</span>
+                      {/* Left Drag Handle for Row Height */}
+                      <div
+                        onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, rHeight)}
+                        className="absolute bottom-0 left-0 right-0 h-2 cursor-row-resize hover:bg-indigo-500/80 active:bg-indigo-600 transition-colors z-20"
+                        title="Drag vertically to adjust row height"
+                      />
                     </td>
                     {/* Client / Account */}
                     <td className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
@@ -427,10 +433,11 @@ export const PerformanceMarketing: React.FC<Props> = ({
       animationFrameId = requestAnimationFrame(() => {
         const diff = e.clientX - startXRef.current;
         const newWidth = Math.max(60, Math.min(400, startWidthRef.current + diff));
-        setColumnWidths((prev) => ({
-          ...prev,
+        columnWidthsRef.current = {
+          ...columnWidthsRef.current,
           [resizingCol]: newWidth,
-        }));
+        };
+        setColumnWidths(columnWidthsRef.current);
       });
     };
 
@@ -480,11 +487,12 @@ export const PerformanceMarketing: React.FC<Props> = ({
       if (animationFrameId !== null) cancelAnimationFrame(animationFrameId);
       animationFrameId = requestAnimationFrame(() => {
         const diff = e.clientY - startYRef.current;
-        const newHeight = Math.max(36, Math.min(100, startRowHeightRef.current + diff));
-        setRowHeights((prev) => ({
-          ...prev,
+        const newHeight = Math.max(32, Math.min(120, startRowHeightRef.current + diff));
+        rowHeightsRef.current = {
+          ...rowHeightsRef.current,
           [resizingRowId]: newHeight,
-        }));
+        };
+        setRowHeights(rowHeightsRef.current);
       });
     };
 
@@ -802,11 +810,14 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   ) : (
                     filteredDropdownAccounts.map((ws) => {
                       const isSelected = selectedWorkspace?.id === ws.id;
+                      const nameLower = ws.name.toLowerCase();
+                      const pLower = (ws.platform || '').toLowerCase();
                       const isMulti =
-                        (ws.platform && ws.platform.toLowerCase().includes('google')) ||
-                        ws.name.toLowerCase().includes('ed&c') ||
-                        ws.name.toLowerCase().includes('ednc') ||
-                        ws.name.toLowerCase().includes('elegant design');
+                        (pLower.includes('google') && pLower.includes('meta')) ||
+                        nameLower.includes('ed&c') ||
+                        nameLower.includes('ednc') ||
+                        nameLower.includes('elegant design');
+                      const isGoogle = !isMulti && pLower.includes('google');
 
                       return (
                         <button
@@ -825,7 +836,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           <div className="flex items-center gap-2.5 min-w-0 text-left">
                             <div
                               className={`w-6 h-6 rounded-lg text-[10px] font-bold flex items-center justify-center text-white shrink-0 shadow-2xs ${
-                                ws.brandColor || 'bg-indigo-600'
+                                ws.brandColor || (isGoogle ? 'bg-emerald-600' : 'bg-indigo-600')
                               }`}
                             >
                               {ws.initials}
@@ -842,6 +853,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
                                       Google
                                     </span>
                                   </div>
+                                ) : isGoogle ? (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                                    Google Ads
+                                  </span>
                                 ) : (
                                   <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
                                     Meta Ads

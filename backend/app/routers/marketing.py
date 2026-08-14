@@ -471,22 +471,164 @@ async def get_sync_status(
 
 # ── CREDENTIAL MANAGEMENT ENDPOINTS ────────────────────────────────────
 
+import time
+import httpx
+
+_RATE_LIMIT_STORE: dict = {}
+_RATE_LIMIT_WINDOW = 60  # seconds
+_RATE_LIMIT_MAX = 5  # max 5 verification attempts per minute
+
+
+def check_credential_rate_limit(key: str):
+    """Enforces max 5 verification calls per 60 seconds per user."""
+    now = time.time()
+    history = _RATE_LIMIT_STORE.get(key, [])
+    history = [t for t in history if now - t < _RATE_LIMIT_WINDOW]
+    if len(history) >= _RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded: Max 5 credential verification attempts per minute. Please wait before trying again."
+        )
+    history.append(now)
+    _RATE_LIMIT_STORE[key] = history
+
+
+async def verify_meta_credentials(account_id: str, access_token: str) -> dict:
+    """Verifies that the Meta ad account exists and token is valid."""
+    token = (access_token or "").strip()
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Meta Access Token is required to authenticate with Meta Graph API."
+        )
+
+    act_id = account_id.strip()
+    if not act_id.startswith("act_"):
+        act_id = f"act_{act_id}"
+
+    url = f"https://graph.facebook.com/v21.0/{act_id}"
+    params = {
+        "fields": "id,name,account_status,currency,timezone_name",
+        "access_token": token,
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.get(url, params=params)
+            data = res.json()
+
+            if res.status_code != 200 or "error" in data:
+                err_obj = data.get("error", {})
+                err_msg = err_obj.get("message") or "Authentication failed with Meta API."
+                err_code = err_obj.get("code", "Unknown")
+                err_type = err_obj.get("type", "OAuthException")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Meta Verification Failed ({err_type} {err_code}): {err_msg}"
+                )
+
+            return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Meta Graph API connection failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Meta Graph API Connection Error: {str(exc)}"
+        )
+
+
+async def verify_google_credentials(
+    account_id: str,
+    client_id: str,
+    client_secret: str,
+    refresh_token: str,
+    developer_token: str,
+) -> dict:
+    """Verifies Google Ads Customer ID and OAuth tokens."""
+    cust_id = account_id.strip().replace("-", "")
+    if not cust_id.isdigit() or len(cust_id) != 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid Google Ads Customer ID format. Must be 10 digits (e.g. 123-456-7890 or 1234567890)."
+        )
+
+    r_token = (refresh_token or "").strip()
+    c_id = (client_id or "").strip()
+    c_secret = (client_secret or "").strip()
+    d_token = (developer_token or "").strip()
+
+    if not r_token:
+        raise HTTPException(status_code=400, detail="Google Ads OAuth Refresh Token is required.")
+    if not c_id or not c_secret:
+        raise HTTPException(status_code=400, detail="Google Ads Client ID and Client Secret are required.")
+    if not d_token:
+        raise HTTPException(status_code=400, detail="Google Ads Developer Token is required.")
+
+    token_url = "https://oauth2.googleapis.com/token"
+    token_payload = {
+        "client_id": c_id,
+        "client_secret": c_secret,
+        "refresh_token": r_token,
+        "grant_type": "refresh_token",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            res = await client.post(token_url, data=token_payload)
+            data = res.json()
+
+            if res.status_code != 200 or "error" in data:
+                err_msg = data.get("error_description") or data.get("error") or "OAuth verification failed."
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Google Ads OAuth Failed: {err_msg}"
+                )
+
+            return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(f"Google Ads OAuth connection failed: {exc}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Google Ads OAuth Connection Error: {str(exc)}"
+        )
+
+
 @router.post("/credentials", response_model=AdAccountCredentialResponse, status_code=status.HTTP_201_CREATED)
 async def save_ad_account_credential(
     payload: AdAccountCredentialCreate,
     current_user: dict = Depends(require_editor_or_admin),
 ):
-    """Saves or updates ad account API credentials for Meta or Google Ads."""
+    """Verifies live API authentication with Meta/Google Ads and saves credentials."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable.")
+
+    # Enforce rate limiting
+    user_key = current_user.get("id") or current_user.get("email") or "anonymous"
+    check_credential_rate_limit(user_key)
 
     import re
     now_str = datetime.now(timezone.utc).isoformat()
     target_ws_id = (payload.workspace_id or "").strip()
     target_ws_name = (payload.workspace_name or "").strip()
+    norm_platform = "Google" if payload.platform.lower().startswith("google") else "Meta"
 
-    # If workspace_name is provided, lookup or auto-create workspace
+    # Step 1: Live API Verification against Meta or Google Ads
+    if norm_platform == "Meta":
+        await verify_meta_credentials(payload.account_id, payload.access_token or "")
+    elif norm_platform == "Google":
+        await verify_google_credentials(
+            account_id=payload.account_id,
+            client_id=payload.client_id or "",
+            client_secret=payload.client_secret or "",
+            refresh_token=payload.refresh_token or "",
+            developer_token=payload.developer_token or "",
+        )
+
+    # Step 2: Resolve / Auto-create Workspace with strict platform tag
     if target_ws_name:
         existing_ws = await db.workspaces.find_one(
             {"name": {"$regex": f"^{re.escape(target_ws_name)}$", "$options": "i"}},
@@ -499,15 +641,21 @@ async def save_ad_account_credential(
             # Auto-create new Ad Account / Workspace
             new_ws_id = f"ws-{uuid.uuid4().hex[:8]}"
             initials = "".join([p[0] for p in target_ws_name.split() if p])[:2].upper() or target_ws_name[:2].upper()
-            platform_tag = "Meta & Google" if any(k in target_ws_name.lower() for k in ["ed&c", "ednc", "elegant design"]) else f"{payload.platform} Ads"
+            
+            if any(k in target_ws_name.lower() for k in ["ed&c", "ednc", "elegant design"]):
+                platform_tag = "Meta & Google"
+            elif norm_platform == "Google":
+                platform_tag = "Google Ads"
+            else:
+                platform_tag = "Meta Ads"
 
             new_ws_doc = {
                 "id": new_ws_id,
                 "name": target_ws_name,
                 "platform": platform_tag,
                 "initials": initials,
-                "brandColor": "bg-indigo-600",
-                "brand_color": "bg-indigo-600",
+                "brandColor": "bg-emerald-600" if norm_platform == "Google" else "bg-indigo-600",
+                "brand_color": "bg-emerald-600" if norm_platform == "Google" else "bg-indigo-600",
                 "industry": "Performance Marketing",
                 "brandGuidelines": "",
                 "brand_guidelines": "",
@@ -523,17 +671,21 @@ async def save_ad_account_credential(
     else:
         raise HTTPException(status_code=400, detail="Please provide an Ad Account or Client Brand name.")
 
-    # Check if credential already exists for (workspace_id, platform, account_id)
+    # Step 3: Save or update credentials
+    clean_account_id = payload.account_id.strip()
+    if norm_platform == "Meta" and not clean_account_id.startswith("act_"):
+        clean_account_id = f"act_{clean_account_id}"
+
     existing = await db.ad_account_credentials.find_one({
         "workspace_id": target_ws_id,
-        "platform": payload.platform,
-        "account_id": payload.account_id.strip(),
+        "platform": norm_platform,
+        "account_id": clean_account_id,
     })
 
     cred_doc = {
         "workspace_id": target_ws_id,
-        "platform": payload.platform,
-        "account_id": payload.account_id.strip(),
+        "platform": norm_platform,
+        "account_id": clean_account_id,
         "access_token": encrypt_string(payload.access_token or ""),
         "refresh_token": encrypt_string(payload.refresh_token or ""),
         "developer_token": encrypt_string(payload.developer_token or ""),
@@ -550,13 +702,13 @@ async def save_ad_account_credential(
         )
         cred_doc["id"] = existing["id"]
         cred_doc["created_at"] = existing.get("created_at", now_str)
-        logger.info(f"Updated ad credential '{cred_doc['id']}' for {payload.platform} ({payload.account_id})")
+        logger.info(f"Updated verified ad credential '{cred_doc['id']}' for {norm_platform} ({clean_account_id})")
     else:
         cred_id = f"cred-{uuid.uuid4().hex[:8]}"
         cred_doc["id"] = cred_id
         cred_doc["created_at"] = now_str
         await db.ad_account_credentials.insert_one(cred_doc)
-        logger.info(f"Created ad credential '{cred_id}' for {payload.platform} ({payload.account_id})")
+        logger.info(f"Created verified ad credential '{cred_id}' for {norm_platform} ({clean_account_id})")
 
     resp_doc = dict(cred_doc)
     resp_doc["workspace_name"] = target_ws_name

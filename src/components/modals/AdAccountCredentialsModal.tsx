@@ -45,6 +45,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
   const [clientSecret, setClientSecret] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [verificationError, setVerificationError] = useState<string>('');
 
   // Platform Dropdown State
   const [isPlatformDropdownOpen, setIsPlatformDropdownOpen] = useState(false);
@@ -88,6 +89,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
       setClientSecret('');
       setIsActive(true);
       setPlatform('Meta');
+      setVerificationError('');
       loadCredentials();
     }
   }, [isOpen, selectedWorkspace]);
@@ -120,6 +122,8 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setVerificationError('');
+
     if (!accountName.trim()) {
       addToast('Validation Error', 'Please enter an Ad Account / Client Brand name.', 'warning');
       return;
@@ -143,7 +147,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
         is_active: isActive,
       });
 
-      addToast('Credential Saved ✅', `${accountName.trim()} - ${platform} Ads account (${accountId}) connected!`, 'success');
+      addToast('Account Verified & Connected ✅', `${accountName.trim()} - ${platform} Ads account (${accountId}) authenticated successfully!`, 'success');
       // Reset form fields
       setAccountId('');
       setAccessToken('');
@@ -151,9 +155,12 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
       setDeveloperToken('');
       setClientId('');
       setClientSecret('');
+      setVerificationError('');
       loadCredentials();
     } catch (err: any) {
-      addToast('Save Failed', err.message || 'Could not save ad account credential.', 'warning');
+      const errMsg = err.message || err.detail || 'Could not authenticate with API.';
+      setVerificationError(errMsg);
+      addToast('Authentication Failed', errMsg, 'warning');
     } finally {
       setIsSubmitting(false);
     }
@@ -187,8 +194,8 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Connect Ad Account & Credentials</h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Connect client ad accounts for automated daily performance tracking</p>
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Connect Ad Account & Live Verification</h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Live API authentication for automated daily metrics tracking</p>
             </div>
           </div>
           <button
@@ -231,7 +238,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                           <span className="text-[11px] font-mono text-zinc-400">({c.account_id})</span>
                         </div>
                         <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1 mt-0.5">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Active Sync Enabled
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Live Verified & Synced
                         </p>
                       </div>
                     </div>
@@ -258,6 +265,17 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
               <Plus className="w-4 h-4 text-indigo-500" /> Connect New Ad Account
             </h3>
 
+            {/* Error Alert Box */}
+            {verificationError && (
+              <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/80 rounded-xl flex items-start gap-2.5 text-xs text-rose-700 dark:text-rose-300 animate-fadeIn">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                <div>
+                  <p className="font-bold">Live API Verification Failed</p>
+                  <p className="mt-0.5 text-[11px] leading-relaxed opacity-90">{verificationError}</p>
+                </div>
+              </div>
+            )}
+
             {/* Ad Account / Client Brand Name Input - Pure Text Field without Datalist/Arrow */}
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
@@ -268,7 +286,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                 type="text"
                 placeholder="Enter client or brand name (e.g. Apex Transfer)"
                 value={accountName}
-                onChange={(e) => setAccountName(e.target.value)}
+                onChange={(e) => {
+                  setAccountName(e.target.value);
+                  if (verificationError) setVerificationError('');
+                }}
                 className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 placeholder:font-normal focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none shadow-2xs transition"
                 required
                 autoComplete="off"
@@ -310,6 +331,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                             onClick={() => {
                               setPlatform(p.id);
                               setIsPlatformDropdownOpen(false);
+                              if (verificationError) setVerificationError('');
                             }}
                             className={`w-full flex items-center justify-between p-2 rounded-lg text-xs font-bold transition cursor-pointer ${
                               isSelected
@@ -337,7 +359,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                   type="text"
                   placeholder={platform === 'Meta' ? 'act_1234567890' : '123-456-7890'}
                   value={accountId}
-                  onChange={(e) => setAccountId(e.target.value)}
+                  onChange={(e) => {
+                    setAccountId(e.target.value);
+                    if (verificationError) setVerificationError('');
+                  }}
                   className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                   required
                   autoComplete="off"
@@ -352,7 +377,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                   type="password"
                   placeholder="Enter Meta User / System Access Token (EAABw...)"
                   value={accessToken}
-                  onChange={(e) => setAccessToken(e.target.value)}
+                  onChange={(e) => {
+                    setAccessToken(e.target.value);
+                    if (verificationError) setVerificationError('');
+                  }}
                   className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                   autoComplete="new-password"
                 />
@@ -366,7 +394,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                       type="text"
                       placeholder="Enter Google Ads Developer Token"
                       value={developerToken}
-                      onChange={(e) => setDeveloperToken(e.target.value)}
+                      onChange={(e) => {
+                        setDeveloperToken(e.target.value);
+                        if (verificationError) setVerificationError('');
+                      }}
                       className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                       autoComplete="off"
                     />
@@ -377,7 +408,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                       type="password"
                       placeholder="Enter OAuth Refresh Token"
                       value={refreshToken}
-                      onChange={(e) => setRefreshToken(e.target.value)}
+                      onChange={(e) => {
+                        setRefreshToken(e.target.value);
+                        if (verificationError) setVerificationError('');
+                      }}
                       className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                       autoComplete="new-password"
                     />
@@ -390,7 +424,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                       type="text"
                       placeholder="OAuth Client ID"
                       value={clientId}
-                      onChange={(e) => setClientId(e.target.value)}
+                      onChange={(e) => {
+                        setClientId(e.target.value);
+                        if (verificationError) setVerificationError('');
+                      }}
                       className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                       autoComplete="off"
                     />
@@ -401,7 +438,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                       type="password"
                       placeholder="OAuth Client Secret"
                       value={clientSecret}
-                      onChange={(e) => setClientSecret(e.target.value)}
+                      onChange={(e) => {
+                        setClientSecret(e.target.value);
+                        if (verificationError) setVerificationError('');
+                      }}
                       className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
                       autoComplete="new-password"
                     />
@@ -410,7 +450,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
               </div>
             )}
 
-            {/* Sync Toggle Switch and Solid Save Button */}
+            {/* Sync Toggle Switch and Verify & Connect Button */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
               <div className="flex items-center gap-2.5">
                 <button
@@ -434,8 +474,17 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                 disabled={isSubmitting}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50 select-none"
               >
-                {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-                <span>Save Ad Credential</span>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Verifying with {platform} API...</span>
+                  </>
+                ) : (
+                  <>
+                    <ShieldCheck className="w-4 h-4" />
+                    <span>Verify & Connect Ad Account</span>
+                  </>
+                )}
               </button>
             </div>
           </form>
