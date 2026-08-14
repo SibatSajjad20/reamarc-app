@@ -97,7 +97,8 @@ class DailyMatrixRowResponse(BaseModel):
 
 class AdAccountCredentialCreate(BaseModel):
     """Schema for storing platform API credentials (Meta, Google)."""
-    workspace_id: str
+    workspace_id: Optional[str] = Field(default=None, description="Workspace/Ad Account ID")
+    workspace_name: Optional[str] = Field(default=None, description="Ad Account / Brand Name")
     platform: str = Field(..., description="Platform: Meta or Google")
     account_id: str = Field(..., description="e.g. act_123456789 or 123-456-7890")
     access_token: Optional[str] = Field(default="", description="Access token")
@@ -112,6 +113,7 @@ class AdAccountCredentialResponse(BaseModel):
     """Response schema for AdAccountCredential document."""
     id: str
     workspace_id: str
+    workspace_name: Optional[str] = ""
     platform: str
     account_id: str
     is_active: bool

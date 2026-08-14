@@ -481,19 +481,59 @@ async def save_ad_account_credential(
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable.")
 
+    import re
     now_str = datetime.now(timezone.utc).isoformat()
+    target_ws_id = (payload.workspace_id or "").strip()
+    target_ws_name = (payload.workspace_name or "").strip()
+
+    # If workspace_name is provided, lookup or auto-create workspace
+    if target_ws_name:
+        existing_ws = await db.workspaces.find_one(
+            {"name": {"$regex": f"^{re.escape(target_ws_name)}$", "$options": "i"}},
+            {"_id": 0}
+        )
+        if existing_ws:
+            target_ws_id = existing_ws["id"]
+            target_ws_name = existing_ws.get("name", target_ws_name)
+        else:
+            # Auto-create new Ad Account / Workspace
+            new_ws_id = f"ws-{uuid.uuid4().hex[:8]}"
+            initials = "".join([p[0] for p in target_ws_name.split() if p])[:2].upper() or target_ws_name[:2].upper()
+            platform_tag = "Meta & Google" if any(k in target_ws_name.lower() for k in ["ed&c", "ednc", "elegant design"]) else f"{payload.platform} Ads"
+
+            new_ws_doc = {
+                "id": new_ws_id,
+                "name": target_ws_name,
+                "platform": platform_tag,
+                "initials": initials,
+                "brandColor": "bg-indigo-600",
+                "brand_color": "bg-indigo-600",
+                "industry": "Performance Marketing",
+                "brandGuidelines": "",
+                "brand_guidelines": "",
+                "isDefault": False,
+                "user_id": current_user.get("id", ""),
+            }
+            await db.workspaces.insert_one(new_ws_doc)
+            target_ws_id = new_ws_id
+    elif target_ws_id:
+        ws_doc = await db.workspaces.find_one({"id": target_ws_id}, {"_id": 0, "name": 1})
+        if ws_doc:
+            target_ws_name = ws_doc.get("name", "")
+    else:
+        raise HTTPException(status_code=400, detail="Please provide an Ad Account or Client Brand name.")
 
     # Check if credential already exists for (workspace_id, platform, account_id)
     existing = await db.ad_account_credentials.find_one({
-        "workspace_id": payload.workspace_id,
+        "workspace_id": target_ws_id,
         "platform": payload.platform,
-        "account_id": payload.account_id,
+        "account_id": payload.account_id.strip(),
     })
 
     cred_doc = {
-        "workspace_id": payload.workspace_id,
+        "workspace_id": target_ws_id,
         "platform": payload.platform,
-        "account_id": payload.account_id,
+        "account_id": payload.account_id.strip(),
         "access_token": encrypt_string(payload.access_token or ""),
         "refresh_token": encrypt_string(payload.refresh_token or ""),
         "developer_token": encrypt_string(payload.developer_token or ""),
@@ -519,6 +559,7 @@ async def save_ad_account_credential(
         logger.info(f"Created ad credential '{cred_id}' for {payload.platform} ({payload.account_id})")
 
     resp_doc = dict(cred_doc)
+    resp_doc["workspace_name"] = target_ws_name
     resp_doc["access_token"] = decrypt_string(resp_doc["access_token"])
     resp_doc["refresh_token"] = decrypt_string(resp_doc["refresh_token"])
     resp_doc["developer_token"] = decrypt_string(resp_doc["developer_token"])
@@ -533,7 +574,7 @@ async def list_ad_account_credentials(
     workspace_id: Optional[str] = Query(default=None),
     current_user: dict = Depends(get_current_user),
 ):
-    """Lists registered ad account credentials for a workspace."""
+    """Lists registered ad account credentials with resolved workspace brand names."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable.")
@@ -545,9 +586,14 @@ async def list_ad_account_credentials(
 
     creds = await db.ad_account_credentials.find(query, {"_id": 0}).to_list(length=None)
 
+    # Resolve workspace names map
+    ws_docs = await db.workspaces.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(length=None)
+    ws_name_map = {w["id"]: w.get("name", "") for w in ws_docs}
+
     res_list = []
     for c in creds:
         c_copy = dict(c)
+        c_copy["workspace_name"] = ws_name_map.get(c_copy.get("workspace_id", ""), "")
         c_copy["access_token"] = decrypt_string(c_copy.get("access_token", ""))
         c_copy["refresh_token"] = decrypt_string(c_copy.get("refresh_token", ""))
         c_copy["developer_token"] = decrypt_string(c_copy.get("developer_token", ""))

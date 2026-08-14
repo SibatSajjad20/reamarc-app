@@ -97,7 +97,8 @@ export const marketingService = {
 
   /** Save or update ad account credentials. */
   async saveCredential(payload: {
-    workspace_id: string;
+    workspace_id?: string;
+    workspace_name?: string;
     platform: string;
     account_id: string;
     access_token?: string;

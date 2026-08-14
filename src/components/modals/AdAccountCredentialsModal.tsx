@@ -20,22 +20,22 @@ import {
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  selectedWorkspace: Workspace | null;
-  workspaces: Workspace[];
+  selectedWorkspace?: Workspace | null;
+  workspaces?: Workspace[];
 }
 
 export const AdAccountCredentialsModal: React.FC<Props> = ({
   isOpen,
   onClose,
   selectedWorkspace,
-  workspaces,
+  workspaces = [],
 }) => {
   const { addToast } = useToast();
   const [credentials, setCredentials] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   // Form State
-  const [targetWorkspaceId, setTargetWorkspaceId] = useState<string>('');
+  const [accountName, setAccountName] = useState<string>('');
   const [platform, setPlatform] = useState<'Meta' | 'Google'>('Meta');
   const [accountId, setAccountId] = useState('');
   const [accessToken, setAccessToken] = useState('');
@@ -46,17 +46,12 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
   const [isActive, setIsActive] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Custom Dropdowns State
-  const [isAccountDropdownOpen, setIsAccountDropdownOpen] = useState(false);
+  // Platform Dropdown State
   const [isPlatformDropdownOpen, setIsPlatformDropdownOpen] = useState(false);
-  const accountDropdownRef = useRef<HTMLDivElement>(null);
   const platformDropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (accountDropdownRef.current && !accountDropdownRef.current.contains(e.target as Node)) {
-        setIsAccountDropdownOpen(false);
-      }
       if (platformDropdownRef.current && !platformDropdownRef.current.contains(e.target as Node)) {
         setIsPlatformDropdownOpen(false);
       }
@@ -66,24 +61,23 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
   }, []);
 
   useEffect(() => {
-    if (selectedWorkspace) {
-      setTargetWorkspaceId(selectedWorkspace.id);
-    } else if (workspaces.length > 0) {
-      setTargetWorkspaceId(workspaces[0].id);
+    if (selectedWorkspace && selectedWorkspace.name) {
+      setAccountName(selectedWorkspace.name);
+    } else {
+      setAccountName('');
     }
-  }, [selectedWorkspace, workspaces]);
+  }, [selectedWorkspace, isOpen]);
 
   const loadCredentials = async () => {
     if (!isOpen) return;
     setIsLoading(true);
     try {
-      const data = await marketingService.getCredentials(targetWorkspaceId);
+      const data = await marketingService.getCredentials('ALL');
       setCredentials(data || []);
 
       // Pre-fill master Google Ads OAuth credentials if available in system
       if (!developerToken || !clientId) {
-        const allCreds = await marketingService.getCredentials('ALL');
-        const existingGoogle = allCreds.find((c: any) => c.platform === 'Google' && c.developer_token);
+        const existingGoogle = (data || []).find((c: any) => c.platform === 'Google' && c.developer_token);
         if (existingGoogle) {
           setDeveloperToken(existingGoogle.developer_token || '');
           setRefreshToken(existingGoogle.refresh_token || '');
@@ -100,7 +94,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
 
   useEffect(() => {
     loadCredentials();
-  }, [isOpen, targetWorkspaceId]);
+  }, [isOpen]);
 
   // Handle Escape key
   useEffect(() => {
@@ -115,12 +109,10 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
 
   if (!isOpen) return null;
 
-  const currentSelectedAccount = workspaces.find((w) => w.id === targetWorkspaceId) || workspaces[0];
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!targetWorkspaceId) {
-      addToast('Validation Error', 'Please select an ad account.', 'warning');
+    if (!accountName.trim()) {
+      addToast('Validation Error', 'Please enter an Ad Account / Client Brand name.', 'warning');
       return;
     }
     if (!accountId.trim()) {
@@ -131,7 +123,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
     setIsSubmitting(true);
     try {
       await marketingService.saveCredential({
-        workspace_id: targetWorkspaceId,
+        workspace_name: accountName.trim(),
         platform,
         account_id: accountId.trim(),
         access_token: accessToken.trim(),
@@ -142,7 +134,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
         is_active: isActive,
       });
 
-      addToast('Credential Saved ✅', `${platform} account (${accountId}) connected!`, 'success');
+      addToast('Credential Saved ✅', `${accountName.trim()} - ${platform} account (${accountId}) connected!`, 'success');
       // Reset form
       setAccountId('');
       setAccessToken('');
@@ -187,7 +179,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Ad Account Credentials & Sync</h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Connect Meta & Google Ads accounts for automated live metrics syncing.</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Connect client ad accounts for automated daily metrics tracking.</p>
             </div>
           </div>
           <button
@@ -202,91 +194,33 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
 
         {/* Content */}
         <div className="p-6 space-y-5 overflow-y-auto flex-1 custom-scrollbar">
-          {/* Target Ad Account Selector Dropdown */}
-          <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-              <Building2 className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Target Ad Account / Client Brand</span>
-            </label>
-
-            <div className="relative" ref={accountDropdownRef}>
-              <button
-                type="button"
-                onClick={() => setIsAccountDropdownOpen(!isAccountDropdownOpen)}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 shadow-2xs cursor-pointer transition"
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`w-6 h-6 rounded-lg text-[10px] font-bold text-white flex items-center justify-center shrink-0 ${
-                      currentSelectedAccount?.brandColor || 'bg-indigo-600'
-                    }`}
-                  >
-                    {currentSelectedAccount?.initials || 'AD'}
-                  </div>
-                  <span className="truncate">{currentSelectedAccount?.name || 'Select Account'}</span>
-                </div>
-                <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform ${isAccountDropdownOpen ? 'rotate-180 text-indigo-500' : ''}`} />
-              </button>
-
-              {isAccountDropdownOpen && (
-                <div className="absolute left-0 top-full mt-1.5 w-full bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-50 p-1.5 space-y-1 max-h-56 overflow-y-auto custom-scrollbar animate-scaleIn">
-                  {workspaces.map((w) => {
-                    const isSelected = w.id === targetWorkspaceId;
-                    return (
-                      <button
-                        key={w.id}
-                        type="button"
-                        onClick={() => {
-                          setTargetWorkspaceId(w.id);
-                          setIsAccountDropdownOpen(false);
-                        }}
-                        className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition cursor-pointer ${
-                          isSelected
-                            ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-200 dark:border-indigo-800/80'
-                            : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2.5 min-w-0">
-                          <div
-                            className={`w-5 h-5 rounded text-[9px] font-bold text-white flex items-center justify-center shrink-0 ${
-                              w.brandColor || 'bg-indigo-600'
-                            }`}
-                          >
-                            {w.initials}
-                          </div>
-                          <span className="truncate">{w.name}</span>
-                        </div>
-                        {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-
           {/* List of existing credentials */}
           <div>
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-2 flex items-center justify-between">
-              <span>Connected Credentials ({credentials.length})</span>
+              <span>Connected Ad Credentials ({credentials.length})</span>
               {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
             </h3>
 
             {credentials.length === 0 && !isLoading ? (
               <div className="p-4 bg-zinc-50 dark:bg-zinc-900/60 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl text-center">
                 <AlertCircle className="w-5 h-5 text-zinc-400 mx-auto mb-1" />
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">No ad accounts connected for this account profile yet.</p>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium">No ad accounts connected yet. Add your first credential below.</p>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                 {credentials.map((c) => (
                   <div key={c.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/70 border border-zinc-200 dark:border-zinc-800/80">
-                    <div className="flex items-center gap-3">
-                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${c.platform === 'Meta' ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'}`}>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border shrink-0 ${c.platform === 'Meta' ? 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30' : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'}`}>
                         {c.platform} Ads
                       </span>
-                      <div>
-                        <p className="text-xs font-bold font-mono text-zinc-900 dark:text-zinc-100">{c.account_id}</p>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                            {c.workspace_name || 'Ad Account'}
+                          </p>
+                          <span className="text-[11px] font-mono text-zinc-400">({c.account_id})</span>
+                        </div>
                         <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1 mt-0.5">
                           <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Active Sync Enabled
                         </p>
@@ -296,7 +230,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                     <button
                       type="button"
                       onClick={() => handleDelete(c.id)}
-                      className="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition cursor-pointer shrink-0 ml-2"
                       title="Remove Credential"
                     >
                       <Trash2 className="w-4 h-4" />
@@ -307,13 +241,38 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
             )}
           </div>
 
-          <div className="h-px bg-zinc-200 dark:bg-zinc-800" />
+          <div className="h-px bg-zinc-200 dark:border-zinc-800" />
 
           {/* Add New Credential Form */}
           <form onSubmit={handleSubmit} className="space-y-4">
             <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Plus className="w-4 h-4 text-indigo-500" /> Connect Ad Platform Account
+              <Plus className="w-4 h-4 text-indigo-500" /> Connect New Ad Account
             </h3>
+
+            {/* Ad Account / Client Brand Name Input (Text Field) */}
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Building2 className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Ad Account / Client Brand Name</span>
+              </label>
+              <input
+                type="text"
+                list="existing-ad-accounts-list"
+                placeholder="e.g. Apex Transfer, Elegant Design, Brand XYZ..."
+                value={accountName}
+                onChange={(e) => setAccountName(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 placeholder:font-normal focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none shadow-2xs transition"
+                required
+              />
+              <datalist id="existing-ad-accounts-list">
+                {workspaces.map((w) => (
+                  <option key={w.id} value={w.name} />
+                ))}
+              </datalist>
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 mt-1">
+                Type any client or brand name. It will automatically be registered as an active ad account in the matrix.
+              </p>
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Platform Selector Dropdown */}

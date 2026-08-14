@@ -193,10 +193,10 @@ const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
                     <td className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
                       {spendVal > 0 ? (
                         <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
-                          ${formatCellValue(row.ad_spend, 'currency')}
+                          {formatCellValue(row.ad_spend, 'currency')}
                         </span>
                       ) : (
-                        <span className="text-zinc-400 dark:text-zinc-600">$0.00</span>
+                        <span className="text-zinc-400 dark:text-zinc-600">0.00</span>
                       )}
                     </td>
                     {/* CPL / CPA */}
