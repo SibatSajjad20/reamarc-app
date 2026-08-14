@@ -67,6 +67,80 @@ const NON_FILTERABLE_KEYS = new Set([
   'remarks',
 ]);
 
+const FIELD_TYPE_OPTIONS: { id: 'text' | 'select' | 'date' | 'number'; label: string }[] = [
+  { id: 'text', label: 'Text Input' },
+  { id: 'select', label: 'Dropdown Menu' },
+  { id: 'date', label: 'Date Picker' },
+  { id: 'number', label: 'Numeric' },
+];
+
+interface FieldTypeSelectProps {
+  value: 'text' | 'select' | 'date' | 'number';
+  onChange: (val: 'text' | 'select' | 'date' | 'number') => void;
+}
+
+const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, [isOpen]);
+
+  const currentLabel =
+    FIELD_TYPE_OPTIONS.find((t) => t.id === value)?.label || 'Text Input';
+
+  return (
+    <div className="relative w-full" ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer select-none shadow-2xs"
+      >
+        <span className="truncate">{currentLabel}</span>
+        <ChevronDown
+          className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 shrink-0 ${
+            isOpen ? 'rotate-180' : ''
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+          {FIELD_TYPE_OPTIONS.map((opt) => {
+            const isSelected = value === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => {
+                  onChange(opt.id);
+                  setIsOpen(false);
+                }}
+                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+                  isSelected
+                    ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                    : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                }`}
+              >
+                <span>{opt.label}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 ml-1.5" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const DailyLogView: React.FC = () => {
   const { activeWorkspaceId, user, role } = useAuth();
   const isAdmin = role === 'admin' || user?.role === 'admin';
@@ -432,16 +506,6 @@ export const DailyLogView: React.FC = () => {
     return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
   }, [columns, columnWidths]);
 
-  // Compute Excel Column Header Letters A, B, C...
-  const getColumnLetter = (index: number): string => {
-    let letter = '';
-    while (index >= 0) {
-      letter = String.fromCharCode((index % 26) + 65) + letter;
-      index = Math.floor(index / 26) - 1;
-    }
-    return letter;
-  };
-
   // Calendar Helper functions for Date Picker Filter Popover
   const calendarDaysInMonth = useMemo(() => {
     const year = calendarViewDate.getFullYear();
@@ -611,17 +675,17 @@ export const DailyLogView: React.FC = () => {
             </button>
           )}
 
-          {/* AI Summarize Action Button */}
+          {/* AI Summarize Action Button (Consistent solid Indigo design) */}
           <button
             type="button"
             onClick={handleAiSummarize}
             disabled={isSummarizing || entries.length === 0}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-indigo-600 via-indigo-700 to-purple-700 hover:from-indigo-500 hover:to-purple-600 text-white text-xs font-bold shadow-xs hover:shadow-sm transition-all cursor-pointer disabled:opacity-50 select-none"
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
           >
             {isSummarizing ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <Sparkles className="w-4 h-4 text-purple-200 animate-pulse" />
+              <Sparkles className="w-4 h-4 text-indigo-200" />
             )}
             <span>+ Summarize this data</span>
           </button>
@@ -1191,51 +1255,59 @@ export const DailyLogView: React.FC = () => {
       {/* Enhanced Custom Column Management & Field Creation Modal (Strictly Restricted to Admins) */}
       {isAdmin && isColumnModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#121217] border border-slate-200 dark:border-zinc-800 rounded-xl max-w-xl w-full p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-200 dark:border-zinc-800 pb-3">
-              <h3 className="text-sm font-bold text-slate-900 dark:text-zinc-100 flex items-center gap-2">
-                <Settings2 className="w-4 h-4 text-indigo-500" />
-                <span>Manage & Add Matrix Fields</span>
-              </h3>
+          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3.5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                  <Settings2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    Manage & Add Matrix Fields
+                  </h3>
+                  <p className="text-[11px] text-zinc-400">
+                    Configure columns and custom fields for this workspace
+                  </p>
+                </div>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsColumnModalOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 text-xs font-bold p-1 cursor-pointer"
+                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Form to Add New Column */}
-            <div className="p-3 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200/60 dark:border-indigo-800/40 rounded-xl space-y-2.5">
-              <span className="text-xs font-bold text-indigo-900 dark:text-indigo-300 block">
-                + Add New Field Header
+            <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-3">
+              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                <Plus className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Add New Field Header</span>
               </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px_auto] gap-2.5 items-center">
                 <input
                   type="text"
                   placeholder="Field Name (e.g. Priority)"
                   value={newFieldLabel}
                   onChange={(e) => setNewFieldLabel(e.target.value)}
-                  className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-900 dark:text-zinc-100 focus:outline-none"
+                  className="px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
                 />
-                <select
+                <FieldTypeSelect
                   value={newFieldType}
-                  onChange={(e) => setNewFieldType(e.target.value as any)}
-                  className="px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 cursor-pointer"
-                >
-                  <option value="text" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Text Input</option>
-                  <option value="select" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Dropdown Menu</option>
-                  <option value="date" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Date Picker</option>
-                  <option value="number" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Numeric</option>
-                </select>
+                  onChange={(val) => setNewFieldType(val)}
+                />
                 <button
                   type="button"
                   onClick={handleAddNewColumn}
                   disabled={!newFieldLabel.trim()}
-                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs disabled:opacity-50 cursor-pointer flex items-center justify-center gap-1"
+                  className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all select-none ${
+                    newFieldLabel.trim()
+                      ? 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white shadow-xs cursor-pointer'
+                      : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 border border-zinc-200 dark:border-zinc-700/60 cursor-not-allowed'
+                  }`}
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                   <span>Add Field</span>
                 </button>
               </div>
@@ -1245,24 +1317,21 @@ export const DailyLogView: React.FC = () => {
                   placeholder="Dropdown options separated by commas (e.g. High, Medium, Low)"
                   value={newFieldOptions}
                   onChange={(e) => setNewFieldOptions(e.target.value)}
-                  className="w-full px-2.5 py-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-lg text-xs text-slate-900 dark:text-zinc-100 focus:outline-none"
+                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
                 />
               )}
             </div>
 
-            {/* List of Existing Columns */}
+            {/* List of Existing Columns (A-F removed) */}
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                 Active Columns ({columns.length})
               </span>
               {columns.map((col, idx) => (
                 <div
                   key={col.key}
-                  className="flex items-center gap-2.5 bg-slate-50 dark:bg-zinc-900/80 p-2 rounded-lg border border-slate-200 dark:border-zinc-800"
+                  className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/70 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800"
                 >
-                  <span className="font-mono text-xs font-bold text-slate-400 w-5 text-center shrink-0">
-                    {getColumnLetter(idx)}
-                  </span>
                   <input
                     type="text"
                     value={col.label}
@@ -1271,46 +1340,42 @@ export const DailyLogView: React.FC = () => {
                       newCols[idx].label = e.target.value;
                       setColumns(newCols);
                     }}
-                    className="flex-1 px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-slate-900 dark:text-zinc-100 focus:outline-none"
+                    className="flex-1 px-3 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
                   />
-                  <select
-                    value={col.type}
-                    onChange={(e) => {
-                      const newCols = [...columns];
-                      newCols[idx].type = e.target.value as any;
-                      setColumns(newCols);
-                    }}
-                    className="px-2 py-1 bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded text-xs text-zinc-900 dark:text-zinc-100 cursor-pointer"
-                  >
-                    <option value="text" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Text</option>
-                    <option value="select" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Dropdown</option>
-                    <option value="date" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Date</option>
-                    <option value="number" className="bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100">Number</option>
-                  </select>
+                  <div className="w-40 shrink-0">
+                    <FieldTypeSelect
+                      value={col.type as any}
+                      onChange={(val) => {
+                        const newCols = [...columns];
+                        newCols[idx].type = val;
+                        setColumns(newCols);
+                      }}
+                    />
+                  </div>
                   <button
                     type="button"
                     onClick={() => handleDeleteColumn(col.key)}
-                    className="p-1 text-slate-400 hover:text-rose-500 cursor-pointer"
+                    className="p-2 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer shrink-0"
                     title="Remove Column"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               ))}
             </div>
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-zinc-800">
+            <div className="flex items-center justify-end gap-2.5 pt-3.5 border-t border-zinc-200 dark:border-zinc-800">
               <button
                 type="button"
                 onClick={() => setIsColumnModalOpen(false)}
-                className="px-4 py-1.5 rounded-lg bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-xs font-medium text-slate-700 dark:text-zinc-300 cursor-pointer"
+                className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleSaveColumns}
-                className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-xs font-semibold text-white shadow-xs cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer"
               >
                 Save Column Schema
               </button>
