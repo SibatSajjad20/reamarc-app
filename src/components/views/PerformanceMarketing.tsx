@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import type { Workspace } from '../../types';
 import { useMarketingMatrix } from '../../hooks/useMarketingMatrix';
 import { marketingService } from '../../services/marketingService';
@@ -6,11 +6,23 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 import {
-  TrendingUp, Loader2, CalendarDays, RefreshCcw,
-  AlertTriangle, ChevronLeft, ChevronRight, KeyRound,
-  ZoomIn, RotateCcw, MoveVertical,
-  ChevronDown, Check, Plus, Search, SlidersHorizontal,
-  X
+  TrendingUp,
+  Loader2,
+  RefreshCcw,
+  AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
+  KeyRound,
+  ZoomIn,
+  RotateCcw,
+  MoveVertical,
+  ChevronDown,
+  Check,
+  Plus,
+  Search,
+  SlidersHorizontal,
+  X,
+  Calendar as CalendarIcon,
 } from 'lucide-react';
 
 interface Props {
@@ -26,13 +38,6 @@ const PLATFORM_COLORS: Record<string, string> = {
   TikTok: 'bg-pink-500/15 text-pink-700 dark:text-pink-300 border-pink-500/30',
   WhatsApp: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',
   Other: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30',
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  Active: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-  Paused: 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30',
-  Stopped: 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30',
-  Error: 'bg-red-600/20 text-red-700 dark:text-red-300 border-red-500/40',
 };
 
 const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
@@ -56,6 +61,227 @@ const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
 
 const DEFAULT_ROW_HEIGHT = 44;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MEMOIZED MARKETING MATRIX TABLE (Prevents 10,000+ DOM re-renders on toolbar state changes)
+// ─────────────────────────────────────────────────────────────────────────────
+interface MatrixTableProps {
+  sortedRows: any[];
+  columns: any[];
+  columnWidths: Record<string, number>;
+  rowHeights: Record<string, number>;
+  defaultRowHeight: number;
+  zoomLevel: number;
+  totalW: number;
+  formatCellValue: (val: any, type?: string) => string;
+  handleColumnResizeStart: (e: React.MouseEvent, colKey: string) => void;
+  handleRowResizeStart: (e: React.MouseEvent, rowId: string, currentH: number) => void;
+}
+
+const MarketingMatrixTable: React.FC<MatrixTableProps> = React.memo(
+  ({
+    sortedRows,
+    columns,
+    columnWidths,
+    rowHeights,
+    defaultRowHeight,
+    zoomLevel,
+    totalW,
+    formatCellValue,
+    handleColumnResizeStart,
+    handleRowResizeStart,
+  }) => {
+    return (
+      <div className="matrix-grid-scroll flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full relative custom-scrollbar">
+        <div
+          style={{
+            zoom: `${zoomLevel}%`,
+            width: `${totalW}px`,
+            minWidth: `${totalW}px`,
+          }}
+        >
+          <table
+            className="border-separate border-spacing-0 table-fixed text-left text-xs"
+            style={{ width: `${totalW}px`, minWidth: `${totalW}px` }}
+          >
+            <colgroup>
+              {columns.map((c) => (
+                <col key={c.key} style={{ width: `${columnWidths[c.key] || c.minW}px` }} />
+              ))}
+            </colgroup>
+            <thead className="sticky top-0 z-30 shadow-xs">
+              <tr className="bg-zinc-100 dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800">
+                {columns.map((c) => {
+                  const alignClass =
+                    c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left';
+                  const justifyClass =
+                    c.align === 'right' ? 'justify-end' : c.align === 'center' ? 'justify-center' : 'justify-start';
+                  return (
+                    <th
+                      key={c.key}
+                      style={{ width: `${columnWidths[c.key] || c.minW}px` }}
+                      className={`sticky top-0 z-30 relative px-2.5 py-3 text-[11px] uppercase font-extrabold tracking-wider text-zinc-700 dark:text-zinc-300 border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#0f1117] whitespace-nowrap select-none group ${alignClass}`}
+                    >
+                      <div className={`flex items-center gap-1 ${justifyClass}`}>
+                        <span className="truncate">{c.label}</span>
+                      </div>
+                      {/* Draggable Column Resizer Handle */}
+                      <div
+                        onMouseDown={(e) => handleColumnResizeStart(e, c.key)}
+                        className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-indigo-500/60 active:bg-indigo-600 transition-colors z-30 flex items-center justify-center"
+                        title="Drag to resize column"
+                      />
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row, idx) => {
+                const isWarning = row.status === 'Stopped' || row.status === 'Error';
+                const rHeight = rowHeights[row.campaign_id] || defaultRowHeight;
+                const spendVal = Number(row.ad_spend) || 0;
+                const leadsVal = Number(row.leads_conversions) || 0;
+
+                return (
+                  <tr
+                    key={row.campaign_id}
+                    style={{ height: `${rHeight}px` }}
+                    className={`relative border-b border-zinc-200/80 dark:border-zinc-800/80 transition-colors group ${
+                      isWarning
+                        ? 'bg-rose-500/5 dark:bg-rose-900/10'
+                        : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40'
+                    }`}
+                  >
+                    {/* Sr */}
+                    <td className="px-2 text-center text-xs font-semibold tabular-nums text-zinc-400 dark:text-zinc-500 border-r border-zinc-200/80 dark:border-zinc-800/60 select-none">
+                      {idx + 1}
+                    </td>
+                    {/* Client / Account */}
+                    <td className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+                      {row.workspace_name || '—'}
+                    </td>
+                    {/* Industry */}
+                    <td className="px-2 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+                      {row.industry || '—'}
+                    </td>
+                    {/* Objective */}
+                    <td className="px-2 text-left text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate border-r border-zinc-200/80 dark:border-zinc-800/60">
+                      {row.objective}
+                    </td>
+                    {/* Platform Badge */}
+                    <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${
+                          PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other
+                        }`}
+                      >
+                        {row.platform}
+                      </span>
+                    </td>
+                    {/* Campaign Name */}
+                    <td
+                      className="px-2.5 text-left text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+                      title={row.campaign_name}
+                    >
+                      {row.campaign_name}
+                    </td>
+                    {/* Budget Set */}
+                    <td className="px-2.5 text-right text-xs font-mono text-zinc-600 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.budget_set, 'currency')}
+                    </td>
+                    {/* Ad Spend */}
+                    <td className="px-2.5 text-right text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {spendVal > 0 ? (
+                        <span className="text-indigo-600 dark:text-indigo-400 font-extrabold">
+                          ${formatCellValue(row.ad_spend, 'currency')}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400 dark:text-zinc-600">$0.00</span>
+                      )}
+                    </td>
+                    {/* CPL / CPA */}
+                    <td className="px-2.5 text-right text-xs font-mono text-zinc-700 dark:text-zinc-300 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.cpl_cpa, 'currency')}
+                    </td>
+                    {/* Leads / Conversions */}
+                    <td className="px-2.5 text-right text-xs font-mono font-bold border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {leadsVal > 0 ? (
+                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold">
+                          {formatCellValue(row.leads_conversions, 'number')}
+                        </span>
+                      ) : (
+                        <span className="text-zinc-400 dark:text-zinc-600">0</span>
+                      )}
+                    </td>
+                    {/* Avg Frequency */}
+                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.avg_frequency, 'number')}
+                    </td>
+                    {/* Impressions */}
+                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.impressions, 'number')}
+                    </td>
+                    {/* Clicks */}
+                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.clicks, 'number')}
+                    </td>
+                    {/* Reach */}
+                    <td className="px-2 text-right text-xs font-mono text-zinc-600 dark:text-zinc-400 border-r border-zinc-200/80 dark:border-zinc-800/60 tabular-nums">
+                      {formatCellValue(row.reach, 'number')}
+                    </td>
+                    {/* Remarks */}
+                    <td
+                      className="px-2.5 text-left text-xs text-zinc-600 dark:text-zinc-400 truncate border-r border-zinc-200/80 dark:border-zinc-800/60"
+                      title={row.remarks || ''}
+                    >
+                      {row.remarks || '—'}
+                    </td>
+                    {/* Status Badge */}
+                    <td className="px-2 text-center border-r border-zinc-200/80 dark:border-zinc-800/60 relative">
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                          row.status === 'Active'
+                            ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                            : row.status === 'Paused'
+                            ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
+                            : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                        }`}
+                      >
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full ${
+                            row.status === 'Active'
+                              ? 'bg-emerald-500 animate-pulse'
+                              : row.status === 'Paused'
+                              ? 'bg-amber-500'
+                              : 'bg-rose-500'
+                          }`}
+                        />
+                        <span>{row.status}</span>
+                      </span>
+
+                      {/* Row Height Resize Handle */}
+                      <div
+                        onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, rHeight)}
+                        className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-indigo-500/60 active:bg-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity z-20"
+                        title="Drag to resize row height"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  }
+);
+
+MarketingMatrixTable.displayName = 'MarketingMatrixTable';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN PERFORMANCE MARKETING MODULE
+// ─────────────────────────────────────────────────────────────────────────────
 export const PerformanceMarketing: React.FC<Props> = ({
   selectedWorkspace = null,
   workspaces = [],
@@ -64,24 +290,55 @@ export const PerformanceMarketing: React.FC<Props> = ({
 }) => {
   const { role } = useAuth();
   const { addToast } = useToast();
-  
-  const { rows, hiddenCount, showInactive, toggleShowInactive, isLoading, error, selectedDate, changeDate, triggerSyncNow, refetch } = useMarketingMatrix(selectedWorkspace?.id);
+
+  const {
+    rows,
+    hiddenCount,
+    showInactive,
+    toggleShowInactive,
+    isLoading,
+    error,
+    selectedDate,
+    changeDate,
+    triggerSyncNow,
+    refetch,
+  } = useMarketingMatrix(selectedWorkspace?.id);
+
   const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
-  
+
   // Ad Account Dropdown State
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [dropdownSearch, setDropdownSearch] = useState('');
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
+  // Custom Calendar Popover State
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date(selectedDate || Date.now()));
+  const calendarDropdownRef = useRef<HTMLDivElement>(null);
+
   // View Settings Popover State
   const [isViewSettingsOpen, setIsViewSettingsOpen] = useState(false);
   const viewSettingsRef = useRef<HTMLDivElement>(null);
 
+  // Synchronize calendar view date with selectedDate
+  useEffect(() => {
+    if (selectedDate) {
+      const parts = selectedDate.split('-');
+      if (parts.length === 3) {
+        setCalendarViewDate(new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
+      }
+    }
+  }, [selectedDate]);
+
+  // Click outside listener for all popovers
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
+      }
+      if (calendarDropdownRef.current && !calendarDropdownRef.current.contains(event.target as Node)) {
+        setIsCalendarOpen(false);
       }
       if (viewSettingsRef.current && !viewSettingsRef.current.contains(event.target as Node)) {
         setIsViewSettingsOpen(false);
@@ -118,7 +375,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     } catch (e) {}
   }, [zoomLevel]);
 
-  // ─── Column & Row Resizing State ──────────────────────────────────────────────
+  // Column & Row Resizing State
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     try {
       const saved = localStorage.getItem('reamarc_perf_col_widths');
@@ -150,15 +407,15 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const columnWidthsRef = useRef(columnWidths);
   columnWidthsRef.current = columnWidths;
 
-  const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
+  const handleColumnResizeStart = useCallback((e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
     setResizingCol(colKey);
     startXRef.current = e.clientX;
-    startWidthRef.current = columnWidths[colKey] || 100;
+    startWidthRef.current = columnWidthsRef.current[colKey] || 100;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
-  };
+  }, []);
 
   useEffect(() => {
     if (!resizingCol) return;
@@ -197,14 +454,14 @@ export const PerformanceMarketing: React.FC<Props> = ({
     };
   }, [resizingCol]);
 
-  // Draggable Row Height Mouse Handler for specific row ID
+  // Draggable Row Height Mouse Handler
   const [resizingRowId, setResizingRowId] = useState<string | null>(null);
   const startYRef = useRef<number>(0);
   const startRowHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
   const rowHeightsRef = useRef(rowHeights);
   rowHeightsRef.current = rowHeights;
 
-  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
+  const handleRowResizeStart = useCallback((e: React.MouseEvent, rowId: string, currentH: number) => {
     e.preventDefault();
     e.stopPropagation();
     setResizingRowId(rowId);
@@ -212,7 +469,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     startRowHeightRef.current = currentH;
     document.body.style.cursor = 'row-resize';
     document.body.style.userSelect = 'none';
-  };
+  }, []);
 
   useEffect(() => {
     if (!resizingRowId) return;
@@ -251,7 +508,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     };
   }, [resizingRowId]);
 
-  const resetLayout = () => {
+  const resetLayout = useCallback(() => {
     setColumnWidths(DEFAULT_COLUMN_WIDTHS);
     setRowHeights({});
     setDefaultRowHeight(DEFAULT_ROW_HEIGHT);
@@ -262,10 +519,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
       localStorage.removeItem('reamarc_perf_def_row_height');
       localStorage.removeItem('reamarc_perf_zoom');
     } catch (e) {}
-    addToast('Layout Reset', 'Grid column widths, individual row heights, and zoom reset to default.', 'info');
-  };
+    addToast('Layout Reset', 'Grid column widths, row heights, and zoom reset to default.', 'info');
+  }, [addToast]);
 
-  // ─── Status Counts ────────────────────────────────────────────────────────────
+  // Status Counts
   const statusCounts = useMemo(() => {
     const counts = { Active: 0, Paused: 0, Error: 0, Stopped: 0, Total: rows.length };
     rows.forEach((r) => {
@@ -353,52 +610,86 @@ export const PerformanceMarketing: React.FC<Props> = ({
     }
   };
 
-  const shiftDate = (days: number) => {
-    const d = new Date(selectedDate);
-    d.setDate(d.getDate() + days);
-    changeDate(d.toISOString().split('T')[0]);
-  };
+  const shiftDate = useCallback(
+    (days: number) => {
+      const d = new Date(selectedDate);
+      d.setDate(d.getDate() + days);
+      changeDate(d.toISOString().split('T')[0]);
+    },
+    [selectedDate, changeDate]
+  );
 
-  const columns = [
-    { key: 'sr', label: 'Sr', minW: 50, align: 'center' as const },
-    { key: 'workspace_name', label: 'Client / Account', minW: 140, align: 'left' as const },
-    { key: 'industry', label: 'Industry', minW: 110, align: 'left' as const },
-    { key: 'objective', label: 'Objective', minW: 130, align: 'left' as const },
-    { key: 'platform', label: 'Platform', minW: 95, align: 'center' as const },
-    { key: 'campaign_name', label: 'Campaign Name', minW: 220, align: 'left' as const },
-    { key: 'budget_set', label: 'Budget Set', minW: 110, type: 'currency' as const, align: 'right' as const },
-    { key: 'ad_spend', label: 'Ad Spend', minW: 110, type: 'currency' as const, align: 'right' as const },
-    { key: 'cpl_cpa', label: 'CPL / CPA', minW: 100, type: 'currency' as const, align: 'right' as const },
-    { key: 'leads_conversions', label: 'Leads', minW: 85, type: 'number' as const, align: 'right' as const },
-    { key: 'avg_frequency', label: 'Avg Freq', minW: 85, type: 'number' as const, align: 'right' as const },
-    { key: 'impressions', label: 'Impressions', minW: 105, type: 'number' as const, align: 'right' as const },
-    { key: 'clicks', label: 'Clicks', minW: 85, type: 'number' as const, align: 'right' as const },
-    { key: 'reach', label: 'Reach', minW: 95, type: 'number' as const, align: 'right' as const },
-    { key: 'remarks', label: 'Remarks', minW: 180, type: 'text' as const, align: 'left' as const },
-    { key: 'status', label: 'Status', minW: 110, type: 'status' as const, align: 'center' as const },
-  ];
+  const columns = useMemo(
+    () => [
+      { key: 'sr', label: 'Sr', minW: 50, align: 'center' as const },
+      { key: 'workspace_name', label: 'Client / Account', minW: 140, align: 'left' as const },
+      { key: 'industry', label: 'Industry', minW: 110, align: 'left' as const },
+      { key: 'objective', label: 'Objective', minW: 130, align: 'left' as const },
+      { key: 'platform', label: 'Platform', minW: 90, align: 'center' as const },
+      { key: 'campaign_name', label: 'Campaign Name', minW: 220, align: 'left' as const },
+      { key: 'budget_set', label: 'Daily Budget', minW: 100, type: 'currency' as const, align: 'right' as const },
+      { key: 'ad_spend', label: 'Spend', minW: 105, type: 'currency' as const, align: 'right' as const },
+      { key: 'cpl_cpa', label: 'CPL / CPA', minW: 95, type: 'currency' as const, align: 'right' as const },
+      { key: 'leads_conversions', label: 'Leads', minW: 85, type: 'number' as const, align: 'right' as const },
+      { key: 'avg_frequency', label: 'Avg Freq', minW: 85, type: 'number' as const, align: 'right' as const },
+      { key: 'impressions', label: 'Impressions', minW: 105, type: 'number' as const, align: 'right' as const },
+      { key: 'clicks', label: 'Clicks', minW: 85, type: 'number' as const, align: 'right' as const },
+      { key: 'reach', label: 'Reach', minW: 95, type: 'number' as const, align: 'right' as const },
+      { key: 'remarks', label: 'Remarks', minW: 180, type: 'text' as const, align: 'left' as const },
+      { key: 'status', label: 'Status', minW: 110, type: 'status' as const, align: 'center' as const },
+    ],
+    []
+  );
 
   const totalW = useMemo(() => {
     return columns.reduce((sum, c) => sum + (columnWidths[c.key] || c.minW), 0);
-  }, [columnWidths]);
+  }, [columns, columnWidths]);
 
-  const formatCellValue = (value: any, type?: string) => {
+  const formatCellValue = useCallback((value: any, type?: string) => {
     if (value === undefined || value === null || value === '') return '—';
     if (type === 'currency') {
       const num = Number(value);
-      return isNaN(num) ? '—' : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return isNaN(num)
+        ? '—'
+        : num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
     if (type === 'number') {
       const num = Number(value);
       return isNaN(num) ? '—' : num.toLocaleString('en-US');
     }
     return String(value);
-  };
+  }, []);
+
+  // Formatted Date string for navbar button
+  const formattedDateLabel = useMemo(() => {
+    if (!selectedDate) return 'Today';
+    try {
+      const parts = selectedDate.split('-');
+      if (parts.length === 3) {
+        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+        const today = new Date();
+        if (d.toDateString() === today.toDateString()) {
+          return `Today, ${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`;
+        }
+        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
+      }
+    } catch (e) {}
+    return selectedDate;
+  }, [selectedDate]);
+
+  // Calendar calculations for Popover
+  const calendarDaysInMonth = useMemo(() => {
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    return { firstDay, daysInMonth, year, month };
+  }, [calendarViewDate]);
 
   return (
     <div className="flex flex-col h-full min-w-0 bg-slate-50 dark:bg-[#0b0f17] text-slate-900 dark:text-slate-100 p-6 overflow-hidden transition-colors">
       {/* Redesigned Performance Marketing Header & Toolbar */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-4 pb-4 border-b border-zinc-200 dark:border-zinc-800/80">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 mb-4 pb-3.5 border-b border-zinc-200 dark:border-zinc-800/80">
         {/* Left: Ad Account Switcher & Live KPI Counters */}
         <div className="flex flex-wrap items-center gap-3">
           {/* Ad Account Dropdown Trigger */}
@@ -420,7 +711,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-[160px]">
                     {selectedWorkspace ? selectedWorkspace.name : 'All Ad Accounts'}
                   </span>
-                  {selectedWorkspace && (
+                  {selectedWorkspace &&
                     (() => {
                       const isMulti =
                         (selectedWorkspace.platform && selectedWorkspace.platform.toLowerCase().includes('google')) ||
@@ -436,14 +727,17 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           Meta
                         </span>
                       );
-                    })()
-                  )}
+                    })()}
                 </div>
                 <span className="text-[10px] text-zinc-400 font-medium block leading-tight mt-0.5">
-                  {selectedWorkspace ? (selectedWorkspace.industry || 'Ad Account') : 'Consolidated Agency Matrix'}
+                  {selectedWorkspace ? selectedWorkspace.industry || 'Ad Account' : 'Consolidated Agency Matrix'}
                 </span>
               </div>
-              <ChevronDown className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${isAccountMenuOpen ? 'rotate-180 text-indigo-500' : ''}`} />
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 ${
+                  isAccountMenuOpen ? 'rotate-180 text-indigo-500' : ''
+                }`}
+              />
             </button>
 
             {/* Dropdown Menu Popover with Search & Scrollbar */}
@@ -472,7 +766,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                 </div>
 
                 {/* Scrollable Accounts List */}
-                <div className="max-h-[320px] overflow-y-auto space-y-1 pr-1" style={{ scrollbarWidth: 'thin' }}>
+                <div className="max-h-[320px] overflow-y-auto space-y-1 pr-1 custom-scrollbar">
                   {/* All Accounts Option */}
                   {!dropdownSearch && (
                     <button
@@ -605,26 +899,37 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
         {/* Right Toolbar Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Show Paused Toggle Pill */}
-          <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showInactive}
-              onChange={toggleShowInactive}
-              className="w-3.5 h-3.5 rounded text-indigo-600 focus:ring-indigo-500 bg-zinc-100 dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 cursor-pointer"
-            />
-            <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-              Show Paused
+          {/* Custom Show Paused Toggle Pill (No basic checkbox) */}
+          <button
+            type="button"
+            onClick={toggleShowInactive}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition cursor-pointer select-none shadow-2xs ${
+              showInactive
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+                : 'bg-white dark:bg-[#12141c] border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-700'
+            }`}
+          >
+            <span
+              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+                showInactive ? 'bg-amber-500' : 'bg-zinc-300 dark:bg-zinc-700'
+              }`}
+            >
+              <span
+                className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transform transition ${
+                  showInactive ? 'translate-x-3' : 'translate-x-0'
+                }`}
+              />
             </span>
+            <span className="text-xs font-bold">Show Paused</span>
             {hiddenCount > 0 && !showInactive && (
               <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
                 +{hiddenCount}
               </span>
             )}
-          </label>
+          </button>
 
-          {/* Date Picker Group */}
-          <div className="flex items-center gap-1 bg-white dark:bg-[#12141c] p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs">
+          {/* Custom Calendar Date Navigator (Daily Log Style Popover) */}
+          <div className="relative flex items-center gap-1 bg-white dark:bg-[#12141c] p-1 rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-2xs" ref={calendarDropdownRef}>
             <button
               type="button"
               onClick={() => shiftDate(-1)}
@@ -633,15 +938,18 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <div className="flex items-center gap-1.5 px-1.5">
-              <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => changeDate(e.target.value)}
-                className="bg-transparent text-xs font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
-              />
-            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsCalendarOpen(!isCalendarOpen)}
+              className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+              title="Open Calendar Picker"
+            >
+              <CalendarIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{formattedDateLabel}</span>
+              <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform ${isCalendarOpen ? 'rotate-180 text-indigo-500' : ''}`} />
+            </button>
+
             <button
               type="button"
               onClick={() => shiftDate(1)}
@@ -650,6 +958,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
+
             <button
               type="button"
               onClick={() => changeDate(new Date().toISOString().split('T')[0])}
@@ -657,6 +966,120 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               Today
             </button>
+
+            {/* Custom Interactive Calendar Popover */}
+            {isCalendarOpen && (
+              <div className="absolute right-0 top-full mt-2 z-50 w-72 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl p-3 space-y-3 animate-scaleIn select-none">
+                {/* Month and Year Header */}
+                <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prev = new Date(calendarViewDate);
+                      prev.setMonth(prev.getMonth() - 1);
+                      setCalendarViewDate(prev);
+                    }}
+                    className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    {calendarViewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = new Date(calendarViewDate);
+                      next.setMonth(next.getMonth() + 1);
+                      setCalendarViewDate(next);
+                    }}
+                    className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Day of Week Labels */}
+                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-zinc-400">
+                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
+                    <div key={d} className="py-0.5">
+                      {d}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Month Days Grid */}
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {Array.from({ length: calendarDaysInMonth.firstDay }).map((_, i) => (
+                    <div key={`empty-${i}`} className="h-7" />
+                  ))}
+                  {Array.from({ length: calendarDaysInMonth.daysInMonth }).map((_, i) => {
+                    const day = i + 1;
+                    const dateStr = `${calendarDaysInMonth.year}-${String(calendarDaysInMonth.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const isSelected = selectedDate === dateStr;
+                    const isToday = new Date().toISOString().split('T')[0] === dateStr;
+
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => {
+                          changeDate(dateStr);
+                          setIsCalendarOpen(false);
+                        }}
+                        className={`h-7 w-7 mx-auto rounded-lg text-xs font-semibold flex items-center justify-center transition cursor-pointer ${
+                          isSelected
+                            ? 'bg-indigo-600 text-white font-bold shadow-xs'
+                            : isToday
+                            ? 'border border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold'
+                            : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        }`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Quick Selection Presets */}
+                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-1 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      changeDate(new Date().toISOString().split('T')[0]);
+                      setIsCalendarOpen(false);
+                    }}
+                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer font-medium"
+                  >
+                    Today
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const y = new Date();
+                      y.setDate(y.getDate() - 1);
+                      changeDate(y.toISOString().split('T')[0]);
+                      setIsCalendarOpen(false);
+                    }}
+                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer font-medium"
+                  >
+                    Yesterday
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const w = new Date();
+                      w.setDate(w.getDate() - 7);
+                      changeDate(w.toISOString().split('T')[0]);
+                      setIsCalendarOpen(false);
+                    }}
+                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer font-medium"
+                  >
+                    7 Days Ago
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Sync Ads API Button */}
@@ -729,7 +1152,9 @@ export const PerformanceMarketing: React.FC<Props> = ({
                       onClick={() => {
                         const next = Math.max(36, defaultRowHeight - 4);
                         setDefaultRowHeight(next);
-                        try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
+                        try {
+                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                        } catch (e) {}
                       }}
                       className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
                     >
@@ -743,7 +1168,9 @@ export const PerformanceMarketing: React.FC<Props> = ({
                       onClick={() => {
                         const next = Math.min(100, defaultRowHeight + 4);
                         setDefaultRowHeight(next);
-                        try { localStorage.setItem('reamarc_perf_def_row_height', String(next)); } catch (e) {}
+                        try {
+                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                        } catch (e) {}
                       }}
                       className="px-2 py-0.5 text-xs font-bold text-zinc-600 dark:text-zinc-400 hover:bg-white dark:hover:bg-zinc-800 rounded transition cursor-pointer"
                     >
@@ -800,8 +1227,8 @@ export const PerformanceMarketing: React.FC<Props> = ({
       {/* Grid Container */}
       <div className="flex-1 min-h-0 flex flex-col min-w-0 bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl relative overflow-hidden">
         {isLoading && (
-          <div className="absolute inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-sm z-40 flex flex-col items-center justify-center space-y-3">
-            <Loader2 className="w-8 h-8 text-orange-500 animate-spin" />
+          <div className="absolute inset-0 bg-white/80 dark:bg-slate-950/80 backdrop-blur-xs z-40 flex flex-col items-center justify-center space-y-3">
+            <Loader2 className="w-8 h-8 text-indigo-500 animate-spin" />
             <p className="text-xs font-bold text-slate-700 dark:text-slate-200">Loading Performance Data...</p>
           </div>
         )}
@@ -815,158 +1242,42 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
         {!isLoading && rows.length === 0 && !error ? (
           <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-5">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-orange-500/20 to-rose-500/20 border border-orange-500/30 text-orange-600 dark:text-orange-400 flex items-center justify-center shadow-lg">
+            <div className="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shadow-lg">
               <TrendingUp className="w-8 h-8" />
             </div>
             <div className="max-w-md space-y-1.5">
               <h2 className="text-xl font-extrabold text-slate-900 dark:text-white">No Campaigns Tracked</h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">No active marketing campaigns found for this date. Connect an Ad Account or sync data to start tracking daily performance.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                No active marketing campaigns found for this date. Connect an Ad Account or sync data to start tracking
+                daily performance.
+              </p>
             </div>
           </div>
-        ) : rows.length > 0 && (
-          <div className="matrix-grid-scroll flex-1 min-h-0 overflow-x-auto overflow-y-auto w-full relative">
-            <div
-              style={{
-                zoom: `${zoomLevel}%`,
-                width: `${totalW}px`,
-                minWidth: `${totalW}px`,
-              }}
-            >
-              <table className="border-separate border-spacing-0 table-fixed text-left text-xs" style={{ width: `${totalW}px`, minWidth: `${totalW}px` }}>
-                <colgroup>
-                  {columns.map((c) => (
-                    <col key={c.key} style={{ width: `${columnWidths[c.key] || c.minW}px` }} />
-                  ))}
-                </colgroup>
-                <thead className="sticky top-0 z-30 shadow-xs">
-                  <tr className="bg-slate-100 dark:bg-slate-950 border-b border-slate-300 dark:border-slate-800">
-                    {columns.map((c) => {
-                      const alignClass = c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left';
-                      const justifyClass = c.align === 'right' ? 'justify-end' : c.align === 'center' ? 'justify-center' : 'justify-start';
-                      return (
-                        <th
-                          key={c.key}
-                          style={{ width: `${columnWidths[c.key] || c.minW}px` }}
-                          className={`sticky top-0 z-30 relative px-2.5 py-3 text-[11px] uppercase font-extrabold tracking-wider text-slate-700 dark:text-slate-200 border-b border-r border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-950 whitespace-nowrap select-none group ${alignClass}`}
-                        >
-                          <div className={`flex items-center gap-1 ${justifyClass}`}>
-                            <span className="truncate">{c.label}</span>
-                          </div>
-                          {/* Draggable Column Resizer Handle */}
-                          <div
-                            onMouseDown={(e) => handleColumnResizeStart(e, c.key)}
-                            className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize hover:bg-orange-500/60 active:bg-orange-600 transition-colors z-30 flex items-center justify-center"
-                            title="Drag to resize column"
-                          />
-                        </th>
-                      );
-                    })}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.map((row, idx) => {
-                    const isWarning = row.status === 'Stopped' || row.status === 'Error';
-                    const rHeight = rowHeights[row.campaign_id] || defaultRowHeight;
-                    const spendVal = Number(row.ad_spend) || 0;
-                    const leadsVal = Number(row.leads_conversions) || 0;
-
-                    return (
-                      <tr
-                        key={row.campaign_id}
-                        style={{ height: `${rHeight}px` }}
-                        className={`relative border-b border-slate-200/80 dark:border-slate-800/80 transition-colors group ${
-                          isWarning ? 'bg-rose-500/5 dark:bg-rose-900/10' : 'hover:bg-orange-500/5 dark:hover:bg-orange-500/5'
-                        }`}
-                      >
-                        {/* Sr */}
-                        <td className="px-2 text-center text-xs font-semibold tabular-nums text-slate-400 dark:text-slate-500 border-r border-slate-200/80 dark:border-slate-800/60 select-none">
-                          {idx + 1}
-                        </td>
-                        {/* Client / Account */}
-                        <td className="px-2.5 text-left text-xs font-bold text-slate-900 dark:text-slate-100 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {row.workspace_name || '—'}
-                        </td>
-                        {/* Industry */}
-                        <td className="px-2 text-left text-xs text-slate-600 dark:text-slate-400 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {row.industry || '—'}
-                        </td>
-                        {/* Objective */}
-                        <td className="px-2 text-left text-xs font-medium text-slate-700 dark:text-slate-300 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {row.objective}
-                        </td>
-                        {/* Platform Badge */}
-                        <td className="px-2 text-center border-r border-slate-200/80 dark:border-slate-800/60">
-                          <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other}`}>
-                            {row.platform}
-                          </span>
-                        </td>
-                        {/* Campaign Name */}
-                        <td className="px-2 text-left text-xs font-bold text-slate-900 dark:text-white truncate border-r border-slate-200/80 dark:border-slate-800/60" title={row.campaign_name}>
-                          {row.campaign_name}
-                        </td>
-                        {/* Budget Set */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-700 dark:text-slate-200 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.budget_set, 'currency')}
-                        </td>
-                        {/* Ad Spend */}
-                        <td className={`px-2.5 text-right text-xs tabular-nums truncate border-r border-slate-200/80 dark:border-slate-800/60 ${spendVal > 0 ? 'font-extrabold text-slate-900 dark:text-white' : 'font-semibold text-slate-400 dark:text-slate-500'}`}>
-                          {formatCellValue(row.ad_spend, 'currency')}
-                        </td>
-                        {/* CPL / CPA */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-700 dark:text-slate-300 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.cpl_cpa, 'currency')}
-                        </td>
-                        {/* Leads */}
-                        <td className={`px-2.5 text-right text-xs tabular-nums truncate border-r border-slate-200/80 dark:border-slate-800/60 ${leadsVal > 0 ? 'font-extrabold text-emerald-600 dark:text-emerald-400' : 'font-semibold text-slate-400 dark:text-slate-500'}`}>
-                          {formatCellValue(row.leads_conversions, 'number')}
-                        </td>
-                        {/* Avg Freq */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-600 dark:text-slate-300 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.avg_frequency, 'number')}
-                        </td>
-                        {/* Impressions */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-700 dark:text-slate-200 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.impressions, 'number')}
-                        </td>
-                        {/* Clicks */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-700 dark:text-slate-200 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.clicks, 'number')}
-                        </td>
-                        {/* Reach */}
-                        <td className="px-2.5 text-right text-xs tabular-nums font-semibold text-slate-700 dark:text-slate-200 truncate border-r border-slate-200/80 dark:border-slate-800/60">
-                          {formatCellValue(row.reach, 'number')}
-                        </td>
-                        {/* Remarks */}
-                        <td className="px-2 text-left text-xs text-slate-500 dark:text-slate-400 truncate border-r border-slate-200/80 dark:border-slate-800/60" title={row.remarks}>
-                          {row.remarks || '—'}
-                        </td>
-                        {/* Status Badge */}
-                        <td className="px-2 text-center border-r border-slate-200/80 dark:border-slate-800/60">
-                          <span className={`inline-block px-2 py-0.5 rounded-md text-[10px] font-bold border ${STATUS_COLORS[row.status] || STATUS_COLORS.Active}`}>
-                            {row.status}
-                          </span>
-                        </td>
-
-                        {/* Draggable Row Height Resizer Handle for Specific Row */}
-                        <td className="p-0 border-0 pointer-events-none">
-                          <div
-                            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, rHeight)}
-                            className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-orange-500/60 active:bg-orange-600 transition-colors z-20 pointer-events-auto"
-                            title="Drag to resize this specific row height"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
+        ) : (
+          rows.length > 0 && (
+            <MarketingMatrixTable
+              sortedRows={sortedRows}
+              columns={columns}
+              columnWidths={columnWidths}
+              rowHeights={rowHeights}
+              defaultRowHeight={defaultRowHeight}
+              zoomLevel={zoomLevel}
+              totalW={totalW}
+              formatCellValue={formatCellValue}
+              handleColumnResizeStart={handleColumnResizeStart}
+              handleRowResizeStart={handleRowResizeStart}
+            />
+          )
         )}
       </div>
 
-      <AdAccountCredentialsModal isOpen={isCredsModalOpen} onClose={() => setIsCredsModalOpen(false)}
-        selectedWorkspace={selectedWorkspace} workspaces={workspaces} />
+      {/* Ad Account Credentials Modal */}
+      <AdAccountCredentialsModal
+        isOpen={isCredsModalOpen}
+        onClose={() => setIsCredsModalOpen(false)}
+        selectedWorkspace={selectedWorkspace}
+        workspaces={workspaces}
+      />
     </div>
   );
 };
