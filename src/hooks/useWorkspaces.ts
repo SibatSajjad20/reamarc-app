@@ -47,7 +47,7 @@ export function useWorkspaces(enabled: boolean = true) {
 
   const saveWorkspace = async (
     workspaceToEdit: Workspace | null,
-    data: { name: string; initials?: string; brandColor?: string; industry?: string }
+    data: { name: string; initials?: string; brandColor?: string; industry?: string; platform?: string }
   ) => {
     if (workspaceToEdit) {
       const updated = await workspaceService.updateWorkspace(workspaceToEdit.id, data);

@@ -15,6 +15,7 @@ import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { AddMemberModal } from './AddMemberModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
+import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 import type { AdminMember, CreateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import type { UserRole } from '../../types/auth';
@@ -35,8 +36,9 @@ export const AdminPanel: React.FC = () => {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [addModalDefaultRole, setAddModalDefaultRole] = useState<UserRole>('member');
 
-  // Ad Account modal
+  // Ad Account modals
   const [isAccountModalOpen, setIsAccountModalOpen] = useState(false);
+  const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [accountToEdit, setAccountToEdit] = useState<Workspace | null>(null);
 
   const { workspaces, saveWorkspace, deleteWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
@@ -90,8 +92,7 @@ export const AdminPanel: React.FC = () => {
   };
 
   const handleOpenCreateAccount = () => {
-    setAccountToEdit(null);
-    setIsAccountModalOpen(true);
+    setIsCredsModalOpen(true);
   };
 
   const handleOpenEditAccount = (acc: Workspace) => {
@@ -99,7 +100,7 @@ export const AdminPanel: React.FC = () => {
     setIsAccountModalOpen(true);
   };
 
-  const handleSaveAccountModal = async (data: { name: string; initials?: string; brandColor?: string; industry?: string }) => {
+  const handleSaveAccountModal = async (data: { name: string; initials?: string; brandColor?: string; industry?: string; platform?: string }) => {
     try {
       const res = await saveWorkspace(accountToEdit, data);
       addToast('Success', res.isNew ? `Ad Account "${data.name}" added!` : `Ad Account "${data.name}" updated!`, 'success');
@@ -561,12 +562,22 @@ export const AdminPanel: React.FC = () => {
         defaultRole={addModalDefaultRole}
       />
 
-      {/* Ad Account Modal */}
+      {/* Edit Ad Account Modal */}
       <WorkspaceModal
         isOpen={isAccountModalOpen}
         onClose={() => setIsAccountModalOpen(false)}
         onSave={handleSaveAccountModal}
         workspaceToEdit={accountToEdit}
+      />
+
+      {/* Connect Ad Account / Credentials Modal */}
+      <AdAccountCredentialsModal
+        isOpen={isCredsModalOpen}
+        onClose={() => {
+          setIsCredsModalOpen(false);
+          refetchWorkspaces();
+        }}
+        workspaces={workspaces}
       />
     </div>
   );

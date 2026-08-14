@@ -1,12 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Building2, Palette, Sparkles, Briefcase } from 'lucide-react';
+import { X, Building2, Palette, Sparkles, Briefcase, Layers } from 'lucide-react';
 import type { Workspace } from '../../types';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (data: { name: string; initials?: string; brandColor?: string; industry?: string }) => Promise<void>;
+  onSave: (data: { name: string; initials?: string; brandColor?: string; industry?: string; platform?: string }) => Promise<void>;
   workspaceToEdit?: Workspace | null;
 }
 
@@ -29,9 +29,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   const [initials, setInitials] = useState('');
   const [brandColor, setBrandColor] = useState('bg-indigo-600');
   const [industry, setIndustry] = useState('General B2B');
+  const [platform, setPlatform] = useState('Meta Ads');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Lock body scroll when modal is open and revert to auto on close/unmount
+  // Lock body scroll when modal is open
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden';
@@ -43,7 +44,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     };
   }, [isOpen]);
 
-  // Handle Escape key to close modal
+  // Handle Escape key
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -60,11 +61,19 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
       setInitials(workspaceToEdit.initials || '');
       setBrandColor(workspaceToEdit.brandColor || 'bg-indigo-600');
       setIndustry(workspaceToEdit.industry || 'General B2B');
+      const nameLower = (workspaceToEdit.name || '').toLowerCase();
+      const isMulti =
+        (workspaceToEdit.platform && workspaceToEdit.platform.toLowerCase().includes('google')) ||
+        nameLower.includes('ed&c') ||
+        nameLower.includes('ednc') ||
+        nameLower.includes('elegant design');
+      setPlatform(isMulti ? 'Meta & Google' : workspaceToEdit.platform || 'Meta Ads');
     } else {
       setName('');
       setInitials('');
       setBrandColor('bg-indigo-600');
       setIndustry('General B2B');
+      setPlatform('Meta Ads');
     }
   }, [workspaceToEdit, isOpen]);
 
@@ -77,14 +86,15 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     setIsSubmitting(true);
     try {
       await onSave({
-        name,
+        name: name.trim(),
         initials: initials.trim() ? initials.trim().toUpperCase() : name.trim().slice(0, 2).toUpperCase(),
         brandColor,
-        industry,
+        industry: industry.trim() || 'General B2B',
+        platform,
       });
       onClose();
     } catch (error) {
-      console.error('Failed to save workspace:', error);
+      console.error('Failed to save ad account:', error);
     } finally {
       setIsSubmitting(false);
     }
@@ -92,30 +102,30 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-black/60 backdrop-blur-xs animate-fadeIn p-4"
+      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-black/60 backdrop-blur-xs animate-fadeIn p-4 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="relative w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar bg-zinc-900 border border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-6 animate-scaleIn"
+        className="relative w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 shadow-2xl space-y-5 animate-scaleIn"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-zinc-800 pb-4">
+        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+            <div className="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
               <Building2 className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-zinc-100">
-                {workspaceToEdit ? 'Edit Brand Workspace' : 'Create New Brand Workspace'}
+              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                {workspaceToEdit ? 'Edit Ad Account' : 'Connect New Ad Account'}
               </h2>
-              <p className="text-xs text-zinc-400">Isolate campaigns & knowledge base per brand</p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">Manage client ad account profile and branding settings</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-2 text-zinc-400 hover:text-zinc-200 rounded-xl hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             title="Close (Esc)"
           >
             <X className="w-5 h-5" />
@@ -124,10 +134,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-1">Brand Name</label>
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">Ad Account / Brand Name</label>
             <input
               type="text"
-              placeholder="e.g. Acme Corp or Nova Residences"
+              placeholder="e.g. Apex Transfer, Elegant Design, Brand XYZ"
               value={name}
               onChange={(e) => {
                 setName(e.target.value);
@@ -135,41 +145,58 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   setInitials(e.target.value.slice(0, 2).toUpperCase());
                 }
               }}
-              className="w-full bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none transition-colors"
+              className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
               required
+              autoComplete="off"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">Badge Initials</label>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
+                <Layers className="w-3.5 h-3.5 text-indigo-500" /> Platform
+              </label>
+              <select
+                value={platform}
+                onChange={(e) => setPlatform(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2 text-xs font-semibold text-zinc-900 dark:text-zinc-100 focus:outline-none transition-colors cursor-pointer"
+              >
+                <option value="Meta Ads">Meta Ads</option>
+                <option value="Google Ads">Google Ads</option>
+                <option value="Meta & Google">Meta & Google</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
+                <Briefcase className="w-3.5 h-3.5 text-indigo-500" /> Industry
+              </label>
               <input
                 type="text"
-                maxLength={3}
-                placeholder="AC"
-                value={initials}
-                onChange={(e) => setInitials(e.target.value.toUpperCase())}
-                className="w-full bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-xl px-4 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none transition-colors uppercase font-mono"
+                placeholder="E-Commerce, B2B..."
+                value={industry}
+                onChange={(e) => setIndustry(e.target.value)}
+                className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                autoComplete="off"
               />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-zinc-300 mb-1">Industry / Niche</label>
-              <div className="relative">
-                <Briefcase className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-3" />
-                <input
-                  type="text"
-                  placeholder="SaaS, Real Estate..."
-                  value={industry}
-                  onChange={(e) => setIndustry(e.target.value)}
-                  className="w-full bg-zinc-950 border border-zinc-800 focus:border-indigo-500 rounded-xl pl-9 pr-3 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:outline-none transition-colors"
-                />
-              </div>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-zinc-300 mb-2 flex items-center gap-1.5">
-              <Palette className="w-3.5 h-3.5 text-indigo-400" /> Brand Accent Color
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">Badge Initials</label>
+            <input
+              type="text"
+              maxLength={4}
+              placeholder="e.g. AT"
+              value={initials}
+              onChange={(e) => setInitials(e.target.value.toUpperCase())}
+              className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors uppercase font-mono"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-2 flex items-center gap-1.5">
+              <Palette className="w-3.5 h-3.5 text-indigo-500" /> Brand Avatar Color
             </label>
             <div className="flex items-center gap-3">
               {BRAND_COLORS.map((c) => (
@@ -177,9 +204,9 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   key={c.value}
                   type="button"
                   onClick={() => setBrandColor(c.value)}
-                  className={`w-8 h-8 rounded-full ${c.value} border-2 transition-all cursor-pointer ${
+                  className={`w-7 h-7 rounded-full ${c.value} border-2 transition-all cursor-pointer ${
                     brandColor === c.value
-                      ? 'border-white scale-110 shadow-lg shadow-indigo-500/20'
+                      ? 'border-indigo-500 scale-110 shadow-md shadow-indigo-500/30 ring-2 ring-indigo-500/20'
                       : 'border-transparent opacity-60 hover:opacity-100'
                   }`}
                   title={c.name}
@@ -188,25 +215,25 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             </div>
           </div>
 
-          <div className="pt-4 border-t border-zinc-800 flex items-center justify-end gap-3">
+          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 rounded-xl border border-zinc-800 text-xs font-semibold text-zinc-300 hover:bg-zinc-800 transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg shadow-indigo-600/30 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none"
             >
               {isSubmitting ? (
                 <>
-                  <Sparkles className="w-4 h-4 animate-spin" /> Saving...
+                  <Sparkles className="w-3.5 h-3.5 animate-spin" /> Saving...
                 </>
               ) : (
-                <>{workspaceToEdit ? 'Save Changes' : 'Create Workspace'}</>
+                <>{workspaceToEdit ? 'Save Changes' : 'Connect Ad Account'}</>
               )}
             </button>
           </div>
@@ -216,3 +243,5 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     document.body
   );
 };
+
+export const EditAdAccountModal = WorkspaceModal;
