@@ -75,3 +75,12 @@ export interface GetDailyLogEntriesParams {
   limit?: number;
   skip?: number;
 }
+
+export interface UserLogActivity {
+  user_id: string;
+  full_name: string;
+  last_logged_date?: string | null;
+  logged_today: boolean;
+  missing_dates: string[];
+}
+

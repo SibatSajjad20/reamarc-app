@@ -4,7 +4,7 @@
  * pending matrix approvals, system alerts, brand knowledge activity, and workspace health.
  */
 
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import type { Workspace, ViewType } from '../../types';
 import { useDashboard } from '../../hooks/useDashboard';
 import {
@@ -26,6 +26,8 @@ import {
   Sparkles,
   Layers,
   ChevronRight,
+  ChevronDown,
+  Check,
   Loader2,
 } from 'lucide-react';
 
@@ -42,6 +44,19 @@ export const DashboardView: React.FC<Props> = ({
   onSelectWorkspace,
   onNavigateView,
 }) => {
+  const [isWorkspaceMenuOpen, setIsWorkspaceMenuOpen] = useState(false);
+  const workspaceMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (workspaceMenuRef.current && !workspaceMenuRef.current.contains(event.target as Node)) {
+        setIsWorkspaceMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   const {
     summary,
     isLoading,
@@ -105,31 +120,61 @@ export const DashboardView: React.FC<Props> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {/* Workspace Selector Dropdown */}
-          <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/80 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700">
-            <Building2 className="w-4 h-4 text-orange-500" />
-            <select
-              value={selectedWorkspace?.id || 'ALL'}
-              onChange={(e) => {
-                const val = e.target.value;
-                if (val === 'ALL') {
-                  onSelectWorkspace(null);
-                } else {
-                  const ws = workspaces.find((w) => w.id === val);
-                  if (ws) onSelectWorkspace(ws);
-                }
-              }}
-              className="bg-transparent text-xs font-semibold text-slate-900 dark:text-zinc-100 focus:outline-none cursor-pointer"
+          {/* Modern Workspace Selector Dropdown Popover */}
+          <div className="relative" ref={workspaceMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsWorkspaceMenuOpen(!isWorkspaceMenuOpen)}
+              className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200/80 dark:hover:bg-slate-700/80 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-zinc-100 transition-all shadow-2xs cursor-pointer select-none"
             >
-              <option value="ALL" className="bg-white dark:bg-slate-900">
-                All Workspaces ({workspaces.length})
-              </option>
-              {workspaces.map((ws) => (
-                <option key={ws.id} value={ws.id} className="bg-white dark:bg-slate-900">
-                  {ws.name}
-                </option>
-              ))}
-            </select>
+              <Building2 className="w-4 h-4 text-orange-500" />
+              <span>{selectedWorkspace ? selectedWorkspace.name : `All Workspaces (${workspaces.length})`}</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-150 ${isWorkspaceMenuOpen ? 'rotate-180 text-orange-500' : ''}`} />
+            </button>
+
+            {isWorkspaceMenuOpen && (
+              <div className="absolute left-0 top-full mt-1.5 z-50 w-60 max-h-64 overflow-y-auto bg-white dark:bg-[#151722] border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSelectWorkspace(null);
+                    setIsWorkspaceMenuOpen(false);
+                  }}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                    selectedWorkspace === null
+                      ? 'bg-orange-500/15 text-orange-700 dark:text-orange-300 font-bold'
+                      : 'text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <span>All Workspaces ({workspaces.length})</span>
+                  {selectedWorkspace === null && <Check className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400" />}
+                </button>
+                {workspaces.map((ws) => {
+                  const isSelected = selectedWorkspace?.id === ws.id;
+                  return (
+                    <button
+                      key={ws.id}
+                      type="button"
+                      onClick={() => {
+                        onSelectWorkspace(ws);
+                        setIsWorkspaceMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-orange-500/15 text-orange-700 dark:text-orange-300 font-bold'
+                          : 'text-slate-700 dark:text-zinc-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 truncate">
+                        <div className={`w-2 h-2 rounded-full ${ws.brandColor || 'bg-indigo-600'}`} />
+                        <span className="truncate">{ws.name}</span>
+                      </div>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-orange-600 dark:text-orange-400 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Date Range Picker */}

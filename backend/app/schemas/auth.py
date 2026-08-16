@@ -14,7 +14,9 @@ class UserResponse(BaseModel):
     id: str
     email: str
     name: str
-    role: Literal["admin", "editor", "viewer", "client"] = "editor"
+    role: str = "member"
+    department: Optional[str] = None
+    designation: Optional[str] = None
     is_active: bool = True
     workspace_ids: List[str] = []
 
@@ -22,3 +24,4 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+

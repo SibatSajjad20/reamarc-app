@@ -11,6 +11,7 @@ from app.core.security import (
 from app.database import get_database
 from app.config import settings
 import uuid
+import re
 
 router = APIRouter(
     prefix="/auth",
@@ -41,11 +42,15 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 def _build_user_response(user_doc: dict) -> dict:
+    raw_role = user_doc.get("role", "member")
+    role_str = "admin" if raw_role == "admin" else "member"
     return {
-        "id": user_doc["id"],
+        "id": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
-        "role": user_doc.get("role", "editor"),
+        "role": role_str,
+        "department": user_doc.get("department"),
+        "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
@@ -77,8 +82,13 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             detail="Database connection to MongoDB is currently unavailable.",
         )
 
-    user_doc = await db.users.find_one({"email": user_in.email})
-    if not user_doc or not verify_password(user_in.password, user_doc["hashed_password"]):
+    email_clean = str(user_in.email).lower().strip()
+    user_doc = await db.users.find_one({"email": email_clean})
+    if not user_doc:
+        # Fallback to case-insensitive match if stored in mixed case
+        user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
+
+    if not user_doc or not verify_password(user_in.password, user_doc.get("hashed_password", "")):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -90,11 +100,12 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
+    role_str = "admin" if user_doc.get("role") == "admin" else "member"
     claims = {
-        "sub": user_doc["id"],
+        "sub": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
-        "role": user_doc.get("role", "editor"),
+        "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
     access_token = create_access_token(claims)
@@ -129,11 +140,12 @@ async def refresh_token(request: Request, response: Response):
     if not user_doc.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account deactivated.")
 
+    role_str = "admin" if user_doc.get("role") == "admin" else "member"
     claims = {
-        "sub": user_doc["id"],
+        "sub": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
-        "role": user_doc.get("role", "editor"),
+        "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
     new_access_token = create_access_token(claims)

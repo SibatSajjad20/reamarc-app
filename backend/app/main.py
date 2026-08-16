@@ -54,10 +54,14 @@ async def lifespan(app: FastAPI):
             except Exception as err:
                 logging.getLogger(__name__).error(f"Error in periodic marketing sync loop: {err}")
 
+    from app.services.log_reminder_scheduler import start_automated_log_reminder_scheduler
+    reminder_task = asyncio.create_task(start_automated_log_reminder_scheduler())
+
     sync_task = asyncio.create_task(periodic_marketing_sync())
 
     yield
 
+    reminder_task.cancel()
     sync_task.cancel()
     await close_mongo_connection()
 

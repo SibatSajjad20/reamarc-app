@@ -36,6 +36,22 @@ export const adminService = {
     return apiClient.patch<AdminMember>(`/admin/members/${userId}`, payload);
   },
 
+  async deleteMember(userId: string): Promise<any> {
+    return apiClient.delete(`/admin/members/${userId}`);
+  },
+
+  async deleteUser(userId: string): Promise<any> {
+    return this.deleteMember(userId);
+  },
+
+  async getMembersActivity(days: number = 7): Promise<import('../types/admin').MemberActivity[]> {
+    return apiClient.get<import('../types/admin').MemberActivity[]>(`/admin/members/activity?days=${days}`);
+  },
+
+  async sendMemberReminder(userId: string, payload?: { channel?: string; custom_message?: string }): Promise<import('../types/admin').ReminderResponse> {
+    return apiClient.post<import('../types/admin').ReminderResponse>(`/admin/members/${userId}/remind`, payload || { channel: 'email' });
+  },
+
   // --- Ad Account & Brand Management ---
   async getAdAccounts(): Promise<AdAccount[]> {
     return apiClient.get<AdAccount[]>('/admin/ad-accounts');

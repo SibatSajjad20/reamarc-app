@@ -20,9 +20,10 @@ interface DailyLogModalProps {
   isOpen: boolean;
   mode: 'create' | 'edit';
   initialData?: DailyLogEntry | null;
+  prefilledDate?: string;
   columns?: DailyLogColumn[];
   activeSheet: string;
-  currentUser?: { name?: string; role?: string } | null;
+  currentUser?: { name?: string; role?: string; designation?: string; full_name?: string } | null;
   onClose: () => void;
   onSaved: (entry: DailyLogEntry) => void;
   onRefreshRequired?: () => void;
@@ -41,6 +42,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   isOpen,
   mode,
   initialData,
+  prefilledDate,
   columns = [],
   activeSheet,
   currentUser,
@@ -98,10 +100,14 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       setRemarks(initialData.remarks || '');
       setCustomFields(initialData.custom_fields || {});
     } else {
-      // Create mode defaults
-      setDate(getTodayIso());
-      setResourceName(currentUser?.name || '');
-      setRole(currentUser?.role || '');
+      // Create mode defaults: autofill resource name and designation (e.g. Web Development)
+      const defaultRoleOrDesignation =
+        currentUser?.designation ||
+        (currentUser?.role && currentUser.role !== 'member' ? currentUser.role : 'Web Development');
+
+      setDate(prefilledDate || getTodayIso());
+      setResourceName(currentUser?.full_name || currentUser?.name || '');
+      setRole(defaultRoleOrDesignation);
       setClientProject('');
       setTaskDescription('');
       setTaskType('Scheduled Task');
@@ -112,7 +118,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       setRemarks('');
       setCustomFields({});
     }
-  }, [isOpen, mode, initialData, currentUser]);
+  }, [isOpen, mode, initialData, currentUser, prefilledDate]);
 
   if (!isOpen) return null;
 
@@ -295,14 +301,14 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1.5">
                 <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Role</span>
+                <span>Role / Designation</span>
               </label>
               <input
                 type="text"
-                placeholder="e.g. Copywriter, Lead"
+                placeholder="e.g. Web Development, Team Lead"
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
               />
             </div>
           </div>

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import uuid
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
@@ -10,7 +10,9 @@ from app.schemas.daily_log import (
     DailyLogEntryResponse,
     DailyLogColumn,
 )
+from app.schemas.user import UserLogActivityResponse
 from app.models.user import UserRole
+
 
 router = APIRouter(
     prefix="/daily-log",
@@ -86,6 +88,69 @@ def _generate_sheet_list() -> List[str]:
             break
 
     return sheets
+
+
+def _get_recent_workdays(days: int = 7) -> List[str]:
+    """Returns the last N workdays (Monday-Friday) in ISO date format (YYYY-MM-DD), latest first."""
+    workdays: List[str] = []
+    current = datetime.now(timezone.utc).date()
+    while len(workdays) < days:
+        if current.weekday() < 5:
+            workdays.append(current.isoformat())
+        current -= timedelta(days=1)
+    return workdays
+
+
+@router.get("/my-activity", response_model=UserLogActivityResponse)
+async def get_my_log_activity(
+    days: int = Query(7, ge=1, le=30, description="Past workdays window to check"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Calculates missing Daily Log dates for the current user to display smart backfill reminders."""
+    db = get_database()
+    uid = current_user["id"]
+    fname = current_user.get("name") or current_user.get("full_name", "User")
+    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+
+    if is_admin or db is None:
+        return {
+            "user_id": uid,
+            "full_name": fname,
+            "last_logged_date": None,
+            "logged_today": True,
+            "missing_dates": [],
+        }
+
+    workdays = _get_recent_workdays(days)
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    min_date = workdays[-1] if workdays else today_iso
+
+    entries_cursor = db.daily_log_entries.find(
+        {
+            "date": {"$gte": min_date},
+            "$or": [
+                {"user_id": uid},
+                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
+            ],
+        },
+        {"_id": 0, "date": 1},
+    )
+    entries = await entries_cursor.to_list(length=100)
+    submitted_dates = {e["date"] for e in entries if e.get("date")}
+
+    missing = [w for w in workdays if w not in submitted_dates]
+    logged_today = today_iso in submitted_dates
+
+    sorted_submitted = sorted(list(submitted_dates), reverse=True)
+    last_logged = sorted_submitted[0] if sorted_submitted else None
+
+    return {
+        "user_id": uid,
+        "full_name": fname,
+        "last_logged_date": last_logged,
+        "logged_today": logged_today,
+        "missing_dates": missing,
+    }
 
 
 @router.get("/columns", response_model=List[DailyLogColumn])

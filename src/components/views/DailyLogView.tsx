@@ -23,7 +23,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
-import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
+import type { DailyLogEntry, DailyLogColumn, UserLogActivity } from '../../types/dailyLog';
 import { useAuth } from '../../context/AuthContext';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
 
@@ -159,6 +159,10 @@ export const DailyLogView: React.FC = () => {
   const [isEntryModalOpen, setIsEntryModalOpen] = useState<boolean>(false);
   const [entryModalMode, setEntryModalMode] = useState<'create' | 'edit'>('create');
   const [selectedEntry, setSelectedEntry] = useState<DailyLogEntry | null>(null);
+  const [prefilledDate, setPrefilledDate] = useState<string | undefined>(undefined);
+
+  // User Activity & Missing Days State
+  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(null);
 
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
@@ -224,11 +228,16 @@ export const DailyLogView: React.FC = () => {
     setIsLoading(true);
     setOccConflictMessage(null);
     try {
-      const [sheets, cols, logs] = await Promise.all([
+      const [sheets, cols, logs, activity] = await Promise.all([
         dailyLogService.getSheets(),
         dailyLogService.getColumns(),
         dailyLogService.getEntries(activeSheet),
+        dailyLogService.getMyLogActivity(7).catch(() => null),
       ]);
+
+      if (activity) {
+        setMyActivity(activity);
+      }
 
       if (sheets && sheets.length > 0) {
         setAvailableSheets(sheets);
@@ -280,6 +289,7 @@ export const DailyLogView: React.FC = () => {
 
   // Open Create Modal
   const handleOpenCreateModal = () => {
+    setPrefilledDate(undefined);
     setSelectedEntry(null);
     setEntryModalMode('create');
     setIsEntryModalOpen(true);
@@ -287,6 +297,7 @@ export const DailyLogView: React.FC = () => {
 
   // Open Edit Modal
   const handleOpenEditModal = (entry: DailyLogEntry) => {
+    setPrefilledDate(undefined);
     setSelectedEntry(entry);
     setEntryModalMode('edit');
     setIsEntryModalOpen(true);
@@ -299,6 +310,8 @@ export const DailyLogView: React.FC = () => {
     } else {
       setEntries((prev) => prev.map((e) => (e.id === savedEntry.id ? savedEntry : e)));
     }
+    // Refresh user activity to clear smart banner
+    dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
   };
 
   // Delete Log Row
@@ -425,8 +438,9 @@ export const DailyLogView: React.FC = () => {
     } catch (e) {}
   };
 
-  // AI Summarization
+  // AI Summarization (Strictly Restricted to Admin)
   const handleAiSummarize = () => {
+    if (!isAdmin) return;
     setIsSummarizing(true);
     setTimeout(() => {
       const totalHours = entries.reduce((acc, curr) => {
@@ -675,22 +689,59 @@ export const DailyLogView: React.FC = () => {
             </button>
           )}
 
-          {/* AI Summarize Action Button (Consistent solid Indigo design) */}
-          <button
-            type="button"
-            onClick={handleAiSummarize}
-            disabled={isSummarizing || entries.length === 0}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
-          >
-            {isSummarizing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Sparkles className="w-4 h-4 text-indigo-200" />
-            )}
-            <span>+ Summarize this data</span>
-          </button>
+          {/* AI Summarize Action Button (Strictly Restricted to Admins) */}
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={handleAiSummarize}
+              disabled={isSummarizing || entries.length === 0}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
+            >
+              {isSummarizing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-indigo-200" />
+              )}
+              <span>+ Summarize this data</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Smart Missing Work Log Banner (Member In-App Prompt - Not shown to Admins) */}
+      {!isAdmin && myActivity && myActivity.missing_dates && myActivity.missing_dates.length > 0 && (
+        <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0 animate-fadeIn">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+            <div>
+              <span className="font-bold">Pending Log Submission: </span>
+              <span>
+                You haven't recorded entries for{' '}
+                <strong className="underline font-mono font-bold">
+                  {myActivity.missing_dates.slice(0, 3).join(', ')}
+                  {myActivity.missing_dates.length > 3 ? ` (+${myActivity.missing_dates.length - 3} more)` : ''}
+                </strong>
+                .
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setPrefilledDate(myActivity.missing_dates[0]);
+                setSelectedEntry(null);
+                setEntryModalMode('create');
+                setIsEntryModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Log for {myActivity.missing_dates[0]}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* OCC Conflict Warning Banner */}
       {occConflictMessage && (
@@ -710,8 +761,8 @@ export const DailyLogView: React.FC = () => {
         </div>
       )}
 
-      {/* AI Summary Notification Banner */}
-      {aiSummary && (
+      {/* AI Summary Notification Banner (Admin Only) */}
+      {isAdmin && aiSummary && (
         <div className="px-5 py-2.5 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200 dark:border-indigo-800/40 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shrink-0">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
@@ -728,22 +779,22 @@ export const DailyLogView: React.FC = () => {
       )}
 
       {/* Grid Canvas Wrapper with Scaled Zoom */}
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full">
-        <div
-          style={{
-            zoom: `${zoomLevel}%`,
-            width: `${totalTableWidth}px`,
-            minWidth: `${totalTableWidth}px`,
-          }}
-          className="min-w-full flex flex-col"
-        >
-          {/* Table View */}
-          {isLoading ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-              <span className="text-xs font-medium">Loading sheet entries...</span>
-            </div>
-          ) : (
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
+        {isLoading ? (
+          <div className="flex-1 min-h-[400px] w-full flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
+            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading sheet entries...</span>
+          </div>
+        ) : (
+          <div
+            style={{
+              zoom: `${zoomLevel}%`,
+              width: `${totalTableWidth}px`,
+              minWidth: `${totalTableWidth}px`,
+            }}
+            className="min-w-full flex flex-col"
+          >
+            {/* Table View */}
             <table
               className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
               style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
@@ -1187,8 +1238,8 @@ export const DailyLogView: React.FC = () => {
                 )}
               </tbody>
             </table>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Modern Bottom Sheet Navigation Bar (August 2026 onwards) */}
@@ -1239,15 +1290,27 @@ export const DailyLogView: React.FC = () => {
         </div>
       </div>
 
-      {/* Controlled Create / Edit Modal (Single Atomic Request & OCC Support) */}
       <DailyLogModal
         isOpen={isEntryModalOpen}
         mode={entryModalMode}
         initialData={selectedEntry}
+        prefilledDate={prefilledDate}
         columns={columns}
         activeSheet={activeSheet}
-        currentUser={user ? { name: user.name, role: user.role } : null}
-        onClose={() => setIsEntryModalOpen(false)}
+        currentUser={
+          user
+            ? {
+                name: user.name,
+                full_name: user.full_name,
+                role: user.role,
+                designation: user.designation,
+              }
+            : null
+        }
+        onClose={() => {
+          setIsEntryModalOpen(false);
+          setPrefilledDate(undefined);
+        }}
         onSaved={handleEntrySaved}
         onRefreshRequired={() => handleSheetChange(activeSheet)}
       />

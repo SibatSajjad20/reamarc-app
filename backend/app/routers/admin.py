@@ -3,16 +3,26 @@ from typing import List, Optional
 import uuid
 import secrets
 import string
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
-from app.schemas.user import MemberCreate, MemberUpdate, MemberResponse
+from app.schemas.user import (
+    MemberCreate,
+    MemberUpdate,
+    MemberResponse,
+    MemberActivityResponse,
+    ReminderRequest,
+    ReminderResponse,
+)
 from app.models.user import UserRole
 from app.schemas.admin import (
-    AdAccountCreate, AdAccountUpdate, AdAccountResponse
+    AdAccountCreate,
+    AdAccountUpdate,
+    AdAccountResponse,
 )
 from app.schemas.error import ErrorResponse
 from app.core.security import require_admin, get_password_hash
 from app.database import get_database
+from app.services.email_service import EmailService
 
 router = APIRouter(
     prefix="/admin",
@@ -24,7 +34,7 @@ router = APIRouter(
         403: {"model": ErrorResponse, "description": "Forbidden - Admin Only"},
         404: {"model": ErrorResponse, "description": "Not Found"},
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
-    }
+    },
 )
 
 
@@ -36,6 +46,7 @@ def _format_member_resp(doc: dict) -> dict:
         "email": doc["email"],
         "full_name": doc.get("full_name") or doc.get("name", "User"),
         "role": role_val,
+        "phone": doc.get("phone"),
         "department": doc.get("department"),
         "designation": doc.get("designation"),
         "is_active": doc.get("is_active", True),
@@ -72,6 +83,17 @@ def _generate_temp_password(length: int = 12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def _get_recent_workdays(days: int = 7) -> List[str]:
+    """Returns the last N workdays (excluding weekends) in ISO date format (YYYY-MM-DD), latest first."""
+    workdays: List[str] = []
+    current = datetime.now(timezone.utc).date()
+    while len(workdays) < days:
+        if current.weekday() < 5:  # Monday to Friday
+            workdays.append(current.isoformat())
+        current -= timedelta(days=1)
+    return workdays
+
+
 # ─── TEAM MEMBER MANAGEMENT ENDPOINTS ──────────────────────────────────────────
 
 @router.get("/members", response_model=List[MemberResponse])
@@ -103,9 +125,184 @@ async def list_members(
     if is_active is not None:
         query["is_active"] = is_active
 
-    cursor = db.users.find(query, {"_id": 0, "hashed_password": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    cursor = (
+        db.users.find(query, {"_id": 0, "hashed_password": 0})
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
     users_list = await cursor.to_list(length=limit)
     return [_format_member_resp(u) for u in users_list]
+
+
+@router.get("/members/activity", response_model=List[MemberActivityResponse])
+async def get_members_activity(
+    days: int = Query(7, ge=1, le=30, description="Number of past workdays to evaluate"),
+):
+    """Calculates Daily Log activity, missing workdays, and last logged date for all team members (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    workdays = _get_recent_workdays(days)
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+
+    cursor = db.users.find({"is_active": True}, {"_id": 0, "hashed_password": 0}).sort("full_name", 1)
+    members = await cursor.to_list(length=500)
+
+    # Fetch recent log entries within the workday window
+    min_date = workdays[-1] if workdays else today_iso
+    entries_cursor = db.daily_log_entries.find(
+        {"date": {"$gte": min_date}},
+        {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1},
+    )
+    entries = await entries_cursor.to_list(length=5000)
+
+    # Map user/resource entries by date
+    entries_by_user: dict = {}
+    for entry in entries:
+        uid = entry.get("user_id")
+        rname = (entry.get("resource_name") or "").strip().lower()
+        d = entry.get("date")
+        if not d:
+            continue
+
+        if uid:
+            entries_by_user.setdefault(uid, set()).add(d)
+        if rname:
+            entries_by_user.setdefault(rname, set()).add(d)
+
+    activity_list: List[dict] = []
+    for m in members:
+        uid = m.get("id") or str(m.get("_id"))
+        fname = m.get("full_name") or m.get("name", "User")
+        fname_lower = fname.strip().lower()
+        role = m.get("role", "member")
+        is_admin_role = role in ("admin", "ADMIN")
+
+        if is_admin_role:
+            activity_list.append(
+                {
+                    "user_id": uid,
+                    "full_name": fname,
+                    "email": m["email"],
+                    "phone": m.get("phone"),
+                    "designation": m.get("designation"),
+                    "role": role,
+                    "last_logged_date": None,
+                    "logged_today": True,
+                    "days_missed": 0,
+                    "missing_dates": [],
+                }
+            )
+            continue
+
+        submitted_dates = entries_by_user.get(uid, set()).union(
+            entries_by_user.get(fname_lower, set())
+        )
+
+        missing = [w for w in workdays if w not in submitted_dates]
+        logged_today = today_iso in submitted_dates
+
+        sorted_submitted = sorted(list(submitted_dates), reverse=True)
+        last_logged = sorted_submitted[0] if sorted_submitted else None
+
+        activity_list.append(
+            {
+                "user_id": uid,
+                "full_name": fname,
+                "email": m["email"],
+                "phone": m.get("phone"),
+                "designation": m.get("designation"),
+                "role": role,
+                "last_logged_date": last_logged,
+                "logged_today": logged_today,
+                "days_missed": len(missing),
+                "missing_dates": missing,
+            }
+        )
+
+    return activity_list
+
+
+@router.post("/members/{user_id}/remind", response_model=ReminderResponse)
+async def send_member_reminder(
+    user_id: str,
+    reminder_in: ReminderRequest,
+):
+    """Trigger an email/in-app reminder to a specific team member who missed daily logs (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    member = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    if not member:
+        raise HTTPException(status_code=404, detail="Team member not found.")
+
+    workdays = _get_recent_workdays(7)
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    min_date = workdays[-1] if workdays else today_iso
+
+    # Fetch member submitted dates
+    fname = member.get("full_name") or member.get("name", "User")
+    entries_cursor = db.daily_log_entries.find(
+        {
+            "date": {"$gte": min_date},
+            "$or": [
+                {"user_id": user_id},
+                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
+            ],
+        },
+        {"_id": 0, "date": 1},
+    )
+    entries = await entries_cursor.to_list(length=100)
+    submitted_dates = {e["date"] for e in entries if e.get("date")}
+
+    missing_dates = [w for w in workdays if w not in submitted_dates]
+    if not missing_dates:
+        missing_dates = [today_iso]
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Dispatch email reminder
+    if reminder_in.channel in ("email", "all"):
+        try:
+            await EmailService.send_log_reminder(
+                recipient_email=member["email"],
+                recipient_name=fname,
+                missing_dates=missing_dates,
+                custom_message=reminder_in.custom_message,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to dispatch email reminder: {str(e)}",
+            )
+
+    # Record notification in database
+    notif_doc = {
+        "id": f"notif_{uuid.uuid4().hex[:10]}",
+        "user_id": user_id,
+        "type": "daily_log_reminder",
+        "channel": reminder_in.channel,
+        "title": "Daily Log Submission Reminder",
+        "message": reminder_in.custom_message
+        or f"Reminder to submit daily log for {', '.join(missing_dates)}",
+        "missing_dates": missing_dates,
+        "created_at": now_iso,
+        "read": False,
+    }
+    await db.notifications.insert_one(notif_doc)
+
+    return {
+        "success": True,
+        "message": f"Daily Log reminder successfully sent to {member['email']}",
+        "channel": reminder_in.channel,
+        "recipient_email": member["email"],
+        "recipient_name": fname,
+        "missing_dates": missing_dates,
+        "timestamp": now_iso,
+    }
 
 
 @router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
@@ -118,10 +315,16 @@ async def create_member(member_in: MemberCreate):
 
     existing = await db.users.find_one({"email": member_in.email.lower()})
     if existing:
-        raise HTTPException(status_code=400, detail="A member with this email address already exists.")
+        raise HTTPException(
+            status_code=400, detail="A member with this email address already exists."
+        )
 
     user_id = f"usr_{uuid.uuid4().hex[:10]}"
-    raw_pwd = member_in.temporary_password.strip() if member_in.temporary_password else _generate_temp_password()
+    raw_pwd = (
+        member_in.temporary_password.strip()
+        if member_in.temporary_password
+        else _generate_temp_password()
+    )
     hashed_pwd = get_password_hash(raw_pwd)
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -133,6 +336,7 @@ async def create_member(member_in: MemberCreate):
         "name": member_in.full_name.strip(),
         "hashed_password": hashed_pwd,
         "role": member_in.role.value,
+        "phone": member_in.phone.strip() if member_in.phone else None,
         "department": member_in.department.strip() if member_in.department else None,
         "designation": member_in.designation.strip() if member_in.designation else None,
         "is_active": member_in.is_active,
@@ -146,19 +350,21 @@ async def create_member(member_in: MemberCreate):
 @router.patch("/members/{user_id}", response_model=MemberResponse)
 @router.patch("/users/{user_id}", response_model=MemberResponse)
 async def update_member(user_id: str, member_in: MemberUpdate):
-    """Update a member's role, status, department, or designation."""
+    """Update a member's name, email, phone, password, role, or designation."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    existing_user = await db.users.find_one({"id": user_id})
+    existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     if not existing_user:
         raise HTTPException(status_code=404, detail="Member not found.")
 
     # Primary Admin Protection: Prevent deactivating or demoting Admin accounts
     if existing_user.get("role") == UserRole.ADMIN.value or existing_user.get("role") == "admin":
         if member_in.role is not None and member_in.role != UserRole.ADMIN:
-            raise HTTPException(status_code=400, detail="Cannot demote or modify the role of an Admin account.")
+            raise HTTPException(
+                status_code=400, detail="Cannot demote or modify the role of an Admin account."
+            )
         if member_in.is_active is False:
             raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
@@ -166,12 +372,39 @@ async def update_member(user_id: str, member_in: MemberUpdate):
     if member_in.full_name is not None:
         update_fields["full_name"] = member_in.full_name.strip()
         update_fields["name"] = member_in.full_name.strip()
+    if member_in.email is not None:
+        clean_email = str(member_in.email).lower().strip()
+        conflict = await db.users.find_one(
+            {
+                "email": clean_email,
+                "id": {"$ne": user_id},
+                "_id": {"$ne": user_id},
+            }
+        )
+        if conflict:
+            raise HTTPException(
+                status_code=400,
+                detail="This email address is already in use by another account.",
+            )
+        update_fields["email"] = clean_email
+    if member_in.phone is not None:
+        update_fields["phone"] = member_in.phone.strip() if member_in.phone else None
+    if member_in.password is not None and member_in.password.strip():
+        if len(member_in.password.strip()) < 8:
+            raise HTTPException(
+                status_code=400, detail="Password must be at least 8 characters long."
+            )
+        update_fields["hashed_password"] = get_password_hash(member_in.password.strip())
     if member_in.role is not None:
         update_fields["role"] = member_in.role.value
     if member_in.department is not None:
-        update_fields["department"] = member_in.department.strip() if member_in.department else None
+        update_fields["department"] = (
+            member_in.department.strip() if member_in.department else None
+        )
     if member_in.designation is not None:
-        update_fields["designation"] = member_in.designation.strip() if member_in.designation else None
+        update_fields["designation"] = (
+            member_in.designation.strip() if member_in.designation else None
+        )
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
 
@@ -180,12 +413,45 @@ async def update_member(user_id: str, member_in: MemberUpdate):
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    res = await db.users.update_one({"id": user_id}, {"$set": update_fields})
+    res = await db.users.update_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]}, {"$set": update_fields}
+    )
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Member not found.")
 
-    updated = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    updated = await db.users.find_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]}, {"_id": 0, "hashed_password": 0}
+    )
     return _format_member_resp(updated)
+
+
+@router.delete("/members/{user_id}")
+@router.delete("/users/{user_id}")
+async def delete_member(user_id: str):
+    """Permanently delete a team member account from database (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    if not existing_user:
+        raise HTTPException(status_code=404, detail="Member not found.")
+
+    # Safety check: prevent deleting the last administrator
+    if existing_user.get("role") in (UserRole.ADMIN.value, "admin"):
+        admin_count = await db.users.count_documents(
+            {"role": {"$in": [UserRole.ADMIN.value, "admin"]}}
+        )
+        if admin_count <= 1:
+            raise HTTPException(
+                status_code=400, detail="Cannot delete the primary administrator account."
+            )
+
+    res = await db.users.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Member not found or already removed.")
+
+    return {"message": "Team member successfully deleted from database.", "id": user_id}
 
 
 # ─── AD ACCOUNT & BRAND MANAGEMENT (ADMIN ONLY) ───────────────────────────────
@@ -262,9 +528,7 @@ async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     res = await db.workspaces.find_one_and_update(
-        {"id": account_id},
-        {"$set": update_fields},
-        return_document=True
+        {"id": account_id}, {"$set": update_fields}, return_document=True
     )
     if not res:
         raise HTTPException(status_code=404, detail="Ad account not found.")

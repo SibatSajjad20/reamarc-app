@@ -52,4 +52,9 @@ export const dailyLogService = {
   async deleteEntry(id: string): Promise<{ message: string }> {
     return apiClient.delete<{ message: string }>(`/daily-log/entries/${id}`);
   },
+
+  async getMyLogActivity(days: number = 7): Promise<import('../types/dailyLog').UserLogActivity> {
+    return apiClient.get<import('../types/dailyLog').UserLogActivity>(`/daily-log/my-activity?days=${days}`);
+  },
 };
+

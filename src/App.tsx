@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import type { ViewType, Workspace, ThemeMode } from './types';
 import { Sidebar } from './components/Sidebar';
 import { PerformanceMarketing } from './components/views/PerformanceMarketing';
@@ -105,10 +105,10 @@ function AppInner() {
   };
 
   // Workspace CRUD Handlers
-  const handleOpenCreateWorkspace = () => {
+  const handleOpenCreateWorkspace = useCallback(() => {
     setWorkspaceToEdit(null);
     setIsWorkspaceModalOpen(true);
-  };
+  }, []);
 
   const handleSaveWorkspace = async (data: { name: string; initials?: string; brandColor?: string; industry?: string }) => {
     try {
@@ -123,7 +123,7 @@ function AppInner() {
     }
   };
 
-  const handleSelectWorkspace = (workspace: Workspace | null) => {
+  const handleSelectWorkspace = useCallback((workspace: Workspace | null) => {
     setSelectedWorkspace(workspace);
     setActiveWorkspaceId(workspace?.id || null);
     if (workspace) {
@@ -131,7 +131,7 @@ function AppInner() {
     } else {
       addToast('Workspace Filter Cleared', 'Showing all account tasks & campaigns.', 'info');
     }
-  };
+  }, [setSelectedWorkspace, setActiveWorkspaceId, addToast]);
 
   const handleSignOut = () => {
     logout();

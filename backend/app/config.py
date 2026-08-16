@@ -43,7 +43,18 @@ class Settings(BaseSettings):
     PRIMARY_LLM_PROVIDER: str = "openrouter"
     FALLBACK_LLM_PROVIDER: str = "groq"
     
+    # SMTP Email Configuration (Zero-cost notifications)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = ""
+    SMTP_FROM_NAME: str = "Reamarc Workspace"
+    SMTP_TLS: bool = True
+    APP_FRONTEND_URL: str = "http://localhost:5173"
+    
     model_config = SettingsConfigDict(
+
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore"
