@@ -94,6 +94,92 @@ def _build_reminder_html(
 </html>"""
 
 
+import httpx
+
+
+async def _send_resend_http(
+    recipient_email: str,
+    subject: str,
+    html_content: str,
+) -> bool:
+    """Dispatches email via Resend HTTPS REST API (Bypasses all firewall port blocking)."""
+    sender = settings.SMTP_FROM_EMAIL or "onboarding@resend.dev"
+    from_header = f"{settings.SMTP_FROM_NAME} <{sender}>" if settings.SMTP_FROM_NAME else sender
+    payload = {
+        "from": from_header,
+        "to": [recipient_email],
+        "subject": subject,
+        "html": html_content,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.RESEND_API_KEY.strip()}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.post("https://api.resend.com/emails", json=payload, headers=headers)
+        if res.status_code not in (200, 201):
+            err_msg = f"Resend API error ({res.status_code}): {res.text}"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
+        logger.info(f"Successfully dispatched email via Resend to {recipient_email}")
+        return True
+
+
+async def _send_brevo_http(
+    recipient_email: str,
+    recipient_name: str,
+    subject: str,
+    html_content: str,
+) -> bool:
+    """Dispatches email via Brevo HTTPS REST API."""
+    sender_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USER or "noreply@reamarc.com"
+    payload = {
+        "sender": {"name": settings.SMTP_FROM_NAME, "email": sender_email},
+        "to": [{"email": recipient_email, "name": recipient_name}],
+        "subject": subject,
+        "htmlContent": html_content,
+    }
+    headers = {
+        "api-key": settings.BREVO_API_KEY.strip(),
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers)
+        if res.status_code not in (200, 201):
+            err_msg = f"Brevo API error ({res.status_code}): {res.text}"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
+        logger.info(f"Successfully dispatched email via Brevo to {recipient_email}")
+        return True
+
+
+async def _send_sendgrid_http(
+    recipient_email: str,
+    subject: str,
+    html_content: str,
+) -> bool:
+    """Dispatches email via SendGrid HTTPS REST API."""
+    sender_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USER or "noreply@reamarc.com"
+    payload = {
+        "personalizations": [{"to": [{"email": recipient_email}]}],
+        "from": {"email": sender_email, "name": settings.SMTP_FROM_NAME},
+        "subject": subject,
+        "content": [{"type": "text/html", "value": html_content}],
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.SENDGRID_API_KEY.strip()}",
+        "Content-Type": "application/json",
+    }
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        res = await client.post("https://api.sendgrid.com/v3/mail/send", json=payload, headers=headers)
+        if res.status_code not in (200, 202):
+            err_msg = f"SendGrid API error ({res.status_code}): {res.text}"
+            logger.error(err_msg)
+            raise RuntimeError(err_msg)
+        logger.info(f"Successfully dispatched email via SendGrid to {recipient_email}")
+        return True
+
+
 def _send_smtp_sync(
     recipient_email: str,
     subject: str,
@@ -145,4 +231,13 @@ class EmailService:
             action_url=action_url,
         )
 
+        # 1. Primary: HTTPS REST APIs (Bypasses Render/Vercel/Cloud port 587/465/25 blocking)
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            return await _send_resend_http(recipient_email, subject, html)
+        elif settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
+            return await _send_brevo_http(recipient_email, recipient_name, subject, html)
+        elif settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
+            return await _send_sendgrid_http(recipient_email, subject, html)
+
+        # 2. Fallback: Standard SMTP
         return await asyncio.to_thread(_send_smtp_sync, recipient_email, subject, html)

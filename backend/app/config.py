@@ -43,7 +43,12 @@ class Settings(BaseSettings):
     PRIMARY_LLM_PROVIDER: str = "openrouter"
     FALLBACK_LLM_PROVIDER: str = "groq"
     
-    # SMTP Email Configuration (Zero-cost notifications)
+    # Email Delivery Configuration (HTTP APIs bypass cloud SMTP port blocking)
+    RESEND_API_KEY: str = ""
+    BREVO_API_KEY: str = ""
+    SENDGRID_API_KEY: str = ""
+    
+    # SMTP Email Configuration (Zero-cost notifications fallback)
     SMTP_HOST: str = "smtp.gmail.com"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""
