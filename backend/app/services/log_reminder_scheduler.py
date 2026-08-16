@@ -66,13 +66,27 @@ async def _mark_run_today(job_name: str, today_str: str):
             logger.warning(f"[Scheduler] Error persisting run status for {job_name}: {e}")
 
 
+def is_workday(date_obj: datetime) -> bool:
+    """
+    Evaluates whether a given date is an official working day:
+      - Monday through Friday: Always working days.
+      - Sunday: Always an off day.
+      - Saturday: 1st Saturday of the month (day 1-7) is OFF; all remaining Saturdays (day > 7) are WORKING DAYS.
+    """
+    w = date_obj.weekday()
+    if w == 6:  # Sunday
+        return False
+    if w == 5:  # Saturday: 1st Saturday of the month is off
+        return date_obj.day > 7
+    return True  # Monday - Friday
+
+
 def _get_previous_workday(today_date: datetime) -> str:
-    """Returns the previous workday string (YYYY-MM-DD). If Monday, returns Saturday."""
-    if today_date.weekday() == 0:  # Monday -> Saturday
-        prev = today_date - timedelta(days=2)
-    else:  # Tuesday-Saturday -> Yesterday
-        prev = today_date - timedelta(days=1)
-    return prev.strftime("%Y-%m-%d")
+    """Returns the previous workday string (YYYY-MM-DD), skipping Sundays and the 1st Saturday of the month."""
+    check_date = today_date - timedelta(days=1)
+    while not is_workday(check_date):
+        check_date -= timedelta(days=1)
+    return check_date.strftime("%Y-%m-%d")
 
 
 async def run_evening_log_reminder_check():
@@ -85,9 +99,9 @@ async def run_evening_log_reminder_check():
     now_pk = datetime.now(PK_TZ)
     today_str = now_pk.strftime("%Y-%m-%d")
 
-    # Sunday check: Skip reminders on Sunday
-    if now_pk.weekday() == 6:
-        logger.info("[Scheduler] Today is Sunday. Skipping automated daily log reminders.")
+    # Off-day check: Skip reminders on Sunday and 1st Saturday of the month
+    if not is_workday(now_pk):
+        logger.info(f"[Scheduler] Today ({today_str}) is an off day. Skipping automated daily log reminders.")
         return
 
     logger.info(f"[Scheduler] Running Evening 8:00 PM Log Reminder Check for {today_str}...")
@@ -143,9 +157,9 @@ async def run_morning_log_reminder_check():
     now_pk = datetime.now(PK_TZ)
     today_str = now_pk.strftime("%Y-%m-%d")
 
-    # Sunday check: Skip reminders on Sunday
-    if now_pk.weekday() == 6:
-        logger.info("[Scheduler] Today is Sunday. Skipping morning reminders.")
+    # Off-day check: Skip morning reminders on Sunday and 1st Saturday of the month
+    if not is_workday(now_pk):
+        logger.info(f"[Scheduler] Today ({today_str}) is an off day. Skipping morning reminders.")
         return
 
     prev_workday_str = _get_previous_workday(now_pk)
@@ -193,17 +207,16 @@ async def run_morning_log_reminder_check():
 
 async def start_automated_log_reminder_scheduler():
     """Background continuous polling loop with widened catch-up windows for 10:00 AM and 8:00 PM Asia/Karachi."""
-    logger.info("[Scheduler] Automated Daily Log Email Reminder background worker started (Monday-Saturday: 10:00 AM & 8:00 PM PKT).")
+    logger.info("[Scheduler] Automated Daily Log Email Reminder background worker started (Working Days: 10:00 AM & 8:00 PM PKT).")
 
     while True:
         try:
             now_pk = datetime.now(PK_TZ)
             today_str = now_pk.strftime("%Y-%m-%d")
             hour = now_pk.hour
-            day_of_week = now_pk.weekday()  # 0=Monday ... 5=Saturday, 6=Sunday
 
-            # Monday through Saturday only
-            if day_of_week < 6:
+            # Working days check: Monday-Friday + 2nd, 3rd, 4th, 5th Saturday (1st Saturday & Sunday are OFF)
+            if is_workday(now_pk):
                 # 1. Morning Catch-up Window: Anytime from 10:00 AM until 7:59 PM
                 if 10 <= hour < 20:
                     already_ran_morning = await _has_run_today("morning", today_str)

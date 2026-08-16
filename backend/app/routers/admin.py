@@ -83,12 +83,27 @@ def _generate_temp_password(length: int = 12) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+def is_workday(date_obj) -> bool:
+    """
+    Evaluates whether a given date is an official working day:
+      - Monday through Friday: Always working days.
+      - Sunday: Always an off day.
+      - Saturday: 1st Saturday of the month (day 1-7) is OFF; all remaining Saturdays (day > 7) are WORKING DAYS.
+    """
+    w = date_obj.weekday()
+    if w == 6:  # Sunday
+        return False
+    if w == 5:  # Saturday: 1st Saturday of the month is off
+        return date_obj.day > 7
+    return True  # Monday - Friday
+
+
 def _get_recent_workdays(days: int = 7) -> List[str]:
-    """Returns the last N workdays (excluding weekends) in ISO date format (YYYY-MM-DD), latest first."""
+    """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first."""
     workdays: List[str] = []
     current = datetime.now(timezone.utc).date()
     while len(workdays) < days:
-        if current.weekday() < 5:  # Monday to Friday
+        if is_workday(current):
             workdays.append(current.isoformat())
         current -= timedelta(days=1)
     return workdays
