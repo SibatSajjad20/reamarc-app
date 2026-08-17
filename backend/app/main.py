@@ -98,6 +98,15 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
+import os
+from fastapi.staticfiles import StaticFiles
+
+# Mount static uploads directory for deliverables & attachments
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.join(UPLOAD_DIR, "deliverables"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=UPLOAD_DIR), name="uploads")
+
 # Include Active V1.0 Routers
 app.include_router(auth.router, prefix=settings.API_V1_STR)
 app.include_router(admin.router, prefix=settings.API_V1_STR)

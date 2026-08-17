@@ -85,9 +85,15 @@ async def _fetch_daily_matrix_rows_for_response(
     ws_ids = list(set(c.get("workspace_id", "") for c in campaigns if c.get("workspace_id")))
     ws_name_map = {}
     if ws_ids:
+        ad_cursor = db.ad_accounts.find({"id": {"$in": ws_ids}}, {"_id": 0, "id": 1, "name": 1})
+        ad_docs = await ad_cursor.to_list(length=None)
+        ws_name_map = {a["id"]: a.get("name", "") for a in ad_docs}
+
         ws_cursor = db.workspaces.find({"id": {"$in": ws_ids}}, {"_id": 0, "id": 1, "name": 1})
         ws_docs = await ws_cursor.to_list(length=None)
-        ws_name_map = {w["id"]: w.get("name", "") for w in ws_docs}
+        for w in ws_docs:
+            if w["id"] not in ws_name_map:
+                ws_name_map[w["id"]] = w.get("name", "")
 
     rows: List[DailyMatrixRowResponse] = []
     hidden_count = 0

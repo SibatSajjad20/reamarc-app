@@ -9,6 +9,7 @@ import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import { useAdAccounts } from './hooks/useAdAccounts';
 import { Sparkles } from 'lucide-react';
 
 function AppInner() {
@@ -31,13 +32,16 @@ function AppInner() {
       const currentPath = pathname || hash;
 
       const nonV1Routes = ['dashboard', 'matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian', 'settings'];
+      const isAdmin = user.role === 'admin';
+      const isHR = user.role === 'hr';
+      const isClient = user.role === 'client';
 
       if (nonV1Routes.includes(currentPath)) {
         window.history.replaceState(null, '', '/marketing');
         setCurrentView('marketing');
         localStorage.setItem('reamarc_active_view', 'marketing');
       } else if (currentPath === 'admin') {
-        if (user.role === 'admin') {
+        if (isAdmin || isHR) {
           setCurrentView('admin');
           localStorage.setItem('reamarc_active_view', 'admin');
         } else {
@@ -46,8 +50,14 @@ function AppInner() {
           localStorage.setItem('reamarc_active_view', 'marketing');
         }
       } else if (currentPath === 'daily-log' || currentPath === 'daily_log') {
-        setCurrentView('daily-log');
-        localStorage.setItem('reamarc_active_view', 'daily-log');
+        if (isClient) {
+          window.history.replaceState(null, '', '/marketing');
+          setCurrentView('marketing');
+          localStorage.setItem('reamarc_active_view', 'marketing');
+        } else {
+          setCurrentView('daily-log');
+          localStorage.setItem('reamarc_active_view', 'daily-log');
+        }
       } else if (currentPath === 'marketing') {
         setCurrentView('marketing');
         localStorage.setItem('reamarc_active_view', 'marketing');
@@ -60,9 +70,18 @@ function AppInner() {
   }, [user]);
 
   const handleSelectView = (view: ViewType) => {
-    const allowedViews: ViewType[] = user?.role === 'admin'
-      ? ['marketing', 'daily-log', 'admin']
-      : ['marketing', 'daily-log'];
+    const isAdmin = user?.role === 'admin';
+    const isHR = user?.role === 'hr';
+    const isClient = user?.role === 'client';
+
+    let allowedViews: ViewType[] = ['marketing', 'daily-log'];
+    if (isAdmin || isHR) {
+      allowedViews = ['marketing', 'daily-log', 'admin'];
+    }
+    if (isClient) {
+      allowedViews = ['marketing'];
+    }
+
     const targetView = allowedViews.includes(view) ? view : 'marketing';
 
     try {
@@ -77,10 +96,14 @@ function AppInner() {
 
   const {
     workspaces,
-    selectedWorkspace,
-    setSelectedWorkspace,
     saveWorkspace,
   } = useWorkspaces(Boolean(user));
+
+  const {
+    adAccounts,
+    selectedAdAccount,
+    setSelectedAdAccount,
+  } = useAdAccounts(Boolean(user));
 
   // Modal State for Workspaces
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
@@ -110,7 +133,7 @@ function AppInner() {
     setIsWorkspaceModalOpen(true);
   }, []);
 
-  const handleSaveWorkspace = async (data: { name: string; initials?: string; brandColor?: string; industry?: string }) => {
+  const handleSaveWorkspace = async (data: any) => {
     try {
       const res = await saveWorkspace(workspaceToEdit, data);
       if (res.isNew) {
@@ -123,15 +146,15 @@ function AppInner() {
     }
   };
 
-  const handleSelectWorkspace = useCallback((workspace: Workspace | null) => {
-    setSelectedWorkspace(workspace);
-    setActiveWorkspaceId(workspace?.id || null);
-    if (workspace) {
-      addToast('Workspace Switched', `Showing active context for ${workspace.name}`, 'info');
+  const handleSelectAdAccount = useCallback((account: any) => {
+    setSelectedAdAccount(account);
+    setActiveWorkspaceId(account?.id || null);
+    if (account) {
+      addToast('Account Switched', `Showing active context for ${account.name}`, 'info');
     } else {
-      addToast('Workspace Filter Cleared', 'Showing all account tasks & campaigns.', 'info');
+      addToast('Account Filter Cleared', 'Showing all account tasks & campaigns.', 'info');
     }
-  }, [setSelectedWorkspace, setActiveWorkspaceId, addToast]);
+  }, [setSelectedAdAccount, setActiveWorkspaceId, addToast]);
 
   const handleSignOut = () => {
     logout();
@@ -173,9 +196,10 @@ function AppInner() {
         {currentView === 'marketing' && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
-              selectedWorkspace={selectedWorkspace}
+              selectedWorkspace={selectedAdAccount}
+              adAccounts={adAccounts}
               workspaces={workspaces}
-              onSelectWorkspace={handleSelectWorkspace}
+              onSelectWorkspace={handleSelectAdAccount}
               onOpenCreateAccount={handleOpenCreateWorkspace}
             />
           </div>
@@ -196,9 +220,10 @@ function AppInner() {
         {currentView !== 'marketing' && currentView !== 'admin' && currentView !== 'daily-log' && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
-              selectedWorkspace={selectedWorkspace}
+              selectedWorkspace={selectedAdAccount}
+              adAccounts={adAccounts}
               workspaces={workspaces}
-              onSelectWorkspace={handleSelectWorkspace}
+              onSelectWorkspace={handleSelectAdAccount}
               onOpenCreateAccount={handleOpenCreateWorkspace}
             />
           </div>

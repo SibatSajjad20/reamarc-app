@@ -7,8 +7,8 @@ import type {
   AdAccount,
   CreateAdAccountPayload,
   UpdateAdAccountPayload,
-  AdminCreateWorkspacePayload,
-  AdminUpdateWorkspacePayload,
+  CreateWorkspacePayload,
+  UpdateWorkspacePayload,
 } from '../types/admin';
 import type { Workspace } from '../types';
 
@@ -52,7 +52,24 @@ export const adminService = {
     return apiClient.post<import('../types/admin').ReminderResponse>(`/admin/members/${userId}/remind`, payload || { channel: 'email' });
   },
 
-  // --- Ad Account & Brand Management ---
+  // --- Workspaces Management ---
+  async getWorkspaces(): Promise<Workspace[]> {
+    return apiClient.get<Workspace[]>('/admin/workspaces');
+  },
+
+  async createWorkspace(payload: CreateWorkspacePayload): Promise<Workspace> {
+    return apiClient.post<Workspace>('/admin/workspaces', payload);
+  },
+
+  async updateWorkspace(workspaceId: string, payload: UpdateWorkspacePayload): Promise<Workspace> {
+    return apiClient.patch<Workspace>(`/admin/workspaces/${workspaceId}`, payload);
+  },
+
+  async deleteWorkspace(workspaceId: string): Promise<any> {
+    return apiClient.delete(`/admin/workspaces/${workspaceId}`);
+  },
+
+  // --- Ad Accounts Management ---
   async getAdAccounts(): Promise<AdAccount[]> {
     return apiClient.get<AdAccount[]>('/admin/ad-accounts');
   },
@@ -80,17 +97,5 @@ export const adminService = {
 
   async updateUser(userId: string, payload: UpdateMemberPayload): Promise<AdminUser> {
     return this.updateMember(userId, payload);
-  },
-
-  async createWorkspace(payload: AdminCreateWorkspacePayload): Promise<Workspace> {
-    return this.createAdAccount(payload);
-  },
-
-  async updateWorkspace(workspaceId: string, payload: AdminUpdateWorkspacePayload): Promise<Workspace> {
-    return this.updateAdAccount(workspaceId, payload);
-  },
-
-  async deleteWorkspace(workspaceId: string): Promise<any> {
-    return this.deleteAdAccount(workspaceId);
   },
 };

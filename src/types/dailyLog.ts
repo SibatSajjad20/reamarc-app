@@ -13,10 +13,12 @@ export interface DailyLogColumn {
 export interface DailyLogEntry {
   id: string;
   workspace_id: string;
+  user_id?: string;
   version: number;
   date: string;
   resource_name: string;
   role: string;
+  department?: string;
   client_project: string;
   task_description: string;
   task_type: TaskTypeOption | string;
@@ -35,6 +37,7 @@ export interface CreateDailyLogEntryPayload {
   date: string;
   resource_name?: string;
   role?: string;
+  department?: string;
   client_project?: string;
   task_description?: string;
   task_type?: string;
@@ -52,6 +55,7 @@ export interface UpdateDailyLogEntryPayload {
   date?: string;
   resource_name?: string;
   role?: string;
+  department?: string;
   client_project?: string;
   task_description?: string;
   task_type?: string;
@@ -68,6 +72,8 @@ export interface GetDailyLogEntriesParams {
   month_sheet?: string;
   start_date?: string;
   end_date?: string;
+  department?: string;
+  user_id?: string;
   resource_name?: string;
   client_project?: string;
   task_status?: string;

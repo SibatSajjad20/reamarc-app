@@ -7,7 +7,6 @@ export interface AdminMember {
   role: UserRole;
   phone?: string;
   department?: string;
-  designation?: string;
   is_active: boolean;
   created_at?: string;
 }
@@ -20,7 +19,6 @@ export interface CreateMemberPayload {
   role: UserRole;
   phone?: string;
   department?: string;
-  designation?: string;
   temporary_password?: string;
   send_invite_email?: boolean;
   is_active?: boolean;
@@ -35,7 +33,6 @@ export interface UpdateMemberPayload {
   password?: string;
   role?: UserRole;
   department?: string;
-  designation?: string;
   is_active?: boolean;
 }
 
@@ -46,7 +43,7 @@ export interface MemberActivity {
   full_name: string;
   email: string;
   phone?: string;
-  designation?: string;
+  department?: string;
   role: string;
   last_logged_date?: string | null;
   logged_today: boolean;
@@ -57,46 +54,103 @@ export interface MemberActivity {
 export interface ReminderResponse {
   success: boolean;
   message: string;
+  user_id: string;
   channel: string;
-  recipient_email: string;
-  recipient_name: string;
-  missing_dates: string[];
-  timestamp: string;
+}
+
+export interface SendReminderPayload {
+  channel: 'email' | 'in_app' | 'all';
+  custom_message?: string;
 }
 
 export interface AdAccount {
   id: string;
   name: string;
-  platform?: string;
-  industry?: string;
-  brandColor: string;
-  brand_color?: string;
-  initials: string;
-  account_id?: string;
+  platform: string;
+  account_id: string;
   pixel_id?: string;
-  isDefault?: boolean;
+  workspace_id?: string;
+  workspace_name?: string;
+  brandColor?: string;
+  initials?: string;
+  industry?: string;
+  currency?: string;
+  status?: 'active' | 'inactive' | 'paused';
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface CreateAdAccountPayload {
   name: string;
-  platform?: string;
-  industry?: string;
-  brand_color?: string;
-  initials?: string;
-  account_id?: string;
+  platform: string;
+  account_id: string;
   pixel_id?: string;
+  workspace_id?: string;
+  currency?: string;
+  access_token?: string;
+  refresh_token?: string;
+  developer_token?: string;
+  client_id?: string;
+  client_secret?: string;
 }
 
 export interface UpdateAdAccountPayload {
   name?: string;
   platform?: string;
-  industry?: string;
-  brand_color?: string;
-  initials?: string;
   account_id?: string;
   pixel_id?: string;
+  workspace_id?: string;
+  currency?: string;
+  access_token?: string;
+  refresh_token?: string;
+  developer_token?: string;
+  client_id?: string;
+  client_secret?: string;
 }
 
-export type AdminCreateWorkspacePayload = CreateAdAccountPayload;
-export type AdminUpdateWorkspacePayload = UpdateAdAccountPayload;
+export interface CreateWorkspacePayload {
+  name: string;
+  brand_color?: string;
+  initials?: string;
+  proposal_url?: string;
+  proposal_name?: string;
+  proposal_size?: number;
+  project_cycle?: 'Retainer' | 'One-Time Project';
+  priority?: 'High' | 'Medium' | 'Low';
+  contract_start_date?: string;
+  contract_end_date?: string;
+  services?: string[];
+  health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
+  poc_name?: string;
+  poc_email?: string;
+  poc_phone?: string;
+  billing_name?: string;
+  billing_email?: string;
+  billing_phone?: string;
+  is_default?: boolean;
+}
+
+export interface UpdateWorkspacePayload {
+  name?: string;
+  brand_color?: string;
+  initials?: string;
+  proposal_url?: string;
+  proposal_name?: string;
+  proposal_size?: number;
+  project_cycle?: 'Retainer' | 'One-Time Project';
+  priority?: 'High' | 'Medium' | 'Low';
+  contract_start_date?: string;
+  contract_end_date?: string;
+  services?: string[];
+  health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
+  poc_name?: string;
+  poc_email?: string;
+  poc_phone?: string;
+  billing_name?: string;
+  billing_email?: string;
+  billing_phone?: string;
+  is_default?: boolean;
+}
+
+export type AdminCreateWorkspacePayload = CreateWorkspacePayload;
+export type AdminUpdateWorkspacePayload = UpdateWorkspacePayload;

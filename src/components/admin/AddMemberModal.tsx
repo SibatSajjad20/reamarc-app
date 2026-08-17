@@ -6,16 +6,32 @@ import {
   User,
   Mail,
   Key,
-  Briefcase,
+  Layers,
+  Shield,
   Loader2,
   Copy,
   Check,
-  Code,
-  Plus,
 } from 'lucide-react';
-import { useDesignations } from '../../hooks/useDesignations';
 import type { UserRole } from '../../types/auth';
 import type { CreateMemberPayload } from '../../types/admin';
+import { useSystemConfig } from '../../hooks/useSystemConfig';
+
+export const DEPARTMENTS = [
+  'Website',
+  'Creative',
+  'Content',
+  'SEO',
+  'Performance Marketing',
+  'AI',
+] as const;
+
+export const ROLES: { id: UserRole; label: string; description: string }[] = [
+  { id: 'team_member', label: 'Team Member', description: 'Records own tasks & daily logs' },
+  { id: 'team_lead', label: 'Team Lead', description: 'Leads department and oversees team logs' },
+  { id: 'hr', label: 'HR', description: 'All departments logs & compliance access' },
+  { id: 'admin', label: 'Admin', description: 'Full system control and user management' },
+  { id: 'client', label: 'Client', description: 'Sandbox Client Portal & Approvals only' },
+];
 
 interface AddMemberModalProps {
   isOpen: boolean;
@@ -37,16 +53,14 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
-  defaultRole = 'member',
+  defaultRole = 'team_member',
 }) => {
-  const { designations, addDesignation } = useDesignations();
+  const { departments: dynamicDepts, roles: dynamicRoles } = useSystemConfig();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>(defaultRole);
-  const [designation, setDesignation] = useState('');
-  const [isAddingNewDesignation, setIsAddingNewDesignation] = useState(false);
-  const [newDesignationInput, setNewDesignationInput] = useState('');
+  const [department, setDepartment] = useState<string>('Website');
   const [passwordMode, setPasswordMode] = useState<'invite' | 'manual'>('manual');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [copied, setCopied] = useState(false);
@@ -59,10 +73,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setFullName('');
       setEmail('');
       setPhone('');
-      setRole(defaultRole);
-      setDesignation(designations[0] || 'Web Development');
-      setIsAddingNewDesignation(false);
-      setNewDesignationInput('');
+      setRole(defaultRole === 'member' ? 'team_member' : defaultRole);
+      setDepartment('Website');
       setPasswordMode('manual');
       setTemporaryPassword(generateRandomPassword());
       setCopied(false);
@@ -74,9 +86,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     return () => {
       document.body.style.overflow = 'auto';
     };
-  }, [isOpen, defaultRole, designations]);
+  }, [isOpen, defaultRole]);
 
-  // Handle Escape key to close modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && isOpen) {
@@ -101,18 +112,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleAddNewDesignation = () => {
-    if (!newDesignationInput.trim()) return;
-    const trimmed = newDesignationInput.trim();
-    addDesignation(trimmed);
-    setDesignation(trimmed);
-    setNewDesignationInput('');
-    setIsAddingNewDesignation(false);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isSubmitting) return;
     setErrorMsg(null);
 
     if (!fullName.trim()) {
@@ -123,8 +124,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setErrorMsg('Work Email is required');
       return;
     }
-
-    const finalDesignation = designation.trim() || designations[0] || 'Web Development';
 
     const finalPassword = temporaryPassword.trim() || generateRandomPassword();
     if (passwordMode === 'manual' && finalPassword.length < 8) {
@@ -139,8 +138,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         email: email.trim().toLowerCase(),
         phone: phone.trim() || undefined,
         role,
-        department: undefined,
-        designation: finalDesignation,
+        department: role === 'admin' || role === 'client' ? undefined : department,
         temporary_password: finalPassword,
         send_invite_email: passwordMode === 'invite',
         is_active: true,
@@ -203,7 +201,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               <input
                 type="text"
                 required
-                placeholder="e.g. Haris"
+                placeholder="Sibat Sajjad"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
@@ -218,7 +216,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               <input
                 type="email"
                 required
-                placeholder="haris@company.com"
+                placeholder="sibatdev@reamarc.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
@@ -226,14 +224,71 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Phone Number (WhatsApp) */}
+          {/* Role Selection */}
           <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                <span>Phone / WhatsApp Number</span>
-              </label>
-              <span className="text-[10px] text-zinc-400">Optional (for 1-click WhatsApp reminders)</span>
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+              <Shield className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Role Assignment <span className="text-rose-500">*</span></span>
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {dynamicRoles.map((r) => {
+                const isSelected = role === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => setRole(r.id as UserRole)}
+                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
+                      isSelected
+                        ? 'bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20'
+                        : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold">{r.label}</span>
+                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 mt-0.5 leading-tight line-clamp-1">{r.description}</p>
+                  </button>
+                );
+              })}
             </div>
+          </div>
+
+          {/* Department Selection (Only for Team Lead & Team Member) */}
+          {(role === 'team_lead' || role === 'team_member') && (
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Department</span>
+              </label>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {dynamicDepts.map((dept) => {
+                  const isSelected = department === dept;
+                  return (
+                    <button
+                      key={dept}
+                      type="button"
+                      onClick={() => setDepartment(dept)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
+                          : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                      }`}
+                    >
+                      {dept}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Phone Number */}
+          <div>
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+              Phone / WhatsApp Number <span className="text-zinc-400 font-normal text-[10px]">(Optional for 1-click reminders)</span>
+            </label>
             <input
               type="tel"
               placeholder="+92 300 1234567"
@@ -243,137 +298,52 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             />
           </div>
 
-          {/* Designation Dynamic Selector */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Designation</span>
-              </label>
-              <button
-                type="button"
-                onClick={() => setIsAddingNewDesignation(!isAddingNewDesignation)}
-                className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1 cursor-pointer"
-              >
-                <Plus className="w-3 h-3" />
-                <span>Add New</span>
-              </button>
-            </div>
-
-            {isAddingNewDesignation && (
-              <div className="flex items-center gap-2 mb-2 p-2 bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800 rounded-xl">
-                <input
-                  type="text"
-                  placeholder="New designation name..."
-                  value={newDesignationInput}
-                  onChange={(e) => setNewDesignationInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleAddNewDesignation();
-                    }
-                  }}
-                  autoFocus
-                  className="flex-1 px-3 py-1.5 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={handleAddNewDesignation}
-                  className="px-3 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition cursor-pointer"
-                >
-                  Save
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsAddingNewDesignation(false);
-                    setNewDesignationInput('');
-                  }}
-                  className="p-1.5 text-zinc-400 hover:text-zinc-600 rounded-lg cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-2.5 max-h-48 overflow-y-auto pr-1">
-              {designations.map((d) => {
-                const isSelected = designation === d;
-                return (
-                  <button
-                    key={d}
-                    type="button"
-                    onClick={() => setDesignation(d)}
-                    className={`p-3 rounded-xl border text-left transition-all cursor-pointer shadow-2xs ${
-                      isSelected
-                        ? 'bg-indigo-500/10 border-indigo-500/60 ring-2 ring-indigo-500/20 text-indigo-700 dark:text-indigo-300'
-                        : 'bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-indigo-600 text-white' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'}`}>
-                          <Code className="w-3.5 h-3.5" />
-                        </div>
-                        <span className="text-xs font-bold truncate">{d}</span>
-                      </div>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Initial Password & Credentials */}
-          <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-3">
+          <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">
             <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
               <Key className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Initial Credentials</span>
+              <span>Initial Sign-In Password</span>
             </label>
 
-            <div className="space-y-1.5">
-              <div className="relative flex items-center">
-                <input
-                  type="text"
-                  required
-                  placeholder="Enter min. 8 characters"
-                  value={temporaryPassword}
-                  onChange={(e) => {
-                    setTemporaryPassword(e.target.value);
-                    setCopied(false);
-                  }}
-                  className="w-full pl-3 pr-36 py-2 font-mono text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
-                />
-                <div className="absolute right-1.5 flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={handleCopyPassword}
-                    className="px-2 py-1 text-[11px] font-bold bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200 rounded-md transition cursor-pointer flex items-center gap-1"
-                    title="Copy temporary password"
-                  >
-                    {copied ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-500" />
-                        <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3 text-zinc-500" />
-                        <span>Copy</span>
-                      </>
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleGeneratePassword}
-                    className="px-2 py-1 text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-md border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
-                  >
-                    Generate
-                  </button>
-                </div>
+            <div className="relative flex items-center">
+              <input
+                type="text"
+                required
+                placeholder="Enter min. 8 characters"
+                value={temporaryPassword}
+                onChange={(e) => {
+                  setTemporaryPassword(e.target.value);
+                  setCopied(false);
+                }}
+                className="w-full pl-3 pr-36 py-2 font-mono text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+              />
+              <div className="absolute right-1.5 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={handleCopyPassword}
+                  className="px-2 py-1 text-[11px] font-bold bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200 rounded-md transition cursor-pointer flex items-center gap-1"
+                  title="Copy temporary password"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3 h-3 text-emerald-500" />
+                      <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3 h-3 text-zinc-500" />
+                      <span>Copy</span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleGeneratePassword}
+                  className="px-2 py-1 text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-md border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
+                >
+                  Generate
+                </button>
               </div>
-              <p className="text-[10px] text-zinc-400">Provide this sign-in password to the team member.</p>
             </div>
           </div>
         </form>

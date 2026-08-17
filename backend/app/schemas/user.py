@@ -5,10 +5,9 @@ from app.models.user import UserRole
 class MemberCreate(BaseModel):
     full_name: str = Field(..., min_length=2, description="Member's full name")
     email: EmailStr = Field(..., description="Corporate or work email address")
-    role: UserRole = UserRole.MEMBER
+    role: UserRole = UserRole.TEAM_MEMBER
     phone: Optional[str] = None
     department: Optional[str] = None
-    designation: Optional[str] = None
     temporary_password: Optional[str] = None
     send_invite_email: bool = True
     is_active: bool = True
@@ -20,7 +19,6 @@ class MemberUpdate(BaseModel):
     password: Optional[str] = None
     role: Optional[UserRole] = None
     department: Optional[str] = None
-    designation: Optional[str] = None
     is_active: Optional[bool] = None
 
 class MemberResponse(BaseModel):
@@ -30,7 +28,6 @@ class MemberResponse(BaseModel):
     role: UserRole
     phone: Optional[str] = None
     department: Optional[str] = None
-    designation: Optional[str] = None
     is_active: bool
     created_at: Optional[str] = None
 
@@ -39,7 +36,7 @@ class MemberActivityResponse(BaseModel):
     full_name: str
     email: str
     phone: Optional[str] = None
-    designation: Optional[str] = None
+    department: Optional[str] = None
     role: str
     last_logged_date: Optional[str] = None
     logged_today: bool = False
@@ -60,8 +57,5 @@ class ReminderRequest(BaseModel):
 class ReminderResponse(BaseModel):
     success: bool
     message: str
+    user_id: str
     channel: str
-    recipient_email: str
-    recipient_name: str
-    missing_dates: List[str]
-    timestamp: str

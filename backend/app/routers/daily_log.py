@@ -1,7 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 import uuid
+import re
+import os
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
 from app.schemas.daily_log import (
@@ -124,10 +127,11 @@ async def get_my_log_activity(
     """Calculates missing Daily Log dates for the current user to display smart backfill reminders."""
     db = get_database()
     uid = current_user["id"]
-    fname = current_user.get("name") or current_user.get("full_name", "User")
-    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    fname = current_user.get("full_name") or current_user.get("name", "User")
+    user_role = current_user.get("role", "team_member")
+    is_exempt = user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.CLIENT.value, "client")
 
-    if is_admin or db is None:
+    if is_exempt or db is None:
         return {
             "user_id": uid,
             "full_name": fname,
@@ -225,7 +229,8 @@ async def get_entries(
     month_sheet: Optional[str] = Query(None, description="Month sheet tab filter e.g. 'August - 2026'"),
     start_date: Optional[str] = Query(None, description="Start date for bounded query (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date for bounded query (YYYY-MM-DD)"),
-    user_id: Optional[str] = Query(None, description="Filter by user id (Admin only)"),
+    department: Optional[str] = Query(None, description="Filter by department"),
+    user_id: Optional[str] = Query(None, description="Filter by user id"),
     resource_name: Optional[str] = Query(None, description="Filter by resource / member name"),
     client_project: Optional[str] = Query(None, description="Filter by client / project"),
     task_status: Optional[str] = Query(None, description="Filter by task status"),
@@ -238,36 +243,69 @@ async def get_entries(
     if db is None:
         return []
 
+    user_role = current_user.get("role", "team_member")
+    if user_role == "client" or user_role == UserRole.CLIENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Client accounts do not have access to internal daily logs.",
+        )
+
+    current_uid = current_user["id"]
+    current_name = current_user.get("name") or current_user.get("full_name")
+    current_dept = current_user.get("department")
+
     # Scoped Query Filter Construction
     query_filter: dict = {}
 
-    # ROLE-BASED SCOPING:
-    # If user is a Member, strictly restrict to their own logs
-    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
-    if not is_admin:
-        current_uid = current_user["id"]
-        current_name = current_user.get("name") or current_user.get("full_name")
+    # 1. ROLE-BASED DATA SCOPING
+    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr"):
+        # Admin & HR have global visibility across all departments and members
+        if department and department.lower() != "all":
+            query_filter["department"] = {"$regex": f"^{department.strip()}$", "$options": "i"}
+        if user_id:
+            query_filter["user_id"] = user_id
+        if resource_name:
+            query_filter["resource_name"] = {"$regex": resource_name, "$options": "i"}
+    elif user_role in (UserRole.TEAM_LEAD.value, "team_lead"):
+        # Team Lead can see all logs in their assigned department + their own logs
+        if current_dept:
+            dept_regex = {"$regex": f"^{current_dept.strip()}$", "$options": "i"}
+            if user_id:
+                query_filter["$and"] = [
+                    {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
+                    {"user_id": user_id},
+                ]
+            elif resource_name:
+                query_filter["$and"] = [
+                    {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
+                    {"resource_name": {"$regex": resource_name, "$options": "i"}},
+                ]
+            else:
+                query_filter["$or"] = [
+                    {"department": dept_regex},
+                    {"user_id": current_uid},
+                ]
+        else:
+            # Fallback if lead has no department assigned yet
+            query_filter["user_id"] = current_uid
+    else:
+        # Regular Team Member: strictly restricted to their own submitted logs
         query_filter["$or"] = [
             {"user_id": current_uid},
             {"user_id": {"$exists": False}, "resource_name": current_name},
             {"user_id": None, "resource_name": current_name},
         ]
-    else:
-        # Admin can filter by specific user_id or resource_name
-        if user_id:
-            query_filter["user_id"] = user_id
-        if resource_name:
-            query_filter["resource_name"] = {"$regex": resource_name, "$options": "i"}
 
+    # 2. DATE FILTERING (Today, Week, Month, Custom Range)
     if start_date and end_date:
         query_filter["date"] = {"$gte": start_date, "$lte": end_date}
     elif start_date:
         query_filter["date"] = {"$gte": start_date}
     elif end_date:
         query_filter["date"] = {"$lte": end_date}
-    elif month_sheet:
+    elif month_sheet and month_sheet.lower() != "all":
         query_filter["month_sheet"] = month_sheet
-    else:
+    elif not month_sheet:
         # Default bounded scope: current month sheet
         query_filter["month_sheet"] = _get_current_month_sheet()
 
@@ -292,7 +330,6 @@ async def get_entries(
         doc["id"] = doc.get("id") or str(doc.get("_id"))
         doc["workspace_id"] = doc.get("workspace_id", "global")
         doc["version"] = int(doc.get("version", 1))
-        # Ensure hours_utilized is float
         try:
             doc["hours_utilized"] = float(doc.get("hours_utilized", 0.0) or 0.0)
         except (ValueError, TypeError):
@@ -300,6 +337,79 @@ async def get_entries(
         result.append(doc)
 
     return result
+
+
+# Allowed file extensions for deliverables
+ALLOWED_EXTENSIONS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".svg", ".docx", ".doc", ".txt", ".zip", ".xlsx", ".csv"
+}
+MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+
+
+@router.post("/upload")
+async def upload_deliverable(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+):
+    """Upload a deliverable attachment file securely (max 25MB)."""
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No file filename provided.")
+
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file format '{ext}'. Allowed types: PDF, PNG, JPG, JPEG, SVG, DOCX, DOC, TXT, ZIP, XLSX, CSV."
+        )
+
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=400, detail="File size exceeds maximum limit of 25MB.")
+
+    clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
+    safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"
+
+    upload_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "uploads",
+        "deliverables"
+    )
+    os.makedirs(upload_dir, exist_ok=True)
+    file_path = os.path.join(upload_dir, safe_name)
+
+    with open(file_path, "wb") as f:
+        f.write(content)
+
+    file_url = f"/uploads/deliverables/{safe_name}"
+
+    return {
+        "file_url": file_url,
+        "file_name": file.filename,
+        "file_size": len(content),
+    }
+
+
+@router.get("/download-file")
+async def download_file(file_path: str = Query(..., description="File path under /uploads")):
+    """Download an uploaded file attachment directly as raw binary stream."""
+    clean_relative = file_path.replace("/uploads/", "").lstrip("/").lstrip("\\")
+    base_uploads = os.path.abspath(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "uploads"
+    ))
+    full_path = os.path.abspath(os.path.normpath(os.path.join(base_uploads, clean_relative)))
+
+    if not full_path.startswith(base_uploads) or not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="Requested file not found.")
+
+    raw_filename = os.path.basename(full_path)
+    clean_display_name = re.sub(r"^[a-f0-9]{10}_", "", raw_filename)
+
+    return FileResponse(
+        path=full_path,
+        filename=clean_display_name,
+        media_type="application/octet-stream"
+    )
 
 
 @router.post("/entries", response_model=DailyLogEntryResponse, status_code=status.HTTP_201_CREATED)
@@ -311,17 +421,46 @@ async def create_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
+    user_role = current_user.get("role", "team_member")
+    if user_role == "client" or user_role == UserRole.CLIENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Client accounts cannot submit daily logs.",
+        )
+
     now_iso = datetime.now(timezone.utc).isoformat()
-    month_sheet = entry_in.month_sheet or _get_current_month_sheet()
+    
+    # Calculate month sheet dynamically from entry date if available
+    date_val = entry_in.date
+    if date_val:
+        try:
+            dt = datetime.strptime(date_val, "%Y-%m-%d")
+            month_sheet = dt.strftime("%B - %Y")
+        except Exception:
+            month_sheet = entry_in.month_sheet or _get_current_month_sheet()
+    else:
+        month_sheet = entry_in.month_sheet or _get_current_month_sheet()
 
     entry_dict = entry_in.model_dump()
     entry_dict["id"] = f"log-{uuid.uuid4().hex[:12]}"
     entry_dict["workspace_id"] = "global"
+
+    # HARDCODED IDENTITY SAFEGUARDS (Derived directly from authenticated login profile)
+    raw_role = current_user.get("role", "team_member")
+    role_title_map = {
+        "admin": "Admin",
+        "hr": "HR",
+        "team_lead": "Team Lead",
+        "team_member": "Team Member",
+        "member": "Team Member",
+        "client": "Client",
+    }
+    role_formatted = role_title_map.get(str(raw_role).lower(), str(raw_role).replace("_", " ").title())
+
     entry_dict["user_id"] = current_user["id"]
-    if not entry_dict.get("resource_name"):
-        entry_dict["resource_name"] = current_user.get("name") or current_user.get("full_name", "Team Member")
-    if not entry_dict.get("role"):
-        entry_dict["role"] = current_user.get("designation") or current_user.get("department") or "Contributor"
+    entry_dict["resource_name"] = current_user.get("full_name") or current_user.get("name", "Team Member")
+    entry_dict["role"] = role_formatted
+    entry_dict["department"] = current_user.get("department") or ""
 
     entry_dict["month_sheet"] = month_sheet
     entry_dict["version"] = 1
@@ -343,28 +482,46 @@ async def update_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    user_role = current_user.get("role", "team_member")
+    is_admin = user_role in (UserRole.ADMIN.value, "admin")
+    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
+    lead_dept = current_user.get("department")
+
     existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    # Permissions check: Members can only update their own log entries
+    # Permissions check:
+    entry_uid = existing_entry.get("user_id")
+    entry_rname = existing_entry.get("resource_name")
+    entry_dept = existing_entry.get("department")
+    curr_name = current_user.get("name") or current_user.get("full_name")
+
     if not is_admin:
-        entry_uid = existing_entry.get("user_id")
-        entry_rname = existing_entry.get("resource_name")
-        curr_name = current_user.get("name") or current_user.get("full_name")
-        if entry_uid and entry_uid != current_user["id"]:
+        is_own_entry = (entry_uid and entry_uid == current_user["id"]) or (not entry_uid and entry_rname == curr_name)
+        is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
+
+        if not (is_own_entry or is_dept_lead_entry):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to edit another member's log entry.",
-            )
-        elif not entry_uid and entry_rname and entry_rname != curr_name:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to edit another member's log entry.",
+                detail="You do not have permission to edit this log entry.",
             )
 
     update_data = {k: v for k, v in entry_in.model_dump().items() if v is not None}
+    
+    # HARDCODED IDENTITY SAFEGUARDS: Do not allow changing user_id, resource_name, role, or department via Daily Log edit
+    update_data.pop("user_id", None)
+    update_data.pop("resource_name", None)
+    update_data.pop("role", None)
+    update_data.pop("department", None)
+
+    if "date" in update_data and update_data["date"]:
+        try:
+            dt = datetime.strptime(str(update_data["date"]), "%Y-%m-%d")
+            update_data["month_sheet"] = dt.strftime("%B - %Y")
+        except Exception:
+            pass
+
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
 
     # Optimistic Concurrency Control (OCC) Check
@@ -389,7 +546,6 @@ async def update_entry(
                 )
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Log entry '{entry_id}' not found.")
     else:
-        # Fallback update without version locking
         update_data.pop("version", None)
         res = await db.daily_log_entries.find_one_and_update(
             {"id": entry_id},
@@ -414,25 +570,28 @@ async def delete_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    is_admin = current_user.get("role") == UserRole.ADMIN.value or current_user.get("role") == "admin"
+    user_role = current_user.get("role", "team_member")
+    is_admin = user_role in (UserRole.ADMIN.value, "admin")
+    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
+    lead_dept = current_user.get("department")
+
     existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    # Permissions check: Members can only delete their own entries
+    entry_uid = existing_entry.get("user_id")
+    entry_rname = existing_entry.get("resource_name")
+    entry_dept = existing_entry.get("department")
+    curr_name = current_user.get("name") or current_user.get("full_name")
+
     if not is_admin:
-        entry_uid = existing_entry.get("user_id")
-        entry_rname = existing_entry.get("resource_name")
-        curr_name = current_user.get("name") or current_user.get("full_name")
-        if entry_uid and entry_uid != current_user["id"]:
+        is_own_entry = (entry_uid and entry_uid == current_user["id"]) or (not entry_uid and entry_rname == curr_name)
+        is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
+
+        if not (is_own_entry or is_dept_lead_entry):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to delete another member's log entry.",
-            )
-        elif not entry_uid and entry_rname and entry_rname != curr_name:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to delete another member's log entry.",
+                detail="You do not have permission to delete this log entry.",
             )
 
     res = await db.daily_log_entries.delete_one({"id": entry_id})

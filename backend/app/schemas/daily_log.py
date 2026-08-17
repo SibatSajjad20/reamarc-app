@@ -81,6 +81,7 @@ class DailyLogEntryCreate(BaseModel):
     date: str
     resource_name: str = ""
     role: str = ""
+    department: Optional[str] = None
     client_project: str = ""
     task_description: str = ""
     task_type: str = "Scheduled Task"
@@ -104,6 +105,7 @@ class DailyLogEntryUpdate(BaseModel):
     date: Optional[str] = None
     resource_name: Optional[str] = None
     role: Optional[str] = None
+    department: Optional[str] = None
     client_project: Optional[str] = None
     task_description: Optional[str] = None
     task_type: Optional[str] = None
@@ -131,6 +133,7 @@ class DailyLogEntryResponse(BaseModel):
     date: str
     resource_name: str
     role: str
+    department: Optional[str] = None
     client_project: str
     task_description: str
     task_type: str

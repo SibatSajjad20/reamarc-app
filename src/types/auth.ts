@@ -1,4 +1,12 @@
-export type UserRole = 'admin' | 'member';
+export type UserRole = 'admin' | 'hr' | 'team_lead' | 'team_member' | 'client' | 'member';
+
+export type DepartmentType =
+  | 'website'
+  | 'creative'
+  | 'content'
+  | 'seo'
+  | 'performance marketing'
+  | 'AI';
 
 export interface AuthUser {
   id: string;
@@ -7,7 +15,6 @@ export interface AuthUser {
   full_name?: string;
   role: UserRole;
   department?: string;
-  designation?: string;
   is_active?: boolean;
 }
 

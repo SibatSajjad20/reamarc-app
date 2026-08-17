@@ -7,6 +7,7 @@ from app.core.security import (
     get_password_hash, verify_password,
     create_access_token, create_refresh_token,
     decode_refresh_token, get_current_user,
+    _normalize_role,
 )
 from app.database import get_database
 from app.config import settings
@@ -42,15 +43,13 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 def _build_user_response(user_doc: dict) -> dict:
-    raw_role = user_doc.get("role", "member")
-    role_str = "admin" if raw_role == "admin" else "member"
+    role_str = _normalize_role(user_doc.get("role"))
     return {
         "id": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "department": user_doc.get("department"),
-        "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
@@ -100,7 +99,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
-    role_str = "admin" if user_doc.get("role") == "admin" else "member"
+    role_str = _normalize_role(user_doc.get("role"))
     claims = {
         "sub": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
@@ -140,7 +139,7 @@ async def refresh_token(request: Request, response: Response):
     if not user_doc.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account deactivated.")
 
-    role_str = "admin" if user_doc.get("role") == "admin" else "member"
+    role_str = _normalize_role(user_doc.get("role"))
     claims = {
         "sub": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],

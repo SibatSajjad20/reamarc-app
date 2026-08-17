@@ -18,11 +18,13 @@ import {
   Layers,
 } from 'lucide-react';
 
+import type { AdAccount } from '../../types/admin';
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
-  selectedWorkspace?: Workspace | null;
-  workspaces?: Workspace[];
+  selectedWorkspace?: (Workspace | AdAccount) | null;
+  workspaces?: (Workspace | AdAccount)[];
 }
 
 export const AdAccountCredentialsModal: React.FC<Props> = ({

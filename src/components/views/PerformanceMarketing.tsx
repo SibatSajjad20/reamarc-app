@@ -18,6 +18,7 @@ import {
   Calendar as CalendarIcon,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
+import type { AdAccount } from '../../types/admin';
 import { useMarketingMatrix } from '../../hooks/useMarketingMatrix';
 import { marketingService } from '../../services/marketingService';
 import { useAuth } from '../../context/AuthContext';
@@ -25,9 +26,10 @@ import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 
 interface Props {
-  selectedWorkspace?: Workspace | null;
-  workspaces?: Workspace[];
-  onSelectWorkspace?: (ws: Workspace | null) => void;
+  selectedWorkspace?: (Workspace | AdAccount) | null;
+  workspaces?: (Workspace | AdAccount)[];
+  adAccounts?: AdAccount[];
+  onSelectWorkspace?: (ws: (Workspace | AdAccount) | null) => void;
   onOpenCreateAccount?: () => void;
 }
 
@@ -87,10 +89,17 @@ const formatCellValue = (value: any, type?: string): string => {
 export const PerformanceMarketing: React.FC<Props> = ({
   selectedWorkspace = null,
   workspaces = [],
+  adAccounts = [],
   onSelectWorkspace,
 }) => {
   const { role } = useAuth();
   const { addToast } = useToast();
+
+  // Use adAccounts if provided, otherwise fallback to workspaces
+  const accountsList = useMemo(() => {
+    if (adAccounts && adAccounts.length > 0) return adAccounts;
+    return workspaces;
+  }, [adAccounts, workspaces]);
 
   const {
     rows,
@@ -144,7 +153,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
   // Filter Ad Accounts strictly in alphabetical order (A-Z)
   const filteredDropdownAccounts = useMemo(() => {
-    const sorted = [...workspaces].sort((a, b) =>
+    const sorted = [...accountsList].sort((a, b) =>
       (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
     );
     if (!dropdownSearch.trim()) return sorted;
@@ -152,10 +161,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return sorted.filter(
       (w) =>
         w.name.toLowerCase().includes(q) ||
-        (w.platform && w.platform.toLowerCase().includes(q)) ||
-        (w.industry && w.industry.toLowerCase().includes(q))
+        ((w as any).platform && (w as any).platform.toLowerCase().includes(q)) ||
+        ((w as any).industry && (w as any).industry.toLowerCase().includes(q))
     );
-  }, [workspaces, dropdownSearch]);
+  }, [accountsList, dropdownSearch]);
 
   // Shift Date by +/- N Days
   const shiftDate = (days: number) => {
@@ -424,10 +433,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               <div
                 className={`w-6 h-6 rounded-lg text-white font-extrabold text-[10px] flex items-center justify-center shadow-2xs shrink-0 ${
-                  selectedWorkspace?.brandColor || 'bg-indigo-600'
+                  (selectedWorkspace as any)?.brandColor || 'bg-indigo-600'
                 }`}
               >
-                {selectedWorkspace?.initials || 'ALL'}
+                {(selectedWorkspace as any)?.initials || (selectedWorkspace ? selectedWorkspace.name.slice(0, 2).toUpperCase() : 'ALL')}
               </div>
               <div className="text-left min-w-[100px]">
                 <div className="flex items-center gap-1.5 leading-tight">
@@ -437,7 +446,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   {selectedWorkspace &&
                     (() => {
                       const nameLower = selectedWorkspace.name.toLowerCase();
-                      const pLower = (selectedWorkspace.platform || '').toLowerCase();
+                      const pLower = ((selectedWorkspace as any).platform || '').toLowerCase();
                       const isMulti =
                         (pLower.includes('google') && pLower.includes('meta')) ||
                         nameLower.includes('ed&c') ||
@@ -467,7 +476,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                     })()}
                 </div>
                 <span className="text-[10px] text-zinc-400 font-medium block leading-tight">
-                  {selectedWorkspace ? selectedWorkspace.industry || 'Ad Account' : 'Consolidated Agency Matrix'}
+                  {selectedWorkspace ? (selectedWorkspace as any).industry || 'Ad Account' : 'Consolidated Agency Matrix'}
                 </span>
               </div>
               <ChevronDown
@@ -539,7 +548,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                     filteredDropdownAccounts.map((ws) => {
                       const isSelected = selectedWorkspace?.id === ws.id;
                       const nameLower = ws.name.toLowerCase();
-                      const pLower = (ws.platform || '').toLowerCase();
+                      const pLower = ((ws as any).platform || '').toLowerCase();
                       const isMulti =
                         (pLower.includes('google') && pLower.includes('meta')) ||
                         nameLower.includes('ed&c') ||
@@ -564,10 +573,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           <div className="flex items-center gap-2 min-w-0 text-left">
                             <div
                               className={`w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center text-white shrink-0 ${
-                                ws.brandColor || (isGoogle ? 'bg-emerald-600' : 'bg-indigo-600')
+                                (ws as any).brandColor || (isGoogle ? 'bg-emerald-600' : 'bg-indigo-600')
                               }`}
                             >
-                              {ws.initials}
+                              {(ws as any).initials || ws.name.slice(0, 2).toUpperCase()}
                             </div>
                             <div className="min-w-0">
                               <p className="font-bold text-xs truncate">{ws.name}</p>
@@ -590,7 +599,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                                     Meta Ads
                                   </span>
                                 )}
-                                <span className="text-[10px] text-zinc-400 truncate">• {ws.industry || 'General B2B'}</span>
+                                <span className="text-[10px] text-zinc-400 truncate">• {(ws as any).industry || 'Ad Account'}</span>
                               </div>
                             </div>
                           </div>
@@ -1234,7 +1243,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
         isOpen={isCredsModalOpen}
         onClose={() => setIsCredsModalOpen(false)}
         selectedWorkspace={selectedWorkspace}
-        workspaces={workspaces}
+        workspaces={accountsList as any}
       />
     </div>
   );

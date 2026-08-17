@@ -29,6 +29,8 @@ export const dailyLogService = {
       if (params.month_sheet) searchParams.append('month_sheet', params.month_sheet);
       if (params.start_date) searchParams.append('start_date', params.start_date);
       if (params.end_date) searchParams.append('end_date', params.end_date);
+      if (params.department) searchParams.append('department', params.department);
+      if (params.user_id) searchParams.append('user_id', params.user_id);
       if (params.resource_name) searchParams.append('resource_name', params.resource_name);
       if (params.client_project) searchParams.append('client_project', params.client_project);
       if (params.task_status) searchParams.append('task_status', params.task_status);
@@ -56,5 +58,12 @@ export const dailyLogService = {
   async getMyLogActivity(days: number = 7): Promise<import('../types/dailyLog').UserLogActivity> {
     return apiClient.get<import('../types/dailyLog').UserLogActivity>(`/daily-log/my-activity?days=${days}`);
   },
+
+  async uploadDeliverableFile(file: File): Promise<{ file_url: string; file_name: string; file_size: number }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>('/daily-log/upload', formData);
+  },
 };
+
 

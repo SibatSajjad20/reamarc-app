@@ -8,8 +8,6 @@ import {
   Trash2,
   Pencil,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
   Loader2,
   Grid,
   ZoomIn,
@@ -21,16 +19,24 @@ import {
   ExternalLink,
   AlertTriangle,
   RefreshCw,
+  Layers,
+  CalendarRange,
+  Paperclip,
+  Download,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
-import type { DailyLogEntry, DailyLogColumn, UserLogActivity } from '../../types/dailyLog';
+import type { DailyLogEntry, DailyLogColumn, UserLogActivity, GetDailyLogEntriesParams } from '../../types/dailyLog';
 import { useAuth } from '../../context/AuthContext';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
+import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
+import { useSystemConfig } from '../../hooks/useSystemConfig';
+import { downloadFileAttachment } from '../../utils/fileUrl';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
   { key: 'resource_name', label: 'Resource Name', type: 'text', editable: true, width: '160' },
-  { key: 'role', label: 'Role', type: 'text', editable: true, width: '140' },
+  { key: 'role', label: 'Role', type: 'text', editable: true, width: '160' },
+  { key: 'department', label: 'Department', type: 'text', editable: true, width: '140' },
   { key: 'client_project', label: 'Client / Project', type: 'text', editable: true, width: '160' },
   { key: 'task_description', label: 'Task Description', type: 'text', editable: true, width: '280' },
   {
@@ -73,6 +79,36 @@ const FIELD_TYPE_OPTIONS: { id: 'text' | 'select' | 'date' | 'number'; label: st
   { id: 'date', label: 'Date Picker' },
   { id: 'number', label: 'Numeric' },
 ];
+
+const getTodayIso = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getThisWeekBounds = () => {
+  const now = new Date();
+  const day = now.getDay(); // 0: Sun, 1: Mon ... 6: Sat
+  const diffToMonday = (day === 0 ? -6 : 1) - day;
+  const monday = new Date(now);
+  monday.setDate(now.getDate() + diffToMonday);
+  const saturday = new Date(monday);
+  saturday.setDate(monday.getDate() + 5);
+
+  const format = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dt = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dt}`;
+  };
+
+  return {
+    start: format(monday),
+    end: format(saturday),
+  };
+};
 
 interface FieldTypeSelectProps {
   value: 'text' | 'select' | 'date' | 'number';
@@ -142,8 +178,12 @@ const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) =>
 };
 
 export const DailyLogView: React.FC = () => {
-  const { user, role } = useAuth();
-  const isAdmin = role === 'admin' || user?.role === 'admin';
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
+  const isHR = user?.role === 'hr';
+  const isLead = user?.role === 'team_lead';
+  const userDept = user?.department || '';
+  const { departments } = useSystemConfig();
 
   const [columns, setColumns] = useState<DailyLogColumn[]>(DEFAULT_COLUMNS);
   const [entries, setEntries] = useState<DailyLogEntry[]>([]);
@@ -151,8 +191,20 @@ export const DailyLogView: React.FC = () => {
   const [activeSheet, setActiveSheet] = useState<string>('August - 2026');
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [dateFilter, setDateFilter] = useState<string>('all');
+
+  // Department & Team Lead Filter State
+  const [selectedDept, setSelectedDept] = useState<string>(() => {
+    if (isLead && userDept) return userDept;
+    if (!isAdmin && !isHR && userDept) return userDept;
+    return 'All';
+  });
+
+  // Enhanced Date Filter State (Today, Week Mon-Sat, Month, Custom Range)
+  const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'custom'>('month');
+  const [customStartDate, setCustomStartDate] = useState<string>(getTodayIso());
+  const [customEndDate, setCustomEndDate] = useState<string>(getTodayIso());
   const [isDateDropdownOpen, setIsDateDropdownOpen] = useState<boolean>(false);
+  const [dateDropdownView, setDateDropdownView] = useState<'presets' | 'calendar'>('presets');
   const dateDropdownRef = useRef<HTMLDivElement>(null);
 
   // Controlled Create / Edit Modal State
@@ -167,6 +219,7 @@ export const DailyLogView: React.FC = () => {
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
     if (!isDateDropdownOpen) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -182,19 +235,16 @@ export const DailyLogView: React.FC = () => {
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
 
-  // ─── Per-Column Filters State ────────────────────────────────────────────────
+  // Per-Column Filters State
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [openFilterColKey, setOpenFilterColKey] = useState<string | null>(null);
-
-  // Calendar State for Date Filter Popover
-  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date(2026, 7, 1)); // Default August 2026
 
   // New Field State inside Modal
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<'text' | 'select' | 'date' | 'number'>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
 
-  // ─── Zoom & Matrix Layout State ──────────────────────────────────────────────
+  // Zoom & Matrix Layout State
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_daily_log_zoom');
@@ -223,15 +273,38 @@ export const DailyLogView: React.FC = () => {
     return {};
   });
 
-  // ─── Fetch Sheet Tabs & Initial Data ─────────────────────────────────────────
-  const fetchSheetsAndData = useCallback(async () => {
+  // Fetch Sheets, Columns & Query Entries
+  const fetchEntries = useCallback(async () => {
     setIsLoading(true);
     setOccConflictMessage(null);
     try {
+      const params: GetDailyLogEntriesParams = {};
+
+      if (selectedDept && selectedDept !== 'All') {
+        params.department = selectedDept;
+      }
+
+      if (datePreset === 'today') {
+        const t = getTodayIso();
+        params.start_date = t;
+        params.end_date = t;
+      } else if (datePreset === 'week') {
+        const bounds = getThisWeekBounds();
+        params.start_date = bounds.start;
+        params.end_date = bounds.end;
+      } else if (datePreset === 'month') {
+        params.month_sheet = activeSheet;
+      } else if (datePreset === 'custom') {
+        if (customStartDate && customEndDate) {
+          params.start_date = customStartDate;
+          params.end_date = customEndDate;
+        }
+      }
+
       const [sheets, cols, logs, activity] = await Promise.all([
         dailyLogService.getSheets(),
         dailyLogService.getColumns(),
-        dailyLogService.getEntries(activeSheet),
+        dailyLogService.getEntries(params),
         dailyLogService.getMyLogActivity(7).catch(() => null),
       ]);
 
@@ -239,10 +312,16 @@ export const DailyLogView: React.FC = () => {
         setMyActivity(activity);
       }
 
-      if (sheets && sheets.length > 0) {
-        setAvailableSheets(sheets);
-        if (!sheets.includes(activeSheet)) {
-          setActiveSheet(sheets[0]);
+      const allSheetSet = new Set<string>(sheets || []);
+      (logs || []).forEach((l) => {
+        if (l.month_sheet) allSheetSet.add(l.month_sheet);
+      });
+      const combinedSheets = Array.from(allSheetSet);
+
+      if (combinedSheets.length > 0) {
+        setAvailableSheets(combinedSheets);
+        if (!combinedSheets.includes(activeSheet)) {
+          setActiveSheet(combinedSheets[0]);
         }
       }
 
@@ -261,30 +340,20 @@ export const DailyLogView: React.FC = () => {
 
       setEntries(logs || []);
     } catch (err) {
-      console.error('Failed to fetch daily log sheets/entries:', err);
+      console.error('Failed to fetch daily log entries:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [activeSheet]);
+  }, [activeSheet, selectedDept, datePreset, customStartDate, customEndDate]);
 
   useEffect(() => {
-    fetchSheetsAndData();
-  }, [fetchSheetsAndData]);
+    fetchEntries();
+  }, [fetchEntries]);
 
   // Switch Month Sheet Tab
   const handleSheetChange = async (sheetName: string) => {
     setActiveSheet(sheetName);
-    setIsLoading(true);
-    setColumnFilters({});
-    setOccConflictMessage(null);
-    try {
-      const logs = await dailyLogService.getEntries(sheetName);
-      setEntries(logs || []);
-    } catch (err) {
-      console.error(`Failed to fetch logs for sheet '${sheetName}':`, err);
-    } finally {
-      setIsLoading(false);
-    }
+    setDatePreset('month');
   };
 
   // Open Create Modal
@@ -295,22 +364,33 @@ export const DailyLogView: React.FC = () => {
     setIsEntryModalOpen(true);
   };
 
+  // Permission check: only the author can edit (Admins and HR cannot edit)
+  const canEditEntry = useCallback((entry: DailyLogEntry) => {
+    if (isAdmin || isHR) return false;
+    const currentUserId = user?.id;
+    const currentUserName = (user?.full_name || user?.name || '').trim().toLowerCase();
+    
+    if (entry.user_id && currentUserId && entry.user_id === currentUserId) return true;
+    if (entry.resource_name && currentUserName && entry.resource_name.trim().toLowerCase() === currentUserName) return true;
+    return false;
+  }, [isAdmin, isHR, user]);
+
   // Open Edit Modal
   const handleOpenEditModal = (entry: DailyLogEntry) => {
+    if (!canEditEntry(entry)) return;
     setPrefilledDate(undefined);
     setSelectedEntry(entry);
     setEntryModalMode('edit');
     setIsEntryModalOpen(true);
   };
 
-  // Handle entry saved from modal (Atomic Single Dispatch)
+  // Handle entry saved
   const handleEntrySaved = (savedEntry: DailyLogEntry) => {
     if (entryModalMode === 'create') {
       setEntries((prev) => [savedEntry, ...prev]);
     } else {
       setEntries((prev) => prev.map((e) => (e.id === savedEntry.id ? savedEntry : e)));
     }
-    // Refresh user activity to clear smart banner
     dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
   };
 
@@ -321,25 +401,33 @@ export const DailyLogView: React.FC = () => {
     try {
       await dailyLogService.deleteEntry(entryId);
     } catch (err) {
-      console.error(`Failed to delete entry '${entryId}':`, err);
-      // Refetch on error
-      handleSheetChange(activeSheet);
+      console.error('Failed to delete daily log entry:', err);
+      fetchEntries();
     }
   };
 
-  // ─── Column Schema Customization & Adding New Fields (Admin Only) ────────────
+  // Add Custom Column
   const handleAddNewColumn = () => {
-    if (!isAdmin || !newFieldLabel.trim()) return;
+    if (!newFieldLabel.trim()) return;
+    const newKey = newFieldLabel.trim().toLowerCase().replace(/\s+/g, '_');
+    if (columns.some((col) => col.key === newKey)) {
+      alert('A field with this name already exists.');
+      return;
+    }
 
-    const newKey = `custom_${newFieldLabel.toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now().toString().slice(-4)}`;
+    const optionsList =
+      newFieldType === 'select' && newFieldOptions.trim()
+        ? newFieldOptions
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined;
+
     const newCol: DailyLogColumn = {
       key: newKey,
       label: newFieldLabel.trim(),
       type: newFieldType,
-      options:
-        newFieldType === 'select' && newFieldOptions.trim()
-          ? newFieldOptions.split(',').map((opt) => opt.trim()).filter(Boolean)
-          : undefined,
+      options: optionsList,
       editable: true,
       width: '160',
     };
@@ -368,7 +456,7 @@ export const DailyLogView: React.FC = () => {
     }
   };
 
-  // ─── Column & Row Resizing Handlers ──────────────────────────────────────────
+  // Column Resizing Handlers
   const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -382,32 +470,6 @@ export const DailyLogView: React.FC = () => {
         const next = { ...prev, [colKey]: Math.round(newWidth) };
         try {
           localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
-        } catch (e) {}
-        return next;
-      });
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  };
-
-  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startY = e.clientY;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const delta = (moveEvent.clientY - startY) * (100 / zoomLevel);
-      const newHeight = Math.max(34, Math.min(200, currentH + delta));
-      setRowHeights((prev) => {
-        const next = { ...prev, [rowId]: Math.round(newHeight) };
-        try {
-          localStorage.setItem('reamarc_daily_log_row_heights', JSON.stringify(next));
         } catch (e) {}
         return next;
       });
@@ -449,55 +511,40 @@ export const DailyLogView: React.FC = () => {
       }, 0);
       const completed = entries.filter((e) => e.task_status === 'Completed').length;
       const blockers = entries.filter((e) => e.task_status === 'Blocker').length;
+      const uniquePeople = new Set(entries.map((e) => e.resource_name)).size;
+
       setAiSummary(
-        `AI Summary (${activeSheet}): ${entries.length} tasks recorded (${completed} completed, ${blockers} blockers). Total time utilized: ${totalHours.toFixed(1)} hrs.`
+        `Department Summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${totalHours.toFixed(
+          1
+        )} hrs • ${completed} completed, ${blockers} blockers flagged.`
       );
       setIsSummarizing(false);
-    }, 900);
+    }, 800);
   };
 
-  // Helper to extract unique values for column filter popover
+  // Column unique values
   const getUniqueValuesForColumn = (colKey: string): string[] => {
-    const setVals = new Set<string>();
+    const set = new Set<string>();
     entries.forEach((e) => {
       const val = (e as any)[colKey];
       if (val !== undefined && val !== null && String(val).trim() !== '') {
-        setVals.add(String(val).trim());
+        set.add(String(val).trim());
       }
     });
-    return Array.from(setVals).sort();
+    return Array.from(set).sort();
   };
 
-  // Filtered Entries based on Search, Date Filter, and Column Filters
+  // Filtered entries in UI
   const filteredEntries = useMemo(() => {
-    let result = [...entries];
+    let result = entries;
 
-    // Global Search Filter
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter((e) =>
-        Object.values(e).some((val) =>
-          typeof val === 'string' ? val.toLowerCase().includes(q) : false
-        )
+        Object.values(e).some((v) => typeof v === 'string' && v.toLowerCase().includes(q))
       );
     }
 
-    // Date Presets Filter
-    if (dateFilter === 'today') {
-      const today = new Date();
-      const todayIso = today.toISOString().split('T')[0];
-      const todayFormatted = `${today.getDate()}/${today.getMonth() + 1}/${today.getFullYear().toString().slice(2)}`;
-      result = result.filter((e) => e.date === todayIso || e.date === todayFormatted);
-    } else if (dateFilter === 'week') {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      result = result.filter((e) => {
-        const entryDate = new Date(e.date);
-        return !isNaN(entryDate.getTime()) && entryDate >= weekAgo;
-      });
-    }
-
-    // Per-Column Discrete & Value Filters
     Object.entries(columnFilters).forEach(([colKey, filterVal]) => {
       if (!filterVal || filterVal === '__ALL__') return;
       const colDef = columns.find((c) => c.key === colKey);
@@ -513,34 +560,31 @@ export const DailyLogView: React.FC = () => {
     });
 
     return result;
-  }, [entries, searchQuery, dateFilter, columnFilters, columns]);
+  }, [entries, searchQuery, columnFilters, columns]);
 
-  // Compute Total Table Width for reliable horizontal scrolling
   const totalTableWidth = useMemo(() => {
     return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
   }, [columns, columnWidths]);
 
-  // Calendar Helper functions for Date Picker Filter Popover
-  const calendarDaysInMonth = useMemo(() => {
-    const year = calendarViewDate.getFullYear();
-    const month = calendarViewDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    return { firstDay, daysInMonth, year, month };
-  }, [calendarViewDate]);
+  const getDatePresetLabel = () => {
+    if (datePreset === 'today') return "Today's Data";
+    if (datePreset === 'week') return 'This Week (Mon - Sat)';
+    if (datePreset === 'month') return `This Month (${activeSheet})`;
+    if (datePreset === 'custom') return `${customStartDate} to ${customEndDate}`;
+    return 'All Dates';
+  };
 
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
-      {/* Top Toolbar Bar */}
+      {/* ─── Top Toolbar: Search, Date Filter & Add Log Button ─── */}
       <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
-        {/* Search & Date Filter & Add Log Button */}
         <div className="flex items-center gap-3 flex-1 min-w-[320px] max-w-2xl">
-          {/* Search Bar */}
+          {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search logs by keyword, task, team member..."
+              placeholder="Search logs by keyword, task, member, project..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
@@ -557,80 +601,158 @@ export const DailyLogView: React.FC = () => {
             )}
           </div>
 
-          {/* Custom Date Filter Popover */}
+          {/* Enhanced 4-Preset Date Filter Popover */}
           <div className="relative" ref={dateDropdownRef}>
             <button
               type="button"
               onClick={() => setIsDateDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 rounded-xl px-3.5 py-2 text-sm font-semibold text-zinc-800 dark:text-zinc-200 transition-all shadow-2xs cursor-pointer select-none"
+              className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 rounded-xl px-3.5 py-2 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all shadow-2xs cursor-pointer select-none"
             >
-              <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-              <span>
-                {dateFilter === 'today'
-                  ? 'Today'
-                  : dateFilter === 'week'
-                  ? 'Past 7 Days'
-                  : 'All Dates'}
-              </span>
+              <CalendarIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
+              <span className="truncate max-w-[160px]">{getDatePresetLabel()}</span>
               <ChevronDown
-                className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 ${
+                className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 shrink-0 ${
                   isDateDropdownOpen ? 'rotate-180' : ''
                 }`}
               />
             </button>
 
             {isDateDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 w-48 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-                {[
-                  { id: 'all', label: 'All Dates', sub: 'Show all recorded entries' },
-                  { id: 'today', label: 'Today', sub: 'Only entries logged for today' },
-                  { id: 'week', label: 'Past 7 Days', sub: 'Entries from past 7 days' },
-                ].map((opt) => {
-                  const isSelected = dateFilter === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => {
-                        setDateFilter(opt.id);
+              <div className="absolute left-0 top-full mt-1.5 z-50 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
+                {dateDropdownView === 'calendar' ? (
+                  <div className="flex flex-col">
+                    <div className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-b-0 border-zinc-200 dark:border-zinc-800 rounded-t-2xl">
+                      <button
+                        type="button"
+                        onClick={() => setDateDropdownView('presets')}
+                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        ← Back to Presets
+                      </button>
+                      <span className="text-[11px] font-bold text-zinc-400">Custom Date Range</span>
+                    </div>
+                    <DateRangeCalendarPicker
+                      initialStartDate={customStartDate}
+                      initialEndDate={customEndDate}
+                      onCancel={() => setIsDateDropdownOpen(false)}
+                      onApply={({ startDate, endDate }) => {
+                        setCustomStartDate(startDate);
+                        setCustomEndDate(endDate);
+                        setDatePreset('custom');
                         setIsDateDropdownOpen(false);
                       }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
-                        isSelected
+                    />
+                  </div>
+                ) : (
+                  <div className="w-72 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-2xl p-2.5 space-y-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 px-2">
+                      Date Range Presets
+                    </span>
+
+                    {/* 1. Today */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePreset('today');
+                        setIsDateDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+                        datePreset === 'today'
                           ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
                           : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                       }`}
                     >
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{opt.label}</span>
-                        <span className="text-[10px] text-zinc-400 font-normal">{opt.sub}</span>
+                      <div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">1. Today's Data</div>
+                        <div className="text-[10px] text-zinc-400">Show entries for {getTodayIso()}</div>
                       </div>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 ml-2" />}
+                      {datePreset === 'today' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
                     </button>
-                  );
-                })}
+
+                    {/* 2. This Week (Mon-Sat) */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePreset('week');
+                        setIsDateDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+                        datePreset === 'week'
+                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">2. This Week (Mon – Sat)</div>
+                        <div className="text-[10px] text-zinc-400">Current work week bounds</div>
+                      </div>
+                      {datePreset === 'week' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                    </button>
+
+                    {/* 3. This Month */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDatePreset('month');
+                        setIsDateDropdownOpen(false);
+                      }}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+                        datePreset === 'month'
+                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100">3. This Month</div>
+                        <div className="text-[10px] text-zinc-400">All logs in {activeSheet}</div>
+                      </div>
+                      {datePreset === 'month' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                    </button>
+
+                    {/* 4. Custom Range Trigger */}
+                    <button
+                      type="button"
+                      onClick={() => setDateDropdownView('calendar')}
+                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none pt-2 border-t border-zinc-200 dark:border-zinc-800 ${
+                        datePreset === 'custom'
+                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                      }`}
+                    >
+                      <div>
+                        <div className="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                          <CalendarRange className="w-3.5 h-3.5 text-indigo-500" />
+                          <span>4. Custom Date Range</span>
+                        </div>
+                        <div className="text-[10px] text-zinc-400">
+                          {datePreset === 'custom' ? `${customStartDate} → ${customEndDate}` : 'Open interactive calendar'}
+                        </div>
+                      </div>
+                      {datePreset === 'custom' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
 
-          {/* Add Entry Button (Opens Modal) */}
-          <button
-            type="button"
-            onClick={handleOpenCreateModal}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            <span>Add Entry</span>
-          </button>
+          {/* Add Entry Button (Hidden for Admin) */}
+          {!isAdmin && (
+            <button
+              type="button"
+              onClick={handleOpenCreateModal}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
+            >
+              <Plus className="w-4 h-4 stroke-[2.5]" />
+              <span>Add Entry</span>
+            </button>
+          )}
         </div>
 
-        {/* Controls Right: Zoom, Reset Layout, Custom Columns (Admin Only), AI Summary */}
+        {/* Right Tools: Zoom & Column Customization */}
         <div className="flex items-center gap-2.5 flex-wrap">
           {/* Zoom Level Widget */}
-          <div
-            className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
-            title="Canvas Zoom Level"
-          >
+          <div className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs">
             <button
               type="button"
               onClick={() => {
@@ -642,11 +764,10 @@ export const DailyLogView: React.FC = () => {
               }}
               disabled={zoomLevel <= MIN_ZOOM}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom Out"
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2.5 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[48px] text-center select-none">
+            <span className="px-2 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[44px] text-center select-none">
               {zoomLevel}%
             </span>
             <button
@@ -660,21 +781,19 @@ export const DailyLogView: React.FC = () => {
               }}
               disabled={zoomLevel >= MAX_ZOOM}
               className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom In"
             >
               <ZoomIn className="w-3.5 h-3.5" />
             </button>
           </div>
 
-          {/* Reset Layout Button */}
+          {/* Reset Layout */}
           <button
             type="button"
             onClick={handleResetLayout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-            title="Reset columns width and zoom"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
           >
             <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Reset Layout</span>
+            <span>Reset</span>
           </button>
 
           {/* Manage Columns (Admin Only) */}
@@ -682,35 +801,84 @@ export const DailyLogView: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsColumnModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
             >
               <Settings2 className="w-3.5 h-3.5 text-indigo-500" />
               <span>Customize Fields</span>
             </button>
           )}
 
-          {/* AI Summarize Action Button (Strictly Restricted to Admins) */}
+          {/* AI Summarize (Admin Only) */}
           {isAdmin && (
             <button
               type="button"
               onClick={handleAiSummarize}
               disabled={isSummarizing || entries.length === 0}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs hover:shadow-xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer select-none"
             >
               {isSummarizing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Sparkles className="w-4 h-4 text-indigo-200" />
               )}
-              <span>+ Summarize this data</span>
+              <span>Summarize</span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Smart Missing Work Log Banner (Member In-App Prompt - Not shown to Admins) */}
-      {!isAdmin && myActivity && myActivity.missing_dates && myActivity.missing_dates.length > 0 && (
-        <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0 animate-fadeIn">
+      {/* ─── Department Navigation Tabs Bar ─── */}
+      <div className="px-6 py-2.5 bg-zinc-50 dark:bg-[#0c0d12] border-b border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
+          {/* All Departments Tab (Admin and HR only) */}
+          {(isAdmin || isHR) && (
+            <button
+              type="button"
+              onClick={() => setSelectedDept('All')}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 select-none ${
+                selectedDept === 'All'
+                  ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
+                  : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+              }`}
+            >
+              All Departments
+            </button>
+          )}
+
+          {/* Department Tabs */}
+          {departments.map((dept) => {
+            // For regular members and leads, hide departments they don't belong to if not admin/hr
+            if (!isAdmin && !isHR && isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
+              return null;
+            }
+            if (!isAdmin && !isHR && !isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
+              return null;
+            }
+
+            const isSelected = selectedDept.toLowerCase() === dept.toLowerCase();
+
+            return (
+              <button
+                key={dept}
+                type="button"
+                onClick={() => setSelectedDept(dept)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 select-none ${
+                  isSelected
+                    ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
+                    : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                }`}
+              >
+                <Layers className="w-3 h-3" />
+                <span>{dept}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Smart Missing Work Log Banner */}
+      {!isAdmin && !isHR && myActivity && myActivity.missing_dates && myActivity.missing_dates.length > 0 && (
+        <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
           <div className="flex items-center gap-2.5">
             <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
             <div>
@@ -725,21 +893,19 @@ export const DailyLogView: React.FC = () => {
               </span>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setPrefilledDate(myActivity.missing_dates[0]);
-                setSelectedEntry(null);
-                setEntryModalMode('create');
-                setIsEntryModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 active:bg-amber-800 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Log for {myActivity.missing_dates[0]}</span>
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setPrefilledDate(myActivity.missing_dates[0]);
+              setSelectedEntry(null);
+              setEntryModalMode('create');
+              setIsEntryModalOpen(true);
+            }}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>+ Log for {myActivity.missing_dates[0]}</span>
+          </button>
         </div>
       )}
 
@@ -752,7 +918,7 @@ export const DailyLogView: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => handleSheetChange(activeSheet)}
+            onClick={fetchEntries}
             className="flex items-center gap-1 bg-amber-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors cursor-pointer"
           >
             <RefreshCw className="w-3 h-3" />
@@ -761,7 +927,7 @@ export const DailyLogView: React.FC = () => {
         </div>
       )}
 
-      {/* AI Summary Notification Banner (Admin Only) */}
+      {/* AI Summary Banner */}
       {isAdmin && aiSummary && (
         <div className="px-5 py-2.5 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200 dark:border-indigo-800/40 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shrink-0">
           <div className="flex items-center gap-2">
@@ -778,12 +944,12 @@ export const DailyLogView: React.FC = () => {
         </div>
       )}
 
-      {/* Grid Canvas Wrapper with Scaled Zoom */}
+      {/* ─── Grid Canvas Table ─── */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
         {isLoading ? (
           <div className="flex-1 min-h-[400px] w-full flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
             <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading sheet entries...</span>
+            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading daily log entries...</span>
           </div>
         ) : (
           <div
@@ -794,7 +960,6 @@ export const DailyLogView: React.FC = () => {
             }}
             className="min-w-full flex flex-col"
           >
-            {/* Table View */}
             <table
               className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
               style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
@@ -849,220 +1014,72 @@ export const DailyLogView: React.FC = () => {
                           className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
                         />
 
-                        {/* ─── PER-COLUMN FILTER POPOVER ────────────────────────────── */}
-                        {isFilterable && isFilterOpen && (
+                        {/* Popover Filter Menu */}
+                        {isFilterOpen && (
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            className="absolute left-0 top-full mt-1 z-50 w-64 bg-white dark:bg-[#121217] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-zinc-900 dark:text-zinc-100 space-y-3 font-normal"
+                            className="absolute left-0 top-full mt-1 z-50 w-52 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-2.5 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 font-normal"
                           >
-                            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-2">
-                              <span className="font-bold text-xs flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400">
-                                <Filter className="w-3.5 h-3.5" />
-                                <span>Filter: {col.label}</span>
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() => setOpenFilterColKey(null)}
-                                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
+                            <div className="flex items-center justify-between pb-1 border-b border-zinc-100 dark:border-zinc-800">
+                              <span className="text-[11px] font-bold text-zinc-500">Filter {col.label}</span>
+                              {hasActiveFilter && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setColumnFilters((prev) => {
+                                      const next = { ...prev };
+                                      delete next[col.key];
+                                      return next;
+                                    });
+                                    setOpenFilterColKey(null);
+                                  }}
+                                  className="text-[10px] text-rose-500 hover:underline font-semibold cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              )}
                             </div>
 
-                            {/* 1. DATE PICKER / CALENDAR FILTER POPOVER */}
-                            {col.type === 'date' ? (
-                              <div className="space-y-2.5">
-                                {/* Calendar Month Header */}
-                                <div className="flex items-center justify-between text-xs font-bold px-1">
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCalendarViewDate(
-                                        new Date(
-                                          calendarDaysInMonth.year,
-                                          calendarDaysInMonth.month - 1,
-                                          1
-                                        )
-                                      )
-                                    }
-                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-600 dark:text-zinc-300 cursor-pointer"
-                                  >
-                                    <ChevronLeft className="w-3.5 h-3.5" />
-                                  </button>
-                                  <span>
-                                    {new Intl.DateTimeFormat('en-US', {
-                                      month: 'short',
-                                      year: 'numeric',
-                                    }).format(calendarViewDate)}
-                                  </span>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCalendarViewDate(
-                                        new Date(
-                                          calendarDaysInMonth.year,
-                                          calendarDaysInMonth.month + 1,
-                                          1
-                                        )
-                                      )
-                                    }
-                                    className="p-1 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded text-zinc-600 dark:text-zinc-300 cursor-pointer"
-                                  >
-                                    <ChevronRight className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
+                            <input
+                              type="text"
+                              placeholder="Search value..."
+                              value={columnFilters[col.key] || ''}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setColumnFilters((prev) => {
+                                  if (!v) {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  }
+                                  return { ...prev, [col.key]: v };
+                                });
+                              }}
+                              className="w-full px-2.5 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                            />
 
-                                {/* Calendar Day Grid */}
-                                <div className="grid grid-cols-7 gap-1 text-center text-[10px]">
-                                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                                    <span key={d} className="font-bold text-zinc-400 py-0.5">
-                                      {d}
-                                    </span>
-                                  ))}
-                                  {Array.from({ length: calendarDaysInMonth.firstDay }).map((_, i) => (
-                                    <span key={`empty-${i}`} />
-                                  ))}
-                                  {Array.from({ length: calendarDaysInMonth.daysInMonth }).map((_, i) => {
-                                    const day = i + 1;
-                                    const m = String(calendarDaysInMonth.month + 1).padStart(2, '0');
-                                    const dStr = String(day).padStart(2, '0');
-                                    const fullDate = `${calendarDaysInMonth.year}-${m}-${dStr}`;
-                                    const altDate = `${day}/${calendarDaysInMonth.month + 1}/${calendarDaysInMonth.year.toString().slice(2)}`;
-                                    const isSelected =
-                                      columnFilters[col.key] === fullDate ||
-                                      columnFilters[col.key] === altDate;
-
-                                    return (
-                                      <button
-                                        key={day}
-                                        type="button"
-                                        onClick={() => {
-                                          setColumnFilters((prev) => ({
-                                            ...prev,
-                                            [col.key]: isSelected ? '' : fullDate,
-                                          }));
-                                          setOpenFilterColKey(null);
-                                        }}
-                                        className={`py-1 rounded font-medium transition-colors cursor-pointer ${
-                                          isSelected
-                                            ? 'bg-indigo-600 text-white font-bold'
-                                            : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
-                                        }`}
-                                      >
-                                        {day}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-
-                                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setColumnFilters((prev) => {
-                                        const next = { ...prev };
-                                        delete next[col.key];
-                                        return next;
-                                      });
-                                      setOpenFilterColKey(null);
-                                    }}
-                                    className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-semibold cursor-pointer"
-                                  >
-                                    Clear Filter
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              /* 2. DISCRETE VALUES SELECTOR / SEARCH FILTER POPOVER */
-                              <div className="space-y-2">
-                                <div className="relative">
-                                  <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
-                                  <input
-                                    type="text"
-                                    placeholder={`Search in ${col.label}...`}
-                                    value={columnFilters[col.key] === '__ALL__' ? '' : columnFilters[col.key] || ''}
-                                    onChange={(e) =>
-                                      setColumnFilters((prev) => ({
-                                        ...prev,
-                                        [col.key]: e.target.value,
-                                      }))
-                                    }
-                                    className="w-full pl-8 pr-2.5 py-1.5 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:border-indigo-500"
-                                  />
-                                </div>
-
-                                {existingUniqueValues.length > 0 && (
-                                  <div className="max-h-40 overflow-y-auto space-y-1 pr-1">
+                            {existingUniqueValues.length > 0 && (
+                              <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1">
+                                {existingUniqueValues.map((val) => {
+                                  const isSelected = columnFilters[col.key] === val;
+                                  return (
                                     <button
+                                      key={val}
                                       type="button"
                                       onClick={() => {
-                                        setColumnFilters((prev) => {
-                                          const next = { ...prev };
-                                          delete next[col.key];
-                                          return next;
-                                        });
+                                        setColumnFilters((prev) => ({ ...prev, [col.key]: val }));
                                         setOpenFilterColKey(null);
                                       }}
-                                      className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
-                                        !columnFilters[col.key]
+                                      className={`w-full text-left px-2 py-1 rounded text-xs truncate transition-colors cursor-pointer ${
+                                        isSelected
                                           ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                                          : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                                       }`}
                                     >
-                                      <span>(Select All)</span>
-                                      {!columnFilters[col.key] && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
+                                      {val}
                                     </button>
-
-                                    {existingUniqueValues.map((val) => {
-                                      const isSelected = columnFilters[col.key] === val;
-                                      return (
-                                        <button
-                                          key={val}
-                                          type="button"
-                                          onClick={() => {
-                                            setColumnFilters((prev) => ({
-                                              ...prev,
-                                              [col.key]: isSelected ? '' : val,
-                                            }));
-                                            setOpenFilterColKey(null);
-                                          }}
-                                          className={`w-full flex items-center justify-between px-2 py-1 rounded text-xs transition-colors cursor-pointer ${
-                                            isSelected
-                                              ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                                              : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
-                                          }`}
-                                        >
-                                          <span className="truncate">{val}</span>
-                                          {isSelected && <Check className="w-3 h-3 text-indigo-600 dark:text-indigo-400" />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-
-                                <div className="pt-2 border-t border-zinc-200 dark:border-zinc-800 flex justify-between">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setColumnFilters((prev) => {
-                                        const next = { ...prev };
-                                        delete next[col.key];
-                                        return next;
-                                      });
-                                      setOpenFilterColKey(null);
-                                    }}
-                                    className="text-[11px] text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 font-semibold cursor-pointer"
-                                  >
-                                    Clear
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setOpenFilterColKey(null)}
-                                    className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-semibold shadow-2xs cursor-pointer"
-                                  >
-                                    Apply
-                                  </button>
-                                </div>
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -1072,165 +1089,324 @@ export const DailyLogView: React.FC = () => {
                   })}
                   <th
                     style={{ width: '72px', minWidth: '72px' }}
-                    className="p-2.5 text-center font-bold text-zinc-500 dark:text-zinc-400 bg-zinc-100/95 dark:bg-[#12141c]/95 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 shrink-0 text-xs select-none"
+                    className="p-2.5 text-center font-bold text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 bg-zinc-100 dark:bg-[#12141c]"
                   >
                     Actions
                   </th>
                 </tr>
               </thead>
-
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
+              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-normal">
                 {filteredEntries.length === 0 ? (
                   <tr>
-                    <td
-                      colSpan={columns.length + 2}
-                      className="py-12 text-center text-zinc-400 dark:text-zinc-500 text-xs font-medium"
-                    >
-                      No daily log entries found matching criteria for{' '}
-                      <span className="font-semibold text-indigo-500">{activeSheet}</span>.
+                    <td colSpan={columns.length + 2} className="py-20 text-center text-zinc-400 dark:text-zinc-500">
+                      <div className="flex flex-col items-center justify-center gap-2">
+                        <Grid className="w-8 h-8 stroke-1 text-zinc-400" />
+                        <span className="text-sm font-semibold">No daily logs recorded for this scope.</span>
+                        {!isAdmin && (
+                          <button
+                            type="button"
+                            onClick={handleOpenCreateModal}
+                            className="mt-2 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                          >
+                            + Add Log Entry
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ) : (
-                  filteredEntries.map((entry, rowIndex) => {
-                    const customH = rowHeights[entry.id] || DEFAULT_ROW_HEIGHT;
+                  filteredEntries.map((row, idx) => {
+                    const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
+
                     return (
                       <tr
-                        key={entry.id}
-                        style={{ height: `${customH}px` }}
-                        onDoubleClick={() => handleOpenEditModal(entry)}
-                        className="hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer"
-                        title="Double-click row to edit entry"
+                        key={row.id}
+                        style={{ height: `${rowH}px` }}
+                        onDoubleClick={() => {
+                          if (canEditEntry(row)) {
+                            handleOpenEditModal(row);
+                          }
+                        }}
+                        className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group"
                       >
-                        {/* Serial Number Column Index */}
-                        <td
-                          style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                          className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900"
-                        >
-                          {rowIndex + 1}
+                        {/* Row Index */}
+                        <td className="p-2 text-center font-mono text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
+                          {idx + 1}
                         </td>
 
-                        {/* Read-Only Formatted Matrix Columns */}
+                        {/* Column Cells */}
                         {columns.map((col) => {
-                          const val = (entry as any)[col.key];
-                          const colW = columnWidths[col.key] || 150;
+                          const val = (row as any)[col.key] || row.custom_fields?.[col.key];
+
+                          if (col.key === 'task_status') {
+                            const statusStr = String(val || 'Incomplete');
+                            const isCompleted = statusStr === 'Completed';
+                            const isBlocker = statusStr === 'Blocker';
+
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
+                              >
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
+                                    isCompleted
+                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
+                                      : isBlocker
+                                      ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20'
+                                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
+                                  }`}
+                                >
+                                  {statusStr}
+                                </span>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'task_type') {
+                            const typeStr = String(val || 'Scheduled Task');
+                            const isScheduled = typeStr === 'Scheduled Task';
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
+                              >
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${
+                                    isScheduled
+                                      ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
+                                      : 'bg-purple-500/10 text-purple-700 dark:text-purple-300'
+                                  }`}
+                                >
+                                  {typeStr}
+                                </span>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'deliverables') {
+                            if (!val || String(val).trim() === '') {
+                              return (
+                                <td
+                                  key={col.key}
+                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-300 dark:text-zinc-700 italic"
+                                >
+                                  —
+                                </td>
+                              );
+                            }
+
+                            const valStr = String(val);
+                            const rawParts = valStr.split(/\s*\|\s*|\n/).map((s) => s.trim()).filter(Boolean);
+
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden"
+                              >
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {rawParts.map((item, itemIdx) => {
+                                    // Markdown link format: [File: report.pdf](/uploads/...) or [Label](url)
+                                    const mdMatch = item.match(/^\[(.*?)\]\((.*?)\)$/);
+                                    if (mdMatch) {
+                                      const label = mdMatch[1];
+                                      const url = mdMatch[2];
+                                      const isFile = url.startsWith('/uploads') || url.includes('/uploads/');
+                                      const fileName = label.replace(/^File:\s*/i, '') || 'Attachment';
+
+                                      return (
+                                        <button
+                                          key={itemIdx}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            downloadFileAttachment(url, fileName);
+                                          }}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
+                                          title={`Download / Open: ${fileName}`}
+                                        >
+                                          {isFile ? (
+                                            <Download className="w-3 h-3 text-indigo-500 shrink-0" />
+                                          ) : (
+                                            <Paperclip className="w-3 h-3 text-indigo-500 shrink-0" />
+                                          )}
+                                          <span className="truncate">{fileName}</span>
+                                        </button>
+                                      );
+                                    }
+
+                                    // Direct upload URL
+                                    if (item.startsWith('/uploads') || item.includes('/uploads/')) {
+                                      const fileName = item.split('/').pop() || 'Attachment';
+                                      return (
+                                        <button
+                                          key={itemIdx}
+                                          type="button"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            downloadFileAttachment(item, fileName);
+                                          }}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
+                                          title={`Download: ${fileName}`}
+                                        >
+                                          <Download className="w-3 h-3 text-indigo-500 shrink-0" />
+                                          <span className="truncate">{fileName}</span>
+                                        </button>
+                                      );
+                                    }
+
+                                    // External web link
+                                    if (item.startsWith('http://') || item.startsWith('https://')) {
+                                      return (
+                                        <a
+                                          key={itemIdx}
+                                          href={item}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
+                                          title={item}
+                                        >
+                                          <ExternalLink className="w-3 h-3 text-blue-500 shrink-0" />
+                                          <span className="truncate">{item.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                        </a>
+                                      );
+                                    }
+
+                                    // Plain text deliverable name
+                                    return (
+                                      <span key={itemIdx} className="text-zinc-700 dark:text-zinc-300 text-xs truncate">
+                                        {item}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'role') {
+                            const roleStr = String(val || row.role || 'Team Member');
+                            const deptStr = String(row.department || '');
+                            const normRole = roleStr.toLowerCase();
+
+                            const getRoleBadgeClass = (r: string) => {
+                              if (r.includes('admin')) {
+                                return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
+                              }
+                              if (r.includes('hr')) {
+                                return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
+                              }
+                              if (r.includes('lead')) {
+                                return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
+                              }
+                              if (r.includes('client')) {
+                                return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
+                              }
+                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+                            };
+
+                            const getDeptBadgeClass = (d: string) => {
+                              const nd = d.toLowerCase();
+                              if (nd.includes('website')) return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
+                              if (nd.includes('creative')) return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
+                              if (nd.includes('content')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
+                              if (nd.includes('seo')) return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
+                              if (nd.includes('performance') || nd.includes('marketing')) return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
+                              if (nd.includes('ai')) return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
+                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+                            };
+
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
+                              >
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span
+                                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getRoleBadgeClass(
+                                      normRole
+                                    )}`}
+                                  >
+                                    {roleStr}
+                                  </span>
+                                  {deptStr && (
+                                    <span
+                                      className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${getDeptBadgeClass(
+                                        deptStr
+                                      )}`}
+                                    >
+                                      {deptStr}
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'department') {
+                            const deptStr = String(val || row.department || '');
+                            if (!deptStr) {
+                              return (
+                                <td
+                                  key={col.key}
+                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-400 italic text-[11px]"
+                                >
+                                  —
+                                </td>
+                              );
+                            }
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
+                              >
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">
+                                  {deptStr}
+                                </span>
+                              </td>
+                            );
+                          }
 
                           return (
                             <td
                               key={col.key}
-                              style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                              className="p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text"
+                              className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-800 dark:text-zinc-200"
+                              title={String(val || '')}
                             >
-                              {col.key === 'task_status' ? (
-                                <div className="flex items-center justify-center">
-                                  {val === 'Completed' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                                      <span>Completed</span>
-                                    </span>
-                                  ) : val === 'Blocker' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0 animate-pulse" />
-                                      <span>Blocker</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                      <span>Incomplete</span>
-                                    </span>
-                                  )}
-                                </div>
-                              ) : col.key === 'task_type' ? (
-                                <div className="flex items-center justify-center">
-                                  {val === 'Runtime Task' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-400/30">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-purple-500 shrink-0" />
-                                      <span>Runtime Task</span>
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-400/30">
-                                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />
-                                      <span>Scheduled Task</span>
-                                    </span>
-                                  )}
-                                </div>
-                              ) : col.key === 'hours_utilized' ? (
-                                <div className="text-center font-mono font-bold text-zinc-800 dark:text-zinc-200">
-                                  <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/60 dark:border-zinc-700/60 text-xs">
-                                    {val !== undefined && val !== null && !isNaN(Number(val))
-                                      ? `${Number(val).toFixed(2)}h`
-                                      : val || '0.00h'}
-                                  </span>
-                                </div>
-                              ) : col.key === 'date' ? (
-                                <span className="font-mono text-zinc-700 dark:text-zinc-300 text-xs">{val || '—'}</span>
-                              ) : col.key === 'deliverables' ? (
-                                val ? (
-                                  <div className="flex items-center gap-1.5 text-indigo-600 dark:text-indigo-400 font-medium">
-                                    <span className="truncate max-w-[200px]" title={val}>
-                                      {val}
-                                    </span>
-                                    {val.startsWith('http') && (
-                                      <a
-                                        href={val}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="hover:text-indigo-800 dark:hover:text-indigo-200 shrink-0"
-                                      >
-                                        <ExternalLink className="w-3.5 h-3.5" />
-                                      </a>
-                                    )}
-                                  </div>
-                                ) : (
-                                  <span className="text-zinc-300 dark:text-zinc-700">—</span>
-                                )
-                              ) : col.key === 'task_description' || col.key === 'revisions_done' ? (
-                                <p className="line-clamp-2 text-zinc-900 dark:text-zinc-100 text-xs leading-relaxed" title={val}>
-                                  {val || '—'}
-                                </p>
+                              {val !== undefined && val !== null && String(val) !== '' ? (
+                                String(val)
                               ) : (
-                                <span className="text-zinc-900 dark:text-zinc-100 text-xs truncate block" title={String(val || '')}>
-                                  {val || '—'}
-                                </span>
+                                <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
                               )}
                             </td>
                           );
                         })}
 
-                        {/* Row Actions: Edit & Delete */}
-                        <td
-                          style={{ width: '72px', minWidth: '72px' }}
-                          className="p-2 text-center align-middle relative border-b border-zinc-200 dark:border-zinc-800/80"
-                        >
-                          <div className="flex items-center justify-center gap-1">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleOpenEditModal(entry);
-                              }}
-                              className="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="Edit Entry (Modal)"
-                            >
-                              <Pencil className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteRow(entry.id);
-                              }}
-                              className="p-1 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition-colors cursor-pointer"
-                              title="Delete Entry"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                          {/* Row Resize Handle */}
-                          <div
-                            onMouseDown={(e) => handleRowResizeStart(e, entry.id, customH)}
-                            className="absolute left-0 right-0 bottom-0 h-1 cursor-row-resize hover:bg-indigo-500/50"
-                          />
+                        {/* Actions */}
+                        <td className="p-2 text-center border-b border-zinc-200 dark:border-zinc-800/60">
+                          {canEditEntry(row) ? (
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(row)}
+                                className="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                                title="Edit log entry"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteRow(row.id)}
+                                className="p-1 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                                title="Delete log entry"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-zinc-300 dark:text-zinc-700 italic text-[11px]">—</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -1242,54 +1418,37 @@ export const DailyLogView: React.FC = () => {
         )}
       </div>
 
-      {/* Modern Bottom Sheet Navigation Bar (August 2026 onwards) */}
-      <div className="bg-zinc-100 dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 px-4 py-2 flex items-center justify-between gap-3 text-xs shrink-0 shadow-xs">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none py-0.5">
-          <button
-            type="button"
-            onClick={handleOpenCreateModal}
-            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
-            title="Add New Entry (Modal)"
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            className="p-1.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
-          >
-            <Grid className="w-4 h-4" />
-          </button>
-
-          <div className="h-4 w-px bg-zinc-300 dark:bg-zinc-700 mx-1" />
-
-          {/* Month Sheet Tabs (Aug 2026+) */}
-          {availableSheets.map((sheet) => (
-            <button
-              key={sheet}
-              type="button"
-              onClick={() => handleSheetChange(sheet)}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer whitespace-nowrap ${
-                activeSheet === sheet
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-zinc-200/70 dark:bg-zinc-800/70 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300 dark:hover:bg-zinc-700'
-              }`}
-            >
-              <span>{sheet}</span>
-              <ChevronDown className="w-3 h-3 opacity-60" />
-            </button>
-          ))}
+      {/* ─── Bottom Sheet Tabs (Month Selector) ─── */}
+      <div className="px-6 py-2 bg-white dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 text-xs shrink-0 overflow-x-auto">
+        <div className="flex items-center gap-1 overflow-x-auto">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 px-2 shrink-0">
+            Sheets:
+          </span>
+          {availableSheets.map((sheet) => {
+            const isTabActive = activeSheet === sheet && datePreset === 'month';
+            return (
+              <button
+                key={sheet}
+                type="button"
+                onClick={() => handleSheetChange(sheet)}
+                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer select-none shrink-0 ${
+                  isTabActive
+                    ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
+                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200'
+                }`}
+              >
+                {sheet}
+              </button>
+            );
+          })}
         </div>
 
-        {/* Count and Statistics Footer Indicator */}
-        <div className="flex items-center gap-4 text-xs font-mono text-zinc-600 dark:text-zinc-400 shrink-0">
-          <span>
-            Total Rows:{' '}
-            <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{filteredEntries.length}</strong>
-          </span>
+        <div className="text-[11px] text-zinc-400 font-medium shrink-0">
+          Showing {filteredEntries.length} entries
         </div>
       </div>
 
+      {/* Create / Edit Daily Log Modal with Locked Fields */}
       <DailyLogModal
         isOpen={isEntryModalOpen}
         mode={entryModalMode}
@@ -1303,7 +1462,7 @@ export const DailyLogView: React.FC = () => {
                 name: user.name,
                 full_name: user.full_name,
                 role: user.role,
-                designation: user.designation,
+                department: user.department,
               }
             : null
         }
@@ -1312,10 +1471,10 @@ export const DailyLogView: React.FC = () => {
           setPrefilledDate(undefined);
         }}
         onSaved={handleEntrySaved}
-        onRefreshRequired={() => handleSheetChange(activeSheet)}
+        onRefreshRequired={fetchEntries}
       />
 
-      {/* Enhanced Custom Column Management & Field Creation Modal (Strictly Restricted to Admins) */}
+      {/* Column Customization Modal (Admin Only) */}
       {isAdmin && isColumnModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
@@ -1385,7 +1544,7 @@ export const DailyLogView: React.FC = () => {
               )}
             </div>
 
-            {/* List of Existing Columns (A-F removed) */}
+            {/* List of Existing Columns */}
             <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
               <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
                 Active Columns ({columns.length})

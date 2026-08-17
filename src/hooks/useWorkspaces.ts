@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { Workspace } from '../types';
-import { workspaceService } from '../services/workspaceService';
+import { workspaceService, type WorkspaceCreatePayload, type WorkspaceUpdatePayload } from '../services/workspaceService';
 import { useAsync } from './useAsync';
 import { apiClient } from '../services/apiClient';
 
@@ -48,10 +48,10 @@ export function useWorkspaces(enabled: boolean = true) {
 
   const saveWorkspace = async (
     workspaceToEdit: Workspace | null,
-    data: { name: string; initials?: string; brandColor?: string; industry?: string; platform?: string }
+    data: WorkspaceCreatePayload | WorkspaceUpdatePayload
   ) => {
     if (workspaceToEdit) {
-      const updated = await workspaceService.updateWorkspace(workspaceToEdit.id, data);
+      const updated = await workspaceService.updateWorkspace(workspaceToEdit.id, data as WorkspaceUpdatePayload);
       setWorkspaces((prev) =>
         prev
           .map((w) => (w.id === updated.id ? updated : w))
@@ -62,7 +62,7 @@ export function useWorkspaces(enabled: boolean = true) {
       }
       return { workspace: updated, isNew: false };
     } else {
-      const created = await workspaceService.createWorkspace(data);
+      const created = await workspaceService.createWorkspace(data as WorkspaceCreatePayload);
       setWorkspaces((prev) =>
         [...prev, created].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
       );

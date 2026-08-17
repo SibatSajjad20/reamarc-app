@@ -53,13 +53,19 @@ def decode_refresh_token(token: str) -> Optional[dict]:
         return None
 
 def _normalize_role(raw_role: Optional[str]) -> str:
-    """Consolidates legacy roles ('editor', 'viewer', 'client') into 'member'."""
+    """Normalizes role strings to supported UserRole values."""
     if not raw_role:
-        return UserRole.MEMBER.value
+        return UserRole.TEAM_MEMBER.value
     r = str(raw_role).lower().strip()
-    if r == UserRole.ADMIN.value:
+    if r in (UserRole.ADMIN.value, "admin"):
         return UserRole.ADMIN.value
-    return UserRole.MEMBER.value
+    if r in (UserRole.HR.value, "hr"):
+        return UserRole.HR.value
+    if r in (UserRole.TEAM_LEAD.value, "team_lead", "lead"):
+        return UserRole.TEAM_LEAD.value
+    if r in (UserRole.CLIENT.value, "client"):
+        return UserRole.CLIENT.value
+    return UserRole.TEAM_MEMBER.value
 
 async def get_current_user(
     request: Request,
@@ -115,6 +121,7 @@ async def get_current_user(
         "department": user_doc.get("department") if user_doc else None,
         "designation": user_doc.get("designation") if user_doc else None,
         "is_active": user_doc.get("is_active", True) if user_doc else True,
+        "workspace_ids": user_doc.get("workspace_ids", []) if user_doc else payload.get("workspace_ids", []),
     }
 
 
@@ -122,7 +129,7 @@ def require_roles(allowed_roles: List[str]):
     """Dependency factory that enforces role-based access control."""
     normalized_allowed = [_normalize_role(r) for r in allowed_roles]
     async def _check_role(current_user: dict = Depends(get_current_user)) -> dict:
-        user_role = current_user.get("role", "member")
+        user_role = current_user.get("role", UserRole.TEAM_MEMBER.value)
         if user_role not in normalized_allowed and user_role not in allowed_roles:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -142,15 +149,31 @@ async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:
     return current_user
 
 
-async def require_member_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
-    """Dependency guard requiring either member or admin privileges."""
+async def require_hr_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring HR or Admin privileges."""
     role = current_user.get("role")
-    if role not in [UserRole.ADMIN.value, UserRole.MEMBER.value, "admin", "member"]:
+    if role not in (UserRole.ADMIN.value, UserRole.HR.value, "admin", "hr"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access restricted to authorized team members and administrators.",
+            detail="HR or Administrative privileges required.",
         )
     return current_user
+
+
+async def require_internal_user(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring an internal team member/lead/hr/admin (blocks external clients)."""
+    role = current_user.get("role")
+    if role in (UserRole.CLIENT.value, "client"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Internal agency access only.",
+        )
+    return current_user
+
+
+async def require_member_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring internal staff privileges."""
+    return await require_internal_user(current_user)
 
 
 async def get_workspace_context(
@@ -167,4 +190,4 @@ async def get_workspace_context(
     return workspace_id or "global"
 
 
-require_editor_or_admin = require_roles(["admin", "member"])
+require_editor_or_admin = require_roles(["admin", "hr", "team_lead", "team_member"])

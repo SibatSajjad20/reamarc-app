@@ -5,14 +5,42 @@ export interface WorkspaceCreatePayload {
   name: string;
   initials?: string;
   brandColor?: string;
-  industry?: string;
+  proposal_url?: string;
+  proposal_name?: string;
+  proposal_size?: number;
+  project_cycle?: 'Retainer' | 'One-Time Project';
+  priority?: 'High' | 'Medium' | 'Low';
+  contract_start_date?: string;
+  contract_end_date?: string;
+  services?: string[];
+  health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
+  poc_name?: string;
+  poc_email?: string;
+  poc_phone?: string;
+  billing_name?: string;
+  billing_email?: string;
+  billing_phone?: string;
 }
 
 export interface WorkspaceUpdatePayload {
   name?: string;
   initials?: string;
   brandColor?: string;
-  industry?: string;
+  proposal_url?: string;
+  proposal_name?: string;
+  proposal_size?: number;
+  project_cycle?: 'Retainer' | 'One-Time Project';
+  priority?: 'High' | 'Medium' | 'Low';
+  contract_start_date?: string;
+  contract_end_date?: string;
+  services?: string[];
+  health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
+  poc_name?: string;
+  poc_email?: string;
+  poc_phone?: string;
+  billing_name?: string;
+  billing_email?: string;
+  billing_phone?: string;
 }
 
 export const workspaceService = {

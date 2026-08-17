@@ -49,29 +49,39 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const displayEmail = user?.email || 'Sign in to sync session';
   const displayInitials = getInitials(user?.full_name || user?.name, user?.email);
 
+  const isAdmin = user?.role === 'admin';
+  const isHR = user?.role === 'hr';
+  const isClient = user?.role === 'client';
+
   const navItems = [
     {
       id: 'marketing' as ViewType,
-      label: 'Performance Marketing',
+      label: isClient ? 'Client Portal' : 'Performance Marketing',
       icon: TrendingUp,
       badge: 'V1.0',
       badgeColor: 'bg-indigo-500/20 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30',
     },
-    {
-      id: 'daily-log' as ViewType,
-      label: 'Daily Log',
-      icon: ClipboardList,
-      badge: null,
-      badgeColor: 'bg-emerald-500/20 text-emerald-400 dark:text-emerald-300 border border-emerald-500/30',
-    },
-    ...(user?.role === 'admin'
+    ...(!isClient
+      ? [
+          {
+            id: 'daily-log' as ViewType,
+            label: 'Daily Log',
+            icon: ClipboardList,
+            badge: null,
+            badgeColor: 'bg-emerald-500/20 text-emerald-400 dark:text-emerald-300 border border-emerald-500/30',
+          },
+        ]
+      : []),
+    ...(isAdmin || isHR
       ? [
           {
             id: 'admin' as ViewType,
-            label: 'Admin Panel',
+            label: isAdmin ? 'Admin Panel' : 'HR Operations Hub',
             icon: Shield,
-            badge: 'Admin',
-            badgeColor: 'bg-purple-500/20 text-purple-400 dark:text-purple-300 border border-purple-500/30',
+            badge: isAdmin ? 'Admin' : 'HR',
+            badgeColor: isAdmin
+              ? 'bg-purple-500/20 text-purple-400 dark:text-purple-300 border border-purple-500/30'
+              : 'bg-blue-500/20 text-blue-400 dark:text-blue-300 border border-blue-500/30',
           },
         ]
       : []),

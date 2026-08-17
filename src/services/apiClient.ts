@@ -242,6 +242,27 @@ class ApiClient {
   public delete<T>(endpoint: string, options?: RequestOptions): Promise<T> {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
+
+  public async upload<T>(endpoint: string, formData: FormData): Promise<T> {
+    const currentToken = this.getToken();
+    const headers: Record<string, string> = {
+      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
+    };
+
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: formData,
+      credentials: 'include',
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw new ApiError(data?.detail || data?.message || 'File upload failed.', response.status, data);
+    }
+    return data as T;
+  }
 }
 
 export const apiClient = new ApiClient();

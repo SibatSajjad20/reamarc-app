@@ -15,23 +15,26 @@ from app.schemas.user import (
 )
 from app.models.user import UserRole
 from app.schemas.admin import (
+    WorkspaceCreate,
+    WorkspaceUpdate,
+    WorkspaceResponse,
     AdAccountCreate,
     AdAccountUpdate,
     AdAccountResponse,
 )
 from app.schemas.error import ErrorResponse
-from app.core.security import require_admin, get_password_hash
+from app.core.security import require_admin, require_hr_or_admin, get_password_hash
 from app.database import get_database
 from app.services.email_service import EmailService
 
 router = APIRouter(
     prefix="/admin",
     tags=["Admin Management"],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_hr_or_admin)],
     responses={
         400: {"model": ErrorResponse, "description": "Bad Request"},
         401: {"model": ErrorResponse, "description": "Unauthorized"},
-        403: {"model": ErrorResponse, "description": "Forbidden - Admin Only"},
+        403: {"model": ErrorResponse, "description": "Forbidden - Admin or HR Only"},
         404: {"model": ErrorResponse, "description": "Not Found"},
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
@@ -39,8 +42,11 @@ router = APIRouter(
 
 
 def _format_member_resp(doc: dict) -> dict:
-    raw_role = doc.get("role", UserRole.MEMBER.value)
-    role_val = UserRole.ADMIN if raw_role == "admin" else UserRole.MEMBER
+    raw_role = doc.get("role", UserRole.TEAM_MEMBER.value)
+    try:
+        role_val = UserRole(raw_role)
+    except ValueError:
+        role_val = UserRole.TEAM_MEMBER
     return {
         "id": doc.get("id") or str(doc.get("_id")),
         "email": doc["email"],
@@ -48,33 +54,61 @@ def _format_member_resp(doc: dict) -> dict:
         "role": role_val,
         "phone": doc.get("phone"),
         "department": doc.get("department"),
-        "designation": doc.get("designation"),
         "is_active": doc.get("is_active", True),
         "created_at": doc.get("created_at"),
     }
 
 
-def _format_account_resp(doc: dict) -> dict:
-    name = doc.get("name", "Ad Account")
-    platform = doc.get("platform")
-    if not platform or platform in ("Meta / Google", "Meta Ads / Google Ads"):
-        if any(k in name.lower() for k in ["ed&c", "ednc", "elegant design"]):
-            platform = "Meta & Google"
-        else:
-            platform = "Meta Ads"
+def _format_workspace_resp(doc: dict) -> dict:
+    ws_id = str(doc.get("id", str(doc.get("_id", ""))))
+    return {
+        "id": ws_id,
+        "name": doc.get("name", "Untitled Workspace"),
+        "brandColor": doc.get("brandColor") or doc.get("brand_color") or "bg-indigo-600",
+        "brand_color": doc.get("brand_color") or doc.get("brandColor") or "bg-indigo-600",
+        "initials": doc.get("initials") or doc.get("name", "WS")[:2].upper(),
+        "proposal_url": doc.get("proposal_url"),
+        "proposal_name": doc.get("proposal_name"),
+        "proposal_size": doc.get("proposal_size"),
+        "project_cycle": doc.get("project_cycle", "Retainer"),
+        "priority": doc.get("priority", "Medium"),
+        "contract_start_date": doc.get("contract_start_date"),
+        "contract_end_date": doc.get("contract_end_date"),
+        "services": doc.get("services") or [],
+        "health": doc.get("health", "Good"),
+        "poc_name": doc.get("poc_name"),
+        "poc_email": doc.get("poc_email"),
+        "poc_phone": doc.get("poc_phone"),
+        "billing_name": doc.get("billing_name"),
+        "billing_email": doc.get("billing_email"),
+        "billing_phone": doc.get("billing_phone"),
+        "isDefault": bool(doc.get("isDefault", False)),
+        "created_at": doc.get("created_at"),
+        "updated_at": doc.get("updated_at"),
+    }
+
+
+async def _format_ad_account_resp(doc: dict, db=None) -> dict:
+    acc_id = str(doc.get("id", str(doc.get("_id", ""))))
+    ws_id = doc.get("workspace_id")
+    ws_name = None
+    if ws_id and db is not None:
+        ws_doc = await db.workspaces.find_one({"id": ws_id})
+        if ws_doc:
+            ws_name = ws_doc.get("name")
 
     return {
-        "id": doc.get("id") or str(doc.get("_id")),
-        "name": name,
-        "platform": platform,
-        "industry": doc.get("industry", "General B2B"),
-        "brandColor": doc.get("brandColor") or doc.get("brand_color", "bg-indigo-600"),
-        "brand_color": doc.get("brand_color") or doc.get("brandColor", "bg-indigo-600"),
-        "initials": doc.get("initials") or name[:2].upper(),
-        "account_id": doc.get("account_id"),
+        "id": acc_id,
+        "name": doc.get("name", "Untitled Ad Account"),
+        "platform": doc.get("platform", "Meta Ads"),
+        "account_id": doc.get("account_id", ""),
         "pixel_id": doc.get("pixel_id"),
-        "isDefault": doc.get("isDefault", False),
+        "workspace_id": ws_id,
+        "workspace_name": ws_name,
+        "currency": doc.get("currency", "USD"),
+        "status": doc.get("status", "active"),
         "created_at": doc.get("created_at"),
+        "updated_at": doc.get("updated_at"),
     }
 
 
@@ -192,17 +226,18 @@ async def get_members_activity(
         uid = m.get("id") or str(m.get("_id"))
         fname = m.get("full_name") or m.get("name", "User")
         fname_lower = fname.strip().lower()
-        role = m.get("role", "member")
-        is_admin_role = role in ("admin", "ADMIN")
+        role = m.get("role", "team_member")
+        department = m.get("department")
+        is_exempt_role = role.lower() in ("admin", "hr", "client")
 
-        if is_admin_role:
+        if is_exempt_role:
             activity_list.append(
                 {
                     "user_id": uid,
                     "full_name": fname,
                     "email": m["email"],
                     "phone": m.get("phone"),
-                    "designation": m.get("designation"),
+                    "department": department,
                     "role": role,
                     "last_logged_date": None,
                     "logged_today": True,
@@ -228,7 +263,7 @@ async def get_members_activity(
                 "full_name": fname,
                 "email": m["email"],
                 "phone": m.get("phone"),
-                "designation": m.get("designation"),
+                "department": department,
                 "role": role,
                 "last_logged_date": last_logged,
                 "logged_today": logged_today,
@@ -320,8 +355,8 @@ async def send_member_reminder(
     }
 
 
-@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
-@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
 async def create_member(member_in: MemberCreate):
     """Create a new team member account (Admin only)."""
     db = get_database()
@@ -353,7 +388,6 @@ async def create_member(member_in: MemberCreate):
         "role": member_in.role.value,
         "phone": member_in.phone.strip() if member_in.phone else None,
         "department": member_in.department.strip() if member_in.department else None,
-        "designation": member_in.designation.strip() if member_in.designation else None,
         "is_active": member_in.is_active,
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -362,10 +396,10 @@ async def create_member(member_in: MemberCreate):
     return _format_member_resp(user_doc)
 
 
-@router.patch("/members/{user_id}", response_model=MemberResponse)
-@router.patch("/users/{user_id}", response_model=MemberResponse)
+@router.patch("/members/{user_id}", response_model=MemberResponse, dependencies=[Depends(require_admin)])
+@router.patch("/users/{user_id}", response_model=MemberResponse, dependencies=[Depends(require_admin)])
 async def update_member(user_id: str, member_in: MemberUpdate):
-    """Update a member's name, email, phone, password, role, or designation."""
+    """Update a member's name, email, phone, password, role, or department."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -416,10 +450,6 @@ async def update_member(user_id: str, member_in: MemberUpdate):
         update_fields["department"] = (
             member_in.department.strip() if member_in.department else None
         )
-    if member_in.designation is not None:
-        update_fields["designation"] = (
-            member_in.designation.strip() if member_in.designation else None
-        )
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
 
@@ -440,8 +470,8 @@ async def update_member(user_id: str, member_in: MemberUpdate):
     return _format_member_resp(updated)
 
 
-@router.delete("/members/{user_id}")
-@router.delete("/users/{user_id}")
+@router.delete("/members/{user_id}", dependencies=[Depends(require_admin)])
+@router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
 async def delete_member(user_id: str):
     """Permanently delete a team member account from database (Admin only)."""
     db = get_database()
@@ -469,56 +499,204 @@ async def delete_member(user_id: str):
     return {"message": "Team member successfully deleted from database.", "id": user_id}
 
 
-# ─── AD ACCOUNT & BRAND MANAGEMENT (ADMIN ONLY) ───────────────────────────────
+# ─── WORKSPACES MANAGEMENT (ADMIN ONLY) ──────────────────────────────────────
 
-@router.get("/ad-accounts", response_model=List[AdAccountResponse])
-@router.get("/workspaces", response_model=List[AdAccountResponse])
-async def list_ad_accounts():
-    """List all configured client ad accounts / brands."""
+@router.get("/workspaces", response_model=List[WorkspaceResponse])
+async def list_workspaces():
+    """List all configured client agency workspaces."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     cursor = db.workspaces.find({})
-    accounts = await cursor.to_list(100)
-    return [_format_account_resp(a) for a in accounts]
+    workspaces = await cursor.to_list(100)
+    return [_format_workspace_resp(w) for w in workspaces]
 
 
-@router.post("/ad-accounts", response_model=AdAccountResponse, status_code=status.HTTP_201_CREATED)
-@router.post("/workspaces", response_model=AdAccountResponse, status_code=status.HTTP_201_CREATED)
-async def create_ad_account(acc_in: AdAccountCreate):
-    """Create a new client brand / ad account profile (Admin only)."""
+@router.post("/workspaces", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+async def create_workspace(ws_in: WorkspaceCreate):
+    """Create a new client brand workspace (Admin only)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    acc_id = f"acc-{uuid.uuid4().hex[:8]}"
-    initials = acc_in.initials or acc_in.name[:2].upper()
+    ws_id = f"ws-{uuid.uuid4().hex[:8]}"
+    initials = ws_in.initials or ws_in.name[:2].upper()
     now_iso = datetime.now(timezone.utc).isoformat()
 
-    acc_doc = {
-        "id": acc_id,
-        "name": acc_in.name,
-        "platform": acc_in.platform or "Meta Ads",
+    ws_doc = {
+        "id": ws_id,
+        "name": ws_in.name,
+        "brandColor": ws_in.brand_color or "bg-indigo-600",
+        "brand_color": ws_in.brand_color or "bg-indigo-600",
         "initials": initials,
-        "brandColor": acc_in.brand_color or "bg-indigo-600",
-        "brand_color": acc_in.brand_color or "bg-indigo-600",
-        "industry": acc_in.industry or "General B2B",
-        "account_id": acc_in.account_id,
-        "pixel_id": acc_in.pixel_id,
-        "isDefault": False,
+        "proposal_url": ws_in.proposal_url,
+        "proposal_name": ws_in.proposal_name,
+        "proposal_size": ws_in.proposal_size,
+        "project_cycle": ws_in.project_cycle or "Retainer",
+        "priority": ws_in.priority or "Medium",
+        "contract_start_date": ws_in.contract_start_date,
+        "contract_end_date": ws_in.contract_end_date,
+        "services": ws_in.services or [],
+        "health": ws_in.health or "Good",
+        "poc_name": ws_in.poc_name,
+        "poc_email": ws_in.poc_email,
+        "poc_phone": ws_in.poc_phone,
+        "billing_name": ws_in.billing_name,
+        "billing_email": ws_in.billing_email,
+        "billing_phone": ws_in.billing_phone,
+        "isDefault": ws_in.is_default,
         "created_at": now_iso,
         "updated_at": now_iso,
     }
 
-    await db.workspaces.insert_one(acc_doc.copy())
-    return _format_account_resp(acc_doc)
+    await db.workspaces.insert_one(ws_doc.copy())
+    return _format_workspace_resp(ws_doc)
 
 
-@router.patch("/ad-accounts/{account_id}", response_model=AdAccountResponse)
-@router.patch("/workspaces/{account_id}", response_model=AdAccountResponse)
+@router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_admin)])
+async def update_workspace(workspace_id: str, ws_in: WorkspaceUpdate):
+    """Update a client brand workspace."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    update_fields = {}
+    if ws_in.name is not None:
+        update_fields["name"] = ws_in.name
+    if ws_in.brand_color is not None:
+        update_fields["brandColor"] = ws_in.brand_color
+        update_fields["brand_color"] = ws_in.brand_color
+    if ws_in.initials is not None:
+        update_fields["initials"] = ws_in.initials
+    if ws_in.proposal_url is not None:
+        update_fields["proposal_url"] = ws_in.proposal_url
+    if ws_in.proposal_name is not None:
+        update_fields["proposal_name"] = ws_in.proposal_name
+    if ws_in.proposal_size is not None:
+        update_fields["proposal_size"] = ws_in.proposal_size
+    if ws_in.project_cycle is not None:
+        update_fields["project_cycle"] = ws_in.project_cycle
+    if ws_in.priority is not None:
+        update_fields["priority"] = ws_in.priority
+    if ws_in.contract_start_date is not None:
+        update_fields["contract_start_date"] = ws_in.contract_start_date
+    if ws_in.contract_end_date is not None:
+        update_fields["contract_end_date"] = ws_in.contract_end_date
+    if ws_in.services is not None:
+        update_fields["services"] = ws_in.services
+    if ws_in.health is not None:
+        update_fields["health"] = ws_in.health
+    if ws_in.poc_name is not None:
+        update_fields["poc_name"] = ws_in.poc_name
+    if ws_in.poc_email is not None:
+        update_fields["poc_email"] = ws_in.poc_email
+    if ws_in.poc_phone is not None:
+        update_fields["poc_phone"] = ws_in.poc_phone
+    if ws_in.billing_name is not None:
+        update_fields["billing_name"] = ws_in.billing_name
+    if ws_in.billing_email is not None:
+        update_fields["billing_email"] = ws_in.billing_email
+    if ws_in.billing_phone is not None:
+        update_fields["billing_phone"] = ws_in.billing_phone
+    if ws_in.is_default is not None:
+        update_fields["isDefault"] = ws_in.is_default
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    res = await db.workspaces.find_one_and_update(
+        {"id": workspace_id}, {"$set": update_fields}, return_document=True
+    )
+    if not res:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+
+    return _format_workspace_resp(res)
+
+
+@router.delete("/workspaces/{workspace_id}", dependencies=[Depends(require_admin)])
+async def delete_workspace(workspace_id: str):
+    """Delete a client workspace (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    res = await db.workspaces.delete_one({"id": workspace_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Workspace not found.")
+
+    return {"message": "Workspace deleted successfully."}
+
+
+# ─── AD ACCOUNTS MANAGEMENT (ADMIN ONLY) ────────────────────────────────────
+
+@router.get("/ad-accounts", response_model=List[AdAccountResponse])
+async def list_ad_accounts():
+    """List all configured advertising accounts from db.ad_accounts."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    cursor = db.ad_accounts.find({})
+    accounts = await cursor.to_list(100)
+
+    resp = []
+    for a in accounts:
+        resp.append(await _format_ad_account_resp(a, db))
+    return resp
+
+
+@router.post("/ad-accounts", response_model=AdAccountResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+async def create_ad_account(acc_in: AdAccountCreate):
+    """Create a new advertising account in db.ad_accounts (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    acc_id = f"adacc-{uuid.uuid4().hex[:8]}"
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    platform = "Google Ads" if "google" in acc_in.platform.lower() and "meta" not in acc_in.platform.lower() else "Meta Ads"
+
+    acc_doc = {
+        "id": acc_id,
+        "name": acc_in.name,
+        "platform": platform,
+        "account_id": acc_in.account_id,
+        "pixel_id": acc_in.pixel_id,
+        "workspace_id": acc_in.workspace_id,
+        "currency": acc_in.currency or "USD",
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+    await db.ad_accounts.insert_one(acc_doc.copy())
+
+    # Upsert credentials if provided
+    if acc_in.access_token or acc_in.refresh_token or acc_in.developer_token or acc_in.client_id:
+        cred_doc = {
+            "account_id": acc_in.account_id,
+            "workspace_id": acc_in.workspace_id or acc_id,
+            "workspace_name": acc_in.name,
+            "platform": "Google" if "google" in platform.lower() else "Meta",
+            "access_token": acc_in.access_token or "",
+            "refresh_token": acc_in.refresh_token or "",
+            "developer_token": acc_in.developer_token or "",
+            "client_id": acc_in.client_id or "",
+            "client_secret": acc_in.client_secret or "",
+            "updated_at": now_iso,
+        }
+        await db.ad_account_credentials.update_one(
+            {"account_id": acc_in.account_id},
+            {"$set": cred_doc},
+            upsert=True
+        )
+
+    return await _format_ad_account_resp(acc_doc, db)
+
+
+@router.patch("/ad-accounts/{account_id}", response_model=AdAccountResponse, dependencies=[Depends(require_admin)])
 async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
-    """Update an ad account's details, platform, or brand styling."""
+    """Update an ad account's platform, account ID, currency, or associated workspace."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -527,40 +705,143 @@ async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
     if acc_in.name is not None:
         update_fields["name"] = acc_in.name
     if acc_in.platform is not None:
-        update_fields["platform"] = acc_in.platform
-    if acc_in.industry is not None:
-        update_fields["industry"] = acc_in.industry
-    if acc_in.brand_color is not None:
-        update_fields["brandColor"] = acc_in.brand_color
-        update_fields["brand_color"] = acc_in.brand_color
-    if acc_in.initials is not None:
-        update_fields["initials"] = acc_in.initials
+        platform = "Google Ads" if "google" in acc_in.platform.lower() and "meta" not in acc_in.platform.lower() else "Meta Ads"
+        update_fields["platform"] = platform
     if acc_in.account_id is not None:
         update_fields["account_id"] = acc_in.account_id
     if acc_in.pixel_id is not None:
         update_fields["pixel_id"] = acc_in.pixel_id
+    if acc_in.workspace_id is not None:
+        update_fields["workspace_id"] = acc_in.workspace_id
+    if acc_in.currency is not None:
+        update_fields["currency"] = acc_in.currency
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
-    res = await db.workspaces.find_one_and_update(
+    res = await db.ad_accounts.find_one_and_update(
         {"id": account_id}, {"$set": update_fields}, return_document=True
     )
     if not res:
         raise HTTPException(status_code=404, detail="Ad account not found.")
 
-    return _format_account_resp(res)
+    # Upsert credentials if provided
+    if acc_in.access_token or acc_in.refresh_token or acc_in.developer_token or acc_in.client_id:
+        target_account_id = acc_in.account_id or res.get("account_id")
+        cred_doc = {
+            "account_id": target_account_id,
+            "workspace_id": acc_in.workspace_id or res.get("workspace_id") or account_id,
+            "workspace_name": acc_in.name or res.get("name"),
+            "platform": "Google" if "google" in str(res.get("platform", "")).lower() else "Meta",
+            "access_token": acc_in.access_token or "",
+            "refresh_token": acc_in.refresh_token or "",
+            "developer_token": acc_in.developer_token or "",
+            "client_id": acc_in.client_id or "",
+            "client_secret": acc_in.client_secret or "",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await db.ad_account_credentials.update_one(
+            {"account_id": target_account_id},
+            {"$set": cred_doc},
+            upsert=True
+        )
+
+    return await _format_ad_account_resp(res, db)
 
 
-@router.delete("/ad-accounts/{account_id}")
-@router.delete("/workspaces/{account_id}")
+@router.delete("/ad-accounts/{account_id}", dependencies=[Depends(require_admin)])
 async def delete_ad_account(account_id: str):
-    """Delete an ad account (Admin only)."""
+    """Delete an ad account from db.ad_accounts (Admin only)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    res = await db.workspaces.delete_one({"id": account_id})
+    res = await db.ad_accounts.delete_one({"id": account_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Ad account not found.")
 
     return {"message": "Ad account deleted successfully."}
+
+
+# ─── DYNAMIC SYSTEM DEPARTMENTS & ROLES SETTINGS ─────────────────────────────
+
+DEFAULT_SYSTEM_CONFIG = {
+    "departments": [
+        "Website",
+        "Creative",
+        "Content",
+        "SEO",
+        "Performance Marketing",
+        "AI",
+    ],
+    "roles": [
+        {"id": "admin", "label": "Admin", "description": "Full system control and user management"},
+        {"id": "hr", "label": "HR", "description": "All departments logs & compliance access"},
+        {"id": "team_lead", "label": "Team Lead", "description": "Leads department and oversees team logs"},
+        {"id": "team_member", "label": "Team Member", "description": "Records own tasks & daily logs"},
+        {"id": "client", "label": "Client", "description": "Sandbox Client Portal & Approvals only"},
+    ],
+}
+
+@router.get("/system-config")
+async def get_system_config():
+    """Retrieve dynamic agency departments and roles configuration."""
+    db = get_database()
+    if db is None:
+        return DEFAULT_SYSTEM_CONFIG
+
+    cfg = await db.system_settings.find_one({"key": "system_config"}, {"_id": 0})
+    if not cfg:
+        return DEFAULT_SYSTEM_CONFIG
+
+    return {
+        "departments": cfg.get("departments") or DEFAULT_SYSTEM_CONFIG["departments"],
+        "roles": cfg.get("roles") or DEFAULT_SYSTEM_CONFIG["roles"],
+    }
+
+
+@router.put("/system-config", dependencies=[Depends(require_admin)])
+async def update_system_config(config_in: dict):
+    """Update dynamic agency departments and roles configuration (Admin only)."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    departments = config_in.get("departments")
+    roles = config_in.get("roles")
+
+    if not isinstance(departments, list) or not isinstance(roles, list):
+        raise HTTPException(status_code=400, detail="Invalid system configuration payload.")
+
+    clean_departments = [str(d).strip() for d in departments if str(d).strip()]
+    if not clean_departments:
+        clean_departments = DEFAULT_SYSTEM_CONFIG["departments"]
+
+    clean_roles = []
+    for r in roles:
+        if isinstance(r, dict) and r.get("id") and r.get("label"):
+            clean_roles.append({
+                "id": str(r["id"]).strip().lower().replace(" ", "_"),
+                "label": str(r["label"]).strip(),
+                "description": str(r.get("description", "")).strip(),
+            })
+
+    if not clean_roles:
+        clean_roles = DEFAULT_SYSTEM_CONFIG["roles"]
+
+    doc = {
+        "key": "system_config",
+        "departments": clean_departments,
+        "roles": clean_roles,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    await db.system_settings.update_one(
+        {"key": "system_config"},
+        {"$set": doc},
+        upsert=True,
+    )
+
+    return {
+        "departments": clean_departments,
+        "roles": clean_roles,
+    }
