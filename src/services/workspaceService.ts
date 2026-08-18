@@ -6,21 +6,21 @@ export interface WorkspaceCreatePayload {
   initials?: string;
   brandColor?: string;
   status?: 'active' | 'inactive';
-  proposal_url?: string;
-  proposal_name?: string;
-  proposal_size?: number;
+  proposal_url?: string | null;
+  proposal_name?: string | null;
+  proposal_size?: number | null;
   project_cycle?: 'Retainer' | 'One-Time Project';
   priority?: 'High' | 'Medium' | 'Low';
-  contract_start_date?: string;
-  contract_end_date?: string;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
   services?: string[];
   health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
-  poc_name?: string;
-  poc_email?: string;
-  poc_phone?: string;
-  billing_name?: string;
-  billing_email?: string;
-  billing_phone?: string;
+  poc_name?: string | null;
+  poc_email?: string | null;
+  poc_phone?: string | null;
+  billing_name?: string | null;
+  billing_email?: string | null;
+  billing_phone?: string | null;
 }
 
 export interface WorkspaceUpdatePayload {
@@ -28,21 +28,21 @@ export interface WorkspaceUpdatePayload {
   initials?: string;
   brandColor?: string;
   status?: 'active' | 'inactive';
-  proposal_url?: string;
-  proposal_name?: string;
-  proposal_size?: number;
+  proposal_url?: string | null;
+  proposal_name?: string | null;
+  proposal_size?: number | null;
   project_cycle?: 'Retainer' | 'One-Time Project';
   priority?: 'High' | 'Medium' | 'Low';
-  contract_start_date?: string;
-  contract_end_date?: string;
+  contract_start_date?: string | null;
+  contract_end_date?: string | null;
   services?: string[];
   health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
-  poc_name?: string;
-  poc_email?: string;
-  poc_phone?: string;
-  billing_name?: string;
-  billing_email?: string;
-  billing_phone?: string;
+  poc_name?: string | null;
+  poc_email?: string | null;
+  poc_phone?: string | null;
+  billing_name?: string | null;
+  billing_email?: string | null;
+  billing_phone?: string | null;
 }
 
 export const workspaceService = {

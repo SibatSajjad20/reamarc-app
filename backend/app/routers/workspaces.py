@@ -140,52 +140,20 @@ async def update_workspace(
     if db is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
-    update_fields = {}
-    if ws_update.name is not None:
-        update_fields["name"] = ws_update.name
-    if ws_update.initials is not None:
-        update_fields["initials"] = ws_update.initials
-    if ws_update.brandColor is not None:
-        update_fields["brandColor"] = ws_update.brandColor
-        update_fields["brand_color"] = ws_update.brandColor
-    if ws_update.status is not None:
-        update_fields["status"] = ws_update.status
-    if ws_update.proposal_url is not None:
-        update_fields["proposal_url"] = ws_update.proposal_url
-    if ws_update.proposal_name is not None:
-        update_fields["proposal_name"] = ws_update.proposal_name
-    if ws_update.proposal_size is not None:
-        update_fields["proposal_size"] = ws_update.proposal_size
-    if ws_update.project_cycle is not None:
-        update_fields["project_cycle"] = ws_update.project_cycle
-    if ws_update.priority is not None:
-        update_fields["priority"] = ws_update.priority
-    if ws_update.contract_start_date is not None:
-        update_fields["contract_start_date"] = ws_update.contract_start_date
-    if ws_update.contract_end_date is not None:
-        update_fields["contract_end_date"] = ws_update.contract_end_date
-    if ws_update.services is not None:
-        update_fields["services"] = ws_update.services
-    if ws_update.health is not None:
-        update_fields["health"] = ws_update.health
-    if ws_update.poc_name is not None:
-        update_fields["poc_name"] = ws_update.poc_name
-    if ws_update.poc_email is not None:
-        update_fields["poc_email"] = ws_update.poc_email
-    if ws_update.poc_phone is not None:
-        update_fields["poc_phone"] = ws_update.poc_phone
-    if ws_update.billing_name is not None:
-        update_fields["billing_name"] = ws_update.billing_name
-    if ws_update.billing_email is not None:
-        update_fields["billing_email"] = ws_update.billing_email
-    if ws_update.billing_phone is not None:
-        update_fields["billing_phone"] = ws_update.billing_phone
-    if ws_update.brandGuidelines is not None:
-        update_fields["brandGuidelines"] = ws_update.brandGuidelines
-        update_fields["brand_guidelines"] = ws_update.brandGuidelines
-
-    if not update_fields:
+    dumped = ws_update.model_dump(exclude_unset=True)
+    if not dumped:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided for update.")
+
+    update_fields = {}
+    for k, v in dumped.items():
+        if k == "brandColor":
+            update_fields["brandColor"] = v
+            update_fields["brand_color"] = v
+        elif k == "brandGuidelines":
+            update_fields["brandGuidelines"] = v
+            update_fields["brand_guidelines"] = v
+        else:
+            update_fields[k] = v
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
 
