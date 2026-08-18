@@ -344,10 +344,26 @@ export const DailyLogView: React.FC = () => {
       }
 
       if (cols && cols.length > 0) {
-        setColumns(cols);
+        let finalCols = [...cols];
+        if (!finalCols.some((c) => c.key === 'department')) {
+          const roleIdx = finalCols.findIndex((c) => c.key === 'role');
+          const deptCol: DailyLogColumn = {
+            key: 'department',
+            label: 'Department',
+            type: 'text',
+            editable: true,
+            width: '140',
+          };
+          if (roleIdx !== -1) {
+            finalCols.splice(roleIdx + 1, 0, deptCol);
+          } else {
+            finalCols.push(deptCol);
+          }
+        }
+        setColumns(finalCols);
         setColumnWidths((prev) => {
           const next = { ...prev };
-          cols.forEach((col) => {
+          finalCols.forEach((col) => {
             if (!next[col.key]) {
               next[col.key] = parseInt(col.width || '150', 10);
             }
@@ -753,8 +769,8 @@ export const DailyLogView: React.FC = () => {
             )}
           </div>
 
-          {/* Add Entry Button (Hidden for Admin) */}
-          {!isAdmin && (
+          {/* Add Entry Button (Hidden for Admin & Operations) */}
+          {!isAdmin && !isOperations && (
             <button
               type="button"
               onClick={handleOpenCreateModal}
@@ -896,7 +912,7 @@ export const DailyLogView: React.FC = () => {
       {/* Smart Missing Work Log Banner */}
       {(() => {
         const validMissingDates = (myActivity?.missing_dates || []).filter((d) => d >= '2026-08-18');
-        if (isAdmin || validMissingDates.length === 0) return null;
+        if (isAdmin || isOperations || validMissingDates.length === 0) return null;
         return (
           <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
             <div className="flex items-center gap-2.5">
@@ -1125,7 +1141,7 @@ export const DailyLogView: React.FC = () => {
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Grid className="w-8 h-8 stroke-1 text-zinc-400" />
                         <span className="text-sm font-semibold">No daily logs recorded for this scope.</span>
-                        {!isAdmin && (
+                        {!isAdmin && !isOperations && (
                           <button
                             type="button"
                             onClick={handleOpenCreateModal}
@@ -1315,7 +1331,6 @@ export const DailyLogView: React.FC = () => {
 
                           if (col.key === 'role') {
                             const roleStr = String(val || row.role || 'Team Member');
-                            const deptStr = String(row.department || '');
                             const normRole = roleStr.toLowerCase();
 
                             const getRoleBadgeClass = (r: string) => {
@@ -1328,20 +1343,12 @@ export const DailyLogView: React.FC = () => {
                               if (r.includes('lead')) {
                                 return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
                               }
+                              if (r.includes('operations')) {
+                                return 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30';
+                              }
                               if (r.includes('client')) {
                                 return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
                               }
-                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-                            };
-
-                            const getDeptBadgeClass = (d: string) => {
-                              const nd = d.toLowerCase();
-                              if (nd.includes('website')) return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-                              if (nd.includes('creative')) return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-                              if (nd.includes('content')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-                              if (nd.includes('seo')) return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-                              if (nd.includes('performance') || nd.includes('marketing')) return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-                              if (nd.includes('ai')) return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
                               return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
                             };
 
@@ -1350,24 +1357,13 @@ export const DailyLogView: React.FC = () => {
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getRoleBadgeClass(
-                                      normRole
-                                    )}`}
-                                  >
-                                    {roleStr}
-                                  </span>
-                                  {deptStr && (
-                                    <span
-                                      className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-bold border ${getDeptBadgeClass(
-                                        deptStr
-                                      )}`}
-                                    >
-                                      {deptStr}
-                                    </span>
-                                  )}
-                                </div>
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getRoleBadgeClass(
+                                    normRole
+                                  )}`}
+                                >
+                                  {roleStr}
+                                </span>
                               </td>
                             );
                           }
@@ -1384,12 +1380,29 @@ export const DailyLogView: React.FC = () => {
                                 </td>
                               );
                             }
+
+                            const getDeptBadgeClass = (d: string) => {
+                              const nd = d.toLowerCase();
+                              if (nd.includes('website')) return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
+                              if (nd.includes('creative')) return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
+                              if (nd.includes('content')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
+                              if (nd.includes('seo')) return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
+                              if (nd.includes('performance') || nd.includes('marketing')) return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
+                              if (nd.includes('ai')) return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
+                              if (nd.includes('hr')) return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
+                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+                            };
+
                             return (
                               <td
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
-                                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">
+                                <span
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getDeptBadgeClass(
+                                    deptStr
+                                  )}`}
+                                >
                                   {deptStr}
                                 </span>
                               </td>

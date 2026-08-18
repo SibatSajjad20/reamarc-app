@@ -66,12 +66,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Operations Hub' : 'Operations Panel';
-  const adminBadge = isAdmin ? 'Admin' : isHR ? 'HR' : 'Ops';
-  const adminBadgeColor = isAdmin
-    ? 'bg-purple-500/20 text-purple-400 dark:text-purple-300 border border-purple-500/30'
-    : isHR
-    ? 'bg-blue-500/20 text-blue-400 dark:text-blue-300 border border-blue-500/30'
-    : 'bg-amber-500/20 text-amber-400 dark:text-amber-300 border border-amber-500/30';
 
   const navItems = [
     ...(canSeeMarketing
@@ -80,8 +74,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'marketing' as ViewType,
             label: isClient ? 'Client Portal' : 'Performance Marketing',
             icon: TrendingUp,
-            badge: 'V1.0',
-            badgeColor: 'bg-indigo-500/20 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30',
           },
         ]
       : []),
@@ -91,8 +83,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'daily-log' as ViewType,
             label: 'Daily Log',
             icon: ClipboardList,
-            badge: null,
-            badgeColor: 'bg-emerald-500/20 text-emerald-400 dark:text-emerald-300 border border-emerald-500/30',
           },
         ]
       : []),
@@ -102,8 +92,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'admin' as ViewType,
             label: adminLabel,
             icon: Shield,
-            badge: adminBadge,
-            badgeColor: adminBadgeColor,
           },
         ]
       : []),
@@ -174,16 +162,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
                 {!isCollapsed && <span>{item.label}</span>}
               </div>
-
-              {item.badge !== null && !isCollapsed && (
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                    isActive ? 'bg-white/20 text-white' : item.badgeColor
-                  }`}
-                >
-                  {item.badge}
-                </span>
-              )}
             </button>
           );
         })}

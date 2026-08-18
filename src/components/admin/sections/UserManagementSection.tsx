@@ -140,6 +140,39 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
     );
   };
 
+  const getDeptBadge = (dept?: string, isGlobal?: boolean) => {
+    if (!dept && !isGlobal) {
+      return <span className="text-zinc-400 italic text-[11px]">—</span>;
+    }
+    const display = isGlobal ? 'All' : dept || 'All';
+    const nd = display.toLowerCase();
+
+    let colorClass = 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+    if (isGlobal || nd === 'all') {
+      colorClass = 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
+    } else if (nd.includes('website')) {
+      colorClass = 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
+    } else if (nd.includes('creative')) {
+      colorClass = 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
+    } else if (nd.includes('content')) {
+      colorClass = 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
+    } else if (nd.includes('seo')) {
+      colorClass = 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
+    } else if (nd.includes('performance') || nd.includes('marketing')) {
+      colorClass = 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
+    } else if (nd.includes('ai')) {
+      colorClass = 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
+    } else if (nd.includes('hr')) {
+      colorClass = 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
+    }
+
+    return (
+      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border ${colorClass}`}>
+        <span>{display}</span>
+      </span>
+    );
+  };
+
   const getInitials = (name?: string, email?: string) => {
     if (name && name.trim()) {
       const parts = name.trim().split(' ');
@@ -255,7 +288,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                 {filteredMembers.map((m) => {
                   const initials = getInitials(m.full_name, m.email);
                   const isGlobalRole = m.role === 'admin' || m.role === 'hr' || m.role === 'operations';
-                  const displayDept = isGlobalRole ? 'All' : m.department;
 
                   return (
                     <tr
@@ -282,19 +314,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
 
                       {/* Department */}
                       <td className="py-3.5 px-4">
-                        {displayDept ? (
-                          <span
-                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
-                              isGlobalRole
-                                ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20'
-                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700'
-                            }`}
-                          >
-                            {displayDept}
-                          </span>
-                        ) : (
-                          <span className="text-zinc-400 italic text-[11px]">—</span>
-                        )}
+                        {getDeptBadge(m.department, isGlobalRole)}
                       </td>
 
                       {/* Contact Phone */}

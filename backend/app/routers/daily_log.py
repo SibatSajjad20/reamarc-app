@@ -33,6 +33,7 @@ DEFAULT_COLUMNS: List[dict] = [
     {"key": "date", "label": "Date", "type": "date", "editable": True},
     {"key": "resource_name", "label": "Resource Name", "type": "text", "editable": True},
     {"key": "role", "label": "Role", "type": "text", "editable": True},
+    {"key": "department", "label": "Department", "type": "text", "editable": True},
     {"key": "client_project", "label": "Client / Project", "type": "text", "editable": True},
     {"key": "task_description", "label": "Task Description", "type": "text", "editable": True},
     {
@@ -196,7 +197,15 @@ async def get_columns(
 
     config = await db.daily_log_columns.find_one({"$or": [{"key": GLOBAL_CONFIG_KEY}, {"workspace_id": {"$exists": True}}]})
     if config and "columns" in config:
-        return config["columns"]
+        cols = list(config["columns"])
+        if not any(c.get("key") == "department" for c in cols):
+            role_idx = next((i for i, c in enumerate(cols) if c.get("key") == "role"), -1)
+            dept_col = {"key": "department", "label": "Department", "type": "text", "editable": True}
+            if role_idx != -1:
+                cols.insert(role_idx + 1, dept_col)
+            else:
+                cols.append(dept_col)
+        return cols
     return DEFAULT_COLUMNS
 
 
@@ -435,10 +444,10 @@ async def create_entry(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     user_role = current_user.get("role", "team_member")
-    if user_role == "client" or user_role == UserRole.CLIENT.value:
+    if user_role in ("client", UserRole.CLIENT.value, "operations", UserRole.OPERATIONS.value):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Client accounts cannot submit daily logs.",
+            detail="Operations and Client accounts do not log daily entries.",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()

@@ -42,9 +42,9 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
 
   const activityList = useMemo(() => Object.values(activities), [activities]);
 
-  // Calculations & Compliance KPIs
+  // Calculations & Compliance KPIs (excluding admin, client, and operations)
   const monitoredMembers = useMemo(
-    () => activityList.filter((a) => a.role !== 'admin' && a.role !== 'client'),
+    () => activityList.filter((a) => a.role !== 'admin' && a.role !== 'client' && a.role !== 'operations'),
     [activityList]
   );
 

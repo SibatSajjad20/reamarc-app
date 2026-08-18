@@ -198,13 +198,13 @@ export const AuthScreen: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-zinc-950/80 backdrop-blur-md text-zinc-900 dark:text-zinc-100 overflow-y-auto p-4 select-none font-sans">
       {/* Background Glow */}
-      <div className="absolute top-1/3 left-1/3 w-[350px] h-[350px] bg-indigo-500/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute top-1/3 left-1/3 w-[350px] h-[350px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
 
       {/* Main Container Card */}
       <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-8 space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-2 rounded-2xl bg-indigo-50 dark:bg-zinc-800/80 border border-indigo-100 dark:border-zinc-700/60 shadow-sm mb-1">
+          <div className="inline-flex p-2 rounded-2xl bg-blue-50 dark:bg-zinc-800/80 border border-blue-100 dark:border-zinc-700/60 shadow-sm mb-1">
             <LottieLogo size={36} />
           </div>
           <h2 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
@@ -224,7 +224,7 @@ export const AuthScreen: React.FC = () => {
                 {mode === 'forgot_code' && 'Step 2 of 3: Verification Code'}
                 {mode === 'forgot_password' && 'Step 3 of 3: Set New Password'}
               </span>
-              <span className="text-indigo-600 dark:text-indigo-400">
+              <span className="text-blue-600 dark:text-blue-400">
                 {mode === 'forgot_email' && '33%'}
                 {mode === 'forgot_code' && '66%'}
                 {mode === 'forgot_password' && '100%'}
@@ -232,7 +232,7 @@ export const AuthScreen: React.FC = () => {
             </div>
             <div className="w-full bg-slate-100 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
               <div
-                className="bg-indigo-600 h-full transition-all duration-300 rounded-full"
+                className="bg-blue-600 h-full transition-all duration-300 rounded-full"
                 style={{
                   width:
                     mode === 'forgot_email'
@@ -307,7 +307,7 @@ export const AuthScreen: React.FC = () => {
                     setEmail(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                 />
               </div>
@@ -326,7 +326,7 @@ export const AuthScreen: React.FC = () => {
                     setSuccessMessage(null);
                     setMode('forgot_email');
                   }}
-                  className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer disabled:opacity-50"
+                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer disabled:opacity-50"
                 >
                   Forgot Password?
                 </button>
@@ -344,7 +344,7 @@ export const AuthScreen: React.FC = () => {
                     setPassword(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                 />
                 <button
@@ -360,7 +360,7 @@ export const AuthScreen: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
@@ -404,7 +404,7 @@ export const AuthScreen: React.FC = () => {
                     setEmail(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                   autoFocus
                 />
@@ -414,7 +414,7 @@ export const AuthScreen: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
@@ -450,7 +450,7 @@ export const AuthScreen: React.FC = () => {
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
                 We sent a 6-digit code to{' '}
-                <span className="font-semibold text-indigo-600 dark:text-indigo-400">{email}</span>.
+                <span className="font-semibold text-blue-600 dark:text-blue-400">{email}</span>.
                 Code expires in 10 minutes.
               </p>
             </div>
@@ -485,7 +485,7 @@ export const AuthScreen: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-center text-lg tracking-[0.4em] font-mono font-bold text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-center text-lg tracking-[0.4em] font-mono font-bold text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                   autoFocus
                 />
@@ -510,7 +510,7 @@ export const AuthScreen: React.FC = () => {
                 type="button"
                 onClick={handleResendCode}
                 disabled={resendCountdown > 0 || isSubmitting}
-                className="inline-flex items-center gap-1.5 font-semibold text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer disabled:cursor-not-allowed text-[11px]"
+                className="inline-flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer disabled:cursor-not-allowed text-[11px]"
               >
                 {resendCountdown > 0 ? (
                   <>
@@ -527,7 +527,7 @@ export const AuthScreen: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting || code.trim().length !== 6}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
@@ -583,7 +583,7 @@ export const AuthScreen: React.FC = () => {
                     setNewPassword(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                   autoFocus
                 />
@@ -614,7 +614,7 @@ export const AuthScreen: React.FC = () => {
                     setConfirmPassword(e.target.value);
                     if (errorMessage) setErrorMessage(null);
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-indigo-600 dark:focus:border-indigo-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                 />
                 <button
@@ -666,7 +666,7 @@ export const AuthScreen: React.FC = () => {
                 newPassword.length < 6 ||
                 newPassword !== confirmPassword
               }
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all cursor-pointer disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
