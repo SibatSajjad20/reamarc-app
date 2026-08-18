@@ -95,6 +95,73 @@ def _build_reminder_html(
 </html>"""
 
 
+def _build_password_reset_html(
+    recipient_name: str,
+    code: str,
+) -> str:
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Password Reset Verification Code</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #fafafa; margin: 0; padding: 24px 12px; color: #18181b;">
+  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
+    
+    <!-- Header -->
+    <div style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); padding: 28px 24px; text-align: left;">
+      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.025em;">
+        {settings.SMTP_FROM_NAME}
+      </h1>
+      <p style="color: #e0e7ff; margin: 6px 0 0 0; font-size: 13px;">
+        Account Security &amp; Password Reset
+      </p>
+    </div>
+
+    <!-- Body Content -->
+    <div style="padding: 32px 28px;">
+      <h2 style="font-size: 16px; font-weight: 700; color: #18181b; margin-top: 0;">
+        Hi {recipient_name},
+      </h2>
+      <p style="font-size: 14px; line-height: 1.6; color: #52525b; margin: 12px 0 20px 0;">
+        We received a request to reset your password for your Reamarc AI account. Use the 6-digit verification code below to set a new password:
+      </p>
+
+      <!-- 6-digit OTP Code Box -->
+      <div style="background-color: #eef2ff; border: 2px dashed #6366f1; border-radius: 12px; padding: 20px; margin: 24px 0; text-align: center;">
+        <span style="font-size: 11px; font-weight: 700; color: #4338ca; text-transform: uppercase; letter-spacing: 0.1em; display: block; margin-bottom: 8px;">
+          Verification Code
+        </span>
+        <span style="font-size: 32px; font-weight: 800; letter-spacing: 0.3em; color: #4f46e5; font-family: 'Courier New', Courier, monospace; display: inline-block;">
+          {code}
+        </span>
+        <p style="font-size: 12px; color: #6366f1; margin: 8px 0 0 0; font-weight: 500;">
+          Expires in 10 minutes (5 attempts maximum)
+        </p>
+      </div>
+
+      <div style="background-color: #f8fafc; border-left: 4px solid #94a3b8; padding: 12px 16px; margin: 20px 0; border-radius: 6px; font-size: 12px; color: #64748b; line-height: 1.5;">
+        <strong>Security Notice:</strong> If you did not request a password reset, please ignore this email or reach out to your administrator. Your password will remain unchanged.
+      </div>
+
+      <p style="font-size: 11px; color: #a1a1aa; text-align: center; margin: 24px 0 0 0;">
+        This automated security verification was sent by {settings.PROJECT_NAME}.
+      </p>
+    </div>
+
+    <!-- Footer -->
+    <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
+      <p style="font-size: 11px; color: #71717a; margin: 0;">
+        &copy; {datetime.now().year} {settings.PROJECT_NAME}. All rights reserved.
+      </p>
+    </div>
+
+  </div>
+</body>
+</html>"""
+
+
 async def _send_resend_http(
     recipient_email: str,
     subject: str,
@@ -204,7 +271,7 @@ def _send_smtp_sync(
                 server.starttls()
             server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
             server.send_message(msg)
-            logger.info(f"Successfully dispatched reminder email to {recipient_email}")
+            logger.info(f"Successfully dispatched email to {recipient_email}")
             return True
     except Exception as e:
         logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
@@ -245,17 +312,84 @@ class EmailService:
             action_url=action_url,
         )
 
-        try:
-            # 1. Primary: HTTPS REST APIs (Bypasses Render/Vercel/Cloud port 587/465/25 blocking)
-            if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
-                return await _send_resend_http(target_email, subject, html)
-            elif settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
-                return await _send_brevo_http(target_email, target_name, subject, html)
-            elif settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
-                return await _send_sendgrid_http(target_email, subject, html)
+        # Cascade through configured HTTP REST providers, then fallback to SMTP
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            try:
+                resend_ok = await _send_resend_http(target_email, subject, html)
+                if resend_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Resend dispatch failed for {target_email}, attempting fallback: {e}")
 
-            # 2. Fallback: Standard SMTP
+        if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
+            try:
+                brevo_ok = await _send_brevo_http(target_email, target_name, subject, html)
+                if brevo_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Brevo dispatch failed for {target_email}, attempting fallback: {e}")
+
+        if settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
+            try:
+                sendgrid_ok = await _send_sendgrid_http(target_email, subject, html)
+                if sendgrid_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"SendGrid dispatch failed for {target_email}, attempting fallback: {e}")
+
+        # Fallback: Standard SMTP
+        try:
             return await asyncio.to_thread(_send_smtp_sync, target_email, subject, html)
         except Exception as e:
-            logger.error(f"Email dispatch error for {target_email}: {e}")
+            logger.error(f"SMTP dispatch fallback error for {target_email}: {e}")
+            return False
+
+    @staticmethod
+    async def send_password_reset_code(
+        recipient_email: str,
+        code: str,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        """Asynchronously dispatches a branded Password Reset verification code email."""
+        if not recipient_email:
+            logger.error("No recipient email provided for password reset code.")
+            return False
+
+        target_name = recipient_name or "User"
+        subject = f"{code} is your Reamarc AI password reset code"
+        html = _build_password_reset_html(
+            recipient_name=target_name,
+            code=code,
+        )
+
+        # Cascade through configured HTTP REST providers, then fallback to SMTP
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            try:
+                resend_ok = await _send_resend_http(recipient_email, subject, html)
+                if resend_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Resend dispatch failed for {recipient_email}, attempting fallback: {e}")
+
+        if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
+            try:
+                brevo_ok = await _send_brevo_http(recipient_email, target_name, subject, html)
+                if brevo_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Brevo dispatch failed for {recipient_email}, attempting fallback: {e}")
+
+        if settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
+            try:
+                sendgrid_ok = await _send_sendgrid_http(recipient_email, subject, html)
+                if sendgrid_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"SendGrid dispatch failed for {recipient_email}, attempting fallback: {e}")
+
+        # Fallback: Standard SMTP
+        try:
+            return await asyncio.to_thread(_send_smtp_sync, recipient_email, subject, html)
+        except Exception as e:
+            logger.error(f"SMTP dispatch fallback error for {recipient_email}: {e}")
             return False

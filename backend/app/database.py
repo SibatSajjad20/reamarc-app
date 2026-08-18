@@ -69,6 +69,11 @@ async def connect_to_mongo():
         await db_instance.db.daily_log_entries.create_index([("id", 1), ("workspace_id", 1)], unique=True)
         await db_instance.db.daily_log_columns.create_index([("workspace_id", 1)], unique=True)
 
+        # Password Reset indexes (with TTL expiration support)
+        await db_instance.db.password_resets.create_index([("email", 1), ("created_at", -1)])
+        await db_instance.db.password_resets.create_index([("expires_at", 1)], expireAfterSeconds=0)
+
+
         # Consolidate legacy user roles to simplified 2-tier model ('admin' / 'member')
         try:
             await db_instance.db.users.update_many(

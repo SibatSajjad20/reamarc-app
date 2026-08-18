@@ -31,4 +31,17 @@ export const authService = {
       // ignore
     }
   },
+
+  async forgotPassword(email: string): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>('/auth/forgot-password', { email });
+  },
+
+  async verifyResetCode(email: string, code: string): Promise<{ message: string; valid: boolean }> {
+    return apiClient.post<{ message: string; valid: boolean }>('/auth/verify-reset-code', { email, code });
+  },
+
+  async resetPassword(payload: { email: string; code: string; new_password: string }): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>('/auth/reset-password', payload);
+  },
 };
+

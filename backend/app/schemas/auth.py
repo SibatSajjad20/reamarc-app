@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Literal, Optional
 
 class UserRegister(BaseModel):
@@ -24,4 +24,69 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_email(cls, v):
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., pattern=r"^\d{6}$", description="6-digit numeric OTP code")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_email(cls, v):
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def clean_code(cls, v):
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str = Field(..., pattern=r"^\d{6}$", description="6-digit numeric OTP code")
+    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def clean_email(cls, v):
+        if isinstance(v, str):
+            return v.strip().lower()
+        return v
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def clean_code(cls, v):
+        if isinstance(v, str):
+            return v.strip()
+        return v
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
+class VerifyResetCodeResponse(BaseModel):
+    message: str
+    valid: bool = True
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
+
 
