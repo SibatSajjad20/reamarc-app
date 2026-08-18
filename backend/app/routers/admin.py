@@ -170,7 +170,7 @@ async def list_members_activity(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     query = {
-        "role": {"$nin": ["admin", "hr", "operations", "client", UserRole.ADMIN.value, UserRole.HR.value, UserRole.OPERATIONS.value, UserRole.CLIENT.value]}
+        "role": {"$nin": ["admin", "client", UserRole.ADMIN.value, UserRole.CLIENT.value]}
     }
     if department:
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}

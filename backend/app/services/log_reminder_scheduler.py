@@ -106,9 +106,9 @@ async def run_evening_log_reminder_check():
 
     logger.info(f"[Scheduler] Running Evening 8:00 PM Log Reminder Check for {today_str}...")
 
-    # Fetch active members (excluding admin/hr/operations/client accounts)
+    # Fetch active members (excluding super admin and client accounts)
     cursor = db.users.find(
-        {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "hr", "HR", "operations", "OPERATIONS", "client", "CLIENT"]}},
+        {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT"]}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "name": 1},
     )
     members = await cursor.to_list(length=500)
@@ -170,9 +170,9 @@ async def run_morning_log_reminder_check():
 
     logger.info(f"[Scheduler] Running Morning 10:00 AM Log Reminder Check (Checking previous workday: {prev_workday_str})...")
 
-    # Fetch active members (excluding admin accounts)
+    # Fetch active members (excluding super admin and client accounts)
     cursor = db.users.find(
-        {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "hr", "HR", "operations", "OPERATIONS", "client", "CLIENT"]}},
+        {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT"]}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "name": 1},
     )
     members = await cursor.to_list(length=500)

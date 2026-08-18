@@ -256,7 +256,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
             <span className="text-[11px] text-zinc-400">Live Breakdown</span>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
             {DEPARTMENTS.map((dept) => {
               const stat = deptStats[dept.toLowerCase()] || { total: 0, logged: 0, missed: 0 };
               const pct = stat.total > 0 ? Math.round((stat.logged / stat.total) * 100) : 100;
