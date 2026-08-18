@@ -5,6 +5,7 @@ export interface WorkspaceCreatePayload {
   name: string;
   initials?: string;
   brandColor?: string;
+  status?: 'active' | 'inactive';
   proposal_url?: string;
   proposal_name?: string;
   proposal_size?: number;
@@ -26,6 +27,7 @@ export interface WorkspaceUpdatePayload {
   name?: string;
   initials?: string;
   brandColor?: string;
+  status?: 'active' | 'inactive';
   proposal_url?: string;
   proposal_name?: string;
   proposal_size?: number;

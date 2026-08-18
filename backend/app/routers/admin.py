@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
 import uuid
 import secrets
@@ -23,18 +23,25 @@ from app.schemas.admin import (
     AdAccountResponse,
 )
 from app.schemas.error import ErrorResponse
-from app.core.security import require_admin, require_hr_or_admin, get_password_hash
+from app.core.security import (
+    require_admin,
+    require_hr_or_admin,
+    require_operations_or_admin,
+    require_management_role,
+    get_password_hash,
+)
 from app.database import get_database
 from app.services.email_service import EmailService
+from app.routers.daily_log import is_workday, SYSTEM_START_DATE
 
 router = APIRouter(
     prefix="/admin",
     tags=["Admin Management"],
-    dependencies=[Depends(require_hr_or_admin)],
+    dependencies=[Depends(require_management_role)],
     responses={
         400: {"model": ErrorResponse, "description": "Bad Request"},
         401: {"model": ErrorResponse, "description": "Unauthorized"},
-        403: {"model": ErrorResponse, "description": "Forbidden - Admin or HR Only"},
+        403: {"model": ErrorResponse, "description": "Forbidden"},
         404: {"model": ErrorResponse, "description": "Not Found"},
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     },
@@ -47,13 +54,18 @@ def _format_member_resp(doc: dict) -> dict:
         role_val = UserRole(raw_role)
     except ValueError:
         role_val = UserRole.TEAM_MEMBER
+
+    dept = doc.get("department")
+    if role_val in (UserRole.ADMIN, UserRole.HR, UserRole.OPERATIONS):
+        dept = "All"
+
     return {
         "id": doc.get("id") or str(doc.get("_id")),
         "email": doc["email"],
         "full_name": doc.get("full_name") or doc.get("name", "User"),
         "role": role_val,
         "phone": doc.get("phone"),
-        "department": doc.get("department"),
+        "department": dept,
         "is_active": doc.get("is_active", True),
         "created_at": doc.get("created_at"),
     }
@@ -66,6 +78,7 @@ def _format_workspace_resp(doc: dict) -> dict:
         "name": doc.get("name", "Untitled Workspace"),
         "brandColor": doc.get("brandColor") or doc.get("brand_color") or "bg-indigo-600",
         "brand_color": doc.get("brand_color") or doc.get("brandColor") or "bg-indigo-600",
+        "status": str(doc.get("status", "active")),
         "initials": doc.get("initials") or doc.get("name", "WS")[:2].upper(),
         "proposal_url": doc.get("proposal_url"),
         "proposal_name": doc.get("proposal_name"),
@@ -99,245 +112,194 @@ async def _format_ad_account_resp(doc: dict, db=None) -> dict:
 
     return {
         "id": acc_id,
-        "name": doc.get("name", "Untitled Ad Account"),
+        "name": doc.get("name", "Untitled Account"),
         "platform": doc.get("platform", "Meta Ads"),
         "account_id": doc.get("account_id", ""),
         "pixel_id": doc.get("pixel_id"),
         "workspace_id": ws_id,
         "workspace_name": ws_name,
         "currency": doc.get("currency", "USD"),
-        "status": doc.get("status", "active"),
         "created_at": doc.get("created_at"),
         "updated_at": doc.get("updated_at"),
     }
 
 
 def _generate_temp_password(length: int = 12) -> str:
-    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    alphabet = string.ascii_letters + string.digits
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
-def is_workday(date_obj) -> bool:
-    """
-    Evaluates whether a given date is an official working day:
-      - Monday through Friday: Always working days.
-      - Sunday: Always an off day.
-      - Saturday: 1st Saturday of the month (day 1-7) is OFF; all remaining Saturdays (day > 7) are WORKING DAYS.
-    """
-    w = date_obj.weekday()
-    if w == 6:  # Sunday
-        return False
-    if w == 5:  # Saturday: 1st Saturday of the month is off
-        return date_obj.day > 7
-    return True  # Monday - Friday
-
-
-def _get_recent_workdays(days: int = 7) -> List[str]:
-    """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first."""
-    workdays: List[str] = []
-    current = datetime.now(timezone.utc).date()
-    while len(workdays) < days:
-        if is_workday(current):
-            workdays.append(current.isoformat())
-        current -= timedelta(days=1)
-    return workdays
-
-
-# ─── TEAM MEMBER MANAGEMENT ENDPOINTS ──────────────────────────────────────────
+# ─── TEAM DIRECTORY & MEMBERS ────────────────────────────────────────────────
 
 @router.get("/members", response_model=List[MemberResponse])
 @router.get("/users", response_model=List[MemberResponse])
 async def list_members(
+    department: Optional[str] = Query(None, description="Filter by department name"),
+    role: Optional[str] = Query(None, description="Filter by member role (admin, hr, operations, team_lead, team_member)"),
     search: Optional[str] = Query(None, description="Search by name or email"),
-    department: Optional[str] = Query(None, description="Filter by department"),
-    role: Optional[str] = Query(None, description="Filter by role ('admin' or 'member')"),
-    is_active: Optional[bool] = Query(None, description="Filter by active/inactive status"),
-    limit: int = Query(200, ge=1, le=1000),
-    skip: int = Query(0, ge=0),
 ):
-    """List all registered team members with optional filters and pagination (Admin only)."""
+    """List all registered members in the organization."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    query: dict = {}
+    query = {}
+    if department:
+        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+    if role:
+        query["role"] = role.lower()
     if search:
         query["$or"] = [
             {"full_name": {"$regex": search, "$options": "i"}},
             {"name": {"$regex": search, "$options": "i"}},
             {"email": {"$regex": search, "$options": "i"}},
         ]
-    if department:
-        query["department"] = department
-    if role:
-        query["role"] = role
-    if is_active is not None:
-        query["is_active"] = is_active
 
-    cursor = (
-        db.users.find(query, {"_id": 0, "hashed_password": 0})
-        .sort("created_at", -1)
-        .skip(skip)
-        .limit(limit)
-    )
-    users_list = await cursor.to_list(length=limit)
-    return [_format_member_resp(u) for u in users_list]
+    cursor = db.users.find(query).sort("created_at", -1)
+    members = await cursor.to_list(200)
+    return [_format_member_resp(m) for m in members]
 
 
 @router.get("/members/activity", response_model=List[MemberActivityResponse])
-async def get_members_activity(
-    days: int = Query(7, ge=1, le=30, description="Number of past workdays to evaluate"),
+async def list_members_activity(
+    department: Optional[str] = Query(None, description="Filter activity by department"),
 ):
-    """Calculates Daily Log activity, missing workdays, and last logged date for all team members (Admin only)."""
+    """Retrieve daily log compliance and activity status for all active team members."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    workdays = _get_recent_workdays(days)
-    today_iso = datetime.now(timezone.utc).date().isoformat()
+    query = {
+        "role": {"$nin": ["admin", "hr", "operations", "client", UserRole.ADMIN.value, UserRole.HR.value, UserRole.OPERATIONS.value, UserRole.CLIENT.value]}
+    }
+    if department:
+        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
-    cursor = db.users.find({"is_active": True}, {"_id": 0, "hashed_password": 0}).sort("full_name", 1)
-    members = await cursor.to_list(length=500)
+    cursor = db.users.find(query).sort("full_name", 1)
+    users = await cursor.to_list(200)
 
-    # Fetch recent log entries within the workday window
-    min_date = workdays[-1] if workdays else today_iso
-    entries_cursor = db.daily_log_entries.find(
-        {"date": {"$gte": min_date}},
-        {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1},
-    )
-    entries = await entries_cursor.to_list(length=5000)
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
 
-    # Map user/resource entries by date
-    entries_by_user: dict = {}
-    for entry in entries:
-        uid = entry.get("user_id")
-        rname = (entry.get("resource_name") or "").strip().lower()
-        d = entry.get("date")
-        if not d:
-            continue
+    try:
+        start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
+    except Exception:
+        start_date_obj = now.date()
 
-        if uid:
-            entries_by_user.setdefault(uid, set()).add(d)
-        if rname:
-            entries_by_user.setdefault(rname, set()).add(d)
+    workdays = []
+    curr = now.date()
+    while len(workdays) < 7 and curr >= start_date_obj:
+        if is_workday(curr):
+            workdays.append(curr.strftime("%Y-%m-%d"))
+        curr -= timedelta(days=1)
 
-    activity_list: List[dict] = []
-    for m in members:
-        uid = m.get("id") or str(m.get("_id"))
-        fname = m.get("full_name") or m.get("name", "User")
-        fname_lower = fname.strip().lower()
-        role = m.get("role", "team_member")
-        department = m.get("department")
-        is_exempt_role = role.lower() in ("admin", "hr", "client")
-
-        if is_exempt_role:
-            activity_list.append(
-                {
-                    "user_id": uid,
-                    "full_name": fname,
-                    "email": m["email"],
-                    "phone": m.get("phone"),
-                    "department": department,
-                    "role": role,
-                    "last_logged_date": None,
-                    "logged_today": True,
-                    "days_missed": 0,
-                    "missing_dates": [],
-                }
-            )
-            continue
-
-        submitted_dates = entries_by_user.get(uid, set()).union(
-            entries_by_user.get(fname_lower, set())
-        )
-
-        missing = [w for w in workdays if w not in submitted_dates]
-        logged_today = today_iso in submitted_dates
-
-        sorted_submitted = sorted(list(submitted_dates), reverse=True)
-        last_logged = sorted_submitted[0] if sorted_submitted else None
-
-        activity_list.append(
+    result = []
+    for u in users:
+        uid = u.get("id") or str(u.get("_id"))
+        fname = u.get("full_name") or u.get("name", "User")
+        
+        recent_entries = await db.daily_log_entries.find(
             {
-                "user_id": uid,
-                "full_name": fname,
-                "email": m["email"],
-                "phone": m.get("phone"),
-                "department": department,
-                "role": role,
-                "last_logged_date": last_logged,
-                "logged_today": logged_today,
-                "days_missed": len(missing),
-                "missing_dates": missing,
-            }
+                "$or": [{"user_id": uid}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}],
+                "date": {"$in": workdays}
+            },
+            {"date": 1}
+        ).to_list(20)
+        logged_dates = {e["date"] for e in recent_entries if e.get("date")}
+        logged_today = today_str in logged_dates
+
+        missing = [d for d in workdays if d not in logged_dates]
+
+        last_entry = await db.daily_log_entries.find_one(
+            {"$or": [{"user_id": uid}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}]},
+            sort=[("date", -1)]
         )
+        last_logged = last_entry["date"] if last_entry and last_entry.get("date") else None
 
-    return activity_list
+        result.append({
+            "user_id": uid,
+            "full_name": fname,
+            "email": u["email"],
+            "phone": u.get("phone"),
+            "department": u.get("department"),
+            "role": u.get("role", "team_member"),
+            "last_logged_date": last_logged,
+            "logged_today": logged_today,
+            "days_missed": len(missing),
+            "missing_dates": missing,
+        })
+
+    return result
 
 
-@router.post("/members/{user_id}/remind", response_model=ReminderResponse)
-async def send_member_reminder(
-    user_id: str,
-    reminder_in: ReminderRequest,
+@router.post("/members/{user_id}/remind", response_model=ReminderResponse, dependencies=[Depends(require_hr_or_admin)])
+@router.post("/users/{user_id}/remind", response_model=ReminderResponse, dependencies=[Depends(require_hr_or_admin)])
+@router.post("/remind-log", response_model=ReminderResponse, dependencies=[Depends(require_hr_or_admin)])
+async def remind_member_log(
+    user_id: Optional[str] = None,
+    reminder_in: Optional[ReminderRequest] = Body(default=None),
 ):
-    """Trigger an email/in-app reminder to a specific team member who missed daily logs (Admin only)."""
+    """Send an automated or custom email reminder to a member who missed their daily log."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    if not user_id:
+        raise HTTPException(status_code=400, detail="User ID is required.")
+
+    req = reminder_in or ReminderRequest()
 
     member = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     if not member:
-        raise HTTPException(status_code=404, detail="Team member not found.")
+        raise HTTPException(status_code=404, detail="Member not found.")
 
-    workdays = _get_recent_workdays(7)
-    today_iso = datetime.now(timezone.utc).date().isoformat()
-    min_date = workdays[-1] if workdays else today_iso
+    now = datetime.now(timezone.utc)
+    today_str = now.strftime("%Y-%m-%d")
+    try:
+        start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
+    except Exception:
+        start_date_obj = now.date()
 
-    # Fetch member submitted dates
-    fname = member.get("full_name") or member.get("name", "User")
-    entries_cursor = db.daily_log_entries.find(
+    workdays = []
+    curr = now.date()
+    while len(workdays) < 7 and curr >= start_date_obj:
+        if is_workday(curr):
+            workdays.append(curr.strftime("%Y-%m-%d"))
+        curr -= timedelta(days=1)
+
+    fname = member.get("full_name") or member.get("name", "Team Member")
+    recent_entries = await db.daily_log_entries.find(
         {
-            "date": {"$gte": min_date},
-            "$or": [
-                {"user_id": user_id},
-                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
-            ],
+            "$or": [{"user_id": user_id}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}],
+            "date": {"$in": workdays}
         },
-        {"_id": 0, "date": 1},
-    )
-    entries = await entries_cursor.to_list(length=100)
-    submitted_dates = {e["date"] for e in entries if e.get("date")}
+        {"date": 1}
+    ).to_list(20)
+    logged_dates = {e["date"] for e in recent_entries if e.get("date")}
+    missing_dates = [d for d in workdays if d not in logged_dates]
+    if not missing_dates and is_workday(now.date()):
+        missing_dates = [today_str]
 
-    missing_dates = [w for w in workdays if w not in submitted_dates]
-    if not missing_dates:
-        missing_dates = [today_iso]
+    formatted_missing = ", ".join(missing_dates) if missing_dates else today_str
 
-    now_iso = datetime.now(timezone.utc).isoformat()
-
-    # Dispatch email reminder
-    if reminder_in.channel in ("email", "all"):
+    if req.channel in ("email", "all"):
         try:
             await EmailService.send_log_reminder(
                 recipient_email=member["email"],
                 recipient_name=fname,
                 missing_dates=missing_dates,
-                custom_message=reminder_in.custom_message,
+                custom_message=req.custom_message,
             )
         except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to dispatch email reminder: {str(e)}",
-            )
+            logger.error(f"[Admin] Email sending failed for {member['email']}: {e}")
 
-    # Record notification in database
+    now_iso = now.isoformat()
     notif_doc = {
         "id": f"notif_{uuid.uuid4().hex[:10]}",
         "user_id": user_id,
-        "type": "daily_log_reminder",
-        "channel": reminder_in.channel,
         "title": "Daily Log Submission Reminder",
-        "message": reminder_in.custom_message
-        or f"Reminder to submit daily log for {', '.join(missing_dates)}",
+        "message": req.custom_message
+        or f"Reminder to submit daily log for {formatted_missing}",
         "missing_dates": missing_dates,
         "created_at": now_iso,
         "read": False,
@@ -346,8 +308,9 @@ async def send_member_reminder(
 
     return {
         "success": True,
-        "message": f"Daily Log reminder successfully sent to {member['email']}",
-        "channel": reminder_in.channel,
+        "message": f"Daily Log reminder for ({formatted_missing}) successfully sent to {member['email']}",
+        "user_id": user_id,
+        "channel": req.channel,
         "recipient_email": member["email"],
         "recipient_name": fname,
         "missing_dates": missing_dates,
@@ -355,13 +318,20 @@ async def send_member_reminder(
     }
 
 
-@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
-@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_hr_or_admin)])
+@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_hr_or_admin)])
 async def create_member(member_in: MemberCreate):
-    """Create a new team member account (Admin only)."""
+    """Create a new team member account (HR or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    # Prevent creating additional Super Admin accounts
+    if member_in.role in (UserRole.ADMIN, "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Creating additional Super Admin accounts is not permitted. Only one Super Admin exists.",
+        )
 
     existing = await db.users.find_one({"email": member_in.email.lower()})
     if existing:
@@ -377,6 +347,14 @@ async def create_member(member_in: MemberCreate):
     )
     hashed_pwd = get_password_hash(raw_pwd)
 
+    # Auto set department: "All" for Admin/Operations, "HR" for HR
+    if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
+        dept_val = "All"
+    elif member_in.role == UserRole.HR:
+        dept_val = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
+    else:
+        dept_val = member_in.department.strip() if member_in.department else None
+
     now_iso = datetime.now(timezone.utc).isoformat()
     user_doc = {
         "_id": user_id,
@@ -387,7 +365,8 @@ async def create_member(member_in: MemberCreate):
         "hashed_password": hashed_pwd,
         "role": member_in.role.value,
         "phone": member_in.phone.strip() if member_in.phone else None,
-        "department": member_in.department.strip() if member_in.department else None,
+        "phone_number": member_in.phone.strip() if member_in.phone else None,
+        "department": dept_val,
         "is_active": member_in.is_active,
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -396,10 +375,14 @@ async def create_member(member_in: MemberCreate):
     return _format_member_resp(user_doc)
 
 
-@router.patch("/members/{user_id}", response_model=MemberResponse, dependencies=[Depends(require_admin)])
-@router.patch("/users/{user_id}", response_model=MemberResponse, dependencies=[Depends(require_admin)])
-async def update_member(user_id: str, member_in: MemberUpdate):
-    """Update a member's name, email, phone, password, role, or department."""
+@router.patch("/members/{user_id}", response_model=MemberResponse)
+@router.patch("/users/{user_id}", response_model=MemberResponse)
+async def update_member(
+    user_id: str,
+    member_in: MemberUpdate,
+    current_user: dict = Depends(require_hr_or_admin),
+):
+    """Update a member's name, email, phone, password, role, or department (HR or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -408,8 +391,18 @@ async def update_member(user_id: str, member_in: MemberUpdate):
     if not existing_user:
         raise HTTPException(status_code=404, detail="Member not found.")
 
+    is_target_admin = existing_user.get("role") in (UserRole.ADMIN.value, "admin")
+    is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
+
+    # Super Admin Protection: HR cannot modify the Super Admin account
+    if is_target_admin and not is_caller_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="HR cannot modify the Super Admin account. Only the Super Admin can edit their own profile.",
+        )
+
     # Primary Admin Protection: Prevent deactivating or demoting Admin accounts
-    if existing_user.get("role") == UserRole.ADMIN.value or existing_user.get("role") == "admin":
+    if is_target_admin:
         if member_in.role is not None and member_in.role != UserRole.ADMIN:
             raise HTTPException(
                 status_code=400, detail="Cannot demote or modify the role of an Admin account."
@@ -417,63 +410,65 @@ async def update_member(user_id: str, member_in: MemberUpdate):
         if member_in.is_active is False:
             raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
+    # Prevent promoting any non-admin to admin
+    if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Promoting accounts to Super Admin is not permitted.",
+        )
+
     update_fields = {}
     if member_in.full_name is not None:
         update_fields["full_name"] = member_in.full_name.strip()
         update_fields["name"] = member_in.full_name.strip()
     if member_in.email is not None:
-        clean_email = str(member_in.email).lower().strip()
-        conflict = await db.users.find_one(
-            {
-                "email": clean_email,
-                "id": {"$ne": user_id},
-                "_id": {"$ne": user_id},
-            }
-        )
-        if conflict:
-            raise HTTPException(
-                status_code=400,
-                detail="This email address is already in use by another account.",
-            )
-        update_fields["email"] = clean_email
+        new_email = member_in.email.lower()
+        if new_email != existing_user.get("email"):
+            conflict = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
+            if conflict:
+                raise HTTPException(status_code=400, detail="Email is already taken by another user.")
+        update_fields["email"] = new_email
     if member_in.phone is not None:
-        update_fields["phone"] = member_in.phone.strip() if member_in.phone else None
+        update_fields["phone"] = member_in.phone.strip()
+        update_fields["phone_number"] = member_in.phone.strip()
     if member_in.password is not None and member_in.password.strip():
-        if len(member_in.password.strip()) < 8:
-            raise HTTPException(
-                status_code=400, detail="Password must be at least 8 characters long."
-            )
         update_fields["hashed_password"] = get_password_hash(member_in.password.strip())
     if member_in.role is not None:
         update_fields["role"] = member_in.role.value
+        if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
+            update_fields["department"] = "All"
+        elif member_in.role == UserRole.HR:
+            update_fields["department"] = "HR"
     if member_in.department is not None:
-        update_fields["department"] = (
-            member_in.department.strip() if member_in.department else None
-        )
+        target_role = member_in.role.value if member_in.role else existing_user.get("role")
+        if target_role in ("admin", "operations", UserRole.ADMIN.value, UserRole.OPERATIONS.value):
+            update_fields["department"] = "All"
+        elif target_role in ("hr", UserRole.HR.value):
+            update_fields["department"] = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
+        else:
+            update_fields["department"] = member_in.department.strip()
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
 
     if not update_fields:
-        raise HTTPException(status_code=400, detail="No fields provided for update.")
+        return _format_member_resp(existing_user)
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-
-    res = await db.users.update_one(
-        {"$or": [{"id": user_id}, {"_id": user_id}]}, {"$set": update_fields}
+    updated_user = await db.users.find_one_and_update(
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
+        {"$set": update_fields},
+        return_document=True,
     )
-    if res.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Member not found.")
-
-    updated = await db.users.find_one(
-        {"$or": [{"id": user_id}, {"_id": user_id}]}, {"_id": 0, "hashed_password": 0}
-    )
-    return _format_member_resp(updated)
+    return _format_member_resp(updated_user)
 
 
-@router.delete("/members/{user_id}", dependencies=[Depends(require_admin)])
-@router.delete("/users/{user_id}", dependencies=[Depends(require_admin)])
-async def delete_member(user_id: str):
-    """Permanently delete a team member account from database (Admin only)."""
+@router.delete("/members/{user_id}")
+@router.delete("/users/{user_id}")
+async def delete_member(
+    user_id: str,
+    current_user: dict = Depends(require_hr_or_admin),
+):
+    """Delete a user account (HR or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -482,24 +477,17 @@ async def delete_member(user_id: str):
     if not existing_user:
         raise HTTPException(status_code=404, detail="Member not found.")
 
-    # Safety check: prevent deleting the last administrator
     if existing_user.get("role") in (UserRole.ADMIN.value, "admin"):
-        admin_count = await db.users.count_documents(
-            {"role": {"$in": [UserRole.ADMIN.value, "admin"]}}
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="The Super Admin account cannot be deleted.",
         )
-        if admin_count <= 1:
-            raise HTTPException(
-                status_code=400, detail="Cannot delete the primary administrator account."
-            )
 
-    res = await db.users.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Member not found or already removed.")
-
-    return {"message": "Team member successfully deleted from database.", "id": user_id}
+    await db.users.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    return {"message": "Member successfully deleted."}
 
 
-# ─── WORKSPACES MANAGEMENT (ADMIN ONLY) ──────────────────────────────────────
+# ─── WORKSPACES MANAGEMENT ───────────────────────────────────────────────────
 
 @router.get("/workspaces", response_model=List[WorkspaceResponse])
 async def list_workspaces():
@@ -513,9 +501,9 @@ async def list_workspaces():
     return [_format_workspace_resp(w) for w in workspaces]
 
 
-@router.post("/workspaces", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_admin)])
+@router.post("/workspaces", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operations_or_admin)])
 async def create_workspace(ws_in: WorkspaceCreate):
-    """Create a new client brand workspace (Admin only)."""
+    """Create a new client brand workspace (Operations or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -529,6 +517,7 @@ async def create_workspace(ws_in: WorkspaceCreate):
         "name": ws_in.name,
         "brandColor": ws_in.brand_color or "bg-indigo-600",
         "brand_color": ws_in.brand_color or "bg-indigo-600",
+        "status": ws_in.status or "active",
         "initials": initials,
         "proposal_url": ws_in.proposal_url,
         "proposal_name": ws_in.proposal_name,
@@ -554,9 +543,9 @@ async def create_workspace(ws_in: WorkspaceCreate):
     return _format_workspace_resp(ws_doc)
 
 
-@router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_admin)])
+@router.patch("/workspaces/{workspace_id}", response_model=WorkspaceResponse, dependencies=[Depends(require_operations_or_admin)])
 async def update_workspace(workspace_id: str, ws_in: WorkspaceUpdate):
-    """Update a client brand workspace."""
+    """Update a client brand workspace (Operations or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -567,6 +556,8 @@ async def update_workspace(workspace_id: str, ws_in: WorkspaceUpdate):
     if ws_in.brand_color is not None:
         update_fields["brandColor"] = ws_in.brand_color
         update_fields["brand_color"] = ws_in.brand_color
+    if ws_in.status is not None:
+        update_fields["status"] = ws_in.status
     if ws_in.initials is not None:
         update_fields["initials"] = ws_in.initials
     if ws_in.proposal_url is not None:
@@ -613,18 +604,13 @@ async def update_workspace(workspace_id: str, ws_in: WorkspaceUpdate):
     return _format_workspace_resp(res)
 
 
-@router.delete("/workspaces/{workspace_id}", dependencies=[Depends(require_admin)])
+@router.delete("/workspaces/{workspace_id}", dependencies=[Depends(require_operations_or_admin)])
 async def delete_workspace(workspace_id: str):
-    """Delete a client workspace (Admin only)."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable.")
-
-    res = await db.workspaces.delete_one({"id": workspace_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Workspace not found.")
-
-    return {"message": "Workspace deleted successfully."}
+    """Disallow workspace deletion."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Workspace deletion is disabled. Workspaces can only be marked as Inactive.",
+    )
 
 
 # ─── AD ACCOUNTS MANAGEMENT (ADMIN ONLY) ────────────────────────────────────
@@ -696,7 +682,7 @@ async def create_ad_account(acc_in: AdAccountCreate):
 
 @router.patch("/ad-accounts/{account_id}", response_model=AdAccountResponse, dependencies=[Depends(require_admin)])
 async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
-    """Update an ad account's platform, account ID, currency, or associated workspace."""
+    """Update an ad account's platform, account ID, currency, or associated workspace (Admin only)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -760,88 +746,3 @@ async def delete_ad_account(account_id: str):
         raise HTTPException(status_code=404, detail="Ad account not found.")
 
     return {"message": "Ad account deleted successfully."}
-
-
-# ─── DYNAMIC SYSTEM DEPARTMENTS & ROLES SETTINGS ─────────────────────────────
-
-DEFAULT_SYSTEM_CONFIG = {
-    "departments": [
-        "Website",
-        "Creative",
-        "Content",
-        "SEO",
-        "Performance Marketing",
-        "AI",
-    ],
-    "roles": [
-        {"id": "admin", "label": "Admin", "description": "Full system control and user management"},
-        {"id": "hr", "label": "HR", "description": "All departments logs & compliance access"},
-        {"id": "team_lead", "label": "Team Lead", "description": "Leads department and oversees team logs"},
-        {"id": "team_member", "label": "Team Member", "description": "Records own tasks & daily logs"},
-        {"id": "client", "label": "Client", "description": "Sandbox Client Portal & Approvals only"},
-    ],
-}
-
-@router.get("/system-config")
-async def get_system_config():
-    """Retrieve dynamic agency departments and roles configuration."""
-    db = get_database()
-    if db is None:
-        return DEFAULT_SYSTEM_CONFIG
-
-    cfg = await db.system_settings.find_one({"key": "system_config"}, {"_id": 0})
-    if not cfg:
-        return DEFAULT_SYSTEM_CONFIG
-
-    return {
-        "departments": cfg.get("departments") or DEFAULT_SYSTEM_CONFIG["departments"],
-        "roles": cfg.get("roles") or DEFAULT_SYSTEM_CONFIG["roles"],
-    }
-
-
-@router.put("/system-config", dependencies=[Depends(require_admin)])
-async def update_system_config(config_in: dict):
-    """Update dynamic agency departments and roles configuration (Admin only)."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable.")
-
-    departments = config_in.get("departments")
-    roles = config_in.get("roles")
-
-    if not isinstance(departments, list) or not isinstance(roles, list):
-        raise HTTPException(status_code=400, detail="Invalid system configuration payload.")
-
-    clean_departments = [str(d).strip() for d in departments if str(d).strip()]
-    if not clean_departments:
-        clean_departments = DEFAULT_SYSTEM_CONFIG["departments"]
-
-    clean_roles = []
-    for r in roles:
-        if isinstance(r, dict) and r.get("id") and r.get("label"):
-            clean_roles.append({
-                "id": str(r["id"]).strip().lower().replace(" ", "_"),
-                "label": str(r["label"]).strip(),
-                "description": str(r.get("description", "")).strip(),
-            })
-
-    if not clean_roles:
-        clean_roles = DEFAULT_SYSTEM_CONFIG["roles"]
-
-    doc = {
-        "key": "system_config",
-        "departments": clean_departments,
-        "roles": clean_roles,
-        "updated_at": datetime.now(timezone.utc).isoformat(),
-    }
-
-    await db.system_settings.update_one(
-        {"key": "system_config"},
-        {"$set": doc},
-        upsert=True,
-    )
-
-    return {
-        "departments": clean_departments,
-        "roles": clean_roles,
-    }

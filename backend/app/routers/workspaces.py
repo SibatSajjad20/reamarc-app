@@ -1,37 +1,28 @@
-import uuid
-import logging
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from typing import List, Optional
+import uuid
 from datetime import datetime, timezone
-from fastapi import APIRouter, HTTPException, Depends, status, BackgroundTasks
 
-from app.database import get_database
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
-from app.schemas.error import ErrorResponse
-from app.core.security import require_admin, require_member_or_admin
-from app.services.obsidian_service import update_brand_guidelines
+from app.core.security import require_admin, require_member_or_admin, require_operations_or_admin
+from app.database import get_database
 
-logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
-router = APIRouter(
-    prefix="/workspaces",
-    tags=["Workspaces"],
-    responses={
-        400: {"model": ErrorResponse, "description": "Bad Request"},
-        401: {"model": ErrorResponse, "description": "Unauthorized"},
-        403: {"model": ErrorResponse, "description": "Forbidden"},
-        404: {"model": ErrorResponse, "description": "Not Found"},
-        500: {"model": ErrorResponse, "description": "Internal Server Error"},
-    }
-)
+
+async def update_brand_guidelines(user_id: str, workspace_id: str, workspace_name: str, guidelines: str):
+    """Stub background task for brand guidelines indexing."""
+    print(f"[Workspaces] Brand guidelines updated for {workspace_name} ({workspace_id}) by user {user_id}")
 
 
 def normalize_workspace(doc: dict) -> dict:
-    name = str(doc.get("name", "Untitled Workspace"))
+    name = str(doc.get("name") or doc.get("client_name") or "Workspace")
     return {
         "id": str(doc.get("id", f"ws-{uuid.uuid4().hex[:8]}")),
         "name": name,
         "initials": str(doc.get("initials") or name[:2].upper()),
         "brandColor": str(doc.get("brandColor") or doc.get("brand_color") or "bg-indigo-600"),
+        "status": str(doc.get("status", "active")),
         "proposal_url": doc.get("proposal_url"),
         "proposal_name": doc.get("proposal_name"),
         "proposal_size": doc.get("proposal_size"),
@@ -58,7 +49,13 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
     if db is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
-    cursor = db.workspaces.find({}, {"_id": 0})
+    user_role = current_user.get("role")
+    query = {}
+    # Non-management users only see active workspaces
+    if user_role not in ("admin", "operations"):
+        query["status"] = {"$ne": "inactive"}
+
+    cursor = db.workspaces.find(query, {"_id": 0})
     workspaces = await cursor.to_list(length=None)
 
     seen = set()
@@ -77,7 +74,7 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
 async def create_workspace(
     ws_in: WorkspaceCreate,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_operations_or_admin)
 ):
     db = get_database()
     if db is None:
@@ -93,6 +90,7 @@ async def create_workspace(
         "initials": initials,
         "brandColor": ws_in.brandColor,
         "brand_color": ws_in.brandColor,
+        "status": ws_in.status or "active",
         "proposal_url": ws_in.proposal_url,
         "proposal_name": ws_in.proposal_name,
         "proposal_size": ws_in.proposal_size,
@@ -136,7 +134,7 @@ async def update_workspace(
     workspace_id: str,
     ws_update: WorkspaceUpdate,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_operations_or_admin)
 ):
     db = get_database()
     if db is None:
@@ -150,6 +148,8 @@ async def update_workspace(
     if ws_update.brandColor is not None:
         update_fields["brandColor"] = ws_update.brandColor
         update_fields["brand_color"] = ws_update.brandColor
+    if ws_update.status is not None:
+        update_fields["status"] = ws_update.status
     if ws_update.proposal_url is not None:
         update_fields["proposal_url"] = ws_update.proposal_url
     if ws_update.proposal_name is not None:
@@ -212,14 +212,9 @@ async def update_workspace(
 @router.delete("/{workspace_id}")
 async def delete_workspace(
     workspace_id: str,
-    current_user: dict = Depends(require_admin)
+    current_user: dict = Depends(require_operations_or_admin)
 ):
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
-
-    res = await db.workspaces.delete_one({"id": workspace_id})
-    if res.deleted_count == 0:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{workspace_id}' not found.")
-
-    return {"message": "Workspace deleted successfully", "workspace_id": workspace_id}
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Workspace deletion is disabled. Workspaces can only be marked as Inactive.",
+    )

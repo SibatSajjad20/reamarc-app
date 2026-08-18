@@ -5,6 +5,7 @@ class WorkspaceCreate(BaseModel):
     name: str = Field(..., example="Nova Luxury Living")
     initials: Optional[str] = Field(None, example="NL")
     brandColor: Optional[str] = Field("bg-indigo-600", example="bg-indigo-600")
+    status: Optional[str] = Field("active", example="active")
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None
     proposal_size: Optional[int] = None
@@ -26,6 +27,7 @@ class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
     initials: Optional[str] = None
     brandColor: Optional[str] = None
+    status: Optional[str] = None
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None
     proposal_size: Optional[int] = None
@@ -51,6 +53,7 @@ class WorkspaceResponse(BaseModel):
     name: str
     initials: str
     brandColor: str
+    status: Optional[str] = "active"
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None
     proposal_size: Optional[int] = None

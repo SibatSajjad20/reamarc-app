@@ -41,6 +41,29 @@ import asyncio
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
 
+    # Ensure all daily log records start cleanly from SYSTEM_START_DATE (2026-08-18)
+    try:
+        from app.database import get_database
+        db = get_database()
+        if db is not None:
+            await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-18"}})
+            await db.daily_logs.delete_many({"date": {"$lt": "2026-08-18"}})
+            # Ensure HR users have department "HR"
+            await db.users.update_many(
+                {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},
+                {"$set": {"department": "HR"}}
+            )
+            hr_users = await db.users.find({"role": {"$in": ["hr", "HR"]}}, {"id": 1, "full_name": 1, "name": 1}).to_list(100)
+            for h in hr_users:
+                h_name = h.get("full_name") or h.get("name")
+                if h_name:
+                    await db.daily_log_entries.update_many(
+                        {"$or": [{"user_id": h.get("id")}, {"resource_name": {"$regex": f"^{h_name}$", "$options": "i"}}], "department": {"$in": ["All", "", None]}},
+                        {"$set": {"department": "HR"}}
+                    )
+    except Exception as err:
+        logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
+
     # Start 6-hour background sync task for performance marketing
     async def periodic_marketing_sync():
         while True:

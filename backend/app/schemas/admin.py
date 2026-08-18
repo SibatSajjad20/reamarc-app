@@ -6,6 +6,7 @@ from typing import Optional, List
 class WorkspaceCreate(BaseModel):
     name: str = Field(..., min_length=2, description="Client workspace name")
     brand_color: Optional[str] = "bg-indigo-600"
+    status: Optional[str] = "active"
     initials: Optional[str] = None
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None
@@ -27,6 +28,7 @@ class WorkspaceCreate(BaseModel):
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
     brand_color: Optional[str] = None
+    status: Optional[str] = None
     initials: Optional[str] = None
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None
@@ -50,6 +52,7 @@ class WorkspaceResponse(BaseModel):
     name: str
     brandColor: Optional[str] = "bg-indigo-600"
     brand_color: Optional[str] = "bg-indigo-600"
+    status: Optional[str] = "active"
     initials: Optional[str] = None
     proposal_url: Optional[str] = None
     proposal_name: Optional[str] = None

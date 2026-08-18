@@ -98,13 +98,17 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
 
-  // Parse Workspace options for Client / Project dropdown (Strictly workspaces created by admin)
+  // Parse Workspace options for Client / Project dropdown (Strictly active workspaces)
+  const activeWorkspaces = React.useMemo(() => {
+    return workspaces.filter((w) => w.status !== 'inactive');
+  }, [workspaces]);
+
   const workspaceOptions = React.useMemo(() => {
-    return workspaces.map((w) => ({
+    return activeWorkspaces.map((w) => ({
       value: w.name,
       label: w.name,
     }));
-  }, [workspaces]);
+  }, [activeWorkspaces]);
 
   // Parse revisions string into points array
   const parseRevisionsToPoints = (raw: string): string[] => {
@@ -177,10 +181,17 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       const rawRole = currentUser?.role || 'team_member';
       const formattedRole = roleTitleMap[rawRole.toLowerCase()] || rawRole.replace('_', ' ');
 
+      const resolvedDept =
+        currentUser?.role === 'hr'
+          ? currentUser?.department && currentUser.department !== 'All'
+            ? currentUser.department
+            : 'HR'
+          : currentUser?.department || '';
+
       setDate(prefilledDate || getTodayIso());
       setResourceName(currentUser?.full_name || currentUser?.name || 'User');
       setRole(formattedRole);
-      setDepartment(currentUser?.department || '');
+      setDepartment(resolvedDept);
       setClientProject(workspaces[0]?.name || 'Internal Agency Work');
       setTaskDescription('');
       setTaskType('Scheduled Task');
@@ -284,6 +295,11 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 
     if (!taskDescription.trim()) {
       setErrorMessage('Task description is required.');
+      return;
+    }
+
+    if (date.trim() < '2026-08-18') {
+      setErrorMessage('Daily log entries cannot be logged for dates before 2026-08-18.');
       return;
     }
 
@@ -447,10 +463,11 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 type="date"
                 required
                 readOnly
+                min="2026-08-18"
                 max={getTodayIso()}
                 value={date}
                 className="w-full px-3 py-2 bg-zinc-100/90 dark:bg-zinc-900/90 border border-zinc-200/90 dark:border-zinc-800 rounded-xl text-xs text-zinc-700 dark:text-zinc-300 font-mono font-bold select-none cursor-not-allowed shadow-2xs"
-                title="Date is fixed to prevent future date logging"
+                title="Date is fixed to prevent future or pre-start date logging"
               />
             </div>
 

@@ -158,9 +158,69 @@ async def refresh_token(request: Request, response: Response):
     }
 
 
+from app.schemas.user import UserProfileUpdate
+
+
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
     return current_user
+
+
+@router.put("/me/profile", response_model=UserResponse)
+@router.patch("/me/profile", response_model=UserResponse)
+async def update_my_profile(
+    profile_in: UserProfileUpdate,
+    current_user: dict = Depends(get_current_user)
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    user_id = current_user["id"]
+    user_doc = await db.users.find_one({"id": user_id})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    update_fields = {}
+
+    if profile_in.full_name is not None and profile_in.full_name.strip():
+        update_fields["full_name"] = profile_in.full_name.strip()
+        update_fields["name"] = profile_in.full_name.strip()
+
+    if profile_in.email is not None:
+        new_email = str(profile_in.email).lower().strip()
+        if new_email != user_doc.get("email"):
+            existing = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
+            if existing:
+                raise HTTPException(status_code=400, detail="Email is already taken by another account.")
+            update_fields["email"] = new_email
+
+    if profile_in.phone is not None and profile_in.phone.strip():
+        update_fields["phone"] = profile_in.phone.strip()
+        update_fields["phone_number"] = profile_in.phone.strip()
+
+    if profile_in.new_password:
+        if len(profile_in.new_password) < 6:
+            raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+
+        current_hash = user_doc.get("hashed_password")
+        if current_hash:
+            if not profile_in.current_password or not verify_password(profile_in.current_password, current_hash):
+                raise HTTPException(status_code=400, detail="Current password is incorrect.")
+
+        update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
+
+    if not update_fields:
+        return _build_user_response(user_doc)
+
+    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+    updated_doc = await db.users.find_one_and_update(
+        {"id": user_id},
+        {"$set": update_fields},
+        return_document=True
+    )
+
+    return _build_user_response(updated_doc or user_doc)
 
 
 @router.post("/logout")

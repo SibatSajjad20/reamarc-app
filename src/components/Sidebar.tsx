@@ -11,6 +11,7 @@ import {
   Shield,
   TrendingUp,
   ClipboardList,
+  Settings,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -19,6 +20,7 @@ interface SidebarProps {
   onSignOut: () => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
+  onOpenProfileSettings?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -27,6 +29,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
   theme,
   onToggleTheme,
+  onOpenProfileSettings,
 }) => {
   const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -51,16 +54,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
+  const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
 
+  const deptLower = (user?.department || '').toLowerCase().trim();
+  const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
+  const canSeeMarketing =
+    isAdmin ||
+    isClient ||
+    ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
+
+  const canSeeAdmin = isAdmin || isHR || isOperations;
+  const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Operations Hub' : 'Operations Panel';
+  const adminBadge = isAdmin ? 'Admin' : isHR ? 'HR' : 'Ops';
+  const adminBadgeColor = isAdmin
+    ? 'bg-purple-500/20 text-purple-400 dark:text-purple-300 border border-purple-500/30'
+    : isHR
+    ? 'bg-blue-500/20 text-blue-400 dark:text-blue-300 border border-blue-500/30'
+    : 'bg-amber-500/20 text-amber-400 dark:text-amber-300 border border-amber-500/30';
+
   const navItems = [
-    {
-      id: 'marketing' as ViewType,
-      label: isClient ? 'Client Portal' : 'Performance Marketing',
-      icon: TrendingUp,
-      badge: 'V1.0',
-      badgeColor: 'bg-indigo-500/20 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30',
-    },
+    ...(canSeeMarketing
+      ? [
+          {
+            id: 'marketing' as ViewType,
+            label: isClient ? 'Client Portal' : 'Performance Marketing',
+            icon: TrendingUp,
+            badge: 'V1.0',
+            badgeColor: 'bg-indigo-500/20 text-indigo-400 dark:text-indigo-300 border border-indigo-500/30',
+          },
+        ]
+      : []),
     ...(!isClient
       ? [
           {
@@ -72,16 +96,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
           },
         ]
       : []),
-    ...(isAdmin || isHR
+    ...(canSeeAdmin
       ? [
           {
             id: 'admin' as ViewType,
-            label: isAdmin ? 'Admin Panel' : 'HR Operations Hub',
+            label: adminLabel,
             icon: Shield,
-            badge: isAdmin ? 'Admin' : 'HR',
-            badgeColor: isAdmin
-              ? 'bg-purple-500/20 text-purple-400 dark:text-purple-300 border border-purple-500/30'
-              : 'bg-blue-500/20 text-blue-400 dark:text-blue-300 border border-blue-500/30',
+            badge: adminBadge,
+            badgeColor: adminBadgeColor,
           },
         ]
       : []),
@@ -165,6 +187,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           );
         })}
+
+        {/* Profile Settings Nav Item */}
+        {user && onOpenProfileSettings && (
+          <button
+            type="button"
+            onClick={onOpenProfileSettings}
+            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/60 transition-all cursor-pointer ${
+              isCollapsed ? 'justify-center px-0' : ''
+            }`}
+            title={isCollapsed ? 'Profile Settings' : undefined}
+          >
+            <Settings className="w-4 h-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
+            {!isCollapsed && <span>Profile Settings</span>}
+          </button>
+        )}
       </nav>
 
       {/* Light / Dark Mode Toggle */}
@@ -214,7 +251,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-3 border-t border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between">
         {!isCollapsed ? (
           <div className="flex items-center justify-between w-full">
-            <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              className="flex items-center gap-2.5 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={onOpenProfileSettings}
+              title="Click to open Profile Settings"
+            >
               <div className="relative shrink-0">
                 <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center font-bold text-xs uppercase shadow-2xs">
                   {displayInitials}
@@ -237,24 +278,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate leading-tight mt-0.5 font-medium">{displayEmail}</p>
               </div>
             </div>
+
+            <div className="flex items-center gap-1">
+              {onOpenProfileSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenProfileSettings}
+                  className="text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                  title="Profile Settings"
+                >
+                  <Settings className="w-4 h-4" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onSignOut}
+                className="text-zinc-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
+                title={user ? 'Sign Out' : 'Sign In'}
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 mx-auto">
+            {onOpenProfileSettings && (
+              <button
+                type="button"
+                onClick={onOpenProfileSettings}
+                className="w-10 h-10 flex items-center justify-center rounded-xl text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer"
+                title="Profile Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </button>
+            )}
             <button
               type="button"
               onClick={onSignOut}
-              className="text-zinc-400 hover:text-rose-600 p-2 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
+              className="w-10 h-10 flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
               title={user ? 'Sign Out' : 'Sign In'}
             >
               <LogOut className="w-4 h-4" />
             </button>
           </div>
-        ) : (
-          <button
-            type="button"
-            onClick={onSignOut}
-            className="w-10 h-10 mx-auto flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
-            title={user ? 'Sign Out' : 'Sign In'}
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
         )}
       </div>
     </aside>

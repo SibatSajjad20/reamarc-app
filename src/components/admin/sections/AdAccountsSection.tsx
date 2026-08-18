@@ -17,6 +17,7 @@ interface AdAccountsSectionProps {
   onAddAccount: () => void;
   onEditAccount: (acc: AdAccount) => void;
   onDeleteAccount: (acc: AdAccount) => void;
+  canManageAdAccounts?: boolean;
 }
 
 export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
@@ -25,6 +26,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
+  canManageAdAccounts = true,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlatformFilter, setSelectedPlatformFilter] = useState<'All' | 'Meta Ads' | 'Google Ads'>('All');
@@ -73,44 +75,46 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
-      {/* Top Section Header */}
+      {/* Header */}
       <div className="p-5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#10121a] flex flex-wrap items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
-            <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">Ad Accounts</h1>
+            <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">Advertising Accounts</h1>
             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
               {filteredAccounts.length} {filteredAccounts.length === 1 ? 'account' : 'accounts'}
             </span>
           </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Manage Meta Ads and Google Ads accounts, API credentials, and workspace mapping
+            Meta Ads & Google Ads configuration linked to agency workspaces
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={onAddAccount}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer select-none"
-        >
-          <Plus className="w-4 h-4 stroke-[2.5]" />
-          <span>Connect Ad Account</span>
-        </button>
+        {canManageAdAccounts && (
+          <button
+            type="button"
+            onClick={onAddAccount}
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer select-none"
+          >
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            <span>Connect Ad Account</span>
+          </button>
+        )}
       </div>
 
-      {/* Controls & Search Bar */}
+      {/* Controls & Quick Filter Tabs */}
       <div className="p-4 border-b border-zinc-200 dark:border-zinc-800/80 bg-white/70 dark:bg-[#10121a]/70 backdrop-blur-sm flex flex-wrap items-center justify-between gap-3">
         <div className="relative max-w-md w-full">
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="Search ad accounts by name, platform, account ID, or workspace..."
+            placeholder="Search accounts by name, account ID, pixel, workspace..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all"
           />
         </div>
 
-        {/* Platform Quick Filter (Strictly All, Meta Ads, Google Ads) */}
+        {/* Quick Platform Filter Tabs */}
         <div className="flex items-center gap-1.5 flex-wrap">
           {(['All', 'Meta Ads', 'Google Ads'] as const).map((p) => {
             const isSelected = selectedPlatformFilter === p;
@@ -149,7 +153,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                 ? 'Try adjusting your search or platform filter.'
                 : 'Connect your first Meta Ads or Google Ads Account.'}
             </p>
-            {!searchQuery && selectedPlatformFilter === 'All' && (
+            {canManageAdAccounts && !searchQuery && selectedPlatformFilter === 'All' && (
               <button
                 type="button"
                 onClick={onAddAccount}
@@ -228,25 +232,27 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                   </div>
 
                   {/* Actions Footer */}
-                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
-                    <button
-                      type="button"
-                      onClick={() => onEditAccount(acc)}
-                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold transition cursor-pointer"
-                    >
-                      <Edit2 className="w-3.5 h-3.5 text-indigo-500" />
-                      <span>Edit & Credentials</span>
-                    </button>
+                  {canManageAdAccounts && (
+                    <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={() => onEditAccount(acc)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-bold transition cursor-pointer"
+                      >
+                        <Edit2 className="w-3.5 h-3.5 text-indigo-500" />
+                        <span>Edit & Credentials</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => onDeleteAccount(acc)}
-                      className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
-                      title="Delete Ad Account"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteAccount(acc)}
+                        className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                        title="Delete Ad Account"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}

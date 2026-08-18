@@ -4,7 +4,6 @@ import {
   Plus,
   Search,
   Edit2,
-  Trash2,
   Layers,
   HeartPulse,
   Flame,
@@ -17,6 +16,8 @@ import {
   ShieldAlert,
   CreditCard,
   Sparkles,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import type { Workspace } from '../../../types';
 import type { AdAccount } from '../../../types/admin';
@@ -27,8 +28,8 @@ interface WorkspacesSectionProps {
   adAccounts?: AdAccount[];
   onAddWorkspace: () => void;
   onEditWorkspace: (workspace: Workspace) => void;
-  onDeleteWorkspace: (workspace: Workspace) => void;
-  isAdmin: boolean;
+  onToggleStatus?: (workspace: Workspace) => void;
+  canManageWorkspaces?: boolean;
 }
 
 export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
@@ -36,11 +37,13 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
   adAccounts = [],
   onAddWorkspace,
   onEditWorkspace,
-  onDeleteWorkspace,
-  isAdmin,
+  onToggleStatus,
+  canManageWorkspaces = true,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<'All' | 'Retainer' | 'One-Time Project' | 'High Priority' | 'Emergency'>('All');
+  const [activeFilter, setActiveFilter] = useState<
+    'All' | 'Active' | 'Inactive' | 'Retainer' | 'One-Time Project' | 'High Priority' | 'Emergency'
+  >('All');
 
   const filteredWorkspaces = useMemo(() => {
     return workspaces.filter((w) => {
@@ -57,8 +60,15 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
         servicesStr.includes(q);
 
       // Filter match
+      const isInactive = w.status === 'inactive';
+      const isActive = !isInactive;
+
       let matchesFilter = true;
-      if (activeFilter === 'Retainer') {
+      if (activeFilter === 'Active') {
+        matchesFilter = isActive;
+      } else if (activeFilter === 'Inactive') {
+        matchesFilter = isInactive;
+      } else if (activeFilter === 'Retainer') {
         matchesFilter = (w.project_cycle || 'Retainer') === 'Retainer';
       } else if (activeFilter === 'One-Time Project') {
         matchesFilter = w.project_cycle === 'One-Time Project';
@@ -143,11 +153,11 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
             </span>
           </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Manage client lifecycle, proposals, services scope, contract timelines, and account health
+            Manage client lifecycle, proposals, services scope, contract timelines, active/inactive status, and account health
           </p>
         </div>
 
-        {isAdmin && (
+        {canManageWorkspaces && (
           <button
             type="button"
             onClick={onAddWorkspace}
@@ -174,7 +184,17 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
 
         {/* Quick Filter Tabs */}
         <div className="flex items-center gap-1.5 flex-wrap">
-          {(['All', 'Retainer', 'One-Time Project', 'High Priority', 'Emergency'] as const).map((tab) => {
+          {(
+            [
+              'All',
+              'Active',
+              'Inactive',
+              'Retainer',
+              'One-Time Project',
+              'High Priority',
+              'Emergency',
+            ] as const
+          ).map((tab) => {
             const isSelected = activeFilter === tab;
             return (
               <button
@@ -185,6 +205,10 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                   isSelected
                     ? tab === 'Emergency'
                       ? 'bg-rose-600 text-white shadow-2xs'
+                      : tab === 'Inactive'
+                      ? 'bg-zinc-700 text-white shadow-2xs'
+                      : tab === 'Active'
+                      ? 'bg-emerald-600 text-white shadow-2xs'
                       : tab === 'High Priority'
                       ? 'bg-amber-600 text-white shadow-2xs'
                       : 'bg-indigo-600 text-white shadow-2xs'
@@ -211,7 +235,7 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                 ? 'Try adjusting your search query or filter.'
                 : 'Create your first workspace to start organizing client proposals, services, and daily logs.'}
             </p>
-            {isAdmin && !searchQuery && activeFilter === 'All' && (
+            {canManageWorkspaces && !searchQuery && activeFilter === 'All' && (
               <button
                 type="button"
                 onClick={onAddWorkspace}
@@ -226,14 +250,19 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
             {filteredWorkspaces.map((ws) => {
               const linkedCount = adAccounts.filter((a) => a.workspace_id === ws.id).length;
+              const isInactive = ws.status === 'inactive';
 
               return (
                 <div
                   key={ws.id}
-                  className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-3xl p-5 shadow-xs hover:shadow-md hover:border-zinc-300 dark:hover:border-zinc-700 transition-all flex flex-col justify-between space-y-4"
+                  className={`bg-white dark:bg-[#12141c] border rounded-3xl p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between space-y-4 ${
+                    isInactive
+                      ? 'border-zinc-300 dark:border-zinc-700/60 bg-zinc-50/60 dark:bg-zinc-900/30 opacity-80'
+                      : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
+                  }`}
                 >
                   <div className="space-y-4">
-                    {/* Top Row: Avatar + Name + Health Badge */}
+                    {/* Top Row: Avatar + Name + Status & Health Badges */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div
@@ -251,9 +280,11 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                           </span>
                         </div>
                         <div className="min-w-0">
-                          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                            {ws.name}
-                          </h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                              {ws.name}
+                            </h3>
+                          </div>
                           <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
                             <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400">
                               {ws.project_cycle || 'Retainer'}
@@ -264,7 +295,45 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                         </div>
                       </div>
 
-                      {getHealthBadge(ws.health)}
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        {getHealthBadge(ws.health)}
+
+                        {/* Active / Inactive Status Badge */}
+                        {canManageWorkspaces && onToggleStatus ? (
+                          <button
+                            type="button"
+                            onClick={() => onToggleStatus(ws)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold transition cursor-pointer ${
+                              isInactive
+                                ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-700 hover:bg-emerald-50 hover:text-emerald-700'
+                                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-rose-50 hover:text-rose-700'
+                            }`}
+                            title={`Click to mark as ${isInactive ? 'Active' : 'Inactive'}`}
+                          >
+                            {isInactive ? (
+                              <>
+                                <XCircle className="w-3 h-3 text-zinc-500" />
+                                <span>Inactive</span>
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                                <span>Active</span>
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isInactive
+                                ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-300 dark:border-zinc-700'
+                                : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                            }`}
+                          >
+                            {isInactive ? 'Inactive' : 'Active'}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Contract Timeline */}
@@ -302,7 +371,12 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                       <div className="pt-1">
                         <button
                           type="button"
-                          onClick={() => downloadFileAttachment(ws.proposal_url!, ws.proposal_name || `${ws.name}_Proposal`)}
+                          onClick={() =>
+                            downloadFileAttachment(
+                              ws.proposal_url!,
+                              ws.proposal_name || `${ws.name}_Proposal`
+                            )
+                          }
                           className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 border border-indigo-200/70 dark:border-indigo-800/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition cursor-pointer group/proposal"
                           title="Click to Download Proposal Attachment"
                         >
@@ -401,26 +475,17 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                       <span>{linkedCount} {linkedCount === 1 ? 'Ad Account' : 'Ad Accounts'}</span>
                     </span>
 
-                    {isAdmin && (
+                    {canManageWorkspaces && (
                       <div className="flex items-center gap-1">
                         <button
                           type="button"
                           onClick={() => onEditWorkspace(ws)}
-                          className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer"
+                          className="p-2 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer flex items-center gap-1 text-xs font-semibold"
                           title="Edit Workspace"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
+                          <span>Edit</span>
                         </button>
-                        {!ws.isDefault && (
-                          <button
-                            type="button"
-                            onClick={() => onDeleteWorkspace(ws)}
-                            className="p-2 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition cursor-pointer"
-                            title="Delete Workspace"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>

@@ -4,6 +4,7 @@ import {
   X,
   User,
   Mail,
+  Phone,
   Key,
   Layers,
   Shield,
@@ -14,7 +15,25 @@ import {
 } from 'lucide-react';
 import type { UserRole } from '../../types/auth';
 import type { AdminMember, UpdateMemberPayload } from '../../types/admin';
-import { useSystemConfig } from '../../hooks/useSystemConfig';
+
+export const DEPARTMENTS = [
+  'Website',
+  'Creative',
+  'Content',
+  'SEO',
+  'Performance Marketing',
+  'AI',
+  'HR',
+] as const;
+
+export const ROLES: { id: UserRole; label: string; description: string }[] = [
+  { id: 'team_member', label: 'Team Member', description: 'Records own tasks & daily logs' },
+  { id: 'team_lead', label: 'Team Lead', description: 'Leads department and oversees team logs' },
+  { id: 'operations', label: 'Operations', description: 'Cross-department operations & workspaces' },
+  { id: 'hr', label: 'HR', description: 'All departments logs & compliance access' },
+  { id: 'admin', label: 'Admin', description: 'Full system control and user management' },
+  { id: 'client', label: 'Client', description: 'Sandbox Client Portal & Approvals only' },
+];
 
 interface EditMemberModalProps {
   isOpen: boolean;
@@ -38,7 +57,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   onClose,
   onSubmit,
 }) => {
-  const { departments: dynamicDepts, roles: dynamicRoles } = useSystemConfig();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -57,7 +75,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setEmail(member.email || '');
       setPhone(member.phone || '');
       setRole((member.role as any) === 'member' ? 'team_member' : member.role || 'team_member');
-      setDepartment(member.department || 'Website');
+      setDepartment(member.department && member.department !== 'All' ? member.department : 'Website');
       setPassword('');
       setIsActive(member.is_active !== undefined ? member.is_active : true);
       setCopied(false);
@@ -108,13 +126,26 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setErrorMsg('Work Email is required');
       return;
     }
+    if (!phone.trim()) {
+      setErrorMsg('Phone Number is compulsory');
+      return;
+    }
+
+    let deptValue: string | undefined = department;
+    if (role === 'admin' || role === 'operations') {
+      deptValue = 'All';
+    } else if (role === 'hr') {
+      deptValue = 'HR';
+    } else if (role === 'client') {
+      deptValue = undefined;
+    }
 
     const payload: UpdateMemberPayload = {
       full_name: fullName.trim(),
       email: email.trim().toLowerCase(),
-      phone: phone.trim() || undefined,
+      phone: phone.trim(),
       role,
-      department: role === 'admin' || role === 'client' ? undefined : department,
+      department: deptValue,
       is_active: isActive,
     };
 
@@ -215,13 +246,13 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               <span>Role Assignment <span className="text-rose-500">*</span></span>
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {dynamicRoles.map((r) => {
+              {ROLES.map((r) => {
                 const isSelected = role === r.id;
                 return (
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => setRole(r.id as UserRole)}
+                    onClick={() => setRole(r.id)}
                     className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
                       isSelected
                         ? 'bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20'
@@ -244,10 +275,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Department</span>
+                <span>Department <span className="text-rose-500">*</span></span>
               </label>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                {dynamicDepts.map((dept) => {
+                {DEPARTMENTS.map((dept) => {
                   const isSelected = department === dept;
                   return (
                     <button
@@ -268,13 +299,29 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             </div>
           )}
 
-          {/* Phone Number */}
+          {/* Department Note for Admin / HR / Operations */}
+          {role === 'hr' && (
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-2">
+              <Shield className="w-4 h-4 shrink-0" />
+              <span>Department assigned as <strong>"HR"</strong> with full global directory & compliance management.</span>
+            </div>
+          )}
+          {(role === 'admin' || role === 'operations') && (
+            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-2">
+              <Shield className="w-4 h-4 shrink-0" />
+              <span>Department assigned as <strong>"All"</strong> with full global access.</span>
+            </div>
+          )}
+
+          {/* Phone Number (Compulsory) */}
           <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-              Phone / WhatsApp Number <span className="text-zinc-400 font-normal text-[10px]">(Optional for 1-click reminders)</span>
+            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Phone / WhatsApp Number <span className="text-rose-500">*</span></span>
             </label>
             <input
               type="tel"
+              required
               placeholder="+92 300 1234567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}

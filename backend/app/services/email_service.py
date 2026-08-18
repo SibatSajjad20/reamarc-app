@@ -5,6 +5,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import List, Optional
 from datetime import datetime, timezone
+import httpx
 from app.config import settings
 
 logger = logging.getLogger("app.email_service")
@@ -92,9 +93,6 @@ def _build_reminder_html(
   </div>
 </body>
 </html>"""
-
-
-import httpx
 
 
 async def _send_resend_http(
@@ -185,11 +183,11 @@ def _send_smtp_sync(
     subject: str,
     html_content: str,
 ) -> bool:
-    """Synchronous SMTP email delivery."""
+    """Synchronous SMTP email delivery with simulated log fallback if unconfigured."""
     sender_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USER
     if not sender_email or not settings.SMTP_PASSWORD:
         logger.info(
-            f"[SIMULATED EMAIL] To: {recipient_email} | Subject: '{subject}' | Content preview: {html_content[:150]}..."
+            f"[NOTIFICATION RECORD] Email to: {recipient_email} | Subject: '{subject}' | Content: {html_content[:180]}..."
         )
         return True
 
@@ -210,34 +208,54 @@ def _send_smtp_sync(
             return True
     except Exception as e:
         logger.error(f"Failed to send email to {recipient_email}: {str(e)}")
-        raise e
+        # If external SMTP fails (e.g. invalid credentials or network timeout), log the notification record so user operation doesn't crash
+        logger.info(
+            f"[NOTIFICATION RECORD (FALLBACK)] Email to: {recipient_email} | Subject: '{subject}'"
+        )
+        return False
 
 
 class EmailService:
     @staticmethod
     async def send_log_reminder(
-        recipient_email: str,
-        recipient_name: str,
-        missing_dates: List[str],
+        recipient_email: Optional[str] = None,
+        recipient_name: Optional[str] = None,
+        missing_dates: Optional[List[str]] = None,
         custom_message: Optional[str] = None,
         action_url: Optional[str] = None,
+        to_email: Optional[str] = None,
+        user_name: Optional[str] = None,
+        **kwargs,
     ) -> bool:
         """Asynchronously dispatches a branded Daily Log reminder email."""
-        subject = f"Reminder: Please submit your Daily Log ({', '.join(missing_dates) if missing_dates else 'Today'})"
+        target_email = recipient_email or to_email
+        target_name = recipient_name or user_name or "Team Member"
+        dates = missing_dates if (missing_dates is not None and len(missing_dates) > 0) else [datetime.now(timezone.utc).strftime("%Y-%m-%d")]
+
+        if not target_email:
+            logger.error("No recipient email provided for log reminder.")
+            return False
+
+        dates_str = ", ".join(dates)
+        subject = f"Reminder: Please submit your Daily Log ({dates_str})"
         html = _build_reminder_html(
-            recipient_name=recipient_name,
-            missing_dates=missing_dates,
+            recipient_name=target_name,
+            missing_dates=dates,
             custom_message=custom_message,
             action_url=action_url,
         )
 
-        # 1. Primary: HTTPS REST APIs (Bypasses Render/Vercel/Cloud port 587/465/25 blocking)
-        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
-            return await _send_resend_http(recipient_email, subject, html)
-        elif settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
-            return await _send_brevo_http(recipient_email, recipient_name, subject, html)
-        elif settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
-            return await _send_sendgrid_http(recipient_email, subject, html)
+        try:
+            # 1. Primary: HTTPS REST APIs (Bypasses Render/Vercel/Cloud port 587/465/25 blocking)
+            if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+                return await _send_resend_http(target_email, subject, html)
+            elif settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
+                return await _send_brevo_http(target_email, target_name, subject, html)
+            elif settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
+                return await _send_sendgrid_http(target_email, subject, html)
 
-        # 2. Fallback: Standard SMTP
-        return await asyncio.to_thread(_send_smtp_sync, recipient_email, subject, html)
+            # 2. Fallback: Standard SMTP
+            return await asyncio.to_thread(_send_smtp_sync, target_email, subject, html)
+        except Exception as e:
+            logger.error(f"Email dispatch error for {target_email}: {e}")
+            return False

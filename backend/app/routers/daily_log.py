@@ -93,6 +93,9 @@ def _generate_sheet_list() -> List[str]:
     return sheets
 
 
+SYSTEM_START_DATE = "2026-08-18"
+
+
 def is_workday(date_obj) -> bool:
     """
     Evaluates whether a given date is an official working day:
@@ -109,10 +112,15 @@ def is_workday(date_obj) -> bool:
 
 
 def _get_recent_workdays(days: int = 7) -> List[str]:
-    """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first."""
+    """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first, bounded by SYSTEM_START_DATE."""
     workdays: List[str] = []
     current = datetime.now(timezone.utc).date()
-    while len(workdays) < days:
+    try:
+        start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
+    except Exception:
+        start_date_obj = current
+
+    while len(workdays) < days and current >= start_date_obj:
         if is_workday(current):
             workdays.append(current.isoformat())
         current -= timedelta(days=1)
@@ -129,7 +137,12 @@ async def get_my_log_activity(
     uid = current_user["id"]
     fname = current_user.get("full_name") or current_user.get("name", "User")
     user_role = current_user.get("role", "team_member")
-    is_exempt = user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.CLIENT.value, "client")
+    is_exempt = user_role in (
+        UserRole.ADMIN.value, "admin",
+        UserRole.HR.value, "hr",
+        UserRole.OPERATIONS.value, "operations",
+        UserRole.CLIENT.value, "client"
+    )
 
     if is_exempt or db is None:
         return {
@@ -258,8 +271,8 @@ async def get_entries(
     query_filter: dict = {}
 
     # 1. ROLE-BASED DATA SCOPING
-    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr"):
-        # Admin & HR have global visibility across all departments and members
+    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.OPERATIONS.value, "operations"):
+        # Admin, HR & Operations have global visibility across all departments and members
         if department and department.lower() != "all":
             query_filter["department"] = {"$regex": f"^{department.strip()}$", "$options": "i"}
         if user_id:
@@ -430,6 +443,13 @@ async def create_entry(
 
     now_iso = datetime.now(timezone.utc).isoformat()
     
+    # Restrict log submission date: cannot be earlier than SYSTEM_START_DATE
+    if entry_in.date and entry_in.date < SYSTEM_START_DATE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Daily logs cannot be submitted for dates earlier than {SYSTEM_START_DATE}."
+        )
+
     # Calculate month sheet dynamically from entry date if available
     date_val = entry_in.date
     if date_val:
@@ -495,16 +515,20 @@ async def update_entry(
     entry_uid = existing_entry.get("user_id")
     entry_rname = existing_entry.get("resource_name")
     entry_dept = existing_entry.get("department")
-    curr_name = current_user.get("name") or current_user.get("full_name")
+    curr_id = current_user.get("id") or str(current_user.get("_id"))
+    curr_name = (current_user.get("full_name") or current_user.get("name") or "").strip().lower()
 
     if not is_admin:
-        is_own_entry = (entry_uid and entry_uid == current_user["id"]) or (not entry_uid and entry_rname == curr_name)
+        is_own_entry = (
+            (entry_uid and str(entry_uid) == str(curr_id))
+            or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
+        )
         is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
 
         if not (is_own_entry or is_dept_lead_entry):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to edit this log entry.",
+                detail="You do not have permission to edit this log entry. Only the author who logged the entry can edit it.",
             )
 
     update_data = {k: v for k, v in entry_in.model_dump().items() if v is not None}
@@ -516,6 +540,11 @@ async def update_entry(
     update_data.pop("department", None)
 
     if "date" in update_data and update_data["date"]:
+        if str(update_data["date"]) < SYSTEM_START_DATE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily log date cannot be set earlier than {SYSTEM_START_DATE}."
+            )
         try:
             dt = datetime.strptime(str(update_data["date"]), "%Y-%m-%d")
             update_data["month_sheet"] = dt.strftime("%B - %Y")
@@ -582,16 +611,20 @@ async def delete_entry(
     entry_uid = existing_entry.get("user_id")
     entry_rname = existing_entry.get("resource_name")
     entry_dept = existing_entry.get("department")
-    curr_name = current_user.get("name") or current_user.get("full_name")
+    curr_id = current_user.get("id") or str(current_user.get("_id"))
+    curr_name = (current_user.get("full_name") or current_user.get("name") or "").strip().lower()
 
     if not is_admin:
-        is_own_entry = (entry_uid and entry_uid == current_user["id"]) or (not entry_uid and entry_rname == curr_name)
+        is_own_entry = (
+            (entry_uid and str(entry_uid) == str(curr_id))
+            or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
+        )
         is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
 
         if not (is_own_entry or is_dept_lead_entry):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to delete this log entry.",
+                detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
             )
 
     res = await db.daily_log_entries.delete_one({"id": entry_id})

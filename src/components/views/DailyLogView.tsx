@@ -181,6 +181,7 @@ export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
+  const isOperations = user?.role === 'operations';
   const isLead = user?.role === 'team_lead';
   const userDept = user?.department || '';
   const { departments } = useSystemConfig();
@@ -238,6 +239,23 @@ export const DailyLogView: React.FC = () => {
   // Per-Column Filters State
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [openFilterColKey, setOpenFilterColKey] = useState<string | null>(null);
+
+  // Close column filter popover on outside click
+  useEffect(() => {
+    if (!openFilterColKey) return;
+    const handleOutsideClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target &&
+        !target.closest(`[data-filter-popover="${openFilterColKey}"]`) &&
+        !target.closest(`[data-filter-btn="${openFilterColKey}"]`)
+      ) {
+        setOpenFilterColKey(null);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [openFilterColKey]);
 
   // New Field State inside Modal
   const [newFieldLabel, setNewFieldLabel] = useState('');
@@ -364,16 +382,15 @@ export const DailyLogView: React.FC = () => {
     setIsEntryModalOpen(true);
   };
 
-  // Permission check: only the author can edit (Admins and HR cannot edit)
+  // Permission check: only the author who logged the entry can edit or delete their own entry
   const canEditEntry = useCallback((entry: DailyLogEntry) => {
-    if (isAdmin || isHR) return false;
     const currentUserId = user?.id;
     const currentUserName = (user?.full_name || user?.name || '').trim().toLowerCase();
     
     if (entry.user_id && currentUserId && entry.user_id === currentUserId) return true;
     if (entry.resource_name && currentUserName && entry.resource_name.trim().toLowerCase() === currentUserName) return true;
     return false;
-  }, [isAdmin, isHR, user]);
+  }, [user]);
 
   // Open Edit Modal
   const handleOpenEditModal = (entry: DailyLogEntry) => {
@@ -847,11 +864,11 @@ export const DailyLogView: React.FC = () => {
 
           {/* Department Tabs */}
           {departments.map((dept) => {
-            // For regular members and leads, hide departments they don't belong to if not admin/hr
-            if (!isAdmin && !isHR && isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
+            // For regular members and leads, hide departments they don't belong to if not admin/hr/operations
+            if (!isAdmin && !isHR && !isOperations && isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
               return null;
             }
-            if (!isAdmin && !isHR && !isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
+            if (!isAdmin && !isHR && !isOperations && !isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
               return null;
             }
 
@@ -877,37 +894,41 @@ export const DailyLogView: React.FC = () => {
       </div>
 
       {/* Smart Missing Work Log Banner */}
-      {!isAdmin && !isHR && myActivity && myActivity.missing_dates && myActivity.missing_dates.length > 0 && (
-        <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-            <div>
-              <span className="font-bold">Pending Log Submission: </span>
-              <span>
-                You haven't recorded entries for{' '}
-                <strong className="underline font-mono font-bold">
-                  {myActivity.missing_dates.slice(0, 3).join(', ')}
-                  {myActivity.missing_dates.length > 3 ? ` (+${myActivity.missing_dates.length - 3} more)` : ''}
-                </strong>
-                .
-              </span>
+      {(() => {
+        const validMissingDates = (myActivity?.missing_dates || []).filter((d) => d >= '2026-08-18');
+        if (isAdmin || validMissingDates.length === 0) return null;
+        return (
+          <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
+            <div className="flex items-center gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+              <div>
+                <span className="font-bold">Pending Log Submission: </span>
+                <span>
+                  You haven't recorded entries for{' '}
+                  <strong className="underline font-mono font-bold">
+                    {validMissingDates.slice(0, 3).join(', ')}
+                    {validMissingDates.length > 3 ? ` (+${validMissingDates.length - 3} more)` : ''}
+                  </strong>
+                  .
+                </span>
+              </div>
             </div>
+            <button
+              type="button"
+              onClick={() => {
+                setPrefilledDate(validMissingDates[0]);
+                setSelectedEntry(null);
+                setEntryModalMode('create');
+                setIsEntryModalOpen(true);
+              }}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>+ Log for {validMissingDates[0]}</span>
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              setPrefilledDate(myActivity.missing_dates[0]);
-              setSelectedEntry(null);
-              setEntryModalMode('create');
-              setIsEntryModalOpen(true);
-            }}
-            className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>+ Log for {myActivity.missing_dates[0]}</span>
-          </button>
-        </div>
-      )}
+        );
+      })()}
 
       {/* OCC Conflict Warning Banner */}
       {occConflictMessage && (
@@ -992,6 +1013,7 @@ export const DailyLogView: React.FC = () => {
                           {isFilterable && (
                             <button
                               type="button"
+                              data-filter-btn={col.key}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setOpenFilterColKey(isFilterOpen ? null : col.key);
@@ -1017,6 +1039,7 @@ export const DailyLogView: React.FC = () => {
                         {/* Popover Filter Menu */}
                         {isFilterOpen && (
                           <div
+                            data-filter-popover={col.key}
                             onClick={(e) => e.stopPropagation()}
                             className="absolute left-0 top-full mt-1 z-50 w-52 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-2.5 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 font-normal"
                           >
@@ -1122,12 +1145,17 @@ export const DailyLogView: React.FC = () => {
                       <tr
                         key={row.id}
                         style={{ height: `${rowH}px` }}
-                        onDoubleClick={() => {
+                        onDoubleClick={(e) => {
+                          const target = e.target as HTMLElement;
+                          if (target && target.closest('button, a, input, select')) return;
                           if (canEditEntry(row)) {
                             handleOpenEditModal(row);
                           }
                         }}
-                        className="hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group"
+                        className={`hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group ${
+                          canEditEntry(row) ? 'cursor-pointer' : ''
+                        }`}
+                        title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
                       >
                         {/* Row Index */}
                         <td className="p-2 text-center font-mono text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">

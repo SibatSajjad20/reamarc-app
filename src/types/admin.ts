@@ -111,6 +111,7 @@ export interface UpdateAdAccountPayload {
 export interface CreateWorkspacePayload {
   name: string;
   brand_color?: string;
+  status?: 'active' | 'inactive';
   initials?: string;
   proposal_url?: string;
   proposal_name?: string;
@@ -133,6 +134,7 @@ export interface CreateWorkspacePayload {
 export interface UpdateWorkspacePayload {
   name?: string;
   brand_color?: string;
+  status?: 'active' | 'inactive';
   initials?: string;
   proposal_url?: string;
   proposal_name?: string;

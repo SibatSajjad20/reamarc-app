@@ -14,6 +14,16 @@ export const authService = {
     return apiClient.get<AuthUser>('/auth/me');
   },
 
+  async updateProfile(payload: {
+    full_name?: string;
+    email?: string;
+    phone?: string;
+    current_password?: string;
+    new_password?: string;
+  }): Promise<AuthUser> {
+    return apiClient.put<AuthUser>('/auth/me/profile', payload);
+  },
+
   async logout(): Promise<void> {
     try {
       await apiClient.post('/auth/logout');

@@ -18,6 +18,7 @@ export const DEFAULT_DEPARTMENTS: string[] = [
   'SEO',
   'Performance Marketing',
   'AI',
+  'HR',
 ];
 
 export const DEFAULT_ROLES: SystemRole[] = [

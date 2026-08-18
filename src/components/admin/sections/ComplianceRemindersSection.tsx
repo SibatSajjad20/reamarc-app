@@ -44,7 +44,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
 
   // Calculations & Compliance KPIs
   const monitoredMembers = useMemo(
-    () => activityList.filter((a) => a.role !== 'admin' && a.role !== 'hr' && a.role !== 'client'),
+    () => activityList.filter((a) => a.role !== 'admin' && a.role !== 'client'),
     [activityList]
   );
 
@@ -364,7 +364,14 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 text-xs">
               {filteredActivities.map((act) => {
                 const isSending = isSendingReminder[act.user_id];
-                const hasMissing = act.days_missed > 0 || !act.logged_today;
+                const todayIso = new Date().toISOString().split('T')[0];
+                const effectiveDates =
+                  act.missing_dates && act.missing_dates.length > 0
+                    ? act.missing_dates
+                    : !act.logged_today
+                    ? [todayIso]
+                    : [];
+                const hasMissing = effectiveDates.length > 0;
 
                 return (
                   <tr key={act.user_id} className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 transition-colors">
@@ -397,19 +404,19 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
 
                     {/* Missing Workdays */}
                     <td className="py-3 px-4">
-                      {act.days_missed > 0 ? (
+                      {effectiveDates.length > 0 ? (
                         <div className="space-y-1">
                           <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 dark:text-rose-400">
-                            {act.days_missed} {act.days_missed === 1 ? 'day' : 'days'} missed
+                            {effectiveDates.length} {effectiveDates.length === 1 ? 'day' : 'days'} missed
                           </span>
                           <div className="flex flex-wrap gap-1">
-                            {act.missing_dates.slice(0, 3).map((d) => (
+                            {effectiveDates.slice(0, 3).map((d) => (
                               <span key={d} className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20">
                                 {d}
                               </span>
                             ))}
-                            {act.missing_dates.length > 3 && (
-                              <span className="text-[10px] text-zinc-400">+{act.missing_dates.length - 3}</span>
+                            {effectiveDates.length > 3 && (
+                              <span className="text-[10px] text-zinc-400">+{effectiveDates.length - 3}</span>
                             )}
                           </div>
                         </div>
@@ -445,7 +452,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                           {act.phone && (
                             <a
                               href={`https://wa.me/${act.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                                `Hi ${act.full_name}, reminder to submit your Daily Log on Reamarc for ${act.missing_dates.join(', ')}.`
+                                `Hi ${act.full_name}, reminder to submit your Daily Log on Reamarc for ${effectiveDates.join(', ')}.`
                               )}`}
                               target="_blank"
                               rel="noreferrer"
@@ -460,7 +467,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                             type="button"
                             onClick={() => {
                               setCustomReminderUser(act);
-                              setCustomMessage(`Hi ${act.full_name}, please log your tasks for ${act.missing_dates.join(', ')}.`);
+                              setCustomMessage(`Hi ${act.full_name}, please log your tasks for ${effectiveDates.join(', ')}.`);
                             }}
                             className="p-1.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 transition cursor-pointer"
                             title="Custom Message Reminder"

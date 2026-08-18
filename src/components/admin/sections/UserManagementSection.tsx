@@ -7,10 +7,30 @@ import {
   Trash2,
   Shield,
   Layers,
+  Lock,
 } from 'lucide-react';
 import type { AdminMember } from '../../../types/admin';
-import { useSystemConfig } from '../../../hooks/useSystemConfig';
 import { CustomSelect } from '../../ui/CustomSelect';
+import { useAuth } from '../../../context/AuthContext';
+
+export const SYSTEM_DEPARTMENTS = [
+  'Website',
+  'Creative',
+  'Content',
+  'SEO',
+  'Performance Marketing',
+  'AI',
+  'HR',
+];
+
+export const SYSTEM_ROLES = [
+  { id: 'admin', label: 'Super Admin' },
+  { id: 'hr', label: 'HR' },
+  { id: 'operations', label: 'Operations' },
+  { id: 'team_lead', label: 'Team Lead' },
+  { id: 'team_member', label: 'Team Member' },
+  { id: 'client', label: 'Client' },
+];
 
 interface UserManagementSectionProps {
   members: AdminMember[];
@@ -18,7 +38,7 @@ interface UserManagementSectionProps {
   onAddMember: () => void;
   onEditMember: (member: AdminMember) => void;
   onDeleteMember: (member: AdminMember) => void;
-  isAdmin: boolean;
+  canManageMembers?: boolean;
 }
 
 export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
@@ -27,8 +47,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   onAddMember,
   onEditMember,
   onDeleteMember,
-  isAdmin,
+  canManageMembers = true,
 }) => {
+  const { user: currentUser } = useAuth();
+  const isCurrentAdmin = currentUser?.role === 'admin';
+
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
@@ -36,24 +59,40 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   const filteredMembers = useMemo(() => {
     return members.filter((m) => {
       const q = searchQuery.toLowerCase().trim();
+      const isGlobalRole = m.role === 'admin' || m.role === 'operations';
+      const effectiveDept = isGlobalRole ? 'All' : m.department || '';
+
       const matchesSearch =
         !q ||
         (m.full_name && m.full_name.toLowerCase().includes(q)) ||
         (m.email && m.email.toLowerCase().includes(q)) ||
-        (m.department && m.department.toLowerCase().includes(q));
+        (m.phone && m.phone.toLowerCase().includes(q)) ||
+        (effectiveDept && effectiveDept.toLowerCase().includes(q)) ||
+        (m.role && m.role.toLowerCase().includes(q));
 
-      const matchesRole =
-        roleFilter === 'all' ||
-        m.role === roleFilter ||
-        (roleFilter === 'team_member' && (m.role === 'member' || m.role === 'team_member'));
-
+      const matchesRole = roleFilter === 'all' || m.role.toLowerCase() === roleFilter.toLowerCase();
       const matchesDept =
         departmentFilter === 'all' ||
-        (m.department && m.department.toLowerCase() === departmentFilter.toLowerCase());
+        (isGlobalRole && departmentFilter === 'All') ||
+        (!isGlobalRole && (m.department || '').toLowerCase() === departmentFilter.toLowerCase());
 
       return matchesSearch && matchesRole && matchesDept;
     });
   }, [members, searchQuery, roleFilter, departmentFilter]);
+
+  const departmentOptions = useMemo(() => {
+    return [
+      { value: 'all', label: 'All Departments' },
+      ...SYSTEM_DEPARTMENTS.map((dept) => ({ value: dept, label: dept })),
+    ];
+  }, []);
+
+  const roleOptions = useMemo(() => {
+    return [
+      { value: 'all', label: 'All Roles' },
+      ...SYSTEM_ROLES.map((r) => ({ value: r.id, label: r.label })),
+    ];
+  }, []);
 
   const getRoleBadge = (role: string) => {
     const norm = role.toLowerCase();
@@ -61,7 +100,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
           <Shield className="w-3.5 h-3.5" />
-          <span>Admin</span>
+          <span>Super Admin</span>
         </span>
       );
     }
@@ -69,6 +108,14 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
           <span>HR</span>
+        </span>
+      );
+    }
+    if (norm === 'operations' || norm === 'ops') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+          <Shield className="w-3.5 h-3.5" />
+          <span>Operations</span>
         </span>
       );
     }
@@ -81,7 +128,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
     }
     if (norm === 'client') {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
           <span>Client</span>
         </span>
       );
@@ -107,18 +154,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
     return 'U';
   };
 
-  const { departments, roles } = useSystemConfig();
-
-  const departmentOptions = [
-    { value: 'all', label: 'All Departments' },
-    ...departments.map((d) => ({ value: d, label: d })),
-  ];
-
-  const roleOptions = [
-    { value: 'all', label: 'All Roles' },
-    ...roles.map((r) => ({ value: r.id, label: r.label })),
-  ];
-
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
       {/* Top Section Header & Controls */}
@@ -135,7 +170,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
           </p>
         </div>
 
-        {isAdmin && (
+        {canManageMembers && (
           <button
             type="button"
             onClick={onAddMember}
@@ -154,7 +189,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="Search by name, email, department..."
+            placeholder="Search by name, email, department, phone..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
@@ -212,12 +247,15 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                   <th className="py-3 px-4">Member</th>
                   <th className="py-3 px-4">Role</th>
                   <th className="py-3 px-4">Department</th>
-                  {isAdmin && <th className="py-3 px-4 text-right">Actions</th>}
+                  <th className="py-3 px-4">Contact</th>
+                  {canManageMembers && <th className="py-3 px-4 text-right">Actions</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 text-xs">
                 {filteredMembers.map((m) => {
                   const initials = getInitials(m.full_name, m.email);
+                  const isGlobalRole = m.role === 'admin' || m.role === 'hr' || m.role === 'operations';
+                  const displayDept = isGlobalRole ? 'All' : m.department;
 
                   return (
                     <tr
@@ -244,36 +282,59 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
 
                       {/* Department */}
                       <td className="py-3.5 px-4">
-                        {m.department ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700">
-                            {m.department}
+                        {displayDept ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold ${
+                              isGlobalRole
+                                ? 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20'
+                                : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700'
+                            }`}
+                          >
+                            {displayDept}
                           </span>
                         ) : (
                           <span className="text-zinc-400 italic text-[11px]">—</span>
                         )}
                       </td>
 
+                      {/* Contact Phone */}
+                      <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 font-mono text-[11px]">
+                        {m.phone || '—'}
+                      </td>
+
                       {/* Actions */}
-                      {isAdmin && (
+                      {canManageMembers && (
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            <button
-                              type="button"
-                              onClick={() => onEditMember(m)}
-                              className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
-                              title="Edit member"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            {m.role !== 'admin' && (
-                              <button
-                                type="button"
-                                onClick={() => onDeleteMember(m)}
-                                className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
-                                title="Delete member"
+                            {m.role === 'admin' && !isCurrentAdmin ? (
+                              <span
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/60 dark:border-zinc-700/60"
+                                title="Super Admin is protected and can only be modified by the Super Admin"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                                <Lock className="w-3 h-3" />
+                                <span>Protected</span>
+                              </span>
+                            ) : (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => onEditMember(m)}
+                                  className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                                  title="Edit member"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                {m.role !== 'admin' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => onDeleteMember(m)}
+                                    className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                                    title="Delete member"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </>
                             )}
                           </div>
                         </td>

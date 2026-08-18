@@ -6,7 +6,7 @@ class MemberCreate(BaseModel):
     full_name: str = Field(..., min_length=2, description="Member's full name")
     email: EmailStr = Field(..., description="Corporate or work email address")
     role: UserRole = UserRole.TEAM_MEMBER
-    phone: Optional[str] = None
+    phone: str = Field(..., min_length=5, description="Member's contact phone number")
     department: Optional[str] = None
     temporary_password: Optional[str] = None
     send_invite_email: bool = True
@@ -20,6 +20,13 @@ class MemberUpdate(BaseModel):
     role: Optional[UserRole] = None
     department: Optional[str] = None
     is_active: Optional[bool] = None
+
+class UserProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, min_length=2)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = Field(None, min_length=6)
 
 class MemberResponse(BaseModel):
     id: str
@@ -55,7 +62,11 @@ class ReminderRequest(BaseModel):
     custom_message: Optional[str] = None
 
 class ReminderResponse(BaseModel):
-    success: bool
+    success: bool = True
     message: str
-    user_id: str
-    channel: str
+    user_id: Optional[str] = None
+    channel: str = "email"
+    recipient_email: Optional[str] = None
+    recipient_name: Optional[str] = None
+    missing_dates: List[str] = []
+    timestamp: Optional[str] = None

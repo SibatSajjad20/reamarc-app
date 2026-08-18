@@ -123,6 +123,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Engagement & Contract
+  const [status, setStatus] = useState<'active' | 'inactive'>('active');
   const [projectCycle, setProjectCycle] = useState<'Retainer' | 'One-Time Project'>('Retainer');
   const [priority, setPriority] = useState<'High' | 'Medium' | 'Low'>('Medium');
   const [health, setHealth] = useState<'Excellent' | 'Good' | 'Moderate' | 'Emergency'>('Good');
@@ -183,6 +184,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         setProjectCycle(workspaceToEdit.project_cycle || 'Retainer');
         setPriority(workspaceToEdit.priority || 'Medium');
         setHealth(workspaceToEdit.health || 'Good');
+        setStatus(workspaceToEdit.status === 'inactive' ? 'inactive' : 'active');
         setContractStartDate(workspaceToEdit.contract_start_date || '');
         setContractEndDate(workspaceToEdit.contract_end_date || '');
         setSelectedServices(workspaceToEdit.services || []);
@@ -196,6 +198,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         setName('');
         setInitials('');
         setBrandColor('#4f46e5');
+        setStatus('active');
         setProposalUrl('');
         setProposalName('');
         setProposalSize(undefined);
@@ -283,6 +286,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         name: name.trim(),
         initials: computedInitials,
         brandColor: brandColor.trim() || '#4f46e5',
+        status,
         proposal_url: proposalUrl.trim() || undefined,
         proposal_name: proposalName.trim() || undefined,
         proposal_size: proposalSize,
@@ -473,8 +477,45 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
               <Clock className="w-4 h-4 text-indigo-500" />
               <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                2. Project Cycle, Health & Contract Timeline
+                2. Status, Cycle, Health & Contract Timeline
               </span>
+            </div>
+
+            {/* Workspace Active / Inactive Toggle */}
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Workspace Status</span>
+                </span>
+                <span className="text-[10px] text-zinc-400">Controls visibility for team members</span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStatus('active')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
+                    status === 'active'
+                      ? 'bg-emerald-500/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500/20'
+                      : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                  }`}
+                >
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Active (Visible to Team)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatus('inactive')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
+                    status === 'inactive'
+                      ? 'bg-zinc-200 dark:bg-zinc-800 border-zinc-500 text-zinc-800 dark:text-zinc-200 ring-2 ring-zinc-500/20'
+                      : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                  }`}
+                >
+                  <X className="w-3.5 h-3.5 text-zinc-500" />
+                  <span>Inactive (Operations Only)</span>
+                </button>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

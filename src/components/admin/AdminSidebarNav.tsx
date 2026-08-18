@@ -3,14 +3,13 @@ import {
   Users,
   Briefcase,
   BellRing,
-  Settings2,
   Shield,
   ChevronRight,
   ChevronLeft,
   FolderKanban,
 } from 'lucide-react';
 
-export type AdminSectionType = 'directory' | 'compliance' | 'workspaces' | 'ad_accounts' | 'settings';
+export type AdminSectionType = 'directory' | 'compliance' | 'workspaces' | 'ad_accounts';
 
 interface AdminSidebarNavProps {
   activeSection: AdminSectionType;
@@ -20,6 +19,7 @@ interface AdminSidebarNavProps {
   adAccountCount: number;
   missingLogsCount: number;
   isAdmin: boolean;
+  userRole?: string;
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
 }
@@ -32,21 +32,31 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
   adAccountCount,
   missingLogsCount,
   isAdmin,
+  userRole = 'admin',
   isCollapsed = false,
   onToggleCollapse,
 }) => {
+  const isHR = userRole === 'hr';
+  const isOps = userRole === 'operations';
+
+  const headerTitle = isAdmin
+    ? 'Admin Operations'
+    : isHR
+    ? 'HR Operations Hub'
+    : 'Operations Command';
+
   const sections = [
     {
       id: 'directory' as AdminSectionType,
       label: 'Team Directory',
-      description: 'Manage users, roles & depts',
+      description: isOps ? 'View organization members' : 'Manage users, roles & depts',
       icon: Users,
       badge: memberCount > 0 ? String(memberCount) : null,
       badgeColor: 'bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300',
     },
     {
       id: 'compliance' as AdminSectionType,
-      label: 'Log Compliance & Reminders',
+      label: 'Log Compliance',
       description: 'Track missing workdays & reminders',
       icon: BellRing,
       badge: missingLogsCount > 0 ? `${missingLogsCount} pending` : null,
@@ -55,34 +65,22 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
           ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
           : 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400',
     },
-    ...(isAdmin
-      ? [
-          {
-            id: 'workspaces' as AdminSectionType,
-            label: 'Workspaces',
-            description: 'Client & brand workspaces',
-            icon: FolderKanban,
-            badge: workspaceCount > 0 ? String(workspaceCount) : null,
-            badgeColor: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30',
-          },
-          {
-            id: 'ad_accounts' as AdminSectionType,
-            label: 'Ad Accounts',
-            description: 'Meta, Google & ad networks',
-            icon: Briefcase,
-            badge: adAccountCount > 0 ? String(adAccountCount) : null,
-            badgeColor: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30',
-          },
-          {
-            id: 'settings' as AdminSectionType,
-            label: 'System & Schema Settings',
-            description: 'Departments & dynamic role scopes',
-            icon: Settings2,
-            badge: null,
-            badgeColor: '',
-          },
-        ]
-      : []),
+    {
+      id: 'workspaces' as AdminSectionType,
+      label: 'Workspaces',
+      description: isHR ? 'View client brand workspaces' : 'Manage client brand workspaces',
+      icon: FolderKanban,
+      badge: workspaceCount > 0 ? String(workspaceCount) : null,
+      badgeColor: 'bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30',
+    },
+    {
+      id: 'ad_accounts' as AdminSectionType,
+      label: 'Ad Accounts',
+      description: isAdmin ? 'Meta, Google & ad networks' : 'View connected ad accounts',
+      icon: Briefcase,
+      badge: adAccountCount > 0 ? String(adAccountCount) : null,
+      badgeColor: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30',
+    },
   ];
 
   return (
@@ -100,9 +98,9 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
             </div>
             <div className="min-w-0">
               <h2 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider truncate">
-                Admin Operations
+                {headerTitle}
               </h2>
-              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">Modular Workspace Hub</p>
+              <p className="text-[11px] text-zinc-400 dark:text-zinc-500 truncate">Modular Management Hub</p>
             </div>
           </div>
         ) : (

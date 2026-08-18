@@ -61,6 +61,7 @@ export interface Workspace {
   name: string;
   brandColor: string;
   initials: string;
+  status?: 'active' | 'inactive';
   proposal_url?: string;
   proposal_name?: string;
   proposal_size?: number;

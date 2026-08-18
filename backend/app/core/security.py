@@ -61,6 +61,8 @@ def _normalize_role(raw_role: Optional[str]) -> str:
         return UserRole.ADMIN.value
     if r in (UserRole.HR.value, "hr"):
         return UserRole.HR.value
+    if r in (UserRole.OPERATIONS.value, "operations", "ops"):
+        return UserRole.OPERATIONS.value
     if r in (UserRole.TEAM_LEAD.value, "team_lead", "lead"):
         return UserRole.TEAM_LEAD.value
     if r in (UserRole.CLIENT.value, "client"):
@@ -156,6 +158,28 @@ async def require_hr_or_admin(current_user: dict = Depends(get_current_user)) ->
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="HR or Administrative privileges required.",
+        )
+    return current_user
+
+
+async def require_operations_or_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring Operations or Admin privileges."""
+    role = current_user.get("role")
+    if role not in (UserRole.ADMIN.value, UserRole.OPERATIONS.value, "admin", "operations"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operations or Administrative privileges required.",
+        )
+    return current_user
+
+
+async def require_management_role(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring Admin, HR, or Operations privileges."""
+    role = current_user.get("role")
+    if role not in (UserRole.ADMIN.value, UserRole.HR.value, UserRole.OPERATIONS.value, "admin", "hr", "operations"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Management (Admin, HR, or Operations) privileges required.",
         )
     return current_user
 

@@ -9,7 +9,6 @@ import { UserManagementSection } from './sections/UserManagementSection';
 import { ComplianceRemindersSection } from './sections/ComplianceRemindersSection';
 import { WorkspacesSection } from './sections/WorkspacesSection';
 import { AdAccountsSection } from './sections/AdAccountsSection';
-import { SystemSettingsSection } from './sections/SystemSettingsSection';
 import { AddMemberModal } from './AddMemberModal';
 import { EditMemberModal } from './EditMemberModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
@@ -29,6 +28,12 @@ import type { Workspace } from '../../types';
 export const AdminPanel: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const isHR = user?.role === 'hr';
+  const isOperations = user?.role === 'operations';
+
+  const canManageMembers = isAdmin || isHR;
+  const canManageWorkspaces = isAdmin || isOperations;
+  const canManageAdAccounts = isAdmin;
 
   const [activeSection, setActiveSection] = useState<AdminSectionType>('directory');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
@@ -40,7 +45,7 @@ export const AdminPanel: React.FC = () => {
   const [isSendingReminder, setIsSendingReminder] = useState<Record<string, boolean>>({});
 
   // Workspaces (from hook)
-  const { workspaces, saveWorkspace, deleteWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
+  const { workspaces, saveWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
 
   // Ad Accounts (separate collection & state)
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
@@ -54,7 +59,6 @@ export const AdminPanel: React.FC = () => {
   // Modals for Workspaces
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
-  const [workspaceToDelete, setWorkspaceToDelete] = useState<Workspace | null>(null);
 
   // Modals for Ad Accounts
   const [isAdAccountModalOpen, setIsAdAccountModalOpen] = useState(false);
@@ -160,15 +164,14 @@ export const AdminPanel: React.FC = () => {
     await refetchWorkspaces();
   };
 
-  const handleDeleteWorkspace = async () => {
-    if (!workspaceToDelete) return;
+  const handleToggleWorkspaceStatus = async (workspace: Workspace) => {
+    const newStatus = workspace.status === 'inactive' ? 'active' : 'inactive';
     try {
-      await deleteWorkspace(workspaceToDelete.id);
-      addToast('Workspace Removed', `${workspaceToDelete.name} was removed.`, 'info');
-      setWorkspaceToDelete(null);
+      await saveWorkspace(workspace, { status: newStatus });
+      addToast('Status Updated', `${workspace.name} is now ${newStatus}.`, 'success');
       await refetchWorkspaces();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to delete workspace', 'warning');
+      addToast('Error', err.message || 'Failed to update workspace status', 'warning');
     }
   };
 
@@ -203,7 +206,12 @@ export const AdminPanel: React.FC = () => {
 
   const missingLogsCount = useMemo(() => {
     return Object.values(activities).filter(
-      (a) => a.role !== 'admin' && a.role !== 'hr' && a.role !== 'client' && (!a.logged_today || a.days_missed > 0)
+      (a) =>
+        a.role !== 'admin' &&
+        a.role !== 'hr' &&
+        a.role !== 'operations' &&
+        a.role !== 'client' &&
+        (!a.logged_today || a.days_missed > 0)
     ).length;
   }, [activities]);
 
@@ -218,6 +226,7 @@ export const AdminPanel: React.FC = () => {
         adAccountCount={adAccounts.length}
         missingLogsCount={missingLogsCount}
         isAdmin={isAdmin}
+        userRole={user?.role}
         isCollapsed={isSidebarCollapsed}
         onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />
@@ -233,7 +242,7 @@ export const AdminPanel: React.FC = () => {
             setIsEditModalOpen(true);
           }}
           onDeleteMember={(m) => setMemberToDelete(m)}
-          isAdmin={isAdmin}
+          canManageMembers={canManageMembers}
         />
       )}
 
@@ -246,7 +255,7 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'workspaces' && isAdmin && (
+      {activeSection === 'workspaces' && (
         <WorkspacesSection
           workspaces={workspaces}
           adAccounts={adAccounts}
@@ -258,12 +267,12 @@ export const AdminPanel: React.FC = () => {
             setWorkspaceToEdit(ws);
             setIsWorkspaceModalOpen(true);
           }}
-          onDeleteWorkspace={(ws) => setWorkspaceToDelete(ws)}
-          isAdmin={isAdmin}
+          onToggleStatus={handleToggleWorkspaceStatus}
+          canManageWorkspaces={canManageWorkspaces}
         />
       )}
 
-      {activeSection === 'ad_accounts' && isAdmin && (
+      {activeSection === 'ad_accounts' && (
         <AdAccountsSection
           adAccounts={adAccounts}
           workspaces={workspaces}
@@ -276,10 +285,9 @@ export const AdminPanel: React.FC = () => {
             setIsAdAccountModalOpen(true);
           }}
           onDeleteAccount={(acc) => setAdAccountToDelete(acc)}
+          canManageAdAccounts={canManageAdAccounts}
         />
       )}
-
-      {activeSection === 'settings' && isAdmin && <SystemSettingsSection />}
 
       {/* ─── MODALS ─── */}
 
@@ -372,36 +380,6 @@ export const AdminPanel: React.FC = () => {
                 className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs"
               >
                 Delete Member
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Workspace Confirmation */}
-      {workspaceToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-              Delete Workspace "{workspaceToDelete.name}"?
-            </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              This will permanently remove the client workspace profile and brand themes.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setWorkspaceToDelete(null)}
-                className="px-4 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteWorkspace}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs"
-              >
-                Delete Workspace
               </button>
             </div>
           </div>
