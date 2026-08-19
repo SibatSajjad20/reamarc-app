@@ -41,13 +41,13 @@ import asyncio
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
 
-    # Ensure all daily log records start cleanly from SYSTEM_START_DATE (2026-08-18)
+    # Ensure all daily log records start cleanly from SYSTEM_START_DATE (2026-08-19)
     try:
         from app.database import get_database
         db = get_database()
         if db is not None:
-            await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-18"}})
-            await db.daily_logs.delete_many({"date": {"$lt": "2026-08-18"}})
+            await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
+            await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
             # Ensure HR users have department "HR"
             await db.users.update_many(
                 {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},

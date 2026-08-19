@@ -911,7 +911,7 @@ export const DailyLogView: React.FC = () => {
 
       {/* Smart Missing Work Log Banner */}
       {(() => {
-        const validMissingDates = (myActivity?.missing_dates || []).filter((d) => d >= '2026-08-18');
+        const validMissingDates = (myActivity?.missing_dates || []).filter((d) => d >= '2026-08-19');
         if (isAdmin || isOperations || validMissingDates.length === 0) return null;
         return (
           <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">

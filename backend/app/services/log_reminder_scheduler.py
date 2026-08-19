@@ -163,8 +163,8 @@ async def run_morning_log_reminder_check():
         return
 
     prev_workday_str = _get_previous_workday(now_pk)
-    if prev_workday_str < "2026-08-18":
-        logger.info(f"[Scheduler] Previous workday ({prev_workday_str}) is before system start date 2026-08-18. Skipping morning reminders.")
+    if prev_workday_str < "2026-08-19":
+        logger.info(f"[Scheduler] Previous workday ({prev_workday_str}) is before system start date 2026-08-19. Skipping morning reminders.")
         await _mark_run_today("morning", today_str)
         return
 

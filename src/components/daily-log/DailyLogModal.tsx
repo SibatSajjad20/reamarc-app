@@ -22,6 +22,7 @@ import {
 import { dailyLogService } from '../../services/dailyLogService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { CustomSelect } from '../ui/CustomSelect';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
 
 interface DailyLogModalProps {
@@ -298,8 +299,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       return;
     }
 
-    if (date.trim() < '2026-08-18') {
-      setErrorMessage('Daily log entries cannot be logged for dates before 2026-08-18.');
+    if (date.trim() < '2026-08-19') {
+      setErrorMessage('Daily log entries cannot be logged for dates before 2026-08-19.');
       return;
     }
 
@@ -447,7 +448,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
             </div>
           )}
 
-          {/* Row 1: Date (Locked & Max Today) & Resource Name & Role */}
+          {/* Row 1: Date (Selectable Past & Today) & Resource Name & Role */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center justify-between">
@@ -455,19 +456,16 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                   <CalendarIcon className="w-3.5 h-3.5 text-indigo-500" />
                   <span>Date</span>
                 </span>
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/80 px-1.5 py-0.5 rounded-md">
-                  <Lock className="w-2.5 h-2.5" /> Locked
+                <span className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded-md">
+                  Past / Today
                 </span>
               </label>
-              <input
-                type="date"
-                required
-                readOnly
-                min="2026-08-18"
-                max={getTodayIso()}
+              <CustomDatePicker
                 value={date}
-                className="w-full px-3 py-2 bg-zinc-100/90 dark:bg-zinc-900/90 border border-zinc-200/90 dark:border-zinc-800 rounded-xl text-xs text-zinc-700 dark:text-zinc-300 font-mono font-bold select-none cursor-not-allowed shadow-2xs"
-                title="Date is fixed to prevent future or pre-start date logging"
+                onChange={(val) => setDate(val || getTodayIso())}
+                minDate="2026-08-19"
+                maxDate={getTodayIso()}
+                placeholder="Select log date..."
               />
             </div>
 

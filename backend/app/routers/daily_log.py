@@ -94,7 +94,7 @@ def _generate_sheet_list() -> List[str]:
     return sheets
 
 
-SYSTEM_START_DATE = "2026-08-18"
+SYSTEM_START_DATE = "2026-08-19"
 
 
 def is_workday(date_obj) -> bool:
@@ -451,13 +451,20 @@ async def create_entry(
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     
-    # Restrict log submission date: cannot be earlier than SYSTEM_START_DATE
-    if entry_in.date and entry_in.date < SYSTEM_START_DATE:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Daily logs cannot be submitted for dates earlier than {SYSTEM_START_DATE}."
-        )
+    # Restrict log submission date: cannot be earlier than SYSTEM_START_DATE or in the future
+    if entry_in.date:
+        if entry_in.date < SYSTEM_START_DATE:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily logs cannot be submitted for dates earlier than {SYSTEM_START_DATE}."
+            )
+        if entry_in.date > today_iso:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily logs cannot be submitted for future dates (Today is {today_iso})."
+            )
 
     # Calculate month sheet dynamically from entry date if available
     date_val = entry_in.date
@@ -549,10 +556,17 @@ async def update_entry(
     update_data.pop("department", None)
 
     if "date" in update_data and update_data["date"]:
-        if str(update_data["date"]) < SYSTEM_START_DATE:
+        today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        dt_str = str(update_data["date"])
+        if dt_str < SYSTEM_START_DATE:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily log date cannot be set earlier than {SYSTEM_START_DATE}."
+            )
+        if dt_str > today_iso:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily log date cannot be set to a future date (Today is {today_iso})."
             )
         try:
             dt = datetime.strptime(str(update_data["date"]), "%Y-%m-%d")

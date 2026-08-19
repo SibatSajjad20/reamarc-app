@@ -264,6 +264,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
             {calendarDays.map((day) => {
               const isSelected = day.iso === value;
               const isToday = day.iso === todayIso;
+              const isSelectablePast = !day.isDisabled && !isToday && !isSelected && day.iso < todayIso;
 
               return (
                 <button
@@ -271,19 +272,33 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                   type="button"
                   disabled={day.isDisabled}
                   onClick={() => handleSelectDate(day.iso, day.isDisabled)}
-                  className={`h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center cursor-pointer ${
+                  title={
                     day.isDisabled
-                      ? 'opacity-30 cursor-not-allowed text-zinc-400'
-                      : isSelected
-                      ? 'bg-indigo-600 text-white shadow-xs font-black'
+                      ? day.iso > todayIso
+                        ? 'Future dates cannot be logged'
+                        : 'Date is before system start date'
                       : isToday
-                      ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-500/30'
+                      ? "Today's date"
+                      : 'Selectable previous date'
+                  }
+                  className={`h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center relative ${
+                    day.isDisabled
+                      ? 'opacity-25 cursor-not-allowed text-zinc-400 dark:text-zinc-600 select-none'
+                      : isSelected
+                      ? 'bg-indigo-600 text-white shadow-xs font-black ring-2 ring-indigo-600/30'
+                      : isToday
+                      ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-500 font-extrabold shadow-2xs'
+                      : isSelectablePast
+                      ? 'text-indigo-900 dark:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 cursor-pointer font-bold'
                       : day.isCurrentMonth
-                      ? 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/80'
-                      : 'text-zinc-400 dark:text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
+                      ? 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 cursor-pointer'
+                      : 'text-zinc-400 dark:text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 cursor-pointer'
                   }`}
                 >
-                  {day.dayNumber}
+                  <span>{day.dayNumber}</span>
+                  {isToday && !isSelected && (
+                    <span className="w-1 h-1 rounded-full bg-indigo-600 dark:bg-indigo-400 absolute bottom-1" />
+                  )}
                 </button>
               );
             })}
