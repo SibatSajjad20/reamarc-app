@@ -23,6 +23,7 @@ export const DEPARTMENTS = [
   'SEO',
   'Performance Marketing',
   'AI',
+  'Software Development',
   'HR',
 ] as const;
 

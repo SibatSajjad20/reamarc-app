@@ -16,3 +16,5 @@ class Department(str, Enum):
     SEO = "seo"
     PERFORMANCE_MARKETING = "performance marketing"
     AI = "AI"
+    SOFTWARE_DEVELOPMENT = "software development"
+

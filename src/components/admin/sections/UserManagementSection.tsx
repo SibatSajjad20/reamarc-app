@@ -20,6 +20,7 @@ export const SYSTEM_DEPARTMENTS = [
   'SEO',
   'Performance Marketing',
   'AI',
+  'Software Development',
   'HR',
 ];
 
@@ -162,6 +163,8 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       colorClass = 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
     } else if (nd.includes('ai')) {
       colorClass = 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
+    } else if (nd.includes('software') || nd.includes('dev')) {
+      colorClass = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
     } else if (nd.includes('hr')) {
       colorClass = 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
     }

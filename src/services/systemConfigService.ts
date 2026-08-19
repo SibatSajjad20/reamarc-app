@@ -18,6 +18,7 @@ export const DEFAULT_DEPARTMENTS: string[] = [
   'SEO',
   'Performance Marketing',
   'AI',
+  'Software Development',
   'HR',
 ];
 

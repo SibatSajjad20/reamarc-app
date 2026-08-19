@@ -1383,6 +1383,7 @@ export const DailyLogView: React.FC = () => {
 
                             const getDeptBadgeClass = (d: string) => {
                               const nd = d.toLowerCase();
+                              if (nd.includes('software') || nd.includes('dev')) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
                               if (nd.includes('website')) return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
                               if (nd.includes('creative')) return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
                               if (nd.includes('content')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';

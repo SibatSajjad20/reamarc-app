@@ -6,7 +6,9 @@ export type DepartmentType =
   | 'content'
   | 'seo'
   | 'performance marketing'
-  | 'AI';
+  | 'AI'
+  | 'software development'
+  | 'Software Development';
 
 export interface AuthUser {
   id: string;
