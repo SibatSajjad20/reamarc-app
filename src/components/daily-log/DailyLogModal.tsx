@@ -790,6 +790,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                   'date',
                   'resource_name',
                   'role',
+                  'department',
                   'client_project',
                   'task_description',
                   'task_type',
