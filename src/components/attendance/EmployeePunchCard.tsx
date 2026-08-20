@@ -383,7 +383,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             }`}
           >
             <Wifi className="w-3 h-3" />
-            {isWfh ? 'Home network' : wifiOk ? 'Office Wi-Fi' : 'External IP'}
+            {isWfh
+              ? 'Home network'
+              : wifiOk
+              ? `Allowed IP${todayData?.client_ip ? ` · ${todayData.client_ip}` : ''}`
+              : `IP not allowed${todayData?.client_ip ? ` · ${todayData.client_ip}` : ''}`}
           </span>
 
           <span

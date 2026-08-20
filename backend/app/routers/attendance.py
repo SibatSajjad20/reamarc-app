@@ -60,17 +60,17 @@ def extract_client_ip(request: Request, body_ip: Optional[str] = None) -> str:
     """
     Resolve the connecting client IP using one trusted reverse proxy (Render).
 
-    Client-supplied headers (X-Real-IP, CF-Connecting-IP, X-Forwarded-For
-    prefixes) are not trusted. The right-most public address in
-    X-Forwarded-For is the hop Render added. Body/detected IPs are only
-    accepted on loopback (local Vite).
+    Render documents X-Forwarded-For as: original client first, then proxies.
+    We take the left-most public IP so home/office WAN addresses match the
+    whitelist. Spoofable headers (X-Real-IP, CF-Connecting-IP) are ignored.
+    Browser-detected IPs are accepted only on loopback (local Vite).
     """
     socket_ip = request.client.host if request.client and request.client.host else None
 
     forwarded = request.headers.get("x-forwarded-for") or ""
     parts = [part.strip() for part in forwarded.split(",") if part.strip()]
     trusted_from_xff = None
-    for part in reversed(parts):
+    for part in parts:
         if is_public_ip(part):
             trusted_from_xff = part
             break

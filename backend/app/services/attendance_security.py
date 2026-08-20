@@ -283,7 +283,8 @@ def validate_punch_security(
         if not ip_verified:
             shown = client_ip or "unknown"
             failures.append(
-                f"Wi-Fi / IP check failed: '{shown}' is not on the office whitelist."
+                f"Wi-Fi / IP check failed: '{shown}' is not on the office whitelist. "
+                "Only listed IPs can check in."
             )
 
     if settings.enforce_gps_geofence:
