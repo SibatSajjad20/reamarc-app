@@ -14,6 +14,8 @@ from datetime import datetime, timezone, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple
 from fastapi import HTTPException, status
 import logging
+from pymongo.errors import DuplicateKeyError
+from pymongo import ReturnDocument
 
 from app.database import get_database
 from app.models.attendance import (
@@ -64,10 +66,14 @@ from app.services.attendance_calculator import (
     calculate_monthly_aggregation,
     parse_time_to_minutes,
     format_minutes_to_hhmm,
+    derive_expected_hours,
 )
 from app.services.attendance_security import (
     validate_punch_security,
     validate_client_ip,
+    collect_whitelist_entries,
+    resolve_effective_client_ip,
+    PunchSecurityResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -77,14 +83,62 @@ logger = logging.getLogger(__name__)
 PKT_TIMEZONE = timezone(timedelta(hours=5))
 
 
+def get_now_pkt() -> datetime:
+    return datetime.now(PKT_TIMEZONE)
+
+
 def get_current_date_str() -> str:
     """Returns today's date in YYYY-MM-DD format based on company local timezone (PKT)."""
-    return datetime.now(PKT_TIMEZONE).strftime("%Y-%m-%d")
+    return get_now_pkt().strftime("%Y-%m-%d")
 
 
 def get_current_time_str() -> str:
     """Returns current time in HH:MM format based on company local timezone (PKT)."""
-    return datetime.now(PKT_TIMEZONE).strftime("%H:%M")
+    return get_now_pkt().strftime("%H:%M")
+
+
+def is_night_shift_template(shift: Any) -> bool:
+    if shift is None:
+        return False
+    if bool(getattr(shift, "is_night_shift", False)):
+        return True
+    start_m = parse_time_to_minutes(getattr(shift, "start_time", None) or "09:30")
+    end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "18:30")
+    return end_m <= start_m
+
+
+def is_shift_window_closed(shift: Any, now: Optional[datetime] = None) -> bool:
+    """
+    True once the employee's shift end time has passed for the current cycle.
+    Day shifts lock at end_time. Night shifts stay open overnight and lock after end_time
+    the following morning, with a 2-hour early-arrival window before start_time.
+    """
+    if shift is None:
+        return False
+    now = now or get_now_pkt()
+    now_m = now.hour * 60 + now.minute
+    start_m = parse_time_to_minutes(getattr(shift, "start_time", None) or "09:30")
+    end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "18:30")
+    night = is_night_shift_template(shift)
+    if not night:
+        return now_m >= end_m
+    if now_m >= start_m or now_m < end_m:
+        return False
+    early_m = (start_m - 120) % 1440
+    if early_m < start_m and early_m <= now_m < start_m:
+        return False
+    return True
+
+
+def closed_shift_attendance_date(shift: Any, now: Optional[datetime] = None) -> str:
+    """Calendar date to lock when the current shift window has already ended."""
+    now = now or get_now_pkt()
+    if is_night_shift_template(shift):
+        end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "05:00")
+        now_m = now.hour * 60 + now.minute
+        if now_m >= end_m:
+            return (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+    return now.strftime("%Y-%m-%d")
 
 
 def accumulate_break_minutes(existing: dict, end_time_str: str) -> int:
@@ -100,6 +154,147 @@ def accumulate_break_minutes(existing: dict, end_time_str: str) -> int:
     if end < start:
         end += 1440
     return current + max(0, end - start)
+
+
+def shift_calc_kwargs(shift: ShiftResponse, extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Build calculate_daily_attendance kwargs from a shift template."""
+    kwargs = {
+        "shift_start": shift.start_time,
+        "shift_end": shift.end_time,
+        "break_duration_minutes": int(shift.break_duration_minutes or 0),
+        "break_start_time": getattr(shift, "break_start_time", None),
+        "break_end_time": getattr(shift, "break_end_time", None),
+        "grace_period_minutes": shift.grace_period_minutes,
+        "is_night_shift": bool(shift.is_night_shift),
+    }
+    if extra:
+        kwargs.update(extra)
+    return kwargs
+
+
+def shift_doc_calc_kwargs(raw_shift: Optional[Dict[str, Any]], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    raw = raw_shift or {}
+    kwargs = {
+        "shift_start": raw.get("start_time") or "09:30",
+        "shift_end": raw.get("end_time") or "18:30",
+        "break_duration_minutes": int(raw.get("break_duration_minutes") or 0),
+        "break_start_time": raw.get("break_start_time"),
+        "break_end_time": raw.get("break_end_time"),
+        "grace_period_minutes": int(raw.get("grace_period_minutes") or 30),
+        "is_night_shift": bool(raw.get("is_night_shift", False)),
+    }
+    if extra:
+        kwargs.update(extra)
+    return kwargs
+
+
+def apply_derived_shift_hours(shift_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep expected_hours in sync with start/end minus unpaid break."""
+    start = shift_dict.get("start_time") or "09:30"
+    end = shift_dict.get("end_time") or "18:30"
+    brk = int(shift_dict.get("break_duration_minutes") or 0)
+    night = bool(shift_dict.get("is_night_shift", False))
+    if brk <= 0:
+        shift_dict["break_start_time"] = None
+        shift_dict["break_end_time"] = None
+    shift_dict["expected_hours"] = derive_expected_hours(start, end, brk, night)
+    return shift_dict
+
+
+def record_punch_times(rec: Optional[Dict[str, Any]]) -> Tuple[Optional[str], Optional[str]]:
+    """Prefer either naming convention used across punch / override / legacy docs."""
+    if not rec:
+        return None, None
+    cin = rec.get("check_in") or rec.get("punch_in")
+    cout = rec.get("check_out") or rec.get("punch_out")
+    return cin, cout
+
+
+def scheduled_break_minutes(raw_shift: Optional[Dict[str, Any]]) -> int:
+    """Unpaid break from the assigned shift template, not from a punch record."""
+    if not raw_shift:
+        return 60
+    if raw_shift.get("break_duration_minutes") is not None:
+        return max(0, int(raw_shift.get("break_duration_minutes") or 0))
+    shift_type = str(raw_shift.get("shift_type") or "").lower()
+    if shift_type == "afternoon":
+        return 0
+    return 60
+
+
+def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
+    """Recompute net hours / OT / UT from punches using that day's shift rules."""
+    cin, cout = record_punch_times(doc)
+    if isinstance(shift, ShiftResponse):
+        scheduled_break = int(shift.break_duration_minutes or 0)
+    else:
+        scheduled_break = scheduled_break_minutes(shift)
+    doc["break_minutes"] = scheduled_break
+    if not cin:
+        doc["working_hours_minutes"] = 0
+        doc["work_hours"] = 0.0
+        doc["work_duration_formatted"] = "00:00"
+        doc["overtime_minutes"] = 0
+        doc["overtime_hours"] = 0.0
+        doc["overtime_formatted"] = "+00:00"
+        return doc
+    if shift is None:
+        shift = {}
+    status_val = str(doc.get("status") or "")
+    extra = {
+        "is_wfh": bool(doc.get("is_wfh")),
+        "is_short_leave": bool(doc.get("is_short_leave") or status_val == AttendanceStatus.SHORT_LEAVE.value),
+        "short_leave_hours": float(doc.get("short_leave_hours") or 0.0),
+    }
+    if isinstance(shift, ShiftResponse):
+        kwargs = shift_calc_kwargs(shift, extra)
+    else:
+        kwargs = shift_doc_calc_kwargs(shift, extra)
+    calc_res = calculate_daily_attendance(
+        check_in_time=cin,
+        check_out_time=cout,
+        **kwargs,
+    )
+    keep_status = {
+        AttendanceStatus.WFH.value,
+        AttendanceStatus.SHORT_LEAVE.value,
+        AttendanceStatus.SICK_LEAVE.value,
+        AttendanceStatus.CASUAL_LEAVE.value,
+        AttendanceStatus.ANNUAL_LEAVE.value,
+        AttendanceStatus.UNPAID_LEAVE.value,
+        AttendanceStatus.MISSED_PUNCH.value,
+        AttendanceStatus.ON_LEAVE.value,
+    }
+    if status_val not in keep_status:
+        doc["status"] = calc_res.status.value
+        doc["is_late"] = calc_res.is_late
+        doc["late_strike"] = calc_res.late_strike
+        doc["late_minutes"] = calc_res.late_minutes
+    doc["check_in"] = cin
+    doc["punch_in"] = cin
+    doc["check_out"] = cout
+    doc["punch_out"] = cout
+    if not cout:
+        doc["working_hours_minutes"] = 0
+        doc["work_hours"] = 0.0
+        doc["work_duration_formatted"] = "00:00"
+        doc["overtime_minutes"] = 0
+        doc["overtime_hours"] = 0.0
+        doc["overtime_formatted"] = "+00:00"
+        doc["undertime_minutes"] = 0
+        doc["undertime_hours"] = 0.0
+        doc["undertime_formatted"] = "-00:00"
+        return doc
+    doc["working_hours_minutes"] = calc_res.work_minutes
+    doc["work_hours"] = calc_res.work_hours
+    doc["work_duration_formatted"] = calc_res.work_duration_formatted
+    doc["overtime_minutes"] = calc_res.overtime_minutes
+    doc["overtime_hours"] = calc_res.overtime_hours
+    doc["overtime_formatted"] = calc_res.overtime_formatted
+    doc["undertime_minutes"] = calc_res.undertime_minutes
+    doc["undertime_hours"] = calc_res.undertime_hours
+    doc["undertime_formatted"] = calc_res.undertime_formatted
+    return doc
 
 
 def iter_date_range(start_str: str, end_str: str) -> List[str]:
@@ -148,7 +343,8 @@ async def ensure_default_shifts() -> List[dict]:
         now_iso = datetime.now(timezone.utc).isoformat()
         for s in DEFAULT_SHIFTS:
             shift_dict = dict(s)
-            shift_dict["id"] = f"shift_{shift_dict['shift_type'].value if isinstance(shift_dict['shift_type'], ShiftType) else shift_dict['shift_type']}"
+            stype = shift_dict['shift_type'].value if isinstance(shift_dict['shift_type'], ShiftType) else shift_dict['shift_type']
+            shift_dict["id"] = shift_dict.get("id") or f"shift_{stype}"
             shift_dict["created_at"] = now_iso
             shift_dict["updated_at"] = now_iso
             # Convert ShiftType to string value for MongoDB
@@ -159,8 +355,82 @@ async def ensure_default_shifts() -> List[dict]:
             await db.shifts.insert_many(seeded_docs)
         return seeded_docs
 
+    await _ensure_wfh_shift_templates()
+    await _backfill_shift_break_windows()
     cursor = db.shifts.find({"is_active": True})
     return await cursor.to_list(100)
+
+
+async def _ensure_wfh_shift_templates() -> None:
+    """Insert WFH Day / WFH Night templates if they were added after initial seed."""
+    db = get_database()
+    if db is None:
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for s in DEFAULT_SHIFTS:
+        shift_dict = dict(s)
+        if not shift_dict.get("id"):
+            continue
+        existing = await db.shifts.find_one({"id": shift_dict["id"]}, {"id": 1})
+        if existing:
+            continue
+        if isinstance(shift_dict.get("shift_type"), ShiftType):
+            shift_dict["shift_type"] = shift_dict["shift_type"].value
+        shift_dict["created_at"] = now_iso
+        shift_dict["updated_at"] = now_iso
+        await db.shifts.insert_one(shift_dict)
+        logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
+
+
+async def _backfill_shift_break_windows() -> None:
+    """Ensure default templates have lunch windows and derived expected hours."""
+    db = get_database()
+    if db is None:
+        return
+    patches = [
+        ("standard", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
+        ("hr", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
+        ("afternoon", {"break_duration_minutes": 0, "break_start_time": None, "break_end_time": None, "expected_hours": 6.0}),
+        ("night", {"break_duration_minutes": 60, "break_start_time": "01:00", "break_end_time": "02:00", "expected_hours": 7.0}),
+    ]
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for shift_type, fields in patches:
+        query: Dict[str, Any] = {"shift_type": shift_type}
+        if shift_type == "afternoon":
+            query["$or"] = [
+                {"id": "shift_afternoon"},
+                {"start_time": "14:00", "end_time": "20:00"},
+                {"break_start_time": {"$exists": False}},
+                {"break_duration_minutes": {"$gt": 0}},
+                {"expected_hours": {"$nin": [6, 6.0]}},
+            ]
+        else:
+            query["$or"] = [
+                {"break_start_time": {"$exists": False}},
+                {"break_start_time": None, "break_duration_minutes": {"$gt": 0}},
+                {"expected_hours": {"$exists": False}},
+            ]
+        await db.shifts.update_many(query, {"$set": {**fields, "updated_at": now_iso}})
+
+    # Custom and edited templates: keep their times, sync net expected hours.
+    all_shifts = await db.shifts.find({}, {"_id": 0}).to_list(200)
+    for raw in all_shifts:
+        derived = derive_expected_hours(
+            raw.get("start_time") or "09:30",
+            raw.get("end_time") or "18:30",
+            int(raw.get("break_duration_minutes") or 0),
+            bool(raw.get("is_night_shift", False)),
+        )
+        current = raw.get("expected_hours")
+        try:
+            current_val = float(current) if current is not None else None
+        except (TypeError, ValueError):
+            current_val = None
+        if current_val is None or abs(current_val - derived) > 0.011:
+            await db.shifts.update_one(
+                {"id": raw.get("id")},
+                {"$set": {"expected_hours": derived, "updated_at": now_iso}},
+            )
 
 
 async def get_all_shifts(include_inactive: bool = False) -> List[ShiftResponse]:
@@ -195,7 +465,7 @@ async def create_shift(shift_in: ShiftCreate) -> ShiftResponse:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    shift_dict = shift_in.model_dump()
+    shift_dict = apply_derived_shift_hours(shift_in.model_dump())
     shift_dict["id"] = f"shift_{uuid.uuid4().hex[:10]}"
     shift_dict["created_at"] = now_iso
     shift_dict["updated_at"] = now_iso
@@ -223,6 +493,11 @@ async def update_shift(shift_id: str, shift_in: ShiftUpdate) -> ShiftResponse:
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
     if isinstance(update_data.get("shift_type"), ShiftType):
         update_data["shift_type"] = update_data["shift_type"].value
+
+    existing = await db.shifts.find_one({"id": shift_id}, {"_id": 0}) or {}
+    merged = {**existing, **update_data}
+    update_data = apply_derived_shift_hours(merged)
+    update_data.pop("_id", None)
 
     result = await db.shifts.find_one_and_update(
         {"id": shift_id},
@@ -332,6 +607,132 @@ async def get_shift_for_user(user_id: str, department: Optional[str] = None) -> 
     )
 
 
+LEAVE_LOCK_STATUSES = {
+    AttendanceStatus.WFH.value,
+    AttendanceStatus.SHORT_LEAVE.value,
+    AttendanceStatus.SICK_LEAVE.value,
+    AttendanceStatus.CASUAL_LEAVE.value,
+    AttendanceStatus.ANNUAL_LEAVE.value,
+    AttendanceStatus.UNPAID_LEAVE.value,
+    AttendanceStatus.MISSED_PUNCH.value,
+    AttendanceStatus.ON_LEAVE.value,
+    AttendanceStatus.HOLIDAY.value,
+    AttendanceStatus.SUNDAY_OFF.value,
+    AttendanceStatus.FIRST_SATURDAY_OFF.value,
+    AttendanceStatus.WEEKEND_OFF.value,
+}
+
+
+def _record_has_punch(rec: Optional[Dict[str, Any]]) -> bool:
+    if not rec:
+        return False
+    cin, _cout = record_punch_times(rec)
+    return bool(cin)
+
+
+async def persist_auto_absent(
+    user: dict,
+    shift: ShiftResponse,
+    date_str: str,
+    notes: str = "Auto-marked Absent after shift end without check-in",
+) -> Optional[dict]:
+    """
+    Write an absent row if this user never punched and is not on leave / holiday.
+    Does not overwrite punches or approved leave statuses.
+    """
+    db = get_database()
+    if db is None:
+        return None
+
+    user_id = user.get("id")
+    if not user_id:
+        return None
+
+    existing = await db.attendance_records.find_one(
+        {"user_id": user_id, "date": date_str},
+        {"_id": 0},
+    )
+    if _record_has_punch(existing):
+        return existing
+    if existing and str(existing.get("status") or "") in LEAVE_LOCK_STATUSES:
+        return existing
+
+    approved_leave = await get_approved_leave_for_date(user_id, date_str)
+    if approved_leave:
+        return existing
+
+    try:
+        parsed = datetime.strptime(date_str, "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return existing
+
+    if db is not None:
+        cal_event = await db.company_calendar.find_one({"date": date_str}, {"_id": 0})
+        if cal_event:
+            ev_type = str(cal_event.get("event_type") or "")
+            if ev_type in ("holiday", CalendarEventType.HOLIDAY.value):
+                return existing
+            is_override = bool(cal_event.get("is_workday_override")) or ev_type in (
+                "working_saturday",
+                CalendarEventType.WORKING_SATURDAY.value,
+            )
+        else:
+            is_override = False
+        if not is_override:
+            if is_sunday_date(parsed) or is_first_saturday_of_month(parsed):
+                return existing
+    elif is_sunday_date(parsed) or is_first_saturday_of_month(parsed):
+        return existing
+
+    expected_hours = float(shift.expected_hours) if shift else 8.0
+    expected_minutes = int(round(expected_hours * 60))
+    now_iso = datetime.now(timezone.utc).isoformat()
+    user_name = user.get("full_name") or user.get("name", "User")
+    department = user.get("department")
+
+    absent_doc = {
+        "id": f"att_{user_id}_{date_str}",
+        "user_id": user_id,
+        "user_name": user_name,
+        "department": department,
+        "date": date_str,
+        "shift_id": shift.id if shift else "shift_standard",
+        "shift_name": shift.name if shift else "Standard Shift",
+        "check_in": None,
+        "check_out": None,
+        "punch_in": None,
+        "punch_out": None,
+        "break_minutes": 0,
+        "working_hours_minutes": 0,
+        "work_hours": 0.0,
+        "work_duration_formatted": "00:00",
+        "overtime_hours": 0.0,
+        "overtime_minutes": 0,
+        "overtime_formatted": "+00:00",
+        "undertime_hours": expected_hours,
+        "undertime_minutes": expected_minutes,
+        "undertime_formatted": format_minutes_to_hhmm(-expected_minutes, show_sign=True),
+        "late_minutes": 0,
+        "is_late": False,
+        "late_strike": 0,
+        "status": AttendanceStatus.ABSENT.value,
+        "is_wfh": False,
+        "is_missed_punch": False,
+        "is_short_leave": False,
+        "short_leave_hours": 0.0,
+        "ip_verified": False,
+        "gps_verified": False,
+        "notes": notes,
+        "updated_at": now_iso,
+    }
+    await db.attendance_records.update_one(
+        {"user_id": user_id, "date": date_str},
+        {"$set": absent_doc, "$setOnInsert": {"created_at": now_iso}},
+        upsert=True,
+    )
+    return absent_doc
+
+
 # ──────────────────────────────────────────────────────────
 # 2. SECURITY SETTINGS
 # ──────────────────────────────────────────────────────────
@@ -353,6 +754,25 @@ async def get_security_settings() -> SecuritySettingsSchema:
         return default_settings
 
     doc.pop("key", None)
+    extra_list = doc.get("office_ip_whitelist") or []
+    public_ips = list(doc.get("office_public_ips") or [])
+    overbroad_cidrs = {"10.0.0.0/8", "0.0.0.0/0", "::/0", "192.168.0.0/16"}
+    subnets = [
+        str(s).strip()
+        for s in (doc.get("office_subnets") or [])
+        if str(s).strip() and str(s).strip() not in overbroad_cidrs
+    ]
+    merged_ips: List[str] = []
+    seen = set()
+    for item in public_ips + extra_list:
+        text = str(item or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        merged_ips.append(text)
+    doc["office_public_ips"] = merged_ips
+    doc["office_subnets"] = [str(s).strip() for s in subnets if str(s).strip()]
+    doc["office_ip_whitelist"] = merged_ips
     return SecuritySettingsSchema(**doc)
 
 
@@ -437,51 +857,69 @@ async def process_check_in(
     user_name = user.get("full_name") or user.get("name", "User")
     department = user.get("department")
 
-    date_str = custom_date or get_current_date_str()
-    time_str = custom_time or get_current_time_str()
+    # Punch time is always server PKT. Client timestamps are ignored.
+    date_str = get_current_date_str()
+    time_str = get_current_time_str()
 
     # 1. Check duplicate check-in
     existing_record = await db.attendance_records.find_one(
         {"user_id": user_id, "date": date_str},
         {"_id": 0}
     )
-    if existing_record and existing_record.get("check_in"):
+    if existing_record and (existing_record.get("check_in") or existing_record.get("punch_in")):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Attendance already recorded for {date_str}. Check-in: {existing_record.get('check_in')}"
+        )
+    if existing_record and str(existing_record.get("status") or "") == AttendanceStatus.ABSENT.value:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Today's attendance is already closed as Absent. Check-in is not allowed.",
         )
 
     # 2. Check WFH
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
 
-    # 3. Security verification
+    # 3. Shift window: nobody may punch in after their shift has ended
+    shift = await get_shift_for_user(user_id, department)
+    if is_shift_window_closed(shift) and not custom_time:
+        lock_date = closed_shift_attendance_date(shift)
+        if lock_date == date_str:
+            await persist_auto_absent(user, shift, date_str)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    f"Shift ended at {shift.end_time}. Check-in is closed and today's attendance "
+                    "has been marked Absent."
+                ),
+            )
+
+    # 4. Security verification — IP and GPS both required when enabled
     settings = await get_security_settings()
-    ip_to_check = check_in_req.client_ip or client_ip
-    is_authorized, sec_error = validate_punch_security(
+    ip_to_check = resolve_effective_client_ip(
+        client_ip,
+        check_in_req.detected_public_ip or check_in_req.client_ip,
+    )
+    sec_result: PunchSecurityResult = validate_punch_security(
         client_ip=ip_to_check,
         user_lat=check_in_req.latitude,
         user_lon=check_in_req.longitude,
         is_wfh_approved=is_wfh,
         settings=settings,
+        accuracy_meters=check_in_req.accuracy_meters,
+        gps_captured_at=check_in_req.gps_captured_at,
     )
-    if not is_authorized:
+    if not sec_result.authorized:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=sec_error or "Check-in rejected: Location or IP security check failed."
+            detail=sec_result.error or "Check-in rejected: location or Wi-Fi security check failed."
         )
 
-    # 4. User shift & late calculation
-    shift = await get_shift_for_user(user_id, department)
+    # 5. Late calculation
     calc_res = calculate_daily_attendance(
         check_in_time=time_str,
         check_out_time=None,
-        shift_start=shift.start_time,
-        shift_end=shift.end_time,
-        break_duration_minutes=shift.break_duration_minutes,
-        grace_period_minutes=shift.grace_period_minutes,
-        expected_hours=shift.expected_hours,
-        is_night_shift=shift.is_night_shift,
-        is_wfh=is_wfh,
+        **shift_calc_kwargs(shift, {"is_wfh": is_wfh}),
     )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -501,7 +939,7 @@ async def process_check_in(
         "check_out": None,
         "punch_in": time_str,
         "punch_out": None,
-        "break_minutes": 0,
+        "break_minutes": int(shift.break_duration_minutes or 0),
         "working_hours_minutes": 0,
         "work_hours": calc_res.work_hours,
         "work_duration_formatted": calc_res.work_duration_formatted,
@@ -526,16 +964,43 @@ async def process_check_in(
             "latitude": check_in_req.latitude,
             "longitude": check_in_req.longitude,
         } if check_in_req.latitude is not None and check_in_req.longitude is not None else None,
+        "ip_verified": bool(sec_result.ip_verified),
+        "gps_verified": bool(sec_result.gps_verified),
+        "distance_meters": (
+            int(round(sec_result.distance_meters))
+            if isinstance(sec_result.distance_meters, (int, float))
+            and sec_result.distance_meters < 10_000_000
+            else None
+        ),
         "notes": check_in_req.notes,
         "created_at": now_iso,
         "updated_at": now_iso,
     }
 
-    await db.attendance_records.update_one(
-        {"user_id": user_id, "date": date_str},
-        {"$set": record_doc},
-        upsert=True
-    )
+    open_punch_filter = {
+        "user_id": user_id,
+        "date": date_str,
+        "$and": [
+            {"$or": [{"check_in": None}, {"check_in": ""}, {"check_in": {"$exists": False}}]},
+            {"$or": [{"punch_in": None}, {"punch_in": ""}, {"punch_in": {"$exists": False}}]},
+        ],
+    }
+    try:
+        result = await db.attendance_records.update_one(
+            open_punch_filter,
+            {"$set": record_doc},
+            upsert=True,
+        )
+    except DuplicateKeyError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Attendance already recorded for {date_str}.",
+        )
+    if result.matched_count == 0 and result.upserted_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Attendance already recorded for {date_str}.",
+        )
 
     return AttendanceRecordResponse.from_mongo(record_doc)
 
@@ -558,8 +1023,8 @@ async def process_check_out(
 
     user_id = user.get("id")
     department = user.get("department")
-    date_str = custom_date or get_current_date_str()
-    time_str = custom_time or get_current_time_str()
+    date_str = get_current_date_str()
+    time_str = get_current_time_str()
 
     existing = await db.attendance_records.find_one(
         {"user_id": user_id, "date": date_str},
@@ -594,15 +1059,11 @@ async def process_check_out(
     calc_res = calculate_daily_attendance(
         check_in_time=cin,
         check_out_time=time_str,
-        shift_start=shift.start_time,
-        shift_end=shift.end_time,
-        break_duration_minutes=shift.break_duration_minutes,
-        grace_period_minutes=shift.grace_period_minutes,
-        expected_hours=shift.expected_hours,
-        is_night_shift=shift.is_night_shift,
-        is_wfh=is_wfh,
-        is_short_leave=is_short_leave,
-        short_leave_hours=short_leave_hours,
+        **shift_calc_kwargs(shift, {
+            "is_wfh": is_wfh,
+            "is_short_leave": is_short_leave,
+            "short_leave_hours": short_leave_hours,
+        }),
     )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -610,7 +1071,7 @@ async def process_check_out(
     update_doc = {
         "check_out": time_str,
         "punch_out": time_str,
-        "break_minutes": closed_break_minutes or shift.break_duration_minutes,
+        "break_minutes": int(shift.break_duration_minutes or 0),
         "is_on_break": False,
         "break_start_time": None,
         "working_hours_minutes": calc_res.work_minutes,
@@ -634,11 +1095,23 @@ async def process_check_out(
         update_doc["notes"] = f"{old_notes} | Check-out: {check_out_req.notes}".strip(" | ")
 
     result = await db.attendance_records.find_one_and_update(
-        {"user_id": user_id, "date": date_str},
+        {
+            "user_id": user_id,
+            "date": date_str,
+            "$and": [
+                {"$or": [{"check_out": None}, {"check_out": ""}, {"check_out": {"$exists": False}}]},
+                {"$or": [{"punch_out": None}, {"punch_out": ""}, {"punch_out": {"$exists": False}}]},
+            ],
+        },
         {"$set": update_doc},
         projection={"_id": 0},
-        return_document=True,
+        return_document=ReturnDocument.AFTER,
     )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Already checked out today or check-in is missing.",
+        )
 
     return AttendanceRecordResponse.from_mongo(result)
 
@@ -727,6 +1200,7 @@ async def get_today_status(
     user: dict,
     date_str: Optional[str] = None,
     client_ip: Optional[str] = None,
+    detected_public_ip: Optional[str] = None,
 ) -> TodayAttendanceResponse:
     """
     Returns today's punch card status, active timer metrics, and assigned shift for the user.
@@ -734,19 +1208,26 @@ async def get_today_status(
     db = get_database()
     user_id = user.get("id")
     department = user.get("department")
-    target_date = date_str or get_current_date_str()
+    now_pkt = get_now_pkt()
+    target_date = date_str or now_pkt.strftime("%Y-%m-%d")
 
     shift = await get_shift_for_user(user_id, department)
     is_wfh = await is_wfh_approved_for_date(user_id, target_date)
     sec_settings = await get_security_settings()
+    whitelist = collect_whitelist_entries(sec_settings)
+    effective_ip = resolve_effective_client_ip(client_ip, detected_public_ip)
 
     is_ip_verified = False
-    if client_ip:
-        is_ip_verified = validate_client_ip(
-            client_ip,
-            sec_settings.office_public_ips,
-            sec_settings.office_subnets,
-        )
+    if is_wfh and sec_settings.allow_wfh_bypass:
+        is_ip_verified = True
+    elif effective_ip:
+        is_ip_verified = validate_client_ip(effective_ip, whitelist, ())
+
+    shift_ended = is_shift_window_closed(shift, now_pkt)
+    if shift_ended and not is_wfh:
+        lock_date = closed_shift_attendance_date(shift, now_pkt)
+        if lock_date == target_date:
+            await persist_auto_absent(user, shift, target_date)
 
     record_doc = None
     if db is not None:
@@ -770,19 +1251,30 @@ async def get_today_status(
         diff_mins = max(0, now_mins - in_mins)
         active_duration_seconds = diff_mins * 60
 
+    record_status = str(record_doc.get("status") or "") if record_doc else ""
     if record_doc and cin:
-        status_val = AttendanceStatus(record_doc.get("status", AttendanceStatus.PRESENT))
+        try:
+            status_val = AttendanceStatus(record_doc.get("status", AttendanceStatus.PRESENT))
+        except ValueError:
+            status_val = AttendanceStatus.PRESENT
+        if status_val == AttendanceStatus.ABSENT:
+            status_val = AttendanceStatus.LATE if record_doc.get("is_late") else AttendanceStatus.PRESENT
         is_wfh = bool(record_doc.get("is_wfh", False) or status_val == AttendanceStatus.WFH)
     elif is_wfh:
         status_val = AttendanceStatus.WFH
+    elif record_status == AttendanceStatus.ABSENT.value or (shift_ended and not cin):
+        status_val = AttendanceStatus.ABSENT
     else:
         status_val = AttendanceStatus.ABSENT
 
-    can_check_in = not bool(record_doc and cin)
+    locked_no_punch = bool(shift_ended and not cin) or (
+        record_status in LEAVE_LOCK_STATUSES | {AttendanceStatus.ABSENT.value} and not cin
+    )
+    can_check_in = (not bool(cin)) and (not locked_no_punch)
     can_check_out = is_checked_in
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
-    record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and cin) else None
+    record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and (cin or record_status == AttendanceStatus.ABSENT.value)) else None
 
     punch_status = PunchStatusResponse(
         is_checked_in=is_checked_in,
@@ -808,8 +1300,11 @@ async def get_today_status(
         office_latitude=sec_settings.office_latitude,
         office_longitude=sec_settings.office_longitude,
         geofence_radius_meters=sec_settings.geofence_radius_meters,
-        client_ip=client_ip,
+        client_ip=effective_ip,
         is_ip_verified=is_ip_verified,
+        enforce_ip_whitelist=bool(sec_settings.enforce_ip_whitelist),
+        enforce_gps_geofence=bool(sec_settings.enforce_gps_geofence),
+        shift_ended=bool(shift_ended and not cin),
     )
 
 
@@ -828,14 +1323,33 @@ async def get_my_timesheet(
 
     month_str = f"{year:04d}-{month:02d}"
     shift = await get_shift_for_user(user_id, department)
+    shifts_by_id: Dict[str, ShiftResponse] = {}
+    if db is not None:
+        for raw in await db.shifts.find({}, {"_id": 0}).to_list(200):
+            try:
+                parsed = ShiftResponse(**raw)
+                shifts_by_id[parsed.id] = parsed
+            except Exception:
+                continue
 
     records = []
     if db is not None:
+        from app.services.attendance_golive import get_effective_start_date
+        min_date = get_effective_start_date()
         docs = await db.attendance_records.find(
-            {"user_id": user_id, "date": {"$regex": f"^{month_str}-"}},
+            {
+                "user_id": user_id,
+                "$and": [
+                    {"date": {"$regex": f"^{month_str}-"}},
+                    {"date": {"$gte": min_date}},
+                ],
+            },
             {"_id": 0}
         ).sort("date", 1).to_list(100)
-        records = [AttendanceRecordResponse.from_mongo(d) for d in docs]
+        for d in docs:
+            rec_shift = shifts_by_id.get(d.get("shift_id")) or shift
+            apply_daily_calc_fields(d, rec_shift)
+            records.append(AttendanceRecordResponse.from_mongo(d))
 
     # Calculate total working days in this month
     total_working_days = await calculate_month_working_days(year, month)
@@ -845,9 +1359,9 @@ async def get_my_timesheet(
         daily_dicts.append({
             "status": r.status,
             "late_strike": r.late_strike,
-            "work_minutes": int(round(r.work_hours * 60)),
-            "overtime_minutes": int(round(r.overtime_hours * 60)),
-            "undertime_minutes": int(round(r.undertime_hours * 60)),
+            "work_minutes": r.working_hours_minutes or int(round(r.work_hours * 60)),
+            "overtime_minutes": r.overtime_minutes or int(round(r.overtime_hours * 60)),
+            "undertime_minutes": r.undertime_minutes or int(round(r.undertime_hours * 60)),
             "is_short_leave": (r.status == AttendanceStatus.SHORT_LEAVE),
             "is_missed_punch": r.is_missed_punch,
         })
@@ -892,6 +1406,23 @@ async def get_my_timesheet(
     )
 
 
+async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> MonthlyTimesheetResponse:
+    """Management view of another employee's monthly timesheet."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail="Employee not found")
+
+    role = str(user_doc.get("role") or "").lower()
+    if role == "client":
+        raise HTTPException(status_code=400, detail="Client accounts do not have attendance timesheets")
+
+    return await get_my_timesheet(user_doc, year, month)
+
+
 # ──────────────────────────────────────────────────────────
 # 6. DAILY MATRIX & MONTHLY PUNCTUALITY COMMAND CENTER
 # ──────────────────────────────────────────────────────────
@@ -922,7 +1453,11 @@ async def calculate_month_working_days(year: int, month: int) -> int:
                 working_saturdays_set.add(ev_date)
 
     working_days_count = 0
-    start_day = 19 if (year == 2026 and month == 8) else 1
+    from app.services.attendance_golive import get_effective_start_date
+    min_date = get_effective_start_date()
+    start_day = 1
+    if year == 2026 and month == 8:
+        start_day = int(min_date[-2:]) if min_date.startswith("2026-08-") else 21
     for day in range(start_day, num_days + 1):
         cur_date = date(year, month, day)
         date_str = cur_date.strftime("%Y-%m-%d")
@@ -957,6 +1492,10 @@ async def get_daily_matrix(
     """
     db = get_database()
     target_date = date_str or get_current_date_str()
+    from app.services.attendance_golive import get_effective_start_date
+    min_date = get_effective_start_date()
+    if target_date < min_date:
+        target_date = min_date
     parsed_date = datetime.strptime(target_date, "%Y-%m-%d").date()
 
     if db is None:
@@ -1039,37 +1578,33 @@ async def get_daily_matrix(
         shift_start = raw_shift.get("start_time", "09:30") if raw_shift else "09:30"
         shift_end = raw_shift.get("end_time", "18:30") if raw_shift else "18:30"
         shift_name = raw_shift.get("name", "Standard Shift") if raw_shift else "Standard Shift"
-        shift_break = raw_shift.get("break_duration_minutes", 60) if raw_shift else 60
-        shift_grace = int(raw_shift.get("grace_period_minutes", 30)) if raw_shift else 30
-        shift_expected_hours = float(raw_shift.get("expected_hours", 8.0)) if raw_shift else 8.0
-        shift_is_night = bool(raw_shift.get("is_night_shift", False)) if raw_shift else False
+        shift_break = scheduled_break_minutes(raw_shift)
         shift_timing = f"{shift_start} - {shift_end}"
 
         if rec:
-            check_in = rec.get("check_in")
-            check_out = rec.get("check_out")
+            check_in, check_out = record_punch_times(rec)
             is_wfh_flag = bool(rec.get("is_wfh", False))
             is_short_leave_flag = bool(rec.get("is_short_leave", False))
             short_leave_hours_val = float(rec.get("short_leave_hours", 0.0))
             raw_status = rec.get("status")
+            keep_status = {
+                "sick_leave", "casual_leave", "annual_leave", "unpaid_leave",
+                "short_leave", "wfh", "missed_punch", "sunday_off",
+                "first_saturday_off", "holiday", "on_leave",
+            }
 
             if check_in:
-                # Dynamic mathematical calculation engine against the user's specific shift
                 calc_res = calculate_daily_attendance(
                     check_in_time=check_in,
                     check_out_time=check_out,
-                    shift_start=shift_start,
-                    shift_end=shift_end,
-                    break_duration_minutes=rec.get("break_duration_minutes", shift_break),
-                    grace_period_minutes=shift_grace,
-                    expected_hours=shift_expected_hours,
-                    is_night_shift=shift_is_night,
-                    is_wfh=is_wfh_flag,
-                    is_short_leave=is_short_leave_flag,
-                    short_leave_hours=short_leave_hours_val,
+                    **shift_doc_calc_kwargs(raw_shift, {
+                        "is_wfh": is_wfh_flag,
+                        "is_short_leave": is_short_leave_flag,
+                        "short_leave_hours": short_leave_hours_val,
+                    }),
                 )
 
-                if raw_status in ("sick_leave", "casual_leave", "annual_leave", "unpaid_leave", "short_leave", "wfh", "missed_punch", "absent", "sunday_off", "first_saturday_off", "holiday", "present", "late", "on_leave"):
+                if raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
                     status_enum = AttendanceStatus.WFH if is_wfh_flag else calc_res.status
@@ -1087,19 +1622,18 @@ async def get_daily_matrix(
                     is_late_alert = is_late_flag
                     late_minutes = rec.get("late_minutes", calc_res.late_minutes)
 
-                work_hours = calc_res.work_duration_formatted
-                work_mins = calc_res.work_minutes
-                break_mins_val = rec.get("break_duration_minutes", shift_break)
+                work_mins = calc_res.work_minutes if check_out else 0
+                work_hours = calc_res.work_duration_formatted if check_out else "00:00"
+                break_mins_val = shift_break
             else:
-                # Attendance record exists without check_in (e.g. overridden as absent or on-leave)
-                work_hours = rec.get("work_duration_formatted") or "00:00"
-                work_mins = rec.get("working_hours_minutes") or 0
-                break_mins_val = rec.get("break_duration_minutes", 0)
+                work_hours = "00:00"
+                work_mins = 0
+                break_mins_val = shift_break
                 is_late_flag = False
                 is_late_alert = False
                 late_minutes = 0
 
-                if raw_status in ("sick_leave", "casual_leave", "annual_leave", "unpaid_leave", "short_leave", "wfh", "missed_punch", "absent", "sunday_off", "first_saturday_off", "holiday", "present", "late", "on_leave"):
+                if raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
                     status_enum = AttendanceStatus.ABSENT
@@ -1375,8 +1909,15 @@ async def get_monthly_punctuality_summary(
     user_shift_map = {a["user_id"]: a["shift_id"] for a in all_assignments}
 
     # Batch-load all monthly records for all users in a single query
+    from app.services.attendance_golive import get_effective_start_date
+    min_date = get_effective_start_date()
     all_monthly_records = await db.attendance_records.find(
-        {"date": {"$regex": f"^{month_prefix}-"}},
+        {
+            "$and": [
+                {"date": {"$regex": f"^{month_prefix}-"}},
+                {"date": {"$gte": min_date}},
+            ]
+        },
         {"_id": 0}
     ).to_list(10000)
 
@@ -1406,12 +1947,14 @@ async def get_monthly_punctuality_summary(
 
         daily_dicts = []
         for r in records:
+            rec_shift = shifts_by_id.get(r.get("shift_id")) if r.get("shift_id") else raw_shift
+            apply_daily_calc_fields(r, rec_shift or raw_shift)
             daily_dicts.append({
                 "status": r.get("status", AttendanceStatus.PRESENT),
                 "late_strike": r.get("late_strike", 0),
-                "work_minutes": int(round(float(r.get("work_hours", 0.0)) * 60)),
-                "overtime_minutes": int(round(float(r.get("overtime_hours", 0.0)) * 60)),
-                "undertime_minutes": int(round(float(r.get("undertime_hours", 0.0)) * 60)),
+                "work_minutes": int(r.get("working_hours_minutes") or round(float(r.get("work_hours", 0.0)) * 60)),
+                "overtime_minutes": int(r.get("overtime_minutes") or round(float(r.get("overtime_hours", 0.0)) * 60)),
+                "undertime_minutes": int(r.get("undertime_minutes") or round(float(r.get("undertime_hours", 0.0)) * 60)),
                 "is_short_leave": (r.get("status") == AttendanceStatus.SHORT_LEAVE.value or r.get("is_short_leave", False)),
                 "is_missed_punch": bool(r.get("is_missed_punch") or r.get("status") == AttendanceStatus.MISSED_PUNCH.value),
             })
@@ -1490,6 +2033,24 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
     user_id = user.get("id")
     user_name = user.get("full_name") or user.get("name", "User")
     department = user.get("department")
+
+    from app.services.attendance_golive import get_effective_start_date
+    min_date = get_effective_start_date()
+    if req.start_date < min_date:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Attendance and leave tracking starts on {min_date}.",
+        )
+
+    from app.services.leave_balance import assert_leave_quota
+    lt = req.leave_type.value if isinstance(req.leave_type, LeaveType) else str(req.leave_type)
+    await assert_leave_quota(
+        user,
+        lt,
+        req.start_date,
+        req.end_date,
+        req.short_leave_hours,
+    )
 
     now_iso = datetime.now(timezone.utc).isoformat()
     req_dict = req.model_dump()
@@ -1623,12 +2184,7 @@ async def review_leave_request(
             calc_res = calculate_daily_attendance(
                 check_in_time=reg_in,
                 check_out_time=reg_out,
-                shift_start=shift.start_time,
-                shift_end=shift.end_time,
-                break_duration_minutes=shift.break_duration_minutes,
-                grace_period_minutes=shift.grace_period_minutes,
-                expected_hours=shift.expected_hours,
-                is_night_shift=shift.is_night_shift,
+                **shift_calc_kwargs(shift),
             )
 
             att_doc = {
@@ -1690,14 +2246,10 @@ async def review_leave_request(
                 calc_res = calculate_daily_attendance(
                     check_in_time=rec.get("check_in"),
                     check_out_time=rec.get("check_out"),
-                    shift_start=shift.start_time,
-                    shift_end=shift.end_time,
-                    break_duration_minutes=shift.break_duration_minutes,
-                    grace_period_minutes=shift.grace_period_minutes,
-                    expected_hours=shift.expected_hours,
-                    is_night_shift=shift.is_night_shift,
-                    is_short_leave=True,
-                    short_leave_hours=sl_hours,
+                    **shift_calc_kwargs(shift, {
+                        "is_short_leave": True,
+                        "short_leave_hours": sl_hours,
+                    }),
                 )
                 await db.attendance_records.update_one(
                     {"user_id": target_user_id, "date": target_date},
@@ -1841,12 +2393,7 @@ async def admin_manual_attendance_entry(
         calc_res = calculate_daily_attendance(
             check_in_time=check_in,
             check_out_time=check_out,
-            shift_start=shift.start_time,
-            shift_end=shift.end_time,
-            break_duration_minutes=shift.break_duration_minutes,
-            grace_period_minutes=shift.grace_period_minutes,
-            expected_hours=shift.expected_hours,
-            is_night_shift=shift.is_night_shift,
+            **shift_calc_kwargs(shift),
         )
         work_hours = calc_res.work_hours
         work_duration_formatted = calc_res.work_duration_formatted
@@ -1892,6 +2439,10 @@ async def admin_manual_attendance_entry(
         "shift_name": shift.name,
         "check_in": check_in,
         "check_out": check_out,
+        "punch_in": check_in,
+        "punch_out": check_out,
+        "break_minutes": 0 if is_absent_override or is_leave_override else int(shift.break_duration_minutes or 0),
+        "working_hours_minutes": int(round(float(work_hours or 0) * 60)),
         "work_hours": work_hours,
         "work_duration_formatted": work_duration_formatted,
         "overtime_hours": overtime_hours,

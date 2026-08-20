@@ -10,6 +10,8 @@ from app.schemas.leave import (
     LeaveCreateRequest,
     LeaveReviewRequest,
     LeaveResponse,
+    LeaveBalanceResponse,
+    LeaveBalanceUpdateRequest,
 )
 from app.schemas.error import ErrorResponse
 from app.core.security import (
@@ -128,3 +130,32 @@ async def delete_leave_request(
         current_user=current_user,
     )
     return {"success": success, "message": "Request deleted successfully"}
+
+
+@router.get("/balances/me", response_model=LeaveBalanceResponse)
+async def get_my_leave_balance(
+    year: Optional[int] = Query(default=None),
+    current_user: dict = Depends(require_internal_user),
+):
+    from app.services import leave_balance
+    return await leave_balance.get_balance_for_user(current_user, year)
+
+
+@router.get("/balances", response_model=List[LeaveBalanceResponse])
+async def list_leave_balances(
+    year: Optional[int] = Query(default=None),
+    current_user: dict = Depends(require_hr_or_admin),
+):
+    from app.services import leave_balance
+    return await leave_balance.list_balances(year)
+
+
+@router.put("/balances/{user_id}", response_model=LeaveBalanceResponse)
+async def update_leave_opening_balance(
+    user_id: str,
+    payload: LeaveBalanceUpdateRequest,
+    current_user: dict = Depends(require_hr_or_admin),
+):
+    from app.services import leave_balance
+    return await leave_balance.update_opening_balance(user_id, payload)
+

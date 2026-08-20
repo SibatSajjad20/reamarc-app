@@ -186,15 +186,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
     <div className="space-y-4">
       {/* Top Summary Counters */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <button
-          type="button"
-          onClick={() => setStatusFilter('All')}
-          className={`p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border text-left transition-all cursor-pointer shadow-xs flex items-center justify-between ${
-            statusFilter === 'All'
-              ? 'border-zinc-500 ring-2 ring-zinc-500/20'
-              : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
-          }`}
-        >
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Total Submissions</span>
             <p className="text-xl font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5">{totalCount}</p>
@@ -202,17 +194,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="p-2.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Inbox className="w-4 h-4" />
           </div>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setStatusFilter('pending')}
-          className={`p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border text-left transition-all cursor-pointer shadow-xs flex items-center justify-between ${
-            statusFilter === 'pending'
-              ? 'border-amber-500 ring-2 ring-amber-500/20'
-              : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
-          }`}
-        >
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Pending Review</span>
             <p className="text-xl font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">{pendingCount}</p>
@@ -220,17 +204,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
             <Clock className="w-4 h-4" />
           </div>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setStatusFilter('approved')}
-          className={`p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border text-left transition-all cursor-pointer shadow-xs flex items-center justify-between ${
-            statusFilter === 'approved'
-              ? 'border-emerald-500 ring-2 ring-emerald-500/20'
-              : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
-          }`}
-        >
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Approved</span>
             <p className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{approvedCount}</p>
@@ -238,17 +214,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="p-2.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="w-4 h-4" />
           </div>
-        </button>
+        </div>
 
-        <button
-          type="button"
-          onClick={() => setStatusFilter('rejected')}
-          className={`p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border text-left transition-all cursor-pointer shadow-xs flex items-center justify-between ${
-            statusFilter === 'rejected'
-              ? 'border-rose-500 ring-2 ring-rose-500/20'
-              : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
-          }`}
-        >
+        <div className="p-3.5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Rejected</span>
             <p className="text-xl font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{rejectedCount}</p>
@@ -256,28 +224,46 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
             <XCircle className="w-4 h-4" />
           </div>
-        </button>
+        </div>
       </div>
 
       {/* Control Bar: Filters & Search */}
       <div className="p-4 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-xs flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3">
-          {/* Status Filter */}
-          <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-bold">
-            {(['All', 'pending', 'approved', 'rejected'] as const).map((st) => (
-              <button
-                key={st}
-                type="button"
-                onClick={() => setStatusFilter(st)}
-                className={`px-3 py-1.5 rounded-lg capitalize transition-all cursor-pointer ${
-                  statusFilter === st
-                    ? 'bg-white dark:bg-[#11131a] text-zinc-950 dark:text-zinc-100 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-              >
-                {st === 'All' ? 'All Submissions' : st}
-              </button>
-            ))}
+          <div className="inline-flex items-center p-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/90 border border-zinc-200/80 dark:border-zinc-700/80 text-xs font-bold">
+            {(
+              [
+                { id: 'All', label: 'All Submissions', count: totalCount },
+                { id: 'pending', label: 'Pending', count: pendingCount },
+                { id: 'approved', label: 'Approved', count: approvedCount },
+                { id: 'rejected', label: 'Rejected', count: rejectedCount },
+              ] as const
+            ).map((st) => {
+              const isActive = statusFilter === st.id;
+              return (
+                <button
+                  key={st.id}
+                  type="button"
+                  onClick={() => setStatusFilter(st.id)}
+                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1.5 whitespace-nowrap ${
+                    isActive
+                      ? 'bg-white dark:bg-[#11131a] text-indigo-600 dark:text-indigo-400 shadow-sm'
+                      : 'text-zinc-500 dark:text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <span>{st.label}</span>
+                  <span
+                    className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${
+                      isActive
+                        ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-300'
+                        : 'bg-zinc-200/70 dark:bg-zinc-700 text-zinc-500 dark:text-zinc-400'
+                    }`}
+                  >
+                    {st.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
           {/* Type Filter */}
@@ -337,8 +323,12 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
               {filteredRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-zinc-400">
-                    No requests found matching current filters.
+                  <td colSpan={7} className="py-16">
+                    <div className="flex flex-col items-center justify-center gap-2 text-zinc-400 dark:text-zinc-500">
+                      <Inbox className="w-8 h-8 text-zinc-300 dark:text-zinc-600" />
+                      <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">No requests found</p>
+                      <p className="text-xs text-zinc-400 dark:text-zinc-500">Nothing matches the current filters.</p>
+                    </div>
                   </td>
                 </tr>
               ) : (

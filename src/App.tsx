@@ -7,7 +7,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { DailyLogView } from './components/views/DailyLogView';
 import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
-import { ProfileSettingsModal } from './components/modals/ProfileSettingsModal';
+import { ProfileSettingsView } from './components/views/ProfileSettingsView';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthScreen } from './components/auth/AuthScreen';
@@ -42,14 +42,12 @@ function AppInner() {
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
     if (saved === 'dashboard' && isAdmin) return 'attendance';
-    return saved && ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance'].includes(saved)
+    return saved && ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile'].includes(saved)
       ? saved
       : isAdmin
       ? 'attendance'
       : 'dashboard';
   });
-
-  const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
 
   // Route guard effect to enforce V1.0 module boundaries & URL path redirects
   useEffect(() => {
@@ -115,10 +113,13 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'profile') {
+        setCurrentView('profile');
+        localStorage.setItem('reamarc_active_view', 'profile');
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
-        if (!currentSaved || !['dashboard', 'marketing', 'admin', 'daily-log', 'attendance'].includes(currentSaved)) {
+        if (!currentSaved || !['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile'].includes(currentSaved)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -163,6 +164,7 @@ function AppInner() {
     }
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
+    allowedViews.push('profile');
 
     const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
 
@@ -270,7 +272,6 @@ function AppInner() {
         onSignOut={handleSignOut}
         theme={theme}
         onToggleTheme={handleToggleTheme}
-        onOpenProfileSettings={() => setIsProfileSettingsOpen(true)}
       />
 
       {/* Main View Display Area */}
@@ -306,8 +307,14 @@ function AppInner() {
         )}
 
         {currentView === 'admin' && canSeeAdmin && (
-          <div className="flex-1 flex flex-col h-full overflow-y-auto p-6 view-enter">
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <AdminPanel />
+          </div>
+        )}
+
+        {currentView === 'profile' && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <ProfileSettingsView />
           </div>
         )}
       </main>
@@ -320,14 +327,6 @@ function AppInner() {
         workspaceToEdit={workspaceToEdit}
       />
 
-      {/* Self-service Profile & Password Settings Modal */}
-      <ProfileSettingsModal
-        isOpen={isProfileSettingsOpen}
-        onClose={() => setIsProfileSettingsOpen(false)}
-        onSuccess={() => {
-          addToast('Profile Updated', 'Your profile information and credentials were saved.', 'success');
-        }}
-      />
     </div>
   );
 }

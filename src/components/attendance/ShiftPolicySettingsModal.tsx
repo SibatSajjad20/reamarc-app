@@ -165,8 +165,8 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
     try {
       setIsSaving(true);
       const payload: SecuritySettings = {
-        office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || ['127.0.0.1', '::1'],
-        office_subnets: securitySettings.office_subnets || ['192.168.1.0/24', '10.0.0.0/8'],
+        office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [],
+        office_subnets: securitySettings.office_subnets || [],
         office_latitude: Number(securitySettings.office_latitude) || 33.52049,
         office_longitude: Number(securitySettings.office_longitude) || 73.09145,
         geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || 150,
@@ -189,6 +189,11 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
   const handleSaveShift = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingShift) return;
+    const isTime = (t?: string | null) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '');
+    if (!isTime(editingShift.start_time) || !isTime(editingShift.end_time)) {
+      addToast('Invalid Time', 'Start and end times must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+      return;
+    }
 
     try {
       setIsSaving(true);
@@ -413,6 +418,7 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                       <div>
                         <CustomTimePicker
                           label="Start Time"
+                          required
                           value={editingShift.start_time || '09:30'}
                           onChange={(val) =>
                             setEditingShift({ ...editingShift, start_time: val })
@@ -422,6 +428,7 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                       <div>
                         <CustomTimePicker
                           label="End Time"
+                          required
                           value={editingShift.end_time || '18:30'}
                           onChange={(val) =>
                             setEditingShift({ ...editingShift, end_time: val })

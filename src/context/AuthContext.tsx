@@ -13,6 +13,7 @@ interface AuthContextType {
   login: (payload: LoginPayload) => Promise<void>;
   register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<void>;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
   isAuthModalOpen: boolean;
@@ -138,6 +139,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const refreshUser = useCallback(async () => {
+    try {
+      const currentUser = await authService.getMe();
+      setUser(currentUser);
+    } catch {
+      // Keep existing session if a background refresh fails
+    }
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -150,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         register,
         logout,
+        refreshUser,
         openAuthModal,
         closeAuthModal,
         isAuthModalOpen,

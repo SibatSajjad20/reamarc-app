@@ -22,6 +22,7 @@ from typing import Optional, Dict, Any, List
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
 
 from app.database import get_database
 from app.models.attendance import (
@@ -109,9 +110,32 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
 
     logger.info(f"[Scheduler] Running Midnight Attendance Job for target date: {target_date}...")
 
+    from app.services.attendance_golive import (
+        ATTENDANCE_GO_LIVE_DATE,
+        purge_pre_go_live_attendance,
+    )
+
+    purge_result = await purge_pre_go_live_attendance()
+
     now_iso = datetime.now(timezone.utc).isoformat()
     missed_punches_flagged = 0
     absentees_flagged = 0
+
+    if target_date < ATTENDANCE_GO_LIVE_DATE:
+        logger.info(
+            "[Scheduler] Skipping missed-punch/absent processing for %s (before go-live %s).",
+            target_date,
+            ATTENDANCE_GO_LIVE_DATE,
+        )
+        return {
+            "target_date": target_date,
+            "success": True,
+            "is_workday": False,
+            "missed_punches_flagged": 0,
+            "absentees_flagged": 0,
+            "skipped_pre_go_live": True,
+            "purge": purge_result,
+        }
 
     # ──────────────────────────────────────────────────────────
     # STEP 1: MISSED PUNCH TRANSITION
@@ -292,6 +316,57 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
     return result
 
 
+async def close_elapsed_shifts_now() -> Dict[str, Any]:
+    """
+    Marks employees absent as soon as their shift end time has passed without a check-in.
+    Runs throughout the day so check-in is closed immediately after shift end, not at midnight.
+    """
+    db = get_database()
+    if db is None:
+        return {"success": False, "closed": 0, "error": "Database unavailable"}
+
+    now_pkt = attendance_service.get_now_pkt()
+    closed = 0
+    skipped = 0
+    try:
+        users = await db.users.find(
+            {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
+            {"_id": 0, "hashed_password": 0},
+        ).to_list(1000)
+        for user in users:
+            shift = await attendance_service.get_shift_for_user(user.get("id"), user.get("department"))
+            if not attendance_service.is_shift_window_closed(shift, now_pkt):
+                continue
+            date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
+            if not await is_workday_for_date(date_str):
+                skipped += 1
+                continue
+            before = await db.attendance_records.find_one(
+                {"user_id": user.get("id"), "date": date_str},
+                {"_id": 0, "check_in": 1, "punch_in": 1, "status": 1},
+            )
+            if before and (before.get("check_in") or before.get("punch_in")):
+                continue
+            doc = await attendance_service.persist_auto_absent(
+                user,
+                shift,
+                date_str,
+                notes="Auto-marked Absent after shift end without check-in",
+            )
+            if doc and str(doc.get("status")) == AttendanceStatus.ABSENT.value and not (
+                doc.get("check_in") or doc.get("punch_in")
+            ):
+                if not before or str(before.get("status")) != AttendanceStatus.ABSENT.value:
+                    closed += 1
+    except Exception as e:
+        logger.error(f"[Scheduler] Error closing elapsed shifts: {e}")
+        return {"success": False, "closed": closed, "error": str(e)}
+
+    if closed:
+        logger.info(f"[Scheduler] Closed {closed} elapsed shift(s) as absent.")
+    return {"success": True, "closed": closed, "skipped": skipped}
+
+
 def start_attendance_scheduler() -> AsyncIOScheduler:
     """
     Initializes and starts the APScheduler AsyncIOScheduler with Asia/Karachi timezone.
@@ -305,6 +380,16 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
 
     _attendance_scheduler = AsyncIOScheduler(timezone=PK_TZ)
 
+    from app.services.attendance_golive import purge_pre_go_live_attendance
+
+    _attendance_scheduler.add_job(
+        purge_pre_go_live_attendance,
+        CronTrigger(hour=0, minute=0, timezone=PK_TZ),
+        id="attendance_go_live_purge",
+        name="Purge 19-20 Aug attendance at go-live midnight PKT",
+        replace_existing=True,
+    )
+
     # Schedule daily job at 00:01 PKT
     _attendance_scheduler.add_job(
         run_midnight_attendance_job_now,
@@ -314,8 +399,18 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    # Close shifts throughout the day once each employee's end time has passed
+    _attendance_scheduler.add_job(
+        close_elapsed_shifts_now,
+        IntervalTrigger(minutes=5, timezone=PK_TZ),
+        id="close_elapsed_shifts",
+        name="Auto-close unpunched shifts after end time",
+        replace_existing=True,
+        next_run_time=datetime.now(PK_TZ),
+    )
+
     _attendance_scheduler.start()
-    logger.info("[Scheduler] Attendance Midnight Background Worker started (00:01 PKT daily cron).")
+    logger.info("[Scheduler] Attendance scheduler started (midnight cron + 5-minute shift close).")
     return _attendance_scheduler
 
 

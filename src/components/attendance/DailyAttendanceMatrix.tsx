@@ -6,10 +6,6 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-  Layers,
   Loader2,
 } from 'lucide-react';
 import type {
@@ -24,6 +20,8 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
+import { getAttendanceMinDate } from '../../constants/attendance';
+import { getDeptBadgeClass } from '../../utils/badgeStyles';
 
 interface DailyAttendanceMatrixProps {
   matrixData: DailyMatrixResponse | null;
@@ -34,6 +32,8 @@ interface DailyAttendanceMatrixProps {
   isLoading?: boolean;
   onRefresh: () => void;
   canEditOverride?: boolean;
+  onSelectEmployee?: (userId: string) => void;
+  minDate?: string;
 }
 
 const DEPARTMENTS = [
@@ -49,35 +49,6 @@ const DEPARTMENTS = [
   'HR',
 ];
 
-const getDeptBadgeClass = (dept?: string) => {
-  const nd = (dept || '').toLowerCase().trim();
-  if (nd.includes('software') || nd.includes('dev')) {
-    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-  }
-  if (nd.includes('website')) {
-    return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-  }
-  if (nd.includes('creative')) {
-    return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-  }
-  if (nd.includes('content')) {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  if (nd.includes('seo')) {
-    return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-  }
-  if (nd.includes('performance') || nd.includes('marketing')) {
-    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-  }
-  if (nd.includes('ai')) {
-    return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
-  }
-  if (nd.includes('hr')) {
-    return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-  }
-  return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-};
-
 export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   matrixData,
   selectedDate,
@@ -87,19 +58,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   isLoading = false,
   onRefresh,
   canEditOverride = true,
+  onSelectEmployee,
+  minDate,
 }) => {
   const { addToast } = useToast();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
-
-  // Zoom Level State
-  const [zoomLevel, setZoomLevel] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('reamarc_attendance_matrix_zoom');
-      if (saved) return Number(saved);
-    } catch (e) {}
-    return 100;
-  });
 
   // Override Modal State
   const [editingRow, setEditingRow] = useState<DailyMatrixEmployeeRow | null>(null);
@@ -110,7 +74,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   const [overrideReason, setOverrideReason] = useState('');
   const [isSavingOverride, setIsSavingOverride] = useState(false);
 
-  const START_DATE = '2026-08-19';
+  const START_DATE = minDate || getAttendanceMinDate();
   const isAtStartDate = selectedDate <= START_DATE;
 
   // Date Jump Handlers
@@ -126,15 +90,6 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
     } else {
       onDateChange(nextDate);
     }
-  };
-
-  const handleSetToday = () => {
-    const today = new Date();
-    const y = today.getFullYear();
-    const m = String(today.getMonth() + 1).padStart(2, '0');
-    const d = String(today.getDate()).padStart(2, '0');
-    const todayStr = `${y}-${m}-${d}`;
-    onDateChange(todayStr < START_DATE ? START_DATE : todayStr);
   };
 
   // Parse shift timings from '09:30 - 18:30'
@@ -244,6 +199,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
     try {
       setIsSavingOverride(true);
       const isNonWorking = ['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'sunday_off', 'first_saturday_off', 'holiday'].includes(overrideStatus);
+      const isTime = (t: string) => !t || /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+      if (!isNonWorking && (!isTime(overrideIn) || !isTime(overrideOut))) {
+        addToast('Invalid Time', 'Time In and Time Out must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+        setIsSavingOverride(false);
+        return;
+      }
       const targetId = editingRow.record_id || editingRow.user_id;
       const payload: OverrideAttendancePayload & { user_id: string; date: string } = {
         user_id: editingRow.user_id,
@@ -302,112 +263,74 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
   return (
     <div className="space-y-4">
-      {/* Control Bar: Date Selector, Zoom Controls, Status & Search */}
-      <div className="p-4 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex flex-wrap items-center justify-between gap-4">
-        {/* Date Jump Controls */}
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => handleJumpDate(-1)}
-            disabled={isAtStartDate}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-            title={isAtStartDate ? 'Attendance tracking starts from 19 Aug 2026' : 'Previous Day'}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+      <div className="p-3.5 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex flex-wrap items-end gap-2.5">
+        <div>
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+            Date
+          </span>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => handleJumpDate(-1)}
+              disabled={isAtStartDate}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              title={isAtStartDate ? `Attendance tracking starts from ${START_DATE}` : 'Previous Day'}
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
 
-          <CustomDatePicker
-            value={selectedDate}
-            minDate="2026-08-19"
-            onChange={(d) => onDateChange(d < '2026-08-19' ? '2026-08-19' : d)}
-            className="w-40"
-          />
+            <CustomDatePicker
+              value={selectedDate}
+              minDate={START_DATE}
+              onChange={(d) => onDateChange(d < START_DATE ? START_DATE : d)}
+              className="w-40"
+              clearable={false}
+            />
 
-          <button
-            type="button"
-            onClick={() => handleJumpDate(1)}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
-            title="Next Day"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSetToday}
-            className="px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/60 dark:hover:bg-indigo-900 text-indigo-600 dark:text-indigo-400 font-bold text-xs border border-indigo-200 dark:border-indigo-800 transition-colors cursor-pointer"
-          >
-            Today
-          </button>
+            <button
+              type="button"
+              onClick={() => handleJumpDate(1)}
+              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+              title="Next Day"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
-        {/* Zoom Controls & Search & Status Filter */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Zoom Controls */}
-          <div className="flex items-center rounded-xl bg-zinc-100 dark:bg-zinc-800/80 p-0.5 border border-zinc-200 dark:border-zinc-700">
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.max(70, zoomLevel - 5);
-                setZoomLevel(next);
-                try { localStorage.setItem('reamarc_attendance_matrix_zoom', String(next)); } catch (e) {}
-              }}
-              disabled={zoomLevel <= 70}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-2 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[40px] text-center select-none">
-              {zoomLevel}%
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.min(130, zoomLevel + 5);
-                setZoomLevel(next);
-                try { localStorage.setItem('reamarc_attendance_matrix_zoom', String(next)); } catch (e) {}
-              }}
-              disabled={zoomLevel >= 130}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
+        <div className="w-40">
+          <CustomSelect
+            label="Status"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: 'All', label: 'All' },
+              { value: 'Present', label: 'Present' },
+              { value: 'Late', label: 'Late Arrivals' },
+              { value: 'WFH', label: 'WFH' },
+              { value: 'Leaves', label: 'Approved Leaves' },
+              { value: 'Missed', label: 'Missed Punch' },
+              { value: 'Absent', label: 'Absent' },
+            ]}
+          />
+        </div>
 
-          {/* Reset Layout */}
-          <button
-            type="button"
-            onClick={() => {
-              setZoomLevel(100);
-              try { localStorage.setItem('reamarc_attendance_matrix_zoom', '100'); } catch (e) {}
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 text-xs font-semibold hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-all cursor-pointer"
-            title="Reset Zoom"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Reset</span>
-          </button>
+        <div className="w-48">
+          <CustomSelect
+            label="Department"
+            value={selectedDepartment}
+            onChange={onDepartmentChange}
+            options={DEPARTMENTS.map((dept) => ({
+              value: dept,
+              label: dept === 'All' ? 'All' : dept,
+            }))}
+          />
+        </div>
 
-          {/* Status Filter */}
-          <div className="w-48">
-            <CustomSelect
-              value={statusFilter}
-              onChange={setStatusFilter}
-              options={[
-                { value: 'All', label: 'Status: All' },
-                { value: 'Present', label: 'Status: Present' },
-                { value: 'Late', label: 'Status: Late Arrivals' },
-                { value: 'WFH', label: 'Status: WFH' },
-                { value: 'Leaves', label: 'Status: Approved Leaves' },
-                { value: 'Missed', label: 'Status: Missed Punch' },
-                { value: 'Absent', label: 'Status: Absent' },
-              ]}
-            />
-          </div>
-
-          {/* Search Input */}
+        <div className="flex-1 min-w-[180px] max-w-xs ml-auto">
+          <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+            Search
+          </span>
           <div className="relative">
             <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
@@ -415,32 +338,10 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               placeholder="Search employee..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-8 pr-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-48"
+              className="w-full h-10 pl-8 pr-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
           </div>
         </div>
-      </div>
-
-      {/* ─── Department Navigation Tabs Bar ─── */}
-      <div className="px-4 py-2.5 bg-zinc-50 dark:bg-[#0c0d12] rounded-2xl border border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center gap-2 shrink-0 overflow-x-auto">
-        {DEPARTMENTS.map((dept) => {
-          const isSelected = selectedDepartment.toLowerCase() === dept.toLowerCase();
-          return (
-            <button
-              key={dept}
-              type="button"
-              onClick={() => onDepartmentChange(dept)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 select-none capitalize ${
-                isSelected
-                  ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
-                  : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
-              }`}
-            >
-              <Layers className="w-3 h-3" />
-              <span>{dept === 'All' ? 'All Departments' : dept}</span>
-            </button>
-          );
-        })}
       </div>
 
       {/* Main Register Table */}
@@ -461,7 +362,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
             <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading live daily attendance register...</span>
           </div>
         ) : (
-          <div className="overflow-x-auto" style={{ zoom: `${zoomLevel}%` }}>
+          <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
@@ -507,7 +408,15 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                             <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold text-[11px] flex items-center justify-center">
                               {initials}
                             </div>
-                            <span className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                            <span
+                              className={`font-bold text-zinc-900 dark:text-zinc-100 leading-tight ${
+                                onSelectEmployee
+                                  ? 'hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer'
+                                  : ''
+                              }`}
+                              onClick={() => onSelectEmployee?.(row.user_id)}
+                              title={onSelectEmployee ? 'Open monthly timesheet' : undefined}
+                            >
                               {row.employee_name}
                             </span>
                           </div>
@@ -557,13 +466,19 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
                         {/* Break */}
                         <td className="py-3 px-4 text-zinc-500 font-mono">
-                          {row.break_minutes}m
+                          {`${row.break_minutes ?? 0}m`}
                         </td>
 
                         {/* Effective Hours */}
                         <td className="py-3 px-4 font-mono font-bold text-zinc-800 dark:text-zinc-200">
-                          {row.effective_hours_minutes > 0 ? (
-                            `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
+                          {row.punch_in || row.check_in ? (
+                            row.effective_hours_minutes > 0 ? (
+                              `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
+                            ) : row.punch_out || row.check_out ? (
+                              '0h 0m'
+                            ) : (
+                              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">In Progress</span>
+                            )
                           ) : (
                             <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
                           )}
@@ -608,7 +523,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               Holiday
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                               Absent
                             </span>
                           )}

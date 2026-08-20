@@ -134,14 +134,97 @@ def format_hours_to_hhmm(hours: float, show_sign: bool = False) -> str:
     return format_minutes_to_hhmm(hours * 60.0, show_sign=show_sign)
 
 
+def shift_span_minutes(
+    shift_start: Union[str, time, datetime] = "09:30",
+    shift_end: Union[str, time, datetime] = "18:30",
+    is_night_shift: bool = False,
+) -> int:
+    """Gross scheduled minutes from shift start to end, including overnight spans."""
+    start_m = parse_time_to_minutes(shift_start)
+    end_m = parse_time_to_minutes(shift_end)
+    if is_night_shift or end_m <= start_m:
+        end_m += 1440
+    return max(0, end_m - start_m)
+
+
+def derive_expected_work_minutes(
+    shift_start: Union[str, time, datetime] = "09:30",
+    shift_end: Union[str, time, datetime] = "18:30",
+    break_duration_minutes: int = 0,
+    is_night_shift: bool = False,
+) -> int:
+    """
+    Net expected minutes = scheduled span minus unpaid break.
+    Standard 09:30-18:30 with 60m lunch -> 480 minutes (8h).
+    Afternoon 14:00-20:00 with 0 break -> 360 minutes (6h).
+    """
+    unpaid = max(0, int(break_duration_minutes or 0))
+    return max(0, shift_span_minutes(shift_start, shift_end, is_night_shift) - unpaid)
+
+
+def derive_expected_hours(
+    shift_start: Union[str, time, datetime] = "09:30",
+    shift_end: Union[str, time, datetime] = "18:30",
+    break_duration_minutes: int = 0,
+    is_night_shift: bool = False,
+) -> float:
+    return round(
+        derive_expected_work_minutes(shift_start, shift_end, break_duration_minutes, is_night_shift) / 60.0,
+        2,
+    )
+
+
+def resolve_break_window(
+    shift_start: Union[str, time, datetime],
+    shift_end: Union[str, time, datetime],
+    break_duration_minutes: int = 0,
+    break_start_time: Optional[Union[str, time, datetime]] = None,
+    break_end_time: Optional[Union[str, time, datetime]] = None,
+    is_night_shift: bool = False,
+) -> Optional[tuple]:
+    """
+    Returns unpaid break as (start_mins, end_mins) on the same offset timeline as the shift.
+    Explicit window wins. Otherwise the break is placed at the shift midpoint.
+    """
+    duration = max(0, int(break_duration_minutes or 0))
+    if duration <= 0:
+        return None
+
+    start_m = parse_time_to_minutes(shift_start)
+    end_m = parse_time_to_minutes(shift_end)
+    crosses = is_night_shift or end_m <= start_m
+    if crosses:
+        end_m += 1440
+
+    if break_start_time and break_end_time:
+        b_start = parse_time_to_minutes(break_start_time)
+        b_end = parse_time_to_minutes(break_end_time)
+        if b_end <= b_start:
+            b_end += 1440
+        if crosses and b_start < (start_m - 360):
+            b_start += 1440
+            b_end += 1440
+        return (b_start, b_end)
+
+    mid = start_m + max(0, end_m - start_m) // 2
+    half = duration // 2
+    return (mid - half, mid - half + duration)
+
+
+def interval_overlap(a_start: int, a_end: int, b_start: int, b_end: int) -> int:
+    return max(0, min(a_end, b_end) - max(a_start, b_start))
+
+
 def calculate_daily_attendance(
     check_in_time: Optional[Union[str, time, datetime]],
     check_out_time: Optional[Union[str, time, datetime]],
     shift_start: Union[str, time, datetime] = "09:30",
     shift_end: Union[str, time, datetime] = "18:30",
     break_duration_minutes: int = 60,
+    break_start_time: Optional[Union[str, time, datetime]] = None,
+    break_end_time: Optional[Union[str, time, datetime]] = None,
     grace_period_minutes: int = 30,
-    expected_hours: float = 8.0,
+    expected_hours: Optional[float] = None,  # kept for callers; expected is derived from span - break
     is_night_shift: bool = False,
     is_wfh: bool = False,
     is_short_leave: bool = False,
@@ -151,13 +234,13 @@ def calculate_daily_attendance(
     Pure mathematical calculation for a single daily attendance record.
 
     Rules:
-    1. Working Hours: Time Out - max(Time In, Shift Start) - Break Duration
-       - Early arrivals before shift start do not gain unapproved overtime.
-    2. Grace Buffer: Arrival <= Shift Start + 30m is not late (late_strike = 0),
-       but reflects undertime unless worked late.
-       Arrival > Shift Start + 30m triggers late_strike = 1 and is_late = True.
-    3. Night Shifts: Properly calculates positive duration across midnight.
-    4. Overtime & Undertime: Calculated against expected shift hours.
+    1. Gross clocked time starts at max(check-in, shift start). Early arrivals do not count.
+       Time after shift end does count (overtime).
+    2. Unpaid break is deducted only for overlap with the shift's break window
+       (standard lunch 13:00-14:00, or custom window / midpoint).
+    3. Expected hours = shift span minus that shift's unpaid break duration.
+    4. Grace Buffer: Arrival <= Shift Start + grace is not a late strike.
+    5. Night shifts calculate a positive duration across midnight.
     """
     if check_in_time is None:
         return DailyCalculationResult(
@@ -179,9 +262,14 @@ def calculate_daily_attendance(
     shift_start_mins = parse_time_to_minutes(shift_start)
     shift_end_mins = parse_time_to_minutes(shift_end)
     check_in_mins = parse_time_to_minutes(check_in_time)
+    unpaid_break = max(0, int(break_duration_minutes or 0))
+    expected_work_minutes = derive_expected_work_minutes(
+        shift_start, shift_end, unpaid_break, is_night_shift
+    )
+    _ = expected_hours  # callers may still pass stored expected_hours; span minus break is source of truth
 
     # Determine if shift crosses midnight
-    crosses_midnight = is_night_shift or (shift_end_mins < shift_start_mins)
+    crosses_midnight = is_night_shift or (shift_end_mins <= shift_start_mins)
     
     if crosses_midnight:
         shift_end_adjusted = shift_end_mins + 1440
@@ -209,7 +297,6 @@ def calculate_daily_attendance(
     if check_out_time is None:
         # Currently punched in or missed punch
         status = AttendanceStatus.WFH if is_wfh else (AttendanceStatus.LATE if is_late else AttendanceStatus.PRESENT)
-        expected_work_mins = int(round(expected_hours * 60))
         return DailyCalculationResult(
             work_minutes=0,
             work_hours=0.0,
@@ -217,9 +304,9 @@ def calculate_daily_attendance(
             overtime_minutes=0,
             overtime_hours=0.0,
             overtime_formatted="+00:00",
-            undertime_minutes=expected_work_mins,
-            undertime_hours=expected_hours,
-            undertime_formatted=format_minutes_to_hhmm(-expected_work_mins, show_sign=True),
+            undertime_minutes=expected_work_minutes,
+            undertime_hours=round(expected_work_minutes / 60.0, 4),
+            undertime_formatted=format_minutes_to_hhmm(-expected_work_minutes, show_sign=True),
             late_minutes=late_minutes,
             is_late=is_late,
             late_strike=late_strike,
@@ -239,23 +326,36 @@ def calculate_daily_attendance(
         else:
             check_out_adjusted = check_out_mins
 
-    # Gross worked minutes
+    # Gross worked minutes: early clock-in is clipped to shift start; late stay counts.
     effective_check_in = max(check_in_adjusted, shift_start_mins)
     gross_work_minutes = max(0, check_out_adjusted - effective_check_in)
 
-    # Net work minutes (deduct mandatory break)
-    net_work_minutes = max(0, gross_work_minutes - break_duration_minutes)
+    break_window = resolve_break_window(
+        shift_start=shift_start,
+        shift_end=shift_end,
+        break_duration_minutes=unpaid_break,
+        break_start_time=break_start_time,
+        break_end_time=break_end_time,
+        is_night_shift=is_night_shift or crosses_midnight,
+    )
+    deducted_break = 0
+    if break_window and gross_work_minutes > 0:
+        deducted_break = min(
+            unpaid_break,
+            interval_overlap(effective_check_in, check_out_adjusted, break_window[0], break_window[1]),
+        )
+
+    net_work_minutes = max(0, gross_work_minutes - deducted_break)
     work_hours = round(net_work_minutes / 60.0, 4)
     work_duration_formatted = format_minutes_to_hhmm(net_work_minutes, show_sign=False)
 
-    # Overtime & Undertime against expected hours
+    # Overtime & Undertime against this shift's net expected hours
     if is_short_leave and short_leave_hours > 0:
         short_leave_mins = int(round(short_leave_hours * 60))
         net_work_minutes_for_variance = net_work_minutes + short_leave_mins
     else:
         net_work_minutes_for_variance = net_work_minutes
 
-    expected_work_minutes = int(round(expected_hours * 60))
     if net_work_minutes_for_variance > expected_work_minutes:
         overtime_minutes = net_work_minutes_for_variance - expected_work_minutes
         undertime_minutes = 0

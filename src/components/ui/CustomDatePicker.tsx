@@ -16,6 +16,7 @@ interface CustomDatePickerProps {
   maxDate?: string;
   align?: 'left' | 'right';
   className?: string;
+  clearable?: boolean;
 }
 
 const MONTH_NAMES = [
@@ -63,6 +64,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   maxDate,
   align = 'left',
   className = '',
+  clearable = true,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -224,7 +226,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
         type="button"
         disabled={disabled}
         onClick={handleToggle}
-        className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer select-none bg-zinc-50 dark:bg-zinc-900 ${
+        className={`w-full h-10 flex items-center justify-between px-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer select-none bg-zinc-50 dark:bg-zinc-900 ${
           isOpen
             ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-white dark:bg-zinc-900'
             : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
@@ -237,7 +239,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
           </span>
         </div>
 
-        {value && !disabled ? (
+        {value && !disabled && clearable ? (
           <button
             type="button"
             onClick={handleClear}
@@ -340,6 +342,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
           </div>
 
           {/* Quick Actions Footer */}
+          {clearable && (
           <div className="flex items-center justify-between pt-2 mt-2 border-t border-zinc-100 dark:border-zinc-800/80">
             <button
               type="button"
@@ -359,6 +362,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
               Today
             </button>
           </div>
+          )}
         </div>
       )}
     </div>

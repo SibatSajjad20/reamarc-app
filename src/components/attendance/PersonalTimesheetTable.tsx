@@ -12,6 +12,7 @@ import type {
   MonthlyPunctualityRow,
   AttendanceStatus,
 } from '../../types/attendance';
+import { getAugust2026StartDay } from '../../constants/attendance';
 
 interface PersonalTimesheetTableProps {
   records: AttendanceRecord[];
@@ -20,7 +21,10 @@ interface PersonalTimesheetTableProps {
   selectedMonth: number;
   onYearMonthChange: (year: number, month: number) => void;
   isLoading?: boolean;
-  onOpenRegularizationModal: (record?: AttendanceRecord) => void;
+  employeeName?: string;
+  readOnly?: boolean;
+  onOpenRegularizationModal?: (record?: AttendanceRecord) => void;
+  allowHistoryMonths?: boolean;
 }
 
 const MONTH_NAMES = [
@@ -45,9 +49,25 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
   selectedMonth,
   onYearMonthChange,
   isLoading = false,
+  employeeName,
+  readOnly = false,
   onOpenRegularizationModal,
+  allowHistoryMonths = false,
 }) => {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const minYear = 2026;
+  const minMonth = 8;
+  const canGoPrev =
+    allowHistoryMonths &&
+    (selectedYear > minYear || (selectedYear === minYear && selectedMonth > minMonth));
+  const canGoNext =
+    allowHistoryMonths &&
+    (selectedYear < currentYear || (selectedYear === currentYear && selectedMonth < currentMonth));
+
   const handlePrevMonth = () => {
+    if (!canGoPrev) return;
     if (selectedMonth === 1) {
       onYearMonthChange(selectedYear - 1, 12);
     } else {
@@ -56,6 +76,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
   };
 
   const handleNextMonth = () => {
+    if (!canGoNext) return;
     if (selectedMonth === 12) {
       onYearMonthChange(selectedYear + 1, 1);
     } else {
@@ -90,8 +111,8 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       return [];
     }
 
-    // Start day: August 2026 starts from 19th of August; subsequent months start on day 1
-    const startDay = (selectedYear === 2026 && selectedMonth === 8) ? 19 : 1;
+    // Start day: August 2026 starts at go-live (21st after midnight; 19th while testing)
+    const startDay = (selectedYear === 2026 && selectedMonth === 8) ? getAugust2026StartDay() : 1;
 
     // End day: current active month shows day-by-day up to today; completed past months show full month
     let endDay = daysInMonth;
@@ -179,6 +200,12 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
         return (
           <span className="text-zinc-400 font-mono text-[11px]">-</span>
         );
+      case 'absent':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+            Absent
+          </span>
+        );
       case 'not_punched':
         return (
           <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
@@ -199,12 +226,13 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       {/* Top Header & Month Selector */}
       <div className="p-6 border-b border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            Monthly Attendance Timesheet
+            {employeeName ? `${employeeName}'s Monthly Timesheet` : 'Monthly Attendance Timesheet'}
           </h3>
           <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Daily logs, punch records, overtime/undertime calculations and regularization status.
+            Daily logs, punch records, overtime/undertime calculations
+            {readOnly ? '.' : ' and regularization status.'}
           </p>
         </div>
 
@@ -220,8 +248,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
           <button
             type="button"
             onClick={handlePrevMonth}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
-            title="Previous Month"
+            disabled={!canGoPrev}
+            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            title={allowHistoryMonths ? 'Previous Month' : 'Current month only'}
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
@@ -234,8 +263,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
           <button
             type="button"
             onClick={handleNextMonth}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
-            title="Next Month"
+            disabled={!canGoNext}
+            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+            title={allowHistoryMonths ? 'Next Month' : 'Current month only'}
           >
             <ChevronRight className="w-4 h-4" />
           </button>
@@ -247,7 +277,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Working Days</span>
-            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-0.5">{summary.total_working_days ?? summary.working_days ?? 11} Days</p>
+            <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">{summary.total_working_days ?? summary.working_days ?? 11} Days</p>
           </div>
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Present Days</span>
@@ -255,19 +285,19 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
           </div>
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Late Strikes</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.late_count ?? summary.late_strikes ?? 0) > 0 ? 'text-rose-600' : 'text-zinc-700 dark:text-zinc-300'}`}>
+            <p className={`text-sm font-bold mt-0.5 ${(summary.late_count ?? summary.late_strikes ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
               {summary.late_count ?? summary.late_strikes ?? 0} Strikes
             </p>
           </div>
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Total Overtime</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.overtime_hours ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-700 dark:text-zinc-300'}`}>
+            <p className={`text-sm font-bold mt-0.5 ${(summary.overtime_hours ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
               {summary.overtime_formatted || '+00:00'}
             </p>
           </div>
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Total Undertime</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.undertime_hours ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-700 dark:text-zinc-300'}`}>
+            <p className={`text-sm font-bold mt-0.5 ${(summary.undertime_hours ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
               {summary.undertime_formatted || '-00:00'}
             </p>
           </div>
@@ -300,7 +330,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 <th className="py-3 px-4">Overtime</th>
                 <th className="py-3 px-4">Undertime</th>
                 <th className="py-3 px-4">Status Tag</th>
-                <th className="py-3 px-4 text-right">Action</th>
+                {!readOnly && <th className="py-3 px-4 text-right">Action</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
@@ -313,13 +343,18 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 else if (isFirstSaturday) defaultStatus = 'first_saturday_off';
                 else defaultStatus = 'not_punched';
 
-                const status = record?.status || defaultStatus;
-                const isLate = record?.is_late || false;
-                const lateMin = record?.late_minutes || 0;
-
                 const punchIn = record?.punch_in || (record as any)?.check_in || null;
                 const punchOut = record?.punch_out || (record as any)?.check_out || null;
                 const breakMin = record?.break_minutes ?? (record as any)?.break_duration_minutes ?? null;
+                const isLate = record?.is_late || false;
+                const lateMin = record?.late_minutes || 0;
+
+                let status = record?.status || defaultStatus;
+                if (punchIn && (status === 'absent' || status === 'not_punched')) {
+                  status = isLate ? 'late' : 'present';
+                } else if (!punchIn && status === 'absent' && !isOffDay) {
+                  status = 'not_punched';
+                }
 
                 // Overtime & Undertime strings: only show computed values if not an off-day and employee punched in and out
                 let otDisplay = '-';
@@ -406,7 +441,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
                     {/* Break */}
                     <td className="py-3 px-4 text-zinc-500 whitespace-nowrap">
-                      {breakMin ? `${breakMin}m` : '-'}
+                      {record ? `${breakMin ?? 0}m` : '-'}
                     </td>
 
                     {/* Effective Hours */}
@@ -442,13 +477,14 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     </td>
 
                     {/* Regularization Action */}
+                    {!readOnly && (
                     <td className="py-3 px-4 text-right whitespace-nowrap">
                       {isOffDay ? (
                         <span className="text-zinc-400">-</span>
                       ) : status === 'missed_punch' || (record?.punch_in && !record?.punch_out) ? (
                         <button
                           type="button"
-                          onClick={() => onOpenRegularizationModal(record)}
+                          onClick={() => onOpenRegularizationModal?.(record)}
                           className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
                         >
                           Correction
@@ -456,13 +492,14 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                       ) : (
                         <button
                           type="button"
-                          onClick={() => onOpenRegularizationModal(record || ({ date } as any))}
+                          onClick={() => onOpenRegularizationModal?.(record || ({ date } as any))}
                           className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                         >
                           Correct
                         </button>
                       )}
                     </td>
+                    )}
                   </tr>
                 );
               })}

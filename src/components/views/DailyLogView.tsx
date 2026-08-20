@@ -10,8 +10,6 @@ import {
   ChevronDown,
   Loader2,
   Grid,
-  ZoomIn,
-  ZoomOut,
   RotateCcw,
   Calendar as CalendarIcon,
   X,
@@ -31,6 +29,8 @@ import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
+import { CustomSelect } from '../ui/CustomSelect';
+import { getDeptBadgeClass, getRoleBadgeClass, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
@@ -62,8 +62,6 @@ const DEFAULT_COLUMNS: DailyLogColumn[] = [
 ];
 
 const DEFAULT_ROW_HEIGHT = 44;
-const MIN_ZOOM = 70;
-const MAX_ZOOM = 130;
 
 const NON_FILTERABLE_KEYS = new Set([
   'task_description',
@@ -261,15 +259,6 @@ export const DailyLogView: React.FC = () => {
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<'text' | 'select' | 'date' | 'number'>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
-
-  // Zoom & Matrix Layout State
-  const [zoomLevel, setZoomLevel] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem('reamarc_daily_log_zoom');
-      if (saved) return Number(saved);
-    } catch (e) {}
-    return 100;
-  });
 
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     try {
@@ -497,7 +486,7 @@ export const DailyLogView: React.FC = () => {
     const startWidth = columnWidths[colKey] || 150;
 
     const onMouseMove = (moveEvent: MouseEvent) => {
-      const delta = (moveEvent.clientX - startX) * (100 / zoomLevel);
+      const delta = moveEvent.clientX - startX;
       const newWidth = Math.max(90, Math.min(600, startWidth + delta));
       setColumnWidths((prev) => {
         const next = { ...prev, [colKey]: Math.round(newWidth) };
@@ -525,11 +514,9 @@ export const DailyLogView: React.FC = () => {
     });
     setColumnWidths(initial);
     setRowHeights({});
-    setZoomLevel(100);
     try {
       localStorage.removeItem('reamarc_daily_log_col_widths');
       localStorage.removeItem('reamarc_daily_log_row_heights');
-      localStorage.setItem('reamarc_daily_log_zoom', '100');
     } catch (e) {}
   };
 
@@ -599,6 +586,18 @@ export const DailyLogView: React.FC = () => {
     return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
   }, [columns, columnWidths]);
 
+  const departmentOptions = useMemo(() => {
+    const visible = departments.filter((dept) => {
+      if (isAdmin || isHR || isOperations) return true;
+      return userDept.toLowerCase() === dept.toLowerCase();
+    });
+    const opts = visible.map((dept) => ({ value: dept, label: dept }));
+    if (isAdmin || isHR) {
+      return [{ value: 'All', label: 'All Departments' }, ...opts];
+    }
+    return opts;
+  }, [departments, isAdmin, isHR, isOperations, userDept]);
+
   const getDatePresetLabel = () => {
     if (datePreset === 'today') return "Today's Data";
     if (datePreset === 'week') return 'This Week (Mon - Sat)';
@@ -610,8 +609,8 @@ export const DailyLogView: React.FC = () => {
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
       {/* ─── Top Toolbar: Search, Date Filter & Add Log Button ─── */}
-      <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
-        <div className="flex items-center gap-3 flex-1 min-w-[320px] max-w-2xl">
+      <div className="sticky top-0 z-40 px-6 py-3 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center gap-2.5 shadow-xs shrink-0">
+        <div className="flex items-center gap-2.5 flex-1 min-w-[240px]">
           {/* Search */}
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -769,6 +768,18 @@ export const DailyLogView: React.FC = () => {
             )}
           </div>
 
+          {departmentOptions.length > 0 && (
+            <div className="w-[200px] shrink-0">
+              <CustomSelect
+                value={selectedDept}
+                onChange={setSelectedDept}
+                options={departmentOptions}
+                placeholder="Department"
+                icon={Layers}
+              />
+            </div>
+          )}
+
           {/* Add Entry Button (Hidden for Admin & Operations) */}
           {!isAdmin && !isOperations && (
             <button
@@ -782,53 +793,8 @@ export const DailyLogView: React.FC = () => {
           )}
         </div>
 
-        {/* Right Tools: Zoom & Column Customization */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Zoom Level Widget */}
-          <div className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs">
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.max(MIN_ZOOM, zoomLevel - 5);
-                setZoomLevel(next);
-                try {
-                  localStorage.setItem('reamarc_daily_log_zoom', String(next));
-                } catch (e) {}
-              }}
-              disabled={zoomLevel <= MIN_ZOOM}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-2 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[44px] text-center select-none">
-              {zoomLevel}%
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.min(MAX_ZOOM, zoomLevel + 5);
-                setZoomLevel(next);
-                try {
-                  localStorage.setItem('reamarc_daily_log_zoom', String(next));
-                } catch (e) {}
-              }}
-              disabled={zoomLevel >= MAX_ZOOM}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Reset Layout */}
-          <button
-            type="button"
-            onClick={handleResetLayout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-            <span>Reset</span>
-          </button>
-
+        {/* Right Tools: Customize, Summarize, Reset columns */}
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
           {/* Manage Columns (Admin Only) */}
           {isAdmin && (
             <button
@@ -840,6 +806,16 @@ export const DailyLogView: React.FC = () => {
               <span>Customize Fields</span>
             </button>
           )}
+
+          {/* Reset column widths */}
+          <button
+            type="button"
+            onClick={handleResetLayout}
+            className="w-9 h-9 flex items-center justify-center rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-600 dark:text-zinc-300 transition-all shadow-2xs cursor-pointer"
+            title="Reset column widths"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
+          </button>
 
           {/* AI Summarize (Admin Only) */}
           {isAdmin && (
@@ -857,55 +833,6 @@ export const DailyLogView: React.FC = () => {
               <span>Summarize</span>
             </button>
           )}
-        </div>
-      </div>
-
-      {/* ─── Department Navigation Tabs Bar ─── */}
-      <div className="px-6 py-2.5 bg-zinc-50 dark:bg-[#0c0d12] border-b border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-3 shrink-0">
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-          {/* All Departments Tab (Admin and HR only) */}
-          {(isAdmin || isHR) && (
-            <button
-              type="button"
-              onClick={() => setSelectedDept('All')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 select-none ${
-                selectedDept === 'All'
-                  ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
-                  : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
-              }`}
-            >
-              All Departments
-            </button>
-          )}
-
-          {/* Department Tabs */}
-          {departments.map((dept) => {
-            // For regular members and leads, hide departments they don't belong to if not admin/hr/operations
-            if (!isAdmin && !isHR && !isOperations && isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
-              return null;
-            }
-            if (!isAdmin && !isHR && !isOperations && !isLead && userDept.toLowerCase() !== dept.toLowerCase()) {
-              return null;
-            }
-
-            const isSelected = selectedDept.toLowerCase() === dept.toLowerCase();
-
-            return (
-              <button
-                key={dept}
-                type="button"
-                onClick={() => setSelectedDept(dept)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 select-none ${
-                  isSelected
-                    ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
-                    : 'bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
-                }`}
-              >
-                <Layers className="w-3 h-3" />
-                <span>{dept}</span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
@@ -982,7 +909,7 @@ export const DailyLogView: React.FC = () => {
       )}
 
       {/* ─── Grid Canvas Table ─── */}
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
         {isLoading ? (
           <div className="flex-1 min-h-[400px] w-full flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
             <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
@@ -991,7 +918,6 @@ export const DailyLogView: React.FC = () => {
         ) : (
           <div
             style={{
-              zoom: `${zoomLevel}%`,
               width: `${totalTableWidth}px`,
               minWidth: `${totalTableWidth}px`,
             }}
@@ -1209,21 +1135,35 @@ export const DailyLogView: React.FC = () => {
 
                           if (col.key === 'task_type') {
                             const typeStr = String(val || 'Scheduled Task');
-                            const isScheduled = typeStr === 'Scheduled Task';
                             return (
                               <td
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
                                 <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold ${
-                                    isScheduled
-                                      ? 'bg-sky-500/10 text-sky-700 dark:text-sky-300'
-                                      : 'bg-purple-500/10 text-purple-700 dark:text-purple-300'
-                                  }`}
+                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getTaskTypeBadgeClass(
+                                    typeStr
+                                  )}`}
                                 >
                                   {typeStr}
                                 </span>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'task_description') {
+                            const desc = String(val || '');
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60"
+                                title={desc}
+                              >
+                                {desc ? (
+                                  <span className="line-clamp-2 text-zinc-800 dark:text-zinc-200 leading-snug">{desc}</span>
+                                ) : (
+                                  <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
+                                )}
                               </td>
                             );
                           }
@@ -1331,27 +1271,6 @@ export const DailyLogView: React.FC = () => {
 
                           if (col.key === 'role') {
                             const roleStr = String(val || row.role || 'Team Member');
-                            const normRole = roleStr.toLowerCase();
-
-                            const getRoleBadgeClass = (r: string) => {
-                              if (r.includes('admin')) {
-                                return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-                              }
-                              if (r.includes('hr')) {
-                                return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-                              }
-                              if (r.includes('lead')) {
-                                return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-                              }
-                              if (r.includes('operations')) {
-                                return 'bg-teal-500/15 text-teal-700 dark:text-teal-300 border-teal-500/30';
-                              }
-                              if (r.includes('client')) {
-                                return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-                              }
-                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-                            };
-
                             return (
                               <td
                                 key={col.key}
@@ -1359,7 +1278,7 @@ export const DailyLogView: React.FC = () => {
                               >
                                 <span
                                   className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getRoleBadgeClass(
-                                    normRole
+                                    roleStr
                                   )}`}
                                 >
                                   {roleStr}
@@ -1380,19 +1299,6 @@ export const DailyLogView: React.FC = () => {
                                 </td>
                               );
                             }
-
-                            const getDeptBadgeClass = (d: string) => {
-                              const nd = d.toLowerCase();
-                              if (nd.includes('software') || nd.includes('dev')) return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-                              if (nd.includes('website')) return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-                              if (nd.includes('creative')) return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-                              if (nd.includes('content')) return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-                              if (nd.includes('seo')) return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-                              if (nd.includes('performance') || nd.includes('marketing')) return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-                              if (nd.includes('ai')) return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
-                              if (nd.includes('hr')) return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-                              return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-                            };
 
                             return (
                               <td

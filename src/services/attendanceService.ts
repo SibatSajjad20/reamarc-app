@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { detectPublicIp } from '../utils/publicIp';
 import type {
   TodayAttendanceResponse,
   AttendanceRecord,
@@ -15,6 +16,8 @@ import type {
   SecuritySettings,
   CompanyCalendarEvent,
   OverrideAttendancePayload,
+  LeaveBalance,
+  AttendanceConfig,
 } from '../types/attendance';
 
 class AttendanceService {
@@ -22,14 +25,21 @@ class AttendanceService {
    * Fetch current user's today attendance status, assigned shift, and WFH state
    */
   public async getTodayStatus(): Promise<TodayAttendanceResponse> {
-    return apiClient.get<TodayAttendanceResponse>('/attendance/today');
+    const publicIp = await detectPublicIp();
+    return apiClient.get<TodayAttendanceResponse>('/attendance/today', {
+      headers: publicIp ? { 'X-Detected-Public-IP': publicIp } : {},
+    });
   }
 
   /**
    * Submit Check-In punch with optional GPS coordinates and notes
    */
   public async checkIn(payload: CheckInPayload): Promise<AttendanceRecord> {
-    return apiClient.post<AttendanceRecord>('/attendance/check-in', payload);
+    const publicIp = payload.detected_public_ip || (await detectPublicIp()) || undefined;
+    return apiClient.post<AttendanceRecord>('/attendance/check-in', {
+      ...payload,
+      detected_public_ip: publicIp,
+    });
   }
 
   /**
@@ -52,6 +62,19 @@ class AttendanceService {
   public async getMyTimesheet(year: number, month: number): Promise<PersonalTimesheetResponse> {
     return apiClient.get<PersonalTimesheetResponse>(
       `/attendance/my-timesheet?year=${year}&month=${month}`
+    );
+  }
+
+  /**
+   * Fetch another employee's monthly timesheet (Admin / HR / Operations)
+   */
+  public async getEmployeeTimesheet(
+    userId: string,
+    year: number,
+    month: number
+  ): Promise<PersonalTimesheetResponse> {
+    return apiClient.get<PersonalTimesheetResponse>(
+      `/attendance/timesheet/${encodeURIComponent(userId)}?year=${year}&month=${month}`
     );
   }
 
@@ -218,6 +241,33 @@ class AttendanceService {
     payload: OverrideAttendancePayload
   ): Promise<AttendanceRecord> {
     return apiClient.patch<AttendanceRecord>(`/attendance/records/${recordId}/override`, payload);
+  }
+
+  public async getAttendanceConfig(): Promise<AttendanceConfig> {
+    return apiClient.get<AttendanceConfig>('/attendance/config');
+  }
+
+  public async getMyLeaveBalance(year?: number): Promise<LeaveBalance> {
+    const q = year ? `?year=${year}` : '';
+    return apiClient.get<LeaveBalance>(`/leaves/balances/me${q}`);
+  }
+
+  public async getLeaveBalances(year?: number): Promise<LeaveBalance[]> {
+    const q = year ? `?year=${year}` : '';
+    return apiClient.get<LeaveBalance[]>(`/leaves/balances${q}`);
+  }
+
+  public async updateLeaveOpening(
+    userId: string,
+    payload: {
+      year?: number;
+      annual_used_opening?: number;
+      sick_used_opening?: number;
+      annual_entitled?: number;
+      sick_entitled?: number;
+    }
+  ): Promise<LeaveBalance> {
+    return apiClient.put<LeaveBalance>(`/leaves/balances/${encodeURIComponent(userId)}`, payload);
   }
 }
 

@@ -19,6 +19,8 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
+import { getAttendanceMinDate } from '../../constants/attendance';
+import type { LeaveBalance } from '../../types/attendance';
 
 interface RequestManagementModalProps {
   isOpen: boolean;
@@ -38,6 +40,8 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const { addToast } = useToast();
   const [activeTab, setActiveTab] = useState<RequestType>(defaultTab);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [minDate, setMinDate] = useState(getAttendanceMinDate());
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
 
   // Today ISO string
   const getTodayIso = () => {
@@ -74,21 +78,56 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
 
   // Sync tab & initial record on open
   useEffect(() => {
-    if (isOpen) {
-      setActiveTab(defaultTab);
-      if (initialRecord?.date) {
-        setRegularizeDate(initialRecord.date);
-        if (initialRecord.punch_in) {
-          setRegularizeIn(initialRecord.punch_in.substring(0, 5));
-        }
-        if (initialRecord.punch_out) {
-          setRegularizeOut(initialRecord.punch_out.substring(0, 5));
-        }
+    if (!isOpen) return;
+    setActiveTab(defaultTab);
+    if (initialRecord?.date) {
+      setRegularizeDate(initialRecord.date);
+      if (initialRecord.punch_in) {
+        setRegularizeIn(initialRecord.punch_in.substring(0, 5));
+      }
+      if (initialRecord.punch_out) {
+        setRegularizeOut(initialRecord.punch_out.substring(0, 5));
       }
     }
+    attendanceService
+      .getAttendanceConfig()
+      .then((c) => setMinDate(c.effective_start_date))
+      .catch(() => setMinDate(getAttendanceMinDate()));
+    attendanceService
+      .getMyLeaveBalance()
+      .then(setLeaveBalance)
+      .catch(() => setLeaveBalance(null));
   }, [isOpen, defaultTab, initialRecord]);
 
   if (!isOpen) return null;
+
+  const inclusiveLeaveDays = (start: string, end: string) => {
+    const a = new Date(`${start}T00:00:00`);
+    const b = new Date(`${end}T00:00:00`);
+    if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 1;
+    return Math.max(1, Math.round((b.getTime() - a.getTime()) / 86400000) + 1);
+  };
+
+  const leaveQuotaError = (): string | null => {
+    if (!leaveBalance) return null;
+    if (activeTab === 'leave') {
+      const days = inclusiveLeaveDays(leaveStartDate, leaveEndDate);
+      if (leaveCategory === 'sick') {
+        if (leaveBalance.sick_remaining < days) {
+          return `Not enough sick leave remaining (${leaveBalance.sick_remaining} left, ${days} requested).`;
+        }
+      } else if (leaveCategory === 'annual' || leaveCategory === 'casual') {
+        if (leaveBalance.annual_remaining < days) {
+          return `Not enough annual leave remaining (${leaveBalance.annual_remaining} left, ${days} requested).`;
+        }
+      }
+    } else if (activeTab === 'short_leave' && Number(shortLeaveDuration) >= 2) {
+      if (leaveBalance.annual_remaining < 0.5) {
+        return `Not enough annual leave remaining (${leaveBalance.annual_remaining} left). Short leave of 2–4 hours uses 0.5 day.`;
+      }
+    }
+    return null;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -114,6 +153,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       } else if (activeTab === 'short_leave') {
         if (!shortLeaveReason.trim()) {
           addToast('Reason Required', 'Please provide a reason for short leave.', 'warning');
+          setIsSubmitting(false);
+          return;
+        }
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(shortLeaveStartTime)) {
+          addToast('Invalid Time', 'Start time must be HH:MM (24-hour), e.g. 14:00.', 'warning');
           setIsSubmitting(false);
           return;
         }
@@ -147,6 +191,17 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           setIsSubmitting(false);
           return;
         }
+        const isTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+        if ((correctionTarget === 'time_in' || correctionTarget === 'both') && !isTime(regularizeIn)) {
+          addToast('Invalid Time', 'Time In must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+          setIsSubmitting(false);
+          return;
+        }
+        if ((correctionTarget === 'time_out' || correctionTarget === 'both') && !isTime(regularizeOut)) {
+          addToast('Invalid Time', 'Time Out must be HH:MM (24-hour), e.g. 18:30.', 'warning');
+          setIsSubmitting(false);
+          return;
+        }
         payload = {
           leave_type: 'missed_punch_regularization',
           request_type: 'regularization',
@@ -160,6 +215,13 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           regularization_punch_out: (correctionTarget === 'time_out' || correctionTarget === 'both') ? regularizeOut : undefined,
           reason: regularizeReason.trim(),
         };
+      }
+
+      const blocked = leaveQuotaError();
+      if (blocked) {
+        addToast('Leave quota exceeded', blocked, 'error');
+        setIsSubmitting(false);
+        return;
       }
 
       await attendanceService.createRequest(payload);
@@ -259,6 +321,12 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           {/* TAB 1: FULL LEAVE */}
           {activeTab === 'leave' && (
             <div className="space-y-4">
+              {leaveBalance && (
+                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300">
+                  Remaining {leaveBalance.year}: <strong>{leaveBalance.annual_remaining}</strong> annual / <strong>{leaveBalance.sick_remaining}</strong> sick
+                  <span className="block mt-1 text-zinc-500">Half-day and 2–4 hour short leave count as 0.5 annual day.</span>
+                </div>
+              )}
               <div>
                 <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
                   Leave Category
@@ -285,7 +353,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomDatePicker
                     label="Start Date"
-                    minDate="2026-08-19"
+                    minDate={minDate}
                     value={leaveStartDate}
                     onChange={setLeaveStartDate}
                   />
@@ -293,7 +361,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomDatePicker
                     label="End Date"
-                    minDate={leaveStartDate || "2026-08-19"}
+                    minDate={leaveStartDate || minDate}
                     value={leaveEndDate}
                     onChange={setLeaveEndDate}
                   />
@@ -322,7 +390,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/40 text-purple-900 dark:text-purple-300 flex items-start gap-2">
                 <Info className="w-4 h-4 shrink-0 mt-0.5" />
                 <p className="leading-tight">
-                  Short leaves can be requested for 1 to 3 hours during active shift hours (e.g. medical appointments or urgent personal errands).
+                  Short leaves can be requested for 1 to 4 hours. 2–4 hours counts as a half day of annual leave.
                 </p>
               </div>
 
@@ -330,7 +398,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomDatePicker
                     label="Date"
-                    minDate="2026-08-19"
+                    minDate={minDate}
                     value={shortLeaveDate}
                     onChange={setShortLeaveDate}
                   />
@@ -338,6 +406,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomTimePicker
                     label="Start Time"
+                    required
                     value={shortLeaveStartTime}
                     onChange={setShortLeaveStartTime}
                   />
@@ -353,6 +422,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       { value: '2', label: '2.0 Hours' },
                       { value: '2.5', label: '2.5 Hours' },
                       { value: '3', label: '3.0 Hours' },
+                      { value: '4', label: '4.0 Hours (half day)' },
                     ]}
                   />
                 </div>
@@ -388,7 +458,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomDatePicker
                     label="Start Date"
-                    minDate="2026-08-19"
+                    minDate={minDate}
                     value={wfhStartDate}
                     onChange={setWfhStartDate}
                   />
@@ -396,7 +466,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <div>
                   <CustomDatePicker
                     label="End Date"
-                    minDate={wfhStartDate || "2026-08-19"}
+                    minDate={wfhStartDate || minDate}
                     value={wfhEndDate}
                     onChange={setWfhEndDate}
                   />
@@ -432,7 +502,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div>
                 <CustomDatePicker
                   label="Date of Missed / Incorrect Punch"
-                  minDate="2026-08-19"
+                  minDate={minDate}
                   value={regularizeDate}
                   onChange={setRegularizeDate}
                 />
@@ -486,6 +556,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   <div>
                     <CustomTimePicker
                       label="Correct Time In (Check-In)"
+                      required
                       value={regularizeIn}
                       onChange={setRegularizeIn}
                     />
@@ -495,6 +566,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   <div>
                     <CustomTimePicker
                       label="Correct Time Out (Check-Out)"
+                      required
                       value={regularizeOut}
                       onChange={setRegularizeOut}
                     />

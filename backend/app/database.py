@@ -98,6 +98,14 @@ async def connect_to_mongo():
         await db_instance.db.leave_requests.create_index([("status", 1)], name="idx_leave_status")
         await db_instance.db.leave_requests.create_index([("start_date", 1), ("end_date", 1)], name="idx_leave_dates")
         try:
+            await db_instance.db.leave_balances.create_index(
+                [("user_id", 1), ("year", 1)],
+                unique=True,
+                name="idx_leave_balance_user_year",
+            )
+        except Exception as e:
+            logger.warning(f"Could not create unique leave balance index: {e}")
+        try:
             await db_instance.db.user_shift_assignments.create_index(
                 [("user_id", 1)],
                 unique=True,

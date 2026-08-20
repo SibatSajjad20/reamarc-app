@@ -8,11 +8,14 @@ import {
   RefreshCw,
   Clock,
   Calendar,
+  Users,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
+import { adminService } from '../../services/adminService';
 import { exportMonthlyAttendanceWorkbook } from '../../utils/excelExport';
+import { getAttendanceMinDate } from '../../constants/attendance';
 
 import type {
   PersonalTimesheetResponse,
@@ -22,16 +25,17 @@ import type {
   RequestType,
   AttendanceRecord,
 } from '../../types/attendance';
+import type { AdminMember } from '../../types/admin';
 
 import { PersonalTimesheetTable } from '../attendance/PersonalTimesheetTable';
 import { DailyAttendanceMatrix } from '../attendance/DailyAttendanceMatrix';
 import { MonthlyPunctualityCommandCenter } from '../attendance/MonthlyPunctualityCommandCenter';
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { ApprovalInboxSection } from '../attendance/ApprovalInboxSection';
-
 type AdminAttendanceSubTab =
   | 'daily-matrix'
   | 'punctuality-hub'
+  | 'employee-timesheets'
   | 'approvals';
 
 type EmployeeAttendanceSubTab =
@@ -69,6 +73,7 @@ export const AttendanceView: React.FC = () => {
   };
 
   const [matrixDate, setMatrixDate] = useState<string>(getTodayIso());
+  const [attendanceMinDate, setAttendanceMinDate] = useState<string>(getAttendanceMinDate());
   const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
 
   // Loading States
@@ -80,6 +85,9 @@ export const AttendanceView: React.FC = () => {
   const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(null);
   const [monthlySummaryData, setMonthlySummaryData] = useState<MonthlyPunctualityResponse | null>(null);
   const [requests, setRequests] = useState<AttendanceRequest[]>([]);
+  const [directoryMembers, setDirectoryMembers] = useState<AdminMember[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
+  const [employeeTimesheet, setEmployeeTimesheet] = useState<PersonalTimesheetResponse | null>(null);
 
   // Modal States
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -132,6 +140,36 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
+  const loadDirectoryMembers = useCallback(async () => {
+    try {
+      const members = await adminService.getMembers({ is_active: true });
+      const internal = (members || []).filter(
+        (m) => m.role !== 'client' && m.role !== 'admin' && m.is_active !== false
+      );
+      setDirectoryMembers(internal);
+      setSelectedEmployeeId((prev) => {
+        if (prev && internal.some((m) => m.id === prev)) return prev;
+        return internal[0]?.id || '';
+      });
+    } catch (err: any) {
+      console.error('Failed to load team directory:', err);
+    }
+  }, []);
+
+  const loadEmployeeTimesheet = useCallback(async (userId: string, y: number, m: number) => {
+    if (!userId) {
+      setEmployeeTimesheet(null);
+      return;
+    }
+    try {
+      const data = await attendanceService.getEmployeeTimesheet(userId, y, m);
+      setEmployeeTimesheet(data || null);
+    } catch (err: any) {
+      console.error('Failed to load employee timesheet:', err);
+      setEmployeeTimesheet(null);
+    }
+  }, []);
+
   // Main refresh trigger
   const handleRefreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -141,6 +179,7 @@ export const AttendanceView: React.FC = () => {
           loadMatrix(matrixDate),
           loadMonthlySummary(selectedYear, selectedMonth),
           loadRequests(),
+          loadDirectoryMembers(),
         ]);
       } else {
         await Promise.allSettled([
@@ -157,6 +196,7 @@ export const AttendanceView: React.FC = () => {
     loadMatrix,
     loadMonthlySummary,
     loadRequests,
+    loadDirectoryMembers,
     selectedYear,
     selectedMonth,
     matrixDate,
@@ -167,14 +207,60 @@ export const AttendanceView: React.FC = () => {
     handleRefreshAll();
   }, [isManagementRole]);
 
+  useEffect(() => {
+    attendanceService
+      .getAttendanceConfig()
+      .then((cfg) => {
+        setAttendanceMinDate(cfg.effective_start_date);
+        setMatrixDate((prev) => (prev < cfg.effective_start_date ? cfg.effective_start_date : prev));
+      })
+      .catch(() => {
+        setAttendanceMinDate(getAttendanceMinDate());
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!isManagementRole || !selectedEmployeeId) return;
+    if (activeTab !== 'employee-timesheets' && activeTab !== 'punctuality-hub') return;
+    if (activeTab === 'employee-timesheets') {
+      setIsLoading(true);
+      loadEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth).finally(() =>
+        setIsLoading(false)
+      );
+    }
+  }, [
+    isManagementRole,
+    activeTab,
+    selectedEmployeeId,
+    selectedYear,
+    selectedMonth,
+    loadEmployeeTimesheet,
+  ]);
+
   // Year / Month Change Handler
   const handleYearMonthChange = (year: number, month: number) => {
-    setSelectedYear(year);
-    setSelectedMonth(month);
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    let nextYear = year;
+    let nextMonth = month;
+    if (nextYear < 2026 || (nextYear === 2026 && nextMonth < 8)) {
+      nextYear = 2026;
+      nextMonth = 8;
+    }
+    if (nextYear > currentYear || (nextYear === currentYear && nextMonth > currentMonth)) {
+      nextYear = currentYear;
+      nextMonth = currentMonth;
+    }
+    setSelectedYear(nextYear);
+    setSelectedMonth(nextMonth);
     if (isManagementRole) {
-      loadMonthlySummary(year, month);
+      loadMonthlySummary(nextYear, nextMonth);
+      if (selectedEmployeeId) {
+        loadEmployeeTimesheet(selectedEmployeeId, nextYear, nextMonth);
+      }
     } else {
-      loadTimesheet(year, month);
+      loadTimesheet(nextYear, nextMonth);
     }
   };
 
@@ -325,7 +411,21 @@ export const AttendanceView: React.FC = () => {
               <span>Punctuality Command Center</span>
             </button>
 
-            {/* Tab 3: Approvals & Requests */}
+            {/* Tab 3: Individual employee timesheets */}
+            <button
+              type="button"
+              onClick={() => setActiveTab('employee-timesheets')}
+              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
+                activeTab === 'employee-timesheets'
+                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
+                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>Employee Timesheets</span>
+            </button>
+
+            {/* Tab 4: Approvals & Requests */}
             <button
               type="button"
               onClick={() => setActiveTab('approvals')}
@@ -402,6 +502,14 @@ export const AttendanceView: React.FC = () => {
                 isLoading={isLoading}
                 onRefresh={() => loadMatrix(matrixDate)}
                 canEditOverride={isAdmin || isHR || isOperations || user?.role === 'team_lead'}
+                minDate={attendanceMinDate}
+                onSelectEmployee={(userId) => {
+                  setSelectedEmployeeId(userId);
+                  const [y, m] = matrixDate.split('-').map(Number);
+                  if (y) setSelectedYear(y);
+                  if (m) setSelectedMonth(m);
+                  setActiveTab('employee-timesheets');
+                }}
               />
             )}
 
@@ -420,10 +528,69 @@ export const AttendanceView: React.FC = () => {
                 isLoading={isLoading}
                 onExportExcel={handleExportExcel}
                 isExporting={isExporting}
+                onSelectEmployee={(userId) => {
+                  setSelectedEmployeeId(userId);
+                  setActiveTab('employee-timesheets');
+                }}
               />
             )}
 
-            {/* SUB-TAB 3: APPROVALS & REQUESTS */}
+            {/* SUB-TAB 3: INDIVIDUAL EMPLOYEE TIMESHEETS */}
+            {activeTab === 'employee-timesheets' && (
+              <div className="space-y-4">
+                <div className="p-3 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs">
+                  <div className="overflow-x-auto custom-scrollbar">
+                    <div className="flex flex-nowrap items-center gap-1.5 py-0.5">
+                      {directoryMembers.length === 0 ? (
+                        <p className="text-xs text-zinc-400 py-1.5 px-1 whitespace-nowrap">No internal employees found.</p>
+                      ) : (
+                        directoryMembers.map((m) => {
+                          const selected = m.id === selectedEmployeeId;
+                          return (
+                            <button
+                              key={m.id}
+                              type="button"
+                              onClick={() => setSelectedEmployeeId(m.id)}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                                selected
+                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
+                                  : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                              }`}
+                              title={m.department ? `${m.full_name} · ${m.department}` : m.full_name}
+                            >
+                              {m.full_name || m.email}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {selectedEmployeeId ? (
+                  <PersonalTimesheetTable
+                    records={employeeTimesheet?.records || []}
+                    summary={employeeTimesheet?.summary || null}
+                    selectedYear={selectedYear}
+                    selectedMonth={selectedMonth}
+                    onYearMonthChange={handleYearMonthChange}
+                    isLoading={isLoading}
+                    readOnly
+                    allowHistoryMonths
+                    employeeName={
+                      employeeTimesheet?.employee_name ||
+                      directoryMembers.find((m) => m.id === selectedEmployeeId)?.full_name
+                    }
+                  />
+                ) : (
+                  <div className="py-16 text-center text-zinc-400 text-sm">
+                    No internal employees found to display.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* SUB-TAB 4: APPROVALS & REQUESTS */}
             {activeTab === 'approvals' && (
               <ApprovalInboxSection
                 requests={requests}

@@ -53,7 +53,39 @@ class LeaveCreateRequest(BaseModel):
             except Exception:
                 pass
 
+        data.pop("user_id", None)
+        data.pop("status", None)
+        data.pop("is_approved", None)
+        data.pop("reviewed_by_id", None)
+        data.pop("reviewed_by_name", None)
+
         return data
+
+
+class LeaveBalanceUpdateRequest(BaseModel):
+    year: Optional[int] = Field(default=None, description="Leave year (defaults to current calendar year)")
+    annual_used_opening: Optional[float] = Field(default=None, ge=0, description="Annual days already taken")
+    sick_used_opening: Optional[float] = Field(default=None, ge=0, description="Sick days already taken")
+    annual_entitled: Optional[float] = Field(default=None, ge=0, description="Total annual leave quota for this employee")
+    sick_entitled: Optional[float] = Field(default=None, ge=0, description="Total sick leave quota for this employee")
+
+
+class LeaveBalanceResponse(BaseModel):
+    user_id: str
+    user_name: Optional[str] = None
+    department: Optional[str] = None
+    year: int
+    annual_entitled: float = 14.0
+    sick_entitled: float = 8.0
+    annual_used_opening: float = 0.0
+    sick_used_opening: float = 0.0
+    annual_used_in_app: float = 0.0
+    sick_used_in_app: float = 0.0
+    annual_pending: float = 0.0
+    sick_pending: float = 0.0
+    annual_remaining: float = 14.0
+    sick_remaining: float = 8.0
+    go_live_date: str = "2026-08-21"
 
 
 class LeaveReviewRequest(BaseModel):

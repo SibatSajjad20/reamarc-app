@@ -3,11 +3,11 @@ Attendance REST API Router.
 Provides endpoints for Check-In, Check-Out, Today's Punch Status, Personal Timesheets,
 HR Daily Attendance Matrix, Monthly Punctuality Command Center, and Security Settings.
 """
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime, timezone
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
 
 from app.schemas.attendance import (
     CheckInRequest,
@@ -19,15 +19,18 @@ from app.schemas.attendance import (
     MonthlyPunctualityResponse,
     MonthlyTimesheetResponse,
     SecuritySettingsSchema,
+    OverrideAttendanceRequest,
 )
 from app.models.attendance import AttendanceStatus
 from app.schemas.error import ErrorResponse
 from app.core.security import (
-    get_current_user,
     require_internal_user,
     require_hr_or_admin,
     require_management_role,
-    require_roles,
+)
+from app.services.attendance_security import (
+    is_loopback_ip,
+    is_public_ip,
 )
 from app.services import attendance_service, attendance_excel
 
@@ -54,18 +57,49 @@ class ManualAttendanceEntryRequest(BaseModel):
 
 
 def extract_client_ip(request: Request, body_ip: Optional[str] = None) -> str:
-    """Extracts client public or intranet IP address from headers, body, or connection."""
-    if body_ip and body_ip.strip():
-        return body_ip.strip()
-    forwarded = request.headers.get("x-forwarded-for")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    real_ip = request.headers.get("x-real-ip")
-    if real_ip:
-        return real_ip.strip()
-    if request.client and request.client.host:
-        return request.client.host
+    """
+    Resolve the connecting client IP using one trusted reverse proxy (Render).
+
+    Client-supplied headers (X-Real-IP, CF-Connecting-IP, X-Forwarded-For
+    prefixes) are not trusted. The right-most public address in
+    X-Forwarded-For is the hop Render added. Body/detected IPs are only
+    accepted on loopback (local Vite).
+    """
+    socket_ip = request.client.host if request.client and request.client.host else None
+
+    forwarded = request.headers.get("x-forwarded-for") or ""
+    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
+    trusted_from_xff = None
+    for part in reversed(parts):
+        if is_public_ip(part):
+            trusted_from_xff = part
+            break
+
+    if trusted_from_xff:
+        return trusted_from_xff
+
+    if is_public_ip(socket_ip):
+        return str(socket_ip).strip()
+
+    if is_loopback_ip(socket_ip) and body_ip and is_public_ip(str(body_ip).strip()):
+        return str(body_ip).strip()
+
+    if socket_ip:
+        return socket_ip
+
     return "127.0.0.1"
+
+
+def extract_detected_public_ip(request: Request, body_ip: Optional[str] = None) -> Optional[str]:
+    socket_ip = request.client.host if request.client and request.client.host else None
+    if not is_loopback_ip(socket_ip):
+        return None
+    header_ip = (request.headers.get("x-detected-public-ip") or "").strip()
+    if header_ip and is_public_ip(header_ip):
+        return header_ip
+    if body_ip and is_public_ip(str(body_ip).strip()):
+        return str(body_ip).strip()
+    return None
 
 
 @router.post("/check-in", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
@@ -78,7 +112,15 @@ async def check_in(
     Punch In for the day.
     Enforces IP Whitelist (Tier 1) and GPS Geofencing (Tier 3), unless user has approved WFH.
     """
-    client_ip = extract_client_ip(request, check_in_req.client_ip)
+    client_ip = extract_client_ip(
+        request,
+        check_in_req.detected_public_ip or check_in_req.client_ip,
+    )
+    if not check_in_req.detected_public_ip:
+        check_in_req.detected_public_ip = extract_detected_public_ip(
+            request,
+            check_in_req.client_ip,
+        )
     return await attendance_service.process_check_in(
         user=current_user,
         check_in_req=check_in_req,
@@ -122,7 +164,41 @@ async def get_today_attendance(
     Returns today's punch status, active timer metrics, and assigned shift for the current user.
     """
     client_ip = extract_client_ip(request)
-    return await attendance_service.get_today_status(user=current_user, client_ip=client_ip)
+    detected_public_ip = extract_detected_public_ip(request)
+    return await attendance_service.get_today_status(
+        user=current_user,
+        client_ip=client_ip,
+        detected_public_ip=detected_public_ip,
+    )
+
+
+class AttendanceConfigResponse(BaseModel):
+    go_live_date: str
+    test_start_date: str
+    effective_start_date: str
+    timezone: str = "Asia/Karachi"
+    go_live_reached: bool
+
+
+@router.get("/config", response_model=AttendanceConfigResponse)
+async def get_attendance_config(
+    current_user: dict = Depends(require_internal_user),
+):
+    """Go-live cutoff used by date pickers and the midnight purge."""
+    from app.services.attendance_golive import (
+        ATTENDANCE_GO_LIVE_DATE,
+        ATTENDANCE_TEST_START_DATE,
+        get_effective_start_date,
+        is_go_live_reached,
+        pkt_today_str,
+    )
+    today = pkt_today_str()
+    return AttendanceConfigResponse(
+        go_live_date=ATTENDANCE_GO_LIVE_DATE,
+        test_start_date=ATTENDANCE_TEST_START_DATE,
+        effective_start_date=get_effective_start_date(today),
+        go_live_reached=is_go_live_reached(today),
+    )
 
 
 @router.get("/my-timesheet", response_model=MonthlyTimesheetResponse)
@@ -144,11 +220,32 @@ async def get_my_monthly_timesheet(
     )
 
 
+@router.get("/timesheet/{user_id}", response_model=MonthlyTimesheetResponse)
+async def get_employee_monthly_timesheet(
+    user_id: str,
+    year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),
+    month: Optional[int] = Query(default=None, description="Month (1 - 12)"),
+    current_user: dict = Depends(require_management_role),
+):
+    """
+    Admin / HR / Operations view of an individual employee's monthly attendance timesheet.
+    Employees cannot reach this route; they use /my-timesheet.
+    """
+    now = datetime.now(timezone.utc)
+    target_year = year or now.year
+    target_month = month or now.month
+    return await attendance_service.get_timesheet_for_user_id(
+        user_id=user_id,
+        year=target_year,
+        month=target_month,
+    )
+
+
 @router.get("/matrix", response_model=DailyMatrixResponse)
 async def get_daily_attendance_matrix(
     date: Optional[str] = Query(default=None, description="Target date YYYY-MM-DD"),
     department: Optional[str] = Query(default=None, description="Filter by department"),
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead", "team_member"])),
+    current_user: dict = Depends(require_management_role),
 ):
     """
     Company-wide live attendance grid for a date (replicates physical register).
@@ -164,7 +261,7 @@ async def get_monthly_punctuality_summary(
     year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),
     month: Optional[int] = Query(default=None, description="Month (1 - 12)"),
     department: Optional[str] = Query(default=None, description="Filter by department"),
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead"])),
+    current_user: dict = Depends(require_management_role),
 ):
     """
     Company-wide Monthly Punctuality Summary aggregating:
@@ -187,7 +284,7 @@ async def export_attendance_excel(
     year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),
     month: Optional[int] = Query(default=None, description="Month (1 - 12)"),
     department: Optional[str] = Query(default=None, description="Filter by department"),
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead", "team_member"])),
+    current_user: dict = Depends(require_management_role),
 ):
     """
     Exports company-wide attendance and monthly punctuality summary as a styled multi-tab Excel (.xlsx) workbook.
@@ -235,7 +332,7 @@ async def update_security_settings(
 @router.post("/admin/manual-entry", response_model=AttendanceRecordResponse)
 async def admin_manual_entry(
     entry_req: ManualAttendanceEntryRequest,
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead"])),
+    current_user: dict = Depends(require_management_role),
 ):
     """HR / Admin manual attendance record creation or override."""
     return await attendance_service.admin_manual_attendance_entry(
@@ -252,12 +349,12 @@ async def admin_manual_entry(
 @router.patch("/records/{record_id}/override", response_model=AttendanceRecordResponse)
 async def override_attendance(
     record_id: str,
-    override_payload: dict,
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead"])),
+    override_payload: OverrideAttendanceRequest,
+    current_user: dict = Depends(require_management_role),
 ):
     """HR / Admin attendance record override by record ID or employee ID."""
     return await attendance_service.override_attendance_record(
         target_id=record_id,
-        override_data=override_payload,
+        override_data=override_payload.model_dump(),
         admin_user=current_user,
     )

@@ -12,6 +12,8 @@ import {
   X,
   Users,
   Search,
+  TreePalm,
+  Loader2,
 } from 'lucide-react';
 import { attendanceService } from '../../../services/attendanceService';
 import { adminService } from '../../../services/adminService';
@@ -20,6 +22,7 @@ import type {
   ShiftTemplate,
   SecuritySettings,
   CompanyCalendarEvent,
+  LeaveBalance,
 } from '../../../types/attendance';
 import type { AdminMember } from '../../../types/admin';
 import { CustomSelect } from '../../ui/CustomSelect';
@@ -27,57 +30,55 @@ import { CustomDatePicker } from '../../ui/CustomDatePicker';
 import { CustomTimePicker } from '../../ui/CustomTimePicker';
 import { NumberStepper } from '../../ui/NumberStepper';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
+import { getAttendanceMinDate } from '../../../constants/attendance';
+import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
 
-const getDeptBadgeClass = (dept?: string) => {
-  const nd = (dept || '').toLowerCase().trim();
-  if (nd.includes('software') || nd.includes('dev')) {
-    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-  }
-  if (nd.includes('website')) {
-    return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-  }
-  if (nd.includes('creative')) {
-    return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-  }
-  if (nd.includes('content')) {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  if (nd.includes('seo')) {
-    return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-  }
-  if (nd.includes('performance') || nd.includes('marketing')) {
-    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-  }
-  if (nd.includes('ai')) {
-    return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
-  }
-  if (nd.includes('hr')) {
-    return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-  }
-  return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+const timeToMinutes = (value?: string | null) => {
+  if (!value) return 0;
+  const [h, m] = String(value).split(':').map(Number);
+  return (h || 0) * 60 + (m || 0);
 };
 
-const getRoleBadgeClass = (role?: string) => {
-  const r = (role || '').toLowerCase();
-  if (r.includes('admin')) {
-    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
+const computeNetExpectedHours = (
+  start: string,
+  end: string,
+  breakMins: number,
+  isNight?: boolean
+) => {
+  let startMins = timeToMinutes(start);
+  let endMins = timeToMinutes(end);
+  if (isNight || endMins <= startMins) endMins += 1440;
+  const net = Math.max(0, endMins - startMins - (breakMins || 0));
+  return Math.round((net / 60) * 100) / 100;
+};
+
+const withDerivedHours = (shift: ShiftTemplate, patch: Partial<ShiftTemplate> = {}): ShiftTemplate => {
+  const next = { ...shift, ...patch };
+  const expected = computeNetExpectedHours(
+    next.start_time,
+    next.end_time,
+    next.break_duration_minutes || 0,
+    Boolean(next.is_night_shift || next.is_cross_midnight)
+  );
+  next.expected_hours = expected;
+  next.expected_work_hours = expected;
+  next.is_night_shift = Boolean(next.is_night_shift || next.is_cross_midnight);
+  next.is_cross_midnight = next.is_night_shift;
+  if ((next.break_duration_minutes || 0) <= 0) {
+    next.break_start_time = null;
+    next.break_end_time = null;
+  } else if (!next.break_start_time || !next.break_end_time) {
+    const overnight = Boolean(next.is_night_shift || next.is_cross_midnight);
+    next.break_start_time = next.break_start_time || (overnight ? '01:00' : '13:00');
+    next.break_end_time = next.break_end_time || (overnight ? '02:00' : '14:00');
   }
-  if (r.includes('hr')) {
-    return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-  }
-  if (r.includes('operations')) {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  if (r.includes('lead')) {
-    return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-  }
-  return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+  return next;
 };
 
 export const AttendancePoliciesSection: React.FC = () => {
   const { addToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'security'>('shifts');
+  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'security' | 'leaves'>('shifts');
   const [isSaving, setIsSaving] = useState(false);
 
   // Shift Templates State
@@ -98,12 +99,18 @@ export const AttendancePoliciesSection: React.FC = () => {
     newShiftName: string;
     currentShiftName: string;
   } | null>(null);
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
+  const [isLoadingLeaveBalances, setIsLoadingLeaveBalances] = useState(true);
+  const [leaveDrafts, setLeaveDrafts] = useState<
+    Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }>
+  >({});
+  const [savingLeaveUserId, setSavingLeaveUserId] = useState<string | null>(null);
 
   // Calendar & Holidays State
   const [calendarEvents, setCalendarEvents] = useState<CompanyCalendarEvent[]>([]);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
-  const [newEventDate, setNewEventDate] = useState('2026-08-19');
+  const [newEventDate, setNewEventDate] = useState(getAttendanceMinDate());
   const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday'>('holiday');
   const [newEventDesc, setNewEventDesc] = useState('');
 
@@ -147,9 +154,12 @@ export const AttendancePoliciesSection: React.FC = () => {
             end_time: '18:30',
             grace_period_minutes: 30,
             break_duration_minutes: 60,
+            break_start_time: '13:00',
+            break_end_time: '14:00',
             late_threshold_time: '10:00',
             is_cross_midnight: false,
             expected_work_hours: 8.0,
+            expected_hours: 8.0,
           },
           {
             id: 'hr_shift',
@@ -159,9 +169,12 @@ export const AttendancePoliciesSection: React.FC = () => {
             end_time: '18:00',
             grace_period_minutes: 30,
             break_duration_minutes: 60,
+            break_start_time: '13:00',
+            break_end_time: '14:00',
             late_threshold_time: '09:30',
             is_cross_midnight: false,
             expected_work_hours: 8.0,
+            expected_hours: 8.0,
           },
           {
             id: 'afternoon_shift',
@@ -170,10 +183,13 @@ export const AttendancePoliciesSection: React.FC = () => {
             start_time: '14:00',
             end_time: '20:00',
             grace_period_minutes: 30,
-            break_duration_minutes: 30,
+            break_duration_minutes: 0,
             late_threshold_time: '14:30',
             is_cross_midnight: false,
-            expected_work_hours: 5.5,
+            expected_work_hours: 6.0,
+            expected_hours: 6.0,
+            break_start_time: null,
+            break_end_time: null,
           },
           {
             id: 'night_shift',
@@ -183,9 +199,12 @@ export const AttendancePoliciesSection: React.FC = () => {
             end_time: '06:00',
             grace_period_minutes: 30,
             break_duration_minutes: 60,
+            break_start_time: '01:00',
+            break_end_time: '02:00',
             late_threshold_time: '22:30',
             is_cross_midnight: true,
             expected_work_hours: 7.0,
+            expected_hours: 7.0,
           },
         ]);
       }
@@ -211,14 +230,63 @@ export const AttendancePoliciesSection: React.FC = () => {
         });
         setShiftAssignments(map);
       }
+
+      try {
+        setIsLoadingLeaveBalances(true);
+        const balances = await attendanceService.getLeaveBalances();
+        setLeaveBalances(balances);
+        const drafts: Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }> = {};
+        balances.forEach((b) => {
+          drafts[b.user_id] = {
+            annual: String(b.annual_used_opening),
+            sick: String(b.sick_used_opening),
+            annualQuota: String(b.annual_entitled),
+            sickQuota: String(b.sick_entitled),
+          };
+        });
+        setLeaveDrafts(drafts);
+      } catch {
+        setLeaveBalances([]);
+      } finally {
+        setIsLoadingLeaveBalances(false);
+      }
     } catch {
-      // Keep defaults
+      setIsLoadingLeaveBalances(false);
     }
   };
 
   useEffect(() => {
     fetchData();
   }, []);
+
+  const handleSaveLeaveOpening = async (userId: string) => {
+    const draft = leaveDrafts[userId];
+    if (!draft) return;
+    try {
+      setSavingLeaveUserId(userId);
+      const updated = await attendanceService.updateLeaveOpening(userId, {
+        annual_used_opening: Number(draft.annual) || 0,
+        sick_used_opening: Number(draft.sick) || 0,
+        annual_entitled: Number(draft.annualQuota) || 0,
+        sick_entitled: Number(draft.sickQuota) || 0,
+      });
+      setLeaveBalances((prev) => prev.map((row) => (row.user_id === userId ? updated : row)));
+      setLeaveDrafts((prev) => ({
+        ...prev,
+        [userId]: {
+          annual: String(updated.annual_used_opening),
+          sick: String(updated.sick_used_opening),
+          annualQuota: String(updated.annual_entitled),
+          sickQuota: String(updated.sick_entitled),
+        },
+      }));
+      addToast('Leave balance saved', `${updated.user_name || 'Employee'} remaining: ${updated.annual_remaining} annual / ${updated.sick_remaining} sick.`, 'success');
+    } catch (err: any) {
+      addToast('Save failed', err?.message || 'Could not update leave opening balance.', 'error');
+    } finally {
+      setSavingLeaveUserId(null);
+    }
+  };
 
   const handleAssignUserShift = async (userId: string, shiftId: string) => {
     try {
@@ -303,15 +371,18 @@ export const AttendancePoliciesSection: React.FC = () => {
       end_time: '18:30',
       grace_period_minutes: 30,
       break_duration_minutes: 60,
+      break_start_time: '13:00',
+      break_end_time: '14:00',
       late_threshold_time: '10:00',
       is_cross_midnight: false,
+      expected_hours: 8.0,
       expected_work_hours: 8.0,
     });
     setIsShiftModalOpen(true);
   };
 
   const handleOpenEditShift = (shift: ShiftTemplate) => {
-    setEditingShift({ ...shift });
+    setEditingShift(withDerivedHours({ ...shift }));
     setIsShiftModalOpen(true);
   };
 
@@ -322,15 +393,28 @@ export const AttendancePoliciesSection: React.FC = () => {
       addToast('Name Required', 'Please provide a shift name.', 'warning');
       return;
     }
+    const isTime = (t?: string | null) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '');
+    if (!isTime(editingShift.start_time) || !isTime(editingShift.end_time)) {
+      addToast('Invalid Time', 'Start and end times must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+      return;
+    }
+    if (
+      (editingShift.break_duration_minutes || 0) > 0 &&
+      (!isTime(editingShift.break_start_time) || !isTime(editingShift.break_end_time))
+    ) {
+      addToast('Invalid Time', 'Break start and end times must be HH:MM (24-hour).', 'warning');
+      return;
+    }
 
     try {
       setIsSaving(true);
-      if (editingShift.id && !editingShift.id.startsWith('new_')) {
-        await attendanceService.updateShift(editingShift.id, editingShift);
+      const payload = withDerivedHours(editingShift);
+      if (payload.id && !payload.id.startsWith('new_')) {
+        await attendanceService.updateShift(payload.id, payload);
       } else {
-        await attendanceService.createShift(editingShift);
+        await attendanceService.createShift(payload);
       }
-      addToast('Shift Saved', `Shift template "${editingShift.name}" was saved.`, 'success');
+      addToast('Shift Saved', `Shift template "${payload.name}" was saved.`, 'success');
       setIsShiftModalOpen(false);
       setEditingShift(null);
       fetchData();
@@ -372,8 +456,8 @@ export const AttendancePoliciesSection: React.FC = () => {
     try {
       setIsSaving(true);
       const payload: SecuritySettings = {
-        office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || ['127.0.0.1', '::1'],
-        office_subnets: securitySettings.office_subnets || ['192.168.1.0/24', '10.0.0.0/8'],
+        office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [],
+        office_subnets: securitySettings.office_subnets || [],
         office_latitude: Number(securitySettings.office_latitude) || 33.5315,
         office_longitude: Number(securitySettings.office_longitude) || 73.1382,
         geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || 500,
@@ -464,7 +548,7 @@ export const AttendancePoliciesSection: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                setNewEventDate('2026-08-19');
+                setNewEventDate(getAttendanceMinDate());
                 setIsEventModalOpen(true);
               }}
               className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 cursor-pointer select-none"
@@ -502,6 +586,19 @@ export const AttendancePoliciesSection: React.FC = () => {
         >
           <Calendar className="w-4 h-4" />
           <span>Company Calendar & Holidays</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('leaves')}
+          className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
+            activeTab === 'leaves'
+              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
+              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
+          }`}
+        >
+          <TreePalm className="w-4 h-4" />
+          <span>Leave Quotas</span>
         </button>
 
         <button
@@ -747,6 +844,126 @@ export const AttendancePoliciesSection: React.FC = () => {
         </div>
       )}
 
+      {/* ─── TAB: LEAVE QUOTAS ─── */}
+      {activeTab === 'leaves' && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-200">
+            Set each employee&apos;s annual and sick quota (total days for the year) and days already taken. Remaining = quota − taken − approved/pending in-app requests. Casual leave and 2–4h short leave deduct from annual.
+          </div>
+          {isLoadingLeaveBalances ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-400 dark:text-zinc-500">
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading leave quotas...</span>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-[#11131a]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500">
+                  <tr>
+                    <th className="text-left font-bold px-4 py-3">Employee</th>
+                    <th className="text-left font-bold px-3 py-3">Annual taken</th>
+                    <th className="text-left font-bold px-3 py-3">Sick taken</th>
+                    <th className="text-left font-bold px-3 py-3">Annual quota</th>
+                    <th className="text-left font-bold px-3 py-3">Sick quota</th>
+                    <th className="text-left font-bold px-3 py-3">Annual left</th>
+                    <th className="text-left font-bold px-3 py-3">Sick left</th>
+                    <th className="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {leaveBalances.map((row) => {
+                    const draft = leaveDrafts[row.user_id];
+                    const annualTaken = Number(draft?.annual ?? row.annual_used_opening) || 0;
+                    const sickTaken = Number(draft?.sick ?? row.sick_used_opening) || 0;
+                    const annualQuota = Number(draft?.annualQuota ?? row.annual_entitled) || 0;
+                    const sickQuota = Number(draft?.sickQuota ?? row.sick_entitled) || 0;
+                    const annualLeft = Math.round((annualQuota - annualTaken - row.annual_used_in_app - row.annual_pending) * 100) / 100;
+                    const sickLeft = Math.round((sickQuota - sickTaken - row.sick_used_in_app - row.sick_pending) * 100) / 100;
+                    const patchDraft = (patch: Partial<{ annual: string; sick: string; annualQuota: string; sickQuota: string }>) =>
+                      setLeaveDrafts((prev) => ({
+                        ...prev,
+                        [row.user_id]: {
+                          annual: prev[row.user_id]?.annual ?? String(row.annual_used_opening),
+                          sick: prev[row.user_id]?.sick ?? String(row.sick_used_opening),
+                          annualQuota: prev[row.user_id]?.annualQuota ?? String(row.annual_entitled),
+                          sickQuota: prev[row.user_id]?.sickQuota ?? String(row.sick_entitled),
+                          ...patch,
+                        },
+                      }));
+                    return (
+                    <tr key={row.user_id} className="border-t border-zinc-100 dark:border-zinc-800">
+                      <td className="px-4 py-2.5">
+                        <div className="font-bold text-zinc-800 dark:text-zinc-100">{row.user_name}</div>
+                        <div className="text-zinc-400">{row.department}</div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={draft?.annual ?? String(row.annual_used_opening)}
+                          onChange={(e) => patchDraft({ annual: e.target.value })}
+                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={draft?.sick ?? String(row.sick_used_opening)}
+                          onChange={(e) => patchDraft({ sick: e.target.value })}
+                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={draft?.annualQuota ?? String(row.annual_entitled)}
+                          onChange={(e) => patchDraft({ annualQuota: e.target.value })}
+                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={draft?.sickQuota ?? String(row.sick_entitled)}
+                          onChange={(e) => patchDraft({ sickQuota: e.target.value })}
+                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                        />
+                      </td>
+                      <td className={`px-3 py-2 font-bold ${annualLeft <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
+                        {annualLeft}
+                      </td>
+                      <td className={`px-3 py-2 font-bold ${sickLeft <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
+                        {sickLeft}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        <button
+                          type="button"
+                          disabled={savingLeaveUserId === row.user_id}
+                          onClick={() => handleSaveLeaveOpening(row.user_id)}
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50"
+                        >
+                          {savingLeaveUserId === row.user_id ? 'Saving...' : 'Save'}
+                        </button>
+                      </td>
+                    </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ─── TAB 3: ANTI-PROXY SECURITY & GEOFENCING ─── */}
       {activeTab === 'security' && (
         <form onSubmit={handleSaveSecurity} className="space-y-4">
@@ -977,15 +1194,17 @@ export const AttendancePoliciesSection: React.FC = () => {
                 <div>
                   <CustomTimePicker
                     label="Start Time"
+                    required
                     value={editingShift.start_time}
-                    onChange={(val) => setEditingShift({ ...editingShift, start_time: val })}
+                    onChange={(val) => setEditingShift(withDerivedHours(editingShift, { start_time: val }))}
                   />
                 </div>
                 <div>
                   <CustomTimePicker
                     label="End Time"
+                    required
                     value={editingShift.end_time}
-                    onChange={(val) => setEditingShift({ ...editingShift, end_time: val })}
+                    onChange={(val) => setEditingShift(withDerivedHours(editingShift, { end_time: val }))}
                   />
                 </div>
               </div>
@@ -1017,38 +1236,55 @@ export const AttendancePoliciesSection: React.FC = () => {
                     unit="mins"
                     value={editingShift.break_duration_minutes}
                     onChange={(val) =>
-                      setEditingShift({
-                        ...editingShift,
-                        break_duration_minutes: val,
-                      })
+                      setEditingShift(withDerivedHours(editingShift, { break_duration_minutes: val }))
                     }
                   />
                 </div>
 
                 <div>
-                  <NumberStepper
-                    label="Expected Work"
-                    min={1}
-                    max={24}
-                    step={0.5}
-                    unit="hrs"
-                    value={editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8.0}
+                  <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">
+                    Expected Work
+                  </label>
+                  <div className="h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                    {(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8).toFixed(2)} hrs
+                  </div>
+                  <p className="text-[10px] text-zinc-400 mt-1">
+                    Shift span minus unpaid break
+                  </p>
+                </div>
+              </div>
+
+              {(editingShift.break_duration_minutes || 0) > 0 && (
+                <div className="grid grid-cols-2 gap-3">
+                  <CustomTimePicker
+                    label="Break Starts"
+                    required
+                    value={editingShift.break_start_time || '13:00'}
                     onChange={(val) =>
-                      setEditingShift({
-                        ...editingShift,
-                        expected_hours: val,
-                        expected_work_hours: val,
-                      })
+                      setEditingShift({ ...editingShift, break_start_time: val })
+                    }
+                  />
+                  <CustomTimePicker
+                    label="Break Ends"
+                    required
+                    value={editingShift.break_end_time || '14:00'}
+                    onChange={(val) =>
+                      setEditingShift({ ...editingShift, break_end_time: val })
                     }
                   />
                 </div>
-              </div>
+              )}
 
               <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
                 <ToggleSwitch
                   checked={Boolean(editingShift.is_cross_midnight)}
                   onChange={(checked) =>
-                    setEditingShift({ ...editingShift, is_cross_midnight: checked })
+                    setEditingShift(
+                      withDerivedHours(editingShift, {
+                        is_cross_midnight: checked,
+                        is_night_shift: checked,
+                      })
+                    )
                   }
                   label="Crosses midnight (Night Shift)"
                   description="Calculates positive duration across midnight (e.g. 22:00 to 06:00)"
@@ -1113,7 +1349,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                 <div>
                   <CustomDatePicker
                     label="Date"
-                    minDate="2026-08-19"
+                    minDate={getAttendanceMinDate()}
                     value={newEventDate}
                     onChange={setNewEventDate}
                   />

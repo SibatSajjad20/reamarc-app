@@ -29,7 +29,9 @@ import {
   Clock,
   ChevronRight,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
+import { getDeptBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
 
 interface DashboardViewProps {
   onNavigateView: (view: ViewType) => void;
@@ -57,8 +59,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   }, [today]);
 
   // Loading States
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState(false);
-  const [isLoadingDailyLog, setIsLoadingDailyLog] = useState(false);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
+  const [isLoadingDailyLog, setIsLoadingDailyLog] = useState(true);
 
   // Data States
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(null);
@@ -74,58 +76,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const isOperations = user?.role === 'operations';
   const showDailyLogSection = !isOperations;
 
-  // Department Badge Styling Helper
-  const getDeptBadgeClass = (dept?: string) => {
-    const d = (dept || '').toLowerCase().trim();
-    if (d === 'ai' || d === 'artificial intelligence') {
-      return 'bg-violet-100 text-violet-700 dark:bg-violet-950/60 dark:text-violet-300 border-violet-200 dark:border-violet-800';
-    }
-    if (d === 'creative' || d === 'design') {
-      return 'bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300 border-purple-200 dark:border-purple-800';
-    }
-    if (d === 'seo') {
-      return 'bg-cyan-100 text-cyan-700 dark:bg-cyan-950/60 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800';
-    }
-    if (d === 'software development' || d === 'engineering' || d === 'dev') {
-      return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-    }
-    if (d === 'performance marketing' || d === 'marketing') {
-      return 'bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 border-rose-200 dark:border-rose-800';
-    }
-    if (d === 'human resources' || d === 'hr') {
-      return 'bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-    }
-    if (d === 'operations' || d === 'ops') {
-      return 'bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-    }
-    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-  };
-
-  // Role Display Helper
-  const getRoleLabel = (role?: string) => {
-    if (role === 'admin') return 'Super Administrator';
-    if (role === 'hr') return 'HR Manager';
-    if (role === 'operations') return 'Operations Lead';
-    if (role === 'team_lead') return 'Team Lead';
-    return 'Team Member';
-  };
-
-  // Initials Helper
-  const getInitials = (name?: string, email?: string) => {
-    if (name && name.trim()) {
-      const parts = name.trim().split(' ');
-      if (parts.length >= 2) {
-        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-      }
-      return parts[0].substring(0, 2).toUpperCase();
-    }
-    if (email && email.trim()) {
-      return email.trim().substring(0, 2).toUpperCase();
-    }
-    return 'EM';
-  };
-
-  // Load Attendance Data
   const loadAttendance = useCallback(async () => {
     try {
       setIsLoadingAttendance(true);
@@ -218,9 +168,27 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const leavesTaken = timesheetSummary?.leave_count ?? timesheetSummary?.leaves_taken ?? 0;
   const punctualityScore = timesheetSummary?.punctuality_score_percent ?? timesheetSummary?.punctuality_percentage ?? 100;
   const netVarianceFormatted = timesheetSummary?.net_variance_formatted || '—';
+  const netVarianceHelper = useMemo(() => {
+    if (!netVarianceFormatted || netVarianceFormatted === '—') return null;
+    const sign = netVarianceFormatted.startsWith('+') ? 'overtime' : netVarianceFormatted.startsWith('-') ? 'undertime' : null;
+    if (!sign) return null;
+    const raw = netVarianceFormatted.replace(/^[+-]/, '');
+    const [hStr] = raw.split(':');
+    const hours = parseInt(hStr || '0', 10);
+    return `${hours} hrs ${sign}`;
+  }, [netVarianceFormatted]);
+
+  if (isLoadingAttendance) {
+    return (
+      <div className="flex-1 overflow-y-auto p-6 max-w-7xl mx-auto w-full flex flex-col items-center justify-center min-h-[60vh] gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+        <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading dashboard...</span>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 max-w-7xl mx-auto w-full">
+    <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6 max-w-7xl mx-auto w-full">
       {/* 1. Top User Profile Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-6 sm:p-8 shadow-sm">
         {/* Subtle decorative glow */}
@@ -230,7 +198,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             {/* Avatar Initials */}
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white text-xl font-black shadow-lg shadow-indigo-600/20 border border-white/20 dark:border-white/10 shrink-0">
+            <div className="w-16 h-16 rounded-full bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-xl font-black shrink-0">
               {getInitials(user?.full_name || user?.name, user?.email)}
             </div>
 
@@ -294,8 +262,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       <div className={`grid grid-cols-1 ${showDailyLogSection ? 'lg:grid-cols-12' : ''} gap-6`}>
         {/* Left Column: Today's Daily Log Status Card (Hidden for Operations role) */}
         {showDailyLogSection && (
-          <div className="lg:col-span-6 flex flex-col">
-            <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 p-6 flex-1 flex flex-col justify-between shadow-sm">
+          <div className="lg:col-span-6 flex flex-col h-full min-h-[280px]">
+            <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 p-6 flex-1 flex flex-col justify-between shadow-sm h-full">
               <div>
                 <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
                   <div className="flex items-center gap-2.5">
@@ -306,9 +274,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                       <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
                         Daily Work Log Status
                       </h3>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                        End-of-day task logging & productivity tracker
-                      </p>
                     </div>
                   </div>
 
@@ -339,7 +304,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                       </div>
                     </div>
                   ) : (
-                    <div className="p-4 rounded-xl bg-amber-50/80 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 flex items-start gap-3">
+                    <div className="p-3.5 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40 flex items-start gap-3">
                       <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <h4 className="text-sm font-bold text-amber-900 dark:text-amber-200">
@@ -387,8 +352,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         )}
 
         {/* Right / Full-Width Column: My Monthly Attendance Snapshot */}
-        <div className={`${showDailyLogSection ? 'lg:col-span-6' : 'w-full'} flex flex-col`}>
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 p-6 flex-1 flex flex-col justify-between shadow-sm">
+        <div className={`${showDailyLogSection ? 'lg:col-span-6' : 'w-full'} flex flex-col h-full min-h-[280px]`}>
+          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 p-6 flex-1 flex flex-col justify-between shadow-sm h-full">
             <div>
               <div className="flex items-center justify-between pb-4 border-b border-zinc-100 dark:border-zinc-800/80">
                 <div className="flex items-center gap-2.5">
@@ -400,7 +365,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                       My Monthly Performance
                     </h3>
                     <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                      {today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })} Punctuality Snapshot
+                      {today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
                     </p>
                   </div>
                 </div>
@@ -456,9 +421,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                         ? 'text-rose-600 dark:text-rose-400'
                         : 'text-zinc-400'
                     }`}
+                    title={netVarianceHelper || 'On expected hours'}
                   >
                     {netVarianceFormatted}
                   </span>
+                  {netVarianceHelper && (
+                    <span className="block text-[10px] font-medium text-zinc-400 mt-0.5">
+                      ({netVarianceHelper})
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

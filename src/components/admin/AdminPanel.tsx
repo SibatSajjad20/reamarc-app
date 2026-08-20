@@ -37,7 +37,6 @@ export const AdminPanel: React.FC = () => {
   const canManageAdAccounts = isAdmin;
 
   const [activeSection, setActiveSection] = useState<AdminSectionType>('directory');
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
 
   // Members & Activities
   const [members, setMembers] = useState<AdminMember[]>([]);
@@ -217,8 +216,7 @@ export const AdminPanel: React.FC = () => {
   }, [activities]);
 
   return (
-    <div className="flex flex-col md:flex-row h-full w-full bg-zinc-50 dark:bg-[#090a0f] overflow-hidden">
-      {/* Left Modular Sub-Sidebar */}
+    <div className="flex flex-col h-full w-full bg-zinc-50 dark:bg-[#090a0f] overflow-hidden">
       <AdminSidebarNav
         activeSection={activeSection}
         onSelectSection={setActiveSection}
@@ -228,11 +226,9 @@ export const AdminPanel: React.FC = () => {
         missingLogsCount={missingLogsCount}
         isAdmin={isAdmin}
         userRole={user?.role}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />
 
-      {/* Active Section Content */}
+      <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
       {activeSection === 'directory' && (
         <UserManagementSection
           members={members}
@@ -293,6 +289,7 @@ export const AdminPanel: React.FC = () => {
       {activeSection === 'attendance_policies' && (
         <AttendancePoliciesSection />
       )}
+      </div>
 
       {/* ─── MODALS ─── */}
 

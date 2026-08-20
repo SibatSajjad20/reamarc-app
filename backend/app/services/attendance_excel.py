@@ -313,6 +313,7 @@ async def generate_multi_tab_attendance_workbook(
         daily_dicts = []
         missed_punches_count = 0
         for r in u_records:
+            attendance_service.apply_daily_calc_fields(r, shift)
             st = r.get("status", AttendanceStatus.PRESENT)
             is_missed = r.get("is_missed_punch", False) or (st in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
             if is_missed:
@@ -321,9 +322,9 @@ async def generate_multi_tab_attendance_workbook(
             daily_dicts.append({
                 "status": st,
                 "late_strike": r.get("late_strike", 0),
-                "work_minutes": int(round(float(r.get("work_hours", 0.0)) * 60)),
-                "overtime_minutes": int(round(float(r.get("overtime_hours", 0.0)) * 60)),
-                "undertime_minutes": int(round(float(r.get("undertime_hours", 0.0)) * 60)),
+                "work_minutes": int(r.get("working_hours_minutes") or round(float(r.get("work_hours", 0.0)) * 60)),
+                "overtime_minutes": int(r.get("overtime_minutes") or round(float(r.get("overtime_hours", 0.0)) * 60)),
+                "undertime_minutes": int(r.get("undertime_minutes") or round(float(r.get("undertime_hours", 0.0)) * 60)),
                 "is_short_leave": (st in (AttendanceStatus.SHORT_LEAVE.value, "short_leave") or r.get("is_short_leave", False)),
             })
 
@@ -535,14 +536,15 @@ async def generate_multi_tab_attendance_workbook(
             ut_mins = 0
 
             if rec and rec.get("check_in"):
+                attendance_service.apply_daily_calc_fields(rec, shift)
                 punch_in = rec.get("check_in") or "-"
                 punch_out = rec.get("check_out") or "-"
-                break_str = f"{shift.break_duration_minutes}m"
+                break_str = f"{int(shift.break_duration_minutes or 0)}m"
                 work_duration = rec.get("work_duration_formatted", "00:00")
                 ot_str = rec.get("overtime_formatted", "+00:00")
                 ut_str = rec.get("undertime_formatted", "-00:00")
-                ot_mins = int(round(float(rec.get("overtime_hours", 0.0)) * 60))
-                ut_mins = int(round(float(rec.get("undertime_hours", 0.0)) * 60))
+                ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
+                ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
 
                 st_val = rec.get("status")
                 is_wfh_val = rec.get("is_wfh", False) or (st_val in (AttendanceStatus.WFH.value, "wfh"))

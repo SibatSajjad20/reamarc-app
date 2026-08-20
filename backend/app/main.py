@@ -48,6 +48,8 @@ async def lifespan(app: FastAPI):
         if db is not None:
             await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
             await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
+            from app.services.attendance_golive import purge_pre_go_live_attendance
+            await purge_pre_go_live_attendance()
             # Ensure HR users have department "HR"
             await db.users.update_many(
                 {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},

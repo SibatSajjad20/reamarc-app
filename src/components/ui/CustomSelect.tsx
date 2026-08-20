@@ -78,7 +78,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   return (
     <div className={`relative w-full text-left ${className}`} ref={dropdownRef}>
       {label && (
-        <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
           {LeadingIcon && <LeadingIcon className="w-3.5 h-3.5 text-indigo-500" />}
           <span>{label}</span>
         </label>
@@ -88,7 +88,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         type="button"
         disabled={disabled}
         onClick={handleToggle}
-        className={`w-full flex items-center justify-between gap-2.5 px-3.5 py-2 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed ${
+        className={`w-full h-10 flex items-center justify-between gap-2.5 px-3.5 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed ${
           isOpen ? 'ring-2 ring-indigo-500/20 border-indigo-500 dark:border-indigo-500' : ''
         }`}
       >

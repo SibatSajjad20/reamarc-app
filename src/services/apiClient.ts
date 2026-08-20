@@ -121,7 +121,9 @@ class ApiClient {
         }
 
         const errorMessage =
-          data?.detail || data?.message || `API Request failed with status ${response.status}`;
+          typeof data?.detail === 'string'
+            ? data.detail
+            : data?.message || `API Request failed with status ${response.status}`;
         throw new ApiError(errorMessage, response.status, data);
       }
 
@@ -189,7 +191,9 @@ class ApiClient {
         }
 
         const errorMessage =
-          data?.detail || data?.message || `API Request failed with status ${response.status}`;
+          typeof data?.detail === 'string'
+            ? data.detail
+            : data?.message || `API Request failed with status ${response.status}`;
         throw new ApiError(errorMessage, response.status, data);
       }
 

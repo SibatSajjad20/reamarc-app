@@ -1,4 +1,4 @@
-export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log' | 'attendance';
+export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile';
 
 export * from './attendance';
 

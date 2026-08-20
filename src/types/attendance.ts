@@ -12,6 +12,8 @@ export interface ShiftTemplate {
   start_time: string;           // "09:30"
   end_time: string;             // "18:30"
   break_duration_minutes: number; // 60
+  break_start_time?: string | null; // "13:00"
+  break_end_time?: string | null;   // "14:00"
   grace_period_minutes: number;   // 30
   late_threshold_time?: string;    // "10:00"
   is_cross_midnight?: boolean;     // false
@@ -213,6 +215,32 @@ export interface AttendanceRequest {
   created_at: string;
 }
 
+export interface LeaveBalance {
+  user_id: string;
+  user_name?: string;
+  department?: string;
+  year: number;
+  annual_entitled: number;
+  sick_entitled: number;
+  annual_used_opening: number;
+  sick_used_opening: number;
+  annual_used_in_app: number;
+  sick_used_in_app: number;
+  annual_pending: number;
+  sick_pending: number;
+  annual_remaining: number;
+  sick_remaining: number;
+  go_live_date: string;
+}
+
+export interface AttendanceConfig {
+  go_live_date: string;
+  test_start_date: string;
+  effective_start_date: string;
+  timezone: string;
+  go_live_reached: boolean;
+}
+
 export interface SecuritySettings {
   office_public_ips: string[];
   office_subnets: string[];
@@ -248,12 +276,18 @@ export interface TodayAttendanceResponse {
   office_latitude?: number;
   office_longitude?: number;
   geofence_radius_meters?: number;
+  enforce_ip_whitelist?: boolean;
+  enforce_gps_geofence?: boolean;
+  shift_ended?: boolean;
 }
 
 export interface CheckInPayload {
   latitude?: number;
   longitude?: number;
+  accuracy_meters?: number;
+  gps_captured_at?: string;
   notes?: string;
+  detected_public_ip?: string;
 }
 
 export interface CheckOutPayload {

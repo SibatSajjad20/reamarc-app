@@ -2,27 +2,62 @@
 Pydantic schemas for Attendance, Punch Card, Daily Matrix, and Punctuality.
 """
 from typing import Optional, List, Dict, Any, Literal
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from app.models.attendance import AttendanceStatus, BonusRecommendation
 from app.schemas.shift import ShiftResponse
 
 
 class CheckInRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
     longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
+    accuracy_meters: Optional[float] = Field(
+        default=None,
+        ge=0,
+        description="Browser geolocation accuracy radius in meters",
+    )
+    gps_captured_at: Optional[str] = Field(
+        default=None,
+        description="ISO timestamp when GPS was captured; stale readings are rejected",
+    )
     notes: Optional[str] = Field(default=None, description="Optional check-in notes / remarks")
-    client_ip: Optional[str] = Field(default=None, description="Client IP address passed from router/client")
+    client_ip: Optional[str] = Field(default=None, description="Deprecated; ignored unless the request IP is loopback")
+    detected_public_ip: Optional[str] = Field(
+        default=None,
+        description="Browser-detected public IP, used only when the API request IP is loopback (local Vite proxy)",
+    )
 
 
 class CheckOutRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
     longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
     notes: Optional[str] = Field(default=None, description="Optional check-out notes / remarks")
 
 
 class BreakActionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     action: Literal["start", "end"] = Field(..., description="Break action: start or end")
     notes: Optional[str] = Field(default=None, description="Optional break notes")
+
+
+class OverrideAttendanceRequest(BaseModel):
+    """Allowlisted HR override fields. Extra keys such as is_approved are ignored."""
+    model_config = ConfigDict(extra="ignore")
+
+    user_id: Optional[str] = None
+    date: Optional[str] = None
+    punch_in: Optional[str] = None
+    punch_out: Optional[str] = None
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    status: Optional[AttendanceStatus] = None
+    notes: Optional[str] = None
+    reason: Optional[str] = None
+    break_minutes: Optional[int] = Field(default=None, ge=0, le=180)
 
 
 class AttendanceRecordResponse(BaseModel):
@@ -69,6 +104,8 @@ class AttendanceRecordResponse(BaseModel):
     def from_mongo(cls, data: Dict[str, Any]) -> "AttendanceRecordResponse":
         doc = dict(data or {})
         doc.pop("_id", None)
+        if not doc.get("id"):
+            doc["id"] = f"att_{doc.get('user_id')}_{doc.get('date')}"
         cin = doc.get("punch_in") or doc.get("check_in")
         cout = doc.get("punch_out") or doc.get("check_out")
         doc["punch_in"] = cin
@@ -79,12 +116,8 @@ class AttendanceRecordResponse(BaseModel):
         doc["employee_name"] = display_name
         doc["user_name"] = display_name
         doc["is_wfh_approved"] = bool(doc.get("is_wfh_approved", doc.get("is_wfh", False)))
-        loc = doc.get("check_in_location") or {}
-        doc["ip_verified"] = bool(doc.get("ip_verified") or doc.get("check_in_ip"))
-        doc["gps_verified"] = bool(
-            doc.get("gps_verified")
-            or (isinstance(loc, dict) and loc.get("latitude") is not None and loc.get("longitude") is not None)
-        )
+        doc["ip_verified"] = bool(doc.get("ip_verified"))
+        doc["gps_verified"] = bool(doc.get("gps_verified"))
         if "working_hours_minutes" not in doc or doc["working_hours_minutes"] is None:
             doc["working_hours_minutes"] = int(round(float(doc.get("work_hours", 0) or 0) * 60))
         if "overtime_minutes" not in doc or doc["overtime_minutes"] is None:
@@ -120,6 +153,9 @@ class TodayAttendanceResponse(BaseModel):
     geofence_radius_meters: float = 500.0
     client_ip: Optional[str] = None
     is_ip_verified: bool = False
+    enforce_ip_whitelist: bool = True
+    enforce_gps_geofence: bool = True
+    shift_ended: bool = False
 
 
 class DailyMatrixSummary(BaseModel):
@@ -229,12 +265,16 @@ class MonthlyTimesheetResponse(BaseModel):
 
 class SecuritySettingsSchema(BaseModel):
     office_public_ips: List[str] = Field(
-        default_factory=lambda: ["127.0.0.1", "::1"],
-        description="List of whitelisted public and loopback IP addresses"
+        default_factory=list,
+        description="List of whitelisted public IPs and CIDR ranges"
     )
     office_subnets: List[str] = Field(
-        default_factory=lambda: ["192.168.1.0/24", "10.0.0.0/8", "110.39.1.0/24"],
+        default_factory=list,
         description="List of authorized office CIDR subnet ranges"
+    )
+    office_ip_whitelist: List[str] = Field(
+        default_factory=list,
+        description="Legacy alias merged into office_public_ips",
     )
     office_latitude: float = Field(
         default=33.52049,

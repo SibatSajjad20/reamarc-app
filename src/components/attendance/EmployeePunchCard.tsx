@@ -1,8 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
-  ShieldCheck,
-  ShieldAlert,
-  Home,
   LogOut,
   LogIn,
   CheckCircle2,
@@ -177,6 +174,42 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const punchOut = record?.punch_out || (record as any)?.check_out || todayData?.punch_status?.check_out_time || null;
   const isCheckedIn = Boolean(punchIn || todayData?.punch_status?.is_checked_in);
   const isCheckedOut = Boolean(punchOut || (todayData?.punch_status && !todayData.punch_status.is_checked_in && Boolean(punchIn) && Boolean(todayData.punch_status.check_out_time)));
+  const windowClosed = Boolean(todayData?.shift_ended) && !isCheckedIn;
+  const isAbsentLocked =
+    !isCheckedIn &&
+    (record?.status === 'absent' ||
+      todayData?.punch_status?.current_status === 'absent' ||
+      (windowClosed && !isWfh));
+  const checkInClosed = windowClosed || isAbsentLocked;
+  const enforceIp = todayData?.enforce_ip_whitelist ?? true;
+  const enforceGps = todayData?.enforce_gps_geofence ?? true;
+
+  const waitForGps = (): Promise<{ lat: number; lng: number; accuracy: number }> =>
+    new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Geolocation is not supported by your browser.'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+          });
+        },
+        (error) => {
+          if (error.code === error.PERMISSION_DENIED) {
+            reject(new Error('Location permission denied by browser.'));
+          } else if (error.code === error.TIMEOUT) {
+            reject(new Error('Location request timed out.'));
+          } else {
+            reject(new Error('Location information is currently unavailable.'));
+          }
+        },
+        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
+      );
+    });
 
   // Button Action Handlers with Verification Loader
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -184,17 +217,64 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   const handleCheckIn = async () => {
     try {
+      if (checkInClosed) {
+        addToast(
+          'Shift Closed',
+          `Your shift ended at ${shift?.end_time || 'end of day'}. Check-in is no longer available.`,
+          'error'
+        );
+        return;
+      }
+
       setIsSubmitting(true);
+
+      if (!isWfh && enforceIp && todayData?.is_ip_verified !== true) {
+        addToast(
+          'Office Wi-Fi Required',
+          'You are not on a whitelisted office network. Connect to office Wi-Fi and try again.',
+          'error'
+        );
+        return;
+      }
+
+      let nextCoords = coords;
+      let nextDistance = distanceMeters;
+      if (!isWfh && enforceGps) {
+        setVerificationStep('Capturing GPS location...');
+        const fresh = await waitForGps();
+        nextCoords = fresh;
+        nextDistance = calculateDistance(fresh.lat, fresh.lng, officeLat, officeLng);
+        setCoords(fresh);
+        setDistanceMeters(nextDistance);
+        setGeoError(null);
+        if (nextDistance > geofenceLimitMeters) {
+          addToast(
+            'Out of Office Range',
+            `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
+            'error'
+          );
+          return;
+        }
+        if (fresh.accuracy > 500) {
+          addToast(
+            'GPS Too Inaccurate',
+            `Location accuracy is ${Math.round(fresh.accuracy)}m. Move near a window and try again.`,
+            'error'
+          );
+          return;
+        }
+      }
+
       setVerificationStep('Verifying Wi-Fi & Office IP...');
-      await new Promise((resolve) => setTimeout(resolve, 350));
-
+      await new Promise((resolve) => setTimeout(resolve, 200));
       setVerificationStep('Verifying Office GPS Geofence...');
-      await new Promise((resolve) => setTimeout(resolve, 350));
-
+      await new Promise((resolve) => setTimeout(resolve, 200));
       setVerificationStep('Recording Check-In Punch...');
       await attendanceService.checkIn({
-        latitude: coords?.lat,
-        longitude: coords?.lng,
+        latitude: nextCoords?.lat,
+        longitude: nextCoords?.lng,
+        accuracy_meters: nextCoords?.accuracy,
+        gps_captured_at: new Date().toISOString(),
         notes: isWfh ? 'WFH Approved Check-In' : 'Office Check-In',
       });
 
@@ -227,6 +307,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   // Status Badge Info
   const statusBadge = useMemo(() => {
+    if (isAbsentLocked && !isCheckedIn) {
+      return {
+        label: 'Shift Ended — Absent',
+        color: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
+        dot: 'bg-rose-500',
+      };
+    }
     if (!isCheckedIn) {
       return {
         label: isWfh ? 'Not Checked In (WFH)' : 'Not Checked In',
@@ -260,11 +347,19 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
       dot: 'bg-emerald-500 animate-pulse',
     };
-  }, [record, isCheckedIn, isCheckedOut, isWfh]);
+  }, [record, isCheckedIn, isCheckedOut, isWfh, isAbsentLocked]);
+
+  const wifiOk = isWfh || !enforceIp || todayData?.is_ip_verified === true;
+  const gpsInRange =
+    isWfh ||
+    !enforceGps ||
+    (coords !== null && (distanceMeters ?? Number.POSITIVE_INFINITY) <= geofenceLimitMeters);
+  const securityBlocksCheckIn =
+    !isWfh && ((enforceIp && !wifiOk) || (enforceGps && (!coords || !gpsInRange || Boolean(geoError))));
 
   return (
     <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
-      {/* Header Strip: Title & Status Badge */}
+      {/* Header Strip: Title, security pills, status */}
       <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-zinc-100 dark:border-zinc-800/80">
         <div>
           <div className="flex items-center gap-2.5">
@@ -273,17 +368,50 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             </div>
             <div>
               <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
-                Attendance Punch Terminal
+                Attendance Terminal
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Live check-in verification & shift tracker
-              </p>
             </div>
           </div>
         </div>
 
-        {/* Status Badge & Self-Service Buttons */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+              wifiOk
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+            }`}
+          >
+            <Wifi className="w-3 h-3" />
+            {isWfh ? 'Home network' : wifiOk ? 'Office Wi-Fi' : 'External IP'}
+          </span>
+
+          <span
+            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+              gpsInRange
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+            }`}
+          >
+            <MapPin className="w-3 h-3" />
+            {isWfh
+              ? 'WFH exemption'
+              : coords
+              ? `${(distanceMeters ?? 0) <= geofenceLimitMeters ? 'In Office' : 'Out of range'} (${formatDistance(distanceMeters)})`
+              : geoError
+              ? 'GPS unavailable'
+              : 'Acquiring GPS'}
+            <button
+              type="button"
+              onClick={() => captureGPS(true)}
+              disabled={isCapturingGps}
+              className="ml-0.5 text-current/70 hover:text-current cursor-pointer"
+              title="Refresh GPS location"
+            >
+              <RefreshCw className={`w-3 h-3 ${isCapturingGps ? 'animate-spin' : ''}`} />
+            </button>
+          </span>
+
           <span
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${statusBadge.color}`}
           >
@@ -311,9 +439,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
       {/* Main Terminal Grid */}
       <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-5">
-        {/* Left Side: Shift Parameters & Punch Timings */}
-        <div className="md:col-span-6 flex flex-col justify-between space-y-4">
-          {/* Shift Details Box */}
+        <div className="md:col-span-7 flex flex-col justify-between space-y-4">
           <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90">
             <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-200/60 dark:border-zinc-800">
               <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
@@ -353,174 +479,117 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             </div>
           </div>
 
-          {/* Today's Time In / Out Summary */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
                 Time In
               </span>
-              <span className="text-sm font-extrabold font-mono text-emerald-600 dark:text-emerald-400">
+              <span
+                className={
+                  punchIn
+                    ? 'text-sm font-extrabold font-mono text-emerald-600 dark:text-emerald-400'
+                    : 'text-zinc-400 font-mono text-lg font-medium'
+                }
+              >
                 {punchIn || '— : —'}
-              </span>
-            </div>
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                Break Time
-              </span>
-              <span className="text-sm font-extrabold font-mono text-amber-600 dark:text-amber-400">
-                {record?.break_minutes ? `${record.break_minutes}m` : '0m'}
               </span>
             </div>
             <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
               <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
                 Time Out
               </span>
-              <span className="text-sm font-extrabold font-mono text-indigo-600 dark:text-indigo-400">
+              <span
+                className={
+                  punchOut
+                    ? 'text-sm font-extrabold font-mono text-indigo-600 dark:text-indigo-400'
+                    : 'text-zinc-400 font-mono text-lg font-medium'
+                }
+              >
                 {punchOut || '— : —'}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right Side: Security Checks & Action Controls */}
-        <div className="md:col-span-6 flex flex-col justify-between space-y-4">
-          {/* Security Geofence & Network Verification Badges */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Wi-Fi / IP Security */}
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                  <Wifi className="w-3 h-3 text-indigo-500" /> Office Wi-Fi / IP
+        <div className="md:col-span-5 flex flex-col justify-center">
+          {!isCheckedIn ? (
+            checkInClosed ? (
+              <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
+                <span className="inline-flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5" />
+                  {isAbsentLocked ? 'Shift ended — Absent' : 'Shift ended'}
                 </span>
-                {isWfh ? (
-                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
-                    WFH
-                  </span>
-                ) : todayData?.is_ip_verified ?? true ? (
-                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 flex items-center gap-1">
-                    <ShieldCheck className="w-3 h-3" /> Verified
-                  </span>
-                ) : (
-                  <span className="text-[10px] font-extrabold px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 flex items-center gap-1">
-                    <ShieldAlert className="w-3 h-3" /> External IP
-                  </span>
-                )}
-              </div>
-              <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
-                {isWfh
-                  ? 'Home Network Allowed'
-                  : todayData?.client_ip
-                  ? `Office Subnet (${todayData.client_ip})`
-                  : 'Office Network Whitelisted'}
-              </p>
-            </div>
-
-            {/* GPS Geofence */}
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-emerald-500" /> GPS Geofence
-                </span>
-                <button
-                  type="button"
-                  onClick={() => captureGPS(true)}
-                  disabled={isCapturingGps}
-                  className="text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                  title="Refresh GPS location"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isCapturingGps ? 'animate-spin text-indigo-500' : ''}`} />
-                </button>
-              </div>
-
-              {isWfh ? (
-                <p className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
-                  <Home className="w-3.5 h-3.5" /> WFH Exemption Active
-                </p>
-              ) : isCheckedIn || isCheckedOut ? (
-                <div className="text-xs">
-                  <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
-                    <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                    <span>📍 In Office (Verified at Check-In)</span>
-                  </span>
-                </div>
-              ) : coords ? (
-                <div className="text-xs">
-                  <span
-                    className={`font-semibold ${
-                      (distanceMeters ?? 0) <= geofenceLimitMeters
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : 'text-rose-600 dark:text-rose-400'
-                    }`}
-                  >
-                    {(distanceMeters ?? 0) <= geofenceLimitMeters ? '📍 In Office ' : '📍 Out of Range '}
-                    ({formatDistance(distanceMeters)} to HQ)
-                  </span>
-                </div>
-              ) : geoError ? (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 truncate">{geoError}</p>
-              ) : (
-                <p className="text-xs text-zinc-400 flex items-center gap-1">
-                  <Loader2 className="w-3 h-3 animate-spin" /> Acquiring GPS fix...
-                </p>
-              )}
-            </div>
-          </div>
-
-          {/* Action Punch Buttons */}
-          <div className="pt-2">
-            {!isCheckedIn ? (
-              <button
-                type="button"
-                onClick={handleCheckIn}
-                disabled={isSubmitting || isLoading}
-                className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{verificationStep || 'Verifying Location & Wi-Fi...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <LogIn className="w-5 h-5" />
-                    <span>Check In Now</span>
-                  </>
-                )}
-              </button>
-            ) : isCheckedOut ? (
-              <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex items-center justify-center gap-2.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <span>
-                  Today's Shift Finished (
-                  {record?.working_hours_minutes
-                    ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
-                        record.working_hours_minutes % 60
-                      ).padStart(2, '0')}m worked`
-                    : 'Completed'}
-                  )
+                <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
+                  Check-in closed after {shift?.end_time || 'shift end'}. Use Correction if this is a missed punch.
                 </span>
               </div>
             ) : (
-              <button
-                type="button"
-                onClick={handleCheckOut}
-                disabled={isSubmitting}
-                className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{verificationStep || 'Submitting Check-Out...'}</span>
-                  </>
-                ) : (
-                  <>
-                    <LogOut className="w-5 h-5" />
-                    <span>Check Out</span>
-                  </>
-                )}
-              </button>
+            <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handleCheckIn}
+              disabled={isSubmitting || isLoading || securityBlocksCheckIn}
+              className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>{verificationStep || 'Verifying Location & Wi-Fi...'}</span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <LogIn className="w-5 h-5" />
+                  <span>Check In Now</span>
+                </>
+              )}
+            </button>
+            {securityBlocksCheckIn && (
+              <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
+                {!wifiOk
+                  ? 'Check-in blocked: you are not on the office Wi-Fi / IP whitelist.'
+                  : geoError
+                  ? `Check-in blocked: ${geoError}`
+                  : !coords
+                  ? 'Check-in blocked: waiting for GPS location.'
+                  : 'Check-in blocked: you are outside the office location radius.'}
+              </p>
             )}
-          </div>
+            </div>
+            )
+          ) : isCheckedOut ? (
+            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex items-center justify-center gap-2.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              <span>
+                Today's Shift Finished (
+                {record?.working_hours_minutes
+                  ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
+                      record.working_hours_minutes % 60
+                    ).padStart(2, '0')}m worked`
+                  : 'Completed'}
+                )
+              </span>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={handleCheckOut}
+              disabled={isSubmitting}
+              className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span>{verificationStep || 'Submitting Check-Out...'}</span>
+                </>
+              ) : (
+                <>
+                  <LogOut className="w-5 h-5" />
+                  <span>Check Out</span>
+                </>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </div>
