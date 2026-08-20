@@ -61,15 +61,18 @@ SYSTEM_START_YEAR = 2026
 SYSTEM_START_MONTH = 8  # August
 GLOBAL_CONFIG_KEY = "global_org_daily_log"
 
+# Company local timezone: Pakistan Standard Time (PKT, UTC+5 / Asia/Karachi)
+PKT_TIMEZONE = timezone(timedelta(hours=5))
+
 
 def _get_current_month_sheet() -> str:
-    now = datetime.now()
+    now = datetime.now(PKT_TIMEZONE)
     return f"{now.strftime('%B')} - {now.year}"
 
 
 def _generate_sheet_list() -> List[str]:
     """Generate month sheet tabs from August 2026 through the current month."""
-    now = datetime.now()
+    now = datetime.now(PKT_TIMEZONE)
     months = [
         "January", "February", "March", "April", "May", "June",
         "July", "August", "September", "October", "November", "December"
@@ -115,7 +118,7 @@ def is_workday(date_obj) -> bool:
 def _get_recent_workdays(days: int = 7) -> List[str]:
     """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first, bounded by SYSTEM_START_DATE."""
     workdays: List[str] = []
-    current = datetime.now(timezone.utc).date()
+    current = datetime.now(PKT_TIMEZONE).date()
     try:
         start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
     except Exception:
@@ -155,7 +158,7 @@ async def get_my_log_activity(
         }
 
     workdays = _get_recent_workdays(days)
-    today_iso = datetime.now(timezone.utc).date().isoformat()
+    today_iso = datetime.now(PKT_TIMEZONE).date().isoformat()
     min_date = workdays[-1] if workdays else today_iso
 
     entries_cursor = db.daily_log_entries.find(
@@ -451,7 +454,7 @@ async def create_entry(
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    today_iso = datetime.now(PKT_TIMEZONE).strftime("%Y-%m-%d")
     
     # Restrict log submission date: cannot be earlier than SYSTEM_START_DATE or in the future
     if entry_in.date:
@@ -556,7 +559,7 @@ async def update_entry(
     update_data.pop("department", None)
 
     if "date" in update_data and update_data["date"]:
-        today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        today_iso = datetime.now(PKT_TIMEZONE).strftime("%Y-%m-%d")
         dt_str = str(update_data["date"])
         if dt_str < SYSTEM_START_DATE:
             raise HTTPException(

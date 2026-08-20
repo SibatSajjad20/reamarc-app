@@ -73,12 +73,49 @@ async def connect_to_mongo():
         await db_instance.db.password_resets.create_index([("email", 1), ("created_at", -1)])
         await db_instance.db.password_resets.create_index([("expires_at", 1)], expireAfterSeconds=0)
 
+        # Attendance & Leave Module high-performance indexes
+        for coll_name, index_name in (
+            ("attendance_records", "idx_att_user_date"),
+            ("shifts", "idx_shift_id"),
+            ("user_shift_assignments", "idx_user_shift"),
+        ):
+            try:
+                await db_instance.db[coll_name].drop_index(index_name)
+            except Exception:
+                pass
 
-        # Consolidate legacy user roles to simplified 2-tier model ('admin' / 'member')
+        try:
+            await db_instance.db.attendance_records.create_index(
+                [("user_id", 1), ("date", 1)],
+                unique=True,
+                name="idx_att_user_date",
+            )
+        except Exception as e:
+            logger.warning(f"Could not create unique attendance user/date index: {e}")
+        await db_instance.db.attendance_records.create_index([("date", 1)], name="idx_att_date")
+        await db_instance.db.attendance_records.create_index([("date", 1), ("status", 1)], name="idx_att_date_status")
+        await db_instance.db.leave_requests.create_index([("user_id", 1), ("status", 1)], name="idx_leave_user_status")
+        await db_instance.db.leave_requests.create_index([("status", 1)], name="idx_leave_status")
+        await db_instance.db.leave_requests.create_index([("start_date", 1), ("end_date", 1)], name="idx_leave_dates")
+        try:
+            await db_instance.db.user_shift_assignments.create_index(
+                [("user_id", 1)],
+                unique=True,
+                name="idx_user_shift",
+            )
+        except Exception as e:
+            logger.warning(f"Could not create unique user shift assignment index: {e}")
+        try:
+            await db_instance.db.shifts.create_index([("id", 1)], unique=True, name="idx_shift_id")
+        except Exception as e:
+            logger.warning(f"Could not create unique shift id index: {e}")
+        await db_instance.db.shifts.create_index([("is_active", 1)], name="idx_shift_active")
+
+        # Legacy role cleanup only. Never rewrite live client accounts.
         try:
             await db_instance.db.users.update_many(
-                {"role": {"$in": ["editor", "viewer", "client"]}},
-                {"$set": {"role": "member"}}
+                {"role": {"$in": ["editor", "viewer", "member"]}},
+                {"$set": {"role": "team_member"}}
             )
         except Exception:
             pass

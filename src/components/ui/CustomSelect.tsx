@@ -33,6 +33,23 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
+
+  const handleToggle = () => {
+    if (!disabled) {
+      if (!isOpen && dropdownRef.current) {
+        const rect = dropdownRef.current.getBoundingClientRect();
+        const spaceBelow = window.innerHeight - rect.bottom;
+        const spaceAbove = rect.top;
+        if (spaceBelow < 260 && spaceAbove > 200) {
+          setOpenDirection('up');
+        } else {
+          setOpenDirection('down');
+        }
+      }
+      setIsOpen((prev) => !prev);
+    }
+  };
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -70,7 +87,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       <button
         type="button"
         disabled={disabled}
-        onClick={() => !disabled && setIsOpen((prev) => !prev)}
+        onClick={handleToggle}
         className={`w-full flex items-center justify-between gap-2.5 px-3.5 py-2 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed ${
           isOpen ? 'ring-2 ring-indigo-500/20 border-indigo-500 dark:border-indigo-500' : ''
         }`}
@@ -96,7 +113,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         <div
           className={`absolute ${
             align === 'right' ? 'right-0' : 'left-0'
-          } top-full mt-1.5 z-50 min-w-[200px] w-full max-h-64 overflow-y-auto bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-2xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100`}
+          } ${openDirection === 'up' ? 'bottom-full mb-1.5' : 'top-full mt-1.5'} z-[100] min-w-[200px] w-full max-h-64 overflow-y-auto bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-2xl shadow-2xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100`}
         >
           {options.map((option) => {
             const isSelected = option.value === value;

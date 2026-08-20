@@ -1,4 +1,6 @@
-export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log';
+export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log' | 'attendance';
+
+export * from './attendance';
 
 export type PlatformType = 'Instagram' | 'LinkedIn' | 'Facebook' | 'Twitter';
 

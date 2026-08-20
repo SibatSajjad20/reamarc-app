@@ -9,6 +9,7 @@ import {
 interface CustomDatePickerProps {
   value?: string; // ISO date string 'YYYY-MM-DD'
   onChange: (isoDate: string) => void;
+  label?: string;
   placeholder?: string;
   disabled?: boolean;
   minDate?: string;
@@ -55,6 +56,7 @@ const formatDisplayDate = (isoStr?: string): string => {
 export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   value,
   onChange,
+  label,
   placeholder = 'Select date...',
   disabled = false,
   minDate,
@@ -64,6 +66,32 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
+  const [horizontalAlign, setHorizontalAlign] = useState<'left' | 'right'>(align);
+
+  const handleToggle = () => {
+    if (!isOpen && containerRef.current) {
+      const rect = containerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      // Smart vertical flip: if space below < 340px and space above is larger, flip upward
+      if (spaceBelow < 340 && spaceAbove > 280) {
+        setOpenDirection('up');
+      } else {
+        setOpenDirection('down');
+      }
+
+      // Smart horizontal alignment: check right boundary
+      const spaceRight = window.innerWidth - rect.left;
+      if (spaceRight < 300 || align === 'right') {
+        setHorizontalAlign('right');
+      } else {
+        setHorizontalAlign('left');
+      }
+    }
+    setIsOpen(!isOpen);
+  };
 
   // Month navigation view state
   const initialDateObj = parseIso(value);
@@ -184,11 +212,18 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
+      {label && (
+        <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1.5">
+          <CalendarIcon className="w-3.5 h-3.5 text-indigo-500" />
+          <span>{label}</span>
+        </label>
+      )}
+
       {/* Trigger Button */}
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setIsOpen(!isOpen)}
+        onClick={handleToggle}
         className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer select-none bg-zinc-50 dark:bg-zinc-900 ${
           isOpen
             ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-white dark:bg-zinc-900'
@@ -219,8 +254,8 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       {/* Popover Calendar Dropdown */}
       {isOpen && (
         <div
-          className={`absolute top-full mt-2 z-50 w-72 p-3 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xl animate-scaleIn select-none ${
-            align === 'right' ? 'right-0' : 'left-0'
+          className={`absolute ${openDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'} z-[100] w-72 sm:w-80 p-3.5 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl animate-scaleIn select-none ${
+            horizontalAlign === 'right' ? 'right-0' : 'left-0'
           }`}
           onClick={(e) => e.stopPropagation()}
         >

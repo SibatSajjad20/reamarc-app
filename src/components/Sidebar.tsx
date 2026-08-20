@@ -11,7 +11,9 @@ import {
   Shield,
   TrendingUp,
   ClipboardList,
+  Clock,
   Settings,
+  LayoutDashboard,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -68,6 +70,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Operations Hub' : 'Operations Panel';
 
   const navItems = [
+    ...(!isAdmin && !isClient
+      ? [
+          {
+            id: 'dashboard' as ViewType,
+            label: 'Dashboard',
+            icon: LayoutDashboard,
+          },
+        ]
+      : []),
     ...(canSeeMarketing
       ? [
           {
@@ -79,6 +90,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
       : []),
     ...(!isClient
       ? [
+          {
+            id: 'attendance' as ViewType,
+            label: 'Attendance',
+            icon: Clock,
+          },
           {
             id: 'daily-log' as ViewType,
             label: 'Daily Log',

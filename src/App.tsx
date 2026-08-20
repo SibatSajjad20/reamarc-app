@@ -1,9 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import type { ViewType, Workspace, ThemeMode } from './types';
 import { Sidebar } from './components/Sidebar';
+import { DashboardView } from './components/views/DashboardView';
 import { PerformanceMarketing } from './components/views/PerformanceMarketing';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { DailyLogView } from './components/views/DailyLogView';
+import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ProfileSettingsModal } from './components/modals/ProfileSettingsModal';
 import { ToastProvider, useToast } from './context/ToastContext';
@@ -33,16 +35,18 @@ function AppInner() {
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'marketing';
-    if (canSeeMarketing) return 'marketing';
-    if (canSeeAdmin) return 'admin';
-    return 'daily-log';
-  }, [isClient, canSeeMarketing, canSeeAdmin]);
+    if (isAdmin) return 'attendance';
+    return 'dashboard';
+  }, [isClient, isAdmin]);
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
-    return saved && ['marketing', 'admin', 'daily-log'].includes(saved)
+    if (saved === 'dashboard' && isAdmin) return 'attendance';
+    return saved && ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance'].includes(saved)
       ? saved
-      : 'daily-log';
+      : isAdmin
+      ? 'attendance'
+      : 'dashboard';
   });
 
   const [isProfileSettingsOpen, setIsProfileSettingsOpen] = useState(false);
@@ -56,13 +60,23 @@ function AppInner() {
       const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
       const currentPath = pathname || hash;
 
-      const nonV1Routes = ['dashboard', 'matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian', 'settings'];
+      const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian', 'settings'];
 
       if (nonV1Routes.includes(currentPath)) {
         const fallback = getDefaultViewForUser();
         window.history.replaceState(null, '', `/${fallback}`);
         setCurrentView(fallback);
         localStorage.setItem('reamarc_active_view', fallback);
+      } else if (currentPath === 'dashboard') {
+        if (isAdmin || isClient) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else {
+          setCurrentView('dashboard');
+          localStorage.setItem('reamarc_active_view', 'dashboard');
+        }
       } else if (currentPath === 'admin') {
         if (canSeeAdmin) {
           setCurrentView('admin');
@@ -72,6 +86,15 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        }
+      } else if (currentPath === 'attendance') {
+        if (isClient) {
+          window.history.replaceState(null, '', '/marketing');
+          setCurrentView('marketing');
+          localStorage.setItem('reamarc_active_view', 'marketing');
+        } else {
+          setCurrentView('attendance');
+          localStorage.setItem('reamarc_active_view', 'attendance');
         }
       } else if (currentPath === 'daily-log' || currentPath === 'daily_log') {
         if (isClient) {
@@ -95,12 +118,29 @@ function AppInner() {
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
-        if (currentSaved === 'marketing' && !canSeeMarketing) {
+        if (!currentSaved || !['dashboard', 'marketing', 'admin', 'daily-log', 'attendance'].includes(currentSaved)) {
           const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else if (!isAdmin && !isClient && (currentPath === '' || currentPath === '/')) {
+          // Team lead, team member, hr, operations always land on dashboard
+          window.history.replaceState(null, '', '/dashboard');
+          setCurrentView('dashboard');
+          localStorage.setItem('reamarc_active_view', 'dashboard');
+        } else if (currentSaved === 'marketing' && !canSeeMarketing) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'admin' && !canSeeAdmin) {
           const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'dashboard' && (isAdmin || isClient)) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
@@ -110,19 +150,25 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, isClient, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
+    if (!isAdmin && !isClient) {
+      allowedViews.push('dashboard');
+    }
+    if (!isClient) {
+      allowedViews.push('attendance');
+      allowedViews.push('daily-log');
+    }
     if (canSeeMarketing) allowedViews.push('marketing');
-    if (!isClient) allowedViews.push('daily-log');
     if (canSeeAdmin) allowedViews.push('admin');
 
     const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
 
     try {
       window.history.pushState(null, '', `/${targetView}`);
-    } catch (e) {
+    } catch {
       // Fallback
     }
 
@@ -229,6 +275,12 @@ function AppInner() {
 
       {/* Main View Display Area */}
       <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-slate-50 dark:bg-[#0f1117]">
+        {currentView === 'dashboard' && !isAdmin && !isClient && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <DashboardView onNavigateView={handleSelectView} />
+          </div>
+        )}
+
         {currentView === 'marketing' && canSeeMarketing && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
@@ -238,6 +290,12 @@ function AppInner() {
               onSelectWorkspace={handleSelectAdAccount}
               onOpenCreateAccount={handleOpenCreateWorkspace}
             />
+          </div>
+        )}
+
+        {currentView === 'attendance' && !isClient && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <AttendanceView />
           </div>
         )}
 

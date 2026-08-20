@@ -7,6 +7,7 @@ import { AdminSidebarNav } from './AdminSidebarNav';
 import type { AdminSectionType } from './AdminSidebarNav';
 import { UserManagementSection } from './sections/UserManagementSection';
 import { ComplianceRemindersSection } from './sections/ComplianceRemindersSection';
+import { AttendancePoliciesSection } from './sections/AttendancePoliciesSection';
 import { WorkspacesSection } from './sections/WorkspacesSection';
 import { AdAccountsSection } from './sections/AdAccountsSection';
 import { AddMemberModal } from './AddMemberModal';
@@ -287,6 +288,10 @@ export const AdminPanel: React.FC = () => {
           onDeleteAccount={(acc) => setAdAccountToDelete(acc)}
           canManageAdAccounts={canManageAdAccounts}
         />
+      )}
+
+      {activeSection === 'attendance_policies' && (
+        <AttendancePoliciesSection />
       )}
 
       {/* ─── MODALS ─── */}

@@ -82,6 +82,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (res.access_token) {
       apiClient.setToken(res.access_token);
     }
+    const role = res.user?.role;
+    let initialView = 'dashboard';
+    if (role === 'client') {
+      initialView = 'marketing';
+    } else if (role === 'admin') {
+      initialView = 'attendance';
+    } else {
+      // Team lead, team member, hr, operations always land on dashboard
+      initialView = 'dashboard';
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('reamarc_active_view', initialView);
+      window.history.replaceState(null, '', `/${initialView}`);
+    }
     setUser(res.user);
     closeAuthModal();
   };
@@ -90,6 +104,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const res = await authService.register(payload);
     if (res.access_token) {
       apiClient.setToken(res.access_token);
+    }
+    const role = res.user?.role;
+    let initialView = 'dashboard';
+    if (role === 'client') {
+      initialView = 'marketing';
+    } else if (role === 'admin') {
+      initialView = 'attendance';
+    } else {
+      initialView = 'dashboard';
+    }
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('reamarc_active_view', initialView);
+      window.history.replaceState(null, '', `/${initialView}`);
     }
     setUser(res.user);
     closeAuthModal();
@@ -105,6 +132,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setUser(null);
       if (typeof window !== 'undefined') {
         localStorage.removeItem('reamarc_token');
+        localStorage.removeItem('reamarc_active_view');
+        window.history.replaceState(null, '', '/');
       }
     }
   };
@@ -115,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         isAuthenticated: Boolean(user),
         isLoading,
-        role: user?.role || 'member',
+        role: user?.role || 'team_member',
         activeWorkspaceId,
         setActiveWorkspaceId,
         login,

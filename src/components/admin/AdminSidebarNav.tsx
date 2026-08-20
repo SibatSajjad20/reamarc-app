@@ -7,9 +7,15 @@ import {
   ChevronRight,
   ChevronLeft,
   FolderKanban,
+  Clock,
 } from 'lucide-react';
 
-export type AdminSectionType = 'directory' | 'compliance' | 'workspaces' | 'ad_accounts';
+export type AdminSectionType =
+  | 'directory'
+  | 'compliance'
+  | 'attendance_policies'
+  | 'workspaces'
+  | 'ad_accounts';
 
 interface AdminSidebarNavProps {
   activeSection: AdminSectionType;
@@ -80,6 +86,14 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
       icon: Briefcase,
       badge: adAccountCount > 0 ? String(adAccountCount) : null,
       badgeColor: 'bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30',
+    },
+    {
+      id: 'attendance_policies' as AdminSectionType,
+      label: 'Shift & Attendance Policies',
+      description: 'Shifts, grace buffer, holidays & anti-proxy security',
+      icon: Clock,
+      badge: null,
+      badgeColor: 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30',
     },
   ];
 

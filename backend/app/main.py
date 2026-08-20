@@ -9,7 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.database import connect_to_mongo, close_mongo_connection
-from app.routers import auth, admin, workspaces, marketing, daily_log
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -77,6 +77,12 @@ async def lifespan(app: FastAPI):
             except Exception as err:
                 logging.getLogger(__name__).error(f"Error in periodic marketing sync loop: {err}")
 
+    from app.services.attendance_scheduler import (
+        start_attendance_scheduler,
+        shutdown_attendance_scheduler,
+    )
+    start_attendance_scheduler()
+
     from app.services.log_reminder_scheduler import start_automated_log_reminder_scheduler
     reminder_task = asyncio.create_task(start_automated_log_reminder_scheduler())
 
@@ -86,6 +92,7 @@ async def lifespan(app: FastAPI):
 
     reminder_task.cancel()
     sync_task.cancel()
+    shutdown_attendance_scheduler()
     await close_mongo_connection()
 
 app = FastAPI(
@@ -136,6 +143,10 @@ app.include_router(admin.router, prefix=settings.API_V1_STR)
 app.include_router(workspaces.router, prefix=settings.API_V1_STR)
 app.include_router(marketing.router, prefix=settings.API_V1_STR)
 app.include_router(daily_log.router, prefix=settings.API_V1_STR)
+app.include_router(shifts.router, prefix=settings.API_V1_STR)
+app.include_router(attendance.router, prefix=settings.API_V1_STR)
+app.include_router(leaves.router, prefix=settings.API_V1_STR)
+app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
 
 # Disabled Non-V1 Modules (Disabled for V1.0 Scope)
 # app.include_router(campaigns.router, prefix=settings.API_V1_STR)
