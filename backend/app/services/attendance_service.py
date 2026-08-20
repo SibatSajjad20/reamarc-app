@@ -97,28 +97,44 @@ def get_current_time_str() -> str:
     return get_now_pkt().strftime("%H:%M")
 
 
+def shift_field(shift: Any, key: str, default: Any = None) -> Any:
+    """Read a shift attribute from a Pydantic model or a Mongo dict."""
+    if shift is None:
+        return default
+    if isinstance(shift, dict):
+        val = shift.get(key)
+    else:
+        val = getattr(shift, key, None)
+    return default if val is None else val
+
+
 def is_night_shift_template(shift: Any) -> bool:
     if shift is None:
         return False
-    if bool(getattr(shift, "is_night_shift", False)):
+    if bool(shift_field(shift, "is_night_shift", False)):
         return True
-    start_m = parse_time_to_minutes(getattr(shift, "start_time", None) or "09:30")
-    end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "18:30")
+    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
+    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
     return end_m <= start_m
 
 
 def is_shift_window_closed(shift: Any, now: Optional[datetime] = None) -> bool:
     """
-    True once the employee's shift end time has passed for the current cycle.
-    Day shifts lock at end_time. Night shifts stay open overnight and lock after end_time
-    the following morning, with a 2-hour early-arrival window before start_time.
+    True once THIS employee's assigned shift end time has passed.
+
+    Uses the template on `shift` (Standard, HR, Afternoon, Night, or any custom
+    11:30–18:30 / overnight window). Times are never hardcoded.
+
+    Same-calendar-day shifts stay open from midnight until that template's end_time.
+    Overnight templates (is_night_shift or end <= start) stay open through midnight
+    and lock after end_time the following morning, with a 2-hour early-arrival window.
     """
     if shift is None:
         return False
     now = now or get_now_pkt()
     now_m = now.hour * 60 + now.minute
-    start_m = parse_time_to_minutes(getattr(shift, "start_time", None) or "09:30")
-    end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "18:30")
+    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
+    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
     night = is_night_shift_template(shift)
     if not night:
         return now_m >= end_m
@@ -134,11 +150,24 @@ def closed_shift_attendance_date(shift: Any, now: Optional[datetime] = None) -> 
     """Calendar date to lock when the current shift window has already ended."""
     now = now or get_now_pkt()
     if is_night_shift_template(shift):
-        end_m = parse_time_to_minutes(getattr(shift, "end_time", None) or "05:00")
+        end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "05:00")
         now_m = now.hour * 60 + now.minute
         if now_m >= end_m:
             return (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
     return now.strftime("%Y-%m-%d")
+
+
+def unpunched_day_status(shift: Any, date_str: str, now: Optional[datetime] = None) -> AttendanceStatus:
+    """Absent only after that employee's own shift end; otherwise still waiting to check in."""
+    now = now or get_now_pkt()
+    today = now.strftime("%Y-%m-%d")
+    if date_str < today:
+        return AttendanceStatus.ABSENT
+    if date_str > today:
+        return AttendanceStatus.AWAITING_CHECKIN
+    if is_shift_window_closed(shift, now):
+        return AttendanceStatus.ABSENT
+    return AttendanceStatus.AWAITING_CHECKIN
 
 
 def accumulate_break_minutes(existing: dict, end_time_str: str) -> int:
@@ -965,11 +994,6 @@ async def process_check_in(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Attendance already recorded for {date_str}. Check-in: {existing_record.get('check_in')}"
         )
-    if existing_record and str(existing_record.get("status") or "") == AttendanceStatus.ABSENT.value:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Today's attendance is already closed as Absent. Check-in is not allowed.",
-        )
 
     # 2. Check WFH
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
@@ -1356,19 +1380,25 @@ async def get_today_status(
         is_wfh = bool(record_doc.get("is_wfh", False) or status_val == AttendanceStatus.WFH)
     elif is_wfh:
         status_val = AttendanceStatus.WFH
-    elif record_status == AttendanceStatus.ABSENT.value or (shift_ended and not cin):
+    elif record_status in LEAVE_LOCK_STATUSES:
+        try:
+            status_val = AttendanceStatus(record_status)
+        except ValueError:
+            status_val = AttendanceStatus.AWAITING_CHECKIN
+    elif shift_ended and not cin:
         status_val = AttendanceStatus.ABSENT
     else:
-        status_val = AttendanceStatus.ABSENT
+        status_val = AttendanceStatus.AWAITING_CHECKIN
 
     locked_no_punch = bool(shift_ended and not cin) or (
-        record_status in LEAVE_LOCK_STATUSES | {AttendanceStatus.ABSENT.value} and not cin
+        record_status in LEAVE_LOCK_STATUSES and not cin
     )
     can_check_in = (not bool(cin)) and (not locked_no_punch)
     can_check_out = is_checked_in
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
-    record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and (cin or record_status == AttendanceStatus.ABSENT.value)) else None
+    show_absent_record = record_status == AttendanceStatus.ABSENT.value and shift_ended
+    record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and (cin or show_absent_record)) else None
 
     punch_status = PunchStatusResponse(
         is_checked_in=is_checked_in,
@@ -1728,11 +1758,13 @@ async def get_daily_matrix(
                 if raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
-                    status_enum = AttendanceStatus.ABSENT
+                    status_enum = unpunched_day_status(raw_shift, target_date)
 
             if status_enum == AttendanceStatus.ABSENT:
                 status_badge = "Absent"
                 absent_count += 1
+            elif status_enum == AttendanceStatus.AWAITING_CHECKIN:
+                status_badge = "Awaiting"
             elif is_wfh_flag or status_enum == AttendanceStatus.WFH:
                 status_badge = "W.F.H"
                 wfh_count += 1
@@ -1911,8 +1943,11 @@ async def get_daily_matrix(
             ))
 
         else:
-            # Regular working day absent / unpunched
-            absent_count += 1
+            # Regular working day: awaiting until this employee's shift ends, then absent
+            status_enum = unpunched_day_status(raw_shift, target_date)
+            is_absent_now = status_enum == AttendanceStatus.ABSENT
+            if is_absent_now:
+                absent_count += 1
             rows.append(DailyMatrixRow(
                 user_id=u_id,
                 employee_code=u_code,
@@ -1927,8 +1962,8 @@ async def get_daily_matrix(
                 punch_out=None,
                 break_minutes=shift_break,
                 effective_hours_minutes=0,
-                status=AttendanceStatus.ABSENT,
-                status_badge="Absent",
+                status=status_enum,
+                status_badge="Absent" if is_absent_now else "Awaiting",
                 work_hours="00:00",
                 late_minutes=0,
                 is_late=False,

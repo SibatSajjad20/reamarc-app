@@ -522,6 +522,10 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200">
                               Holiday
                             </span>
+                          ) : row.status === 'awaiting_checkin' ? (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                              Awaiting
+                            </span>
                           ) : (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
                               Absent

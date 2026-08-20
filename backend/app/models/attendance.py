@@ -7,6 +7,7 @@ from enum import Enum
 class AttendanceStatus(str, Enum):
     PRESENT = "present"
     ABSENT = "absent"
+    AWAITING_CHECKIN = "awaiting_checkin"
     LATE = "late"
     HALF_DAY = "half_day"
     ON_LEAVE = "on_leave"

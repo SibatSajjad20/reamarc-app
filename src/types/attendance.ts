@@ -28,6 +28,7 @@ export type AttendanceStatus =
   | 'present'
   | 'late'
   | 'wfh'
+  | 'awaiting_checkin'
   | 'short_leave'
   | 'sick_leave'
   | 'casual_leave'

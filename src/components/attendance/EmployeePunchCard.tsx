@@ -157,12 +157,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const isCheckedIn = Boolean(punchIn || todayData?.punch_status?.is_checked_in);
   const isCheckedOut = Boolean(punchOut || (todayData?.punch_status && !todayData.punch_status.is_checked_in && Boolean(punchIn) && Boolean(todayData.punch_status.check_out_time)));
   const windowClosed = Boolean(todayData?.shift_ended) && !isCheckedIn;
-  const isAbsentLocked =
-    !isCheckedIn &&
-    (record?.status === 'absent' ||
-      todayData?.punch_status?.current_status === 'absent' ||
-      (windowClosed && !isWfh));
-  const checkInClosed = windowClosed || isAbsentLocked;
+  const isAbsentLocked = windowClosed && !isWfh;
+  const checkInClosed = isAbsentLocked;
   const enforceIp = todayData?.enforce_ip_whitelist ?? true;
   const enforceGps = todayData?.enforce_gps_geofence ?? true;
 
@@ -530,6 +526,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 </>
               )}
             </button>
+            {shift?.start_time && shift?.end_time && (
+              <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                Shift starts at {shift.start_time}. Check-in stays open until {shift.end_time}.
+              </p>
+            )}
             {securityBlocksCheckIn && (
               <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
                 {gpsClearlyOutOfRange
