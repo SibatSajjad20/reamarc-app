@@ -15,6 +15,7 @@ import {
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
+import { geoErrorMessage, getBrowserLocation } from '../../utils/geolocation';
 
 interface EmployeePunchCardProps {
   todayData: TodayAttendanceResponse | null;
@@ -96,50 +97,31 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   // Capture GPS on mount or manual refresh
   const captureGPS = useCallback(
     (showToast: boolean = false) => {
-      if (!navigator.geolocation) {
-        setGeoError('Geolocation is not supported by your browser.');
-        return;
-      }
-
       setIsCapturingGps(true);
       setGeoError(null);
 
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          const lat = position.coords.latitude;
-          const lng = position.coords.longitude;
-          const accuracy = position.coords.accuracy;
-          setCoords({ lat, lng, accuracy });
-
-          const dist = calculateDistance(lat, lng, officeLat, officeLng);
+      void getBrowserLocation()
+        .then((fix) => {
+          setCoords(fix);
+          const dist = calculateDistance(fix.lat, fix.lng, officeLat, officeLng);
           setDistanceMeters(dist);
           setIsCapturingGps(false);
-
           if (showToast) {
             addToast(
               dist <= geofenceLimitMeters ? 'GPS in Range 📍' : 'GPS Out of Range ⚠️',
-              `Coordinates: ${lat.toFixed(4)}, ${lng.toFixed(4)} (${dist < 1000 ? `${dist}m` : `${(dist / 1000).toFixed(1)} km`} to HQ)`,
+              `Coordinates: ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)} (${dist < 1000 ? `${dist}m` : `${(dist / 1000).toFixed(1)} km`} to HQ)`,
               dist <= geofenceLimitMeters ? 'success' : 'info'
             );
           }
-        },
-        (error) => {
-          let msg = 'Unable to capture location coordinates.';
-          if (error.code === error.PERMISSION_DENIED) {
-            msg = 'Location permission denied by browser.';
-          } else if (error.code === error.POSITION_UNAVAILABLE) {
-            msg = 'Location information is currently unavailable.';
-          } else if (error.code === error.TIMEOUT) {
-            msg = 'Location request timed out.';
-          }
+        })
+        .catch((error) => {
+          const msg = geoErrorMessage(error);
           setGeoError(msg);
           setIsCapturingGps(false);
           if (showToast) {
             addToast('GPS Refresh Failed', msg, 'error');
           }
-        },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
-      );
+        });
     },
     [officeLat, officeLng, geofenceLimitMeters, addToast]
   );
@@ -185,31 +167,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const enforceGps = todayData?.enforce_gps_geofence ?? true;
 
   const waitForGps = (): Promise<{ lat: number; lng: number; accuracy: number }> =>
-    new Promise((resolve, reject) => {
-      if (!navigator.geolocation) {
-        reject(new Error('Geolocation is not supported by your browser.'));
-        return;
-      }
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-          });
-        },
-        (error) => {
-          if (error.code === error.PERMISSION_DENIED) {
-            reject(new Error('Location permission denied by browser.'));
-          } else if (error.code === error.TIMEOUT) {
-            reject(new Error('Location request timed out.'));
-          } else {
-            reject(new Error('Location information is currently unavailable.'));
-          }
-        },
-        { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 }
-      );
-    });
+    getBrowserLocation();
 
   // Button Action Handlers with Verification Loader
   const [isSubmitting, setIsSubmitting] = useState(false);
