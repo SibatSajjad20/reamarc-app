@@ -30,7 +30,6 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
   userRole = 'admin',
 }) => {
   const isHR = userRole === 'hr';
-  const isOps = userRole === 'operations';
 
   const headerTitle = isAdmin
     ? 'Admin Operations'
