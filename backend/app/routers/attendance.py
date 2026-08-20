@@ -32,7 +32,7 @@ from app.services.attendance_security import (
     is_loopback_ip,
     is_public_ip,
 )
-from app.services import attendance_service, attendance_excel
+from app.services import attendance_service
 
 router = APIRouter(
     prefix="/attendance",
@@ -294,6 +294,8 @@ async def export_attendance_excel(
     now = datetime.now(timezone.utc)
     target_year = year or now.year
     target_month = month or now.month
+
+    from app.services import attendance_excel
 
     excel_bytes = await attendance_excel.generate_multi_tab_attendance_workbook(
         year=target_year,
