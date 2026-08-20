@@ -367,6 +367,7 @@ export const AttendancePoliciesSection: React.FC = () => {
       id: '',
       name: '',
       code: '',
+      shift_type: 'custom',
       start_time: '09:30',
       end_time: '18:30',
       grace_period_minutes: 30,
@@ -409,7 +410,11 @@ export const AttendancePoliciesSection: React.FC = () => {
     try {
       setIsSaving(true);
       const payload = withDerivedHours(editingShift);
-      if (payload.id && !payload.id.startsWith('new_')) {
+      const isNew = !payload.id || payload.id.startsWith('new_');
+      if (isNew) {
+        payload.shift_type = 'custom';
+      }
+      if (!isNew) {
         await attendanceService.updateShift(payload.id, payload);
       } else {
         await attendanceService.createShift(payload);

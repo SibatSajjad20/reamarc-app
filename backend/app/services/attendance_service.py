@@ -222,6 +222,67 @@ def scheduled_break_minutes(raw_shift: Optional[Dict[str, Any]]) -> int:
     return 60
 
 
+# Seeded templates that attendance uses as department/company fallbacks.
+# A later custom template (e.g. "Operation Shift") must never steal these slots
+# just because the create form defaulted its shift_type to "standard".
+CANONICAL_SHIFT_TYPE_IDS = {
+    "standard": "shift_standard",
+    "hr": "shift_hr",
+    "afternoon": "shift_afternoon",
+    "night": "shift_night",
+}
+CANONICAL_SHIFT_TYPE_NAMES = {
+    "standard": "standard shift",
+    "hr": "hr shift",
+    "afternoon": "afternoon shift",
+    "night": "night shift",
+}
+
+
+def pick_canonical_shift(shifts: List[Dict[str, Any]], shift_type: str) -> Optional[Dict[str, Any]]:
+    """Pick the seeded template for a category; never the newest extra of that type."""
+    wanted = str(shift_type or "").strip().lower()
+    if not wanted:
+        return None
+    typed = [s for s in shifts if str(s.get("shift_type") or "").strip().lower() == wanted]
+    if not typed:
+        return None
+    canonical_id = CANONICAL_SHIFT_TYPE_IDS.get(wanted)
+    if canonical_id:
+        for s in typed:
+            if s.get("id") == canonical_id:
+                return s
+    canonical_name = CANONICAL_SHIFT_TYPE_NAMES.get(wanted)
+    if canonical_name:
+        for s in typed:
+            if str(s.get("name") or "").strip().lower() == canonical_name:
+                return s
+    typed_sorted = sorted(typed, key=lambda s: str(s.get("created_at") or ""))
+    return typed_sorted[0]
+
+
+def resolve_fallback_shifts(
+    all_shifts: List[Dict[str, Any]],
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Company default (Standard) and HR default, ignoring extra templates of the same type."""
+    std_shift = pick_canonical_shift(all_shifts, "standard") or (all_shifts[0] if all_shifts else None)
+    hr_shift = pick_canonical_shift(all_shifts, "hr") or std_shift
+    return std_shift, hr_shift
+
+
+def coerce_user_created_shift_type(shift_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep user-created templates out of the standard/hr/afternoon/night fallback buckets."""
+    stype = shift_dict.get("shift_type")
+    if isinstance(stype, ShiftType):
+        stype = stype.value
+    stype_l = str(stype or "").strip().lower()
+    name_l = str(shift_dict.get("name") or "").strip().lower()
+    canonical_name = CANONICAL_SHIFT_TYPE_NAMES.get(stype_l)
+    if stype_l in CANONICAL_SHIFT_TYPE_IDS and name_l != canonical_name:
+        shift_dict["shift_type"] = ShiftType.CUSTOM.value
+    return shift_dict
+
+
 def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
     """Recompute net hours / OT / UT from punches using that day's shift rules."""
     cin, cout = record_punch_times(doc)
@@ -357,6 +418,7 @@ async def ensure_default_shifts() -> List[dict]:
 
     await _ensure_wfh_shift_templates()
     await _backfill_shift_break_windows()
+    await _reclassify_noncanonical_category_shifts()
     cursor = db.shifts.find({"is_active": True})
     return await cursor.to_list(100)
 
@@ -382,35 +444,69 @@ async def _ensure_wfh_shift_templates() -> None:
         logger.info("Seeded missing shift template %s (%s)", shift_dict.get("name"), shift_dict["id"])
 
 
+async def _reclassify_noncanonical_category_shifts() -> None:
+    """
+    Extra templates created from Admin default to shift_type=standard.
+    Reclassify those extras as custom so they cannot become the company fallback.
+    """
+    db = get_database()
+    if db is None:
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    for stype, canonical_id in CANONICAL_SHIFT_TYPE_IDS.items():
+        docs = await db.shifts.find({"shift_type": stype}, {"_id": 0, "id": 1, "name": 1, "created_at": 1}).to_list(100)
+        if len(docs) <= 1:
+            continue
+        keep_id = None
+        for d in docs:
+            if d.get("id") == canonical_id:
+                keep_id = d.get("id")
+                break
+        if not keep_id:
+            canonical_name = CANONICAL_SHIFT_TYPE_NAMES[stype]
+            named = [d for d in docs if str(d.get("name") or "").strip().lower() == canonical_name]
+            if named:
+                keep_id = named[0].get("id")
+            else:
+                keep_id = sorted(docs, key=lambda s: str(s.get("created_at") or ""))[0].get("id")
+        for d in docs:
+            extra_id = d.get("id")
+            if not extra_id or extra_id == keep_id:
+                continue
+            await db.shifts.update_one(
+                {"id": extra_id},
+                {"$set": {"shift_type": ShiftType.CUSTOM.value, "updated_at": now_iso}},
+            )
+            logger.info(
+                "Reclassified extra shift '%s' (%s) from type '%s' to custom",
+                d.get("name"),
+                extra_id,
+                stype,
+            )
+
+
 async def _backfill_shift_break_windows() -> None:
-    """Ensure default templates have lunch windows and derived expected hours."""
+    """Ensure seeded templates have lunch windows and derived expected hours."""
     db = get_database()
     if db is None:
         return
     patches = [
-        ("standard", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
-        ("hr", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
-        ("afternoon", {"break_duration_minutes": 0, "break_start_time": None, "break_end_time": None, "expected_hours": 6.0}),
-        ("night", {"break_duration_minutes": 60, "break_start_time": "01:00", "break_end_time": "02:00", "expected_hours": 7.0}),
+        ("shift_standard", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
+        ("shift_hr", {"break_duration_minutes": 60, "break_start_time": "13:00", "break_end_time": "14:00", "expected_hours": 8.0}),
+        ("shift_afternoon", {"break_duration_minutes": 0, "break_start_time": None, "break_end_time": None, "expected_hours": 6.0}),
+        ("shift_night", {"break_duration_minutes": 60, "break_start_time": "01:00", "break_end_time": "02:00", "expected_hours": 7.0}),
     ]
     now_iso = datetime.now(timezone.utc).isoformat()
-    for shift_type, fields in patches:
-        query: Dict[str, Any] = {"shift_type": shift_type}
-        if shift_type == "afternoon":
-            query["$or"] = [
-                {"id": "shift_afternoon"},
-                {"start_time": "14:00", "end_time": "20:00"},
-                {"break_start_time": {"$exists": False}},
-                {"break_duration_minutes": {"$gt": 0}},
-                {"expected_hours": {"$nin": [6, 6.0]}},
-            ]
-        else:
-            query["$or"] = [
+    for shift_id, fields in patches:
+        query: Dict[str, Any] = {
+            "id": shift_id,
+            "$or": [
                 {"break_start_time": {"$exists": False}},
                 {"break_start_time": None, "break_duration_minutes": {"$gt": 0}},
                 {"expected_hours": {"$exists": False}},
-            ]
-        await db.shifts.update_many(query, {"$set": {**fields, "updated_at": now_iso}})
+            ],
+        }
+        await db.shifts.update_one(query, {"$set": {**fields, "updated_at": now_iso}})
 
     # Custom and edited templates: keep their times, sync net expected hours.
     all_shifts = await db.shifts.find({}, {"_id": 0}).to_list(200)
@@ -471,6 +567,7 @@ async def create_shift(shift_in: ShiftCreate) -> ShiftResponse:
     shift_dict["updated_at"] = now_iso
     if isinstance(shift_dict.get("shift_type"), ShiftType):
         shift_dict["shift_type"] = shift_dict["shift_type"].value
+    coerce_user_created_shift_type(shift_dict)
 
     await db.shifts.insert_one(shift_dict)
     created_doc = await db.shifts.find_one({"id": shift_dict["id"]}, {"_id": 0})
@@ -568,7 +665,7 @@ async def get_shift_for_user(user_id: str, department: Optional[str] = None) -> 
     Finds the active shift for a given user:
     1. Check specific assignment in user_shift_assignments.
     2. Fallback to HR shift if department is 'HR'.
-    3. Fallback to default Standard Shift.
+    3. Fallback to the seeded Standard Shift (never a later custom template).
     """
     db = get_database()
     await ensure_default_shifts()
@@ -580,16 +677,13 @@ async def get_shift_for_user(user_id: str, department: Optional[str] = None) -> 
             if shift_doc and shift_doc.get("is_active", True):
                 return ShiftResponse(**shift_doc)
 
-    # Department-based default
-    if department and str(department).upper() == "HR":
-        hr_shift = await db.shifts.find_one({"shift_type": "hr", "is_active": True}, {"_id": 0})
-        if hr_shift:
-            return ShiftResponse(**hr_shift)
+        all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
+        std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
-    # Standard default
-    standard_shift = await db.shifts.find_one({"shift_type": "standard", "is_active": True}, {"_id": 0})
-    if standard_shift:
-        return ShiftResponse(**standard_shift)
+        if department and str(department).upper() == "HR" and hr_shift:
+            return ShiftResponse(**hr_shift)
+        if std_shift:
+            return ShiftResponse(**std_shift)
 
     # Hard fallback
     return ShiftResponse(
@@ -1541,9 +1635,7 @@ async def get_daily_matrix(
     # 5. Batch-load shifts and user assignments for instant O(1) in-memory resolution
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
-    shifts_by_type = {s.get("shift_type", ""): s for s in all_shifts}
-    std_shift = shifts_by_type.get("standard") or (all_shifts[0] if all_shifts else None)
-    hr_shift = shifts_by_type.get("hr") or std_shift
+    std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
     all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
     user_shift_map = {a["user_id"]: a["shift_id"] for a in all_assignments}
@@ -1901,9 +1993,7 @@ async def get_monthly_punctuality_summary(
     # Batch-load all shifts & assignments
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
-    shifts_by_type = {s.get("shift_type", ""): s for s in all_shifts}
-    std_shift = shifts_by_type.get("standard") or (all_shifts[0] if all_shifts else None)
-    hr_shift = shifts_by_type.get("hr") or std_shift
+    std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
     all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
     user_shift_map = {a["user_id"]: a["shift_id"] for a in all_assignments}

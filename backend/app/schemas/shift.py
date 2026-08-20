@@ -22,7 +22,8 @@ class ShiftBase(BaseModel):
 
 
 class ShiftCreate(ShiftBase):
-    pass
+    # Admin-created templates are custom unless explicitly named as a seeded category.
+    shift_type: ShiftType = Field(default=ShiftType.CUSTOM, description="Type/Category of the shift")
 
 
 class ShiftUpdate(BaseModel):
