@@ -524,8 +524,8 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                           enforce_ip_whitelist: checked,
                         })
                       }
-                      label="Tier 1 Office IP & Subnet Whitelist"
-                      description="Validates client IP against configured office CIDRs on punch in/out."
+                      label="Office IP & Subnet Whitelist"
+                      description="Staff on a listed office IP can check in even if the browser cannot get GPS."
                     />
                   </div>
 
@@ -538,8 +538,8 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                           enforce_gps_geofence: checked,
                         })
                       }
-                      label="Tier 3 GPS Geofencing (150m Perimeter)"
-                      description="Validates coordinate distance ≤ 150 meters of Rawalpindi office location via Haversine calculation."
+                      label="GPS Geofence (office radius)"
+                      description="If GPS is available, staff must be inside the office radius. Missing GPS is allowed when office Wi-Fi is verified."
                     />
                   </div>
 

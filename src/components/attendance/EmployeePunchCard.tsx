@@ -186,41 +186,53 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
       setIsSubmitting(true);
 
-      if (!isWfh && enforceIp && todayData?.is_ip_verified !== true) {
+      let nextCoords = coords;
+      let nextDistance = distanceMeters;
+      if (!isWfh && enforceGps) {
+        setVerificationStep('Capturing GPS location...');
+        try {
+          const fresh = await waitForGps();
+          nextCoords = fresh;
+          nextDistance = calculateDistance(fresh.lat, fresh.lng, officeLat, officeLng);
+          setCoords(fresh);
+          setDistanceMeters(nextDistance);
+          setGeoError(null);
+          if (nextDistance > geofenceLimitMeters) {
+            addToast(
+              'Out of Office Range',
+              `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
+              'error'
+            );
+            return;
+          }
+        } catch (gpsErr) {
+          const msg = geoErrorMessage(gpsErr);
+          setGeoError(msg);
+          nextCoords = null;
+          nextDistance = null;
+        }
+      }
+
+      const gpsOk =
+        !enforceGps ||
+        (nextCoords != null &&
+          (nextDistance ?? Number.POSITIVE_INFINITY) <= geofenceLimitMeters);
+
+      if (!isWfh && !wifiOk && !gpsOk) {
         addToast(
-          'Office Wi-Fi Required',
-          'You are not on a whitelisted office network. Connect to office Wi-Fi and try again.',
+          'Office Wi-Fi or Location Required',
+          'Connect to office Wi-Fi, or allow location while you are at the office, then try again.',
           'error'
         );
         return;
       }
 
-      let nextCoords = coords;
-      let nextDistance = distanceMeters;
-      if (!isWfh && enforceGps) {
-        setVerificationStep('Capturing GPS location...');
-        const fresh = await waitForGps();
-        nextCoords = fresh;
-        nextDistance = calculateDistance(fresh.lat, fresh.lng, officeLat, officeLng);
-        setCoords(fresh);
-        setDistanceMeters(nextDistance);
-        setGeoError(null);
-        if (nextDistance > geofenceLimitMeters) {
-          addToast(
-            'Out of Office Range',
-            `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
-            'error'
-          );
-          return;
-        }
-        if (fresh.accuracy > 500) {
-          addToast(
-            'GPS Too Inaccurate',
-            `Location accuracy is ${Math.round(fresh.accuracy)}m. Move near a window and try again.`,
-            'error'
-          );
-          return;
-        }
+      if (!isWfh && !gpsOk && wifiOk) {
+        addToast(
+          'Checking in via office Wi-Fi',
+          'This browser could not get GPS. Office network is verified, so check-in will continue.',
+          'info'
+        );
       }
 
       setVerificationStep('Verifying Wi-Fi & Office IP...');
@@ -232,8 +244,12 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         latitude: nextCoords?.lat,
         longitude: nextCoords?.lng,
         accuracy_meters: nextCoords?.accuracy,
-        gps_captured_at: new Date().toISOString(),
-        notes: isWfh ? 'WFH Approved Check-In' : 'Office Check-In',
+        gps_captured_at: nextCoords ? new Date().toISOString() : undefined,
+        notes: isWfh
+          ? 'WFH Approved Check-In'
+          : nextCoords
+            ? 'Office Check-In'
+            : 'Office Check-In (Wi-Fi verified, GPS unavailable)',
       });
 
       addToast('Check-In Successful 🎉', 'Your punch-in time has been logged.', 'success');
@@ -312,8 +328,12 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     isWfh ||
     !enforceGps ||
     (coords !== null && (distanceMeters ?? Number.POSITIVE_INFINITY) <= geofenceLimitMeters);
-  const securityBlocksCheckIn =
-    !isWfh && ((enforceIp && !wifiOk) || (enforceGps && (!coords || !gpsInRange || Boolean(geoError))));
+  const gpsClearlyOutOfRange =
+    !isWfh &&
+    enforceGps &&
+    coords !== null &&
+    (distanceMeters ?? Number.POSITIVE_INFINITY) > geofenceLimitMeters;
+  const securityBlocksCheckIn = !isWfh && (gpsClearlyOutOfRange || (!wifiOk && !gpsInRange));
 
   return (
     <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
@@ -352,7 +372,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
               gpsInRange
                 ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                : gpsClearlyOutOfRange
+                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
+                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
             }`}
           >
             <MapPin className="w-3 h-3" />
@@ -361,7 +383,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               : coords
               ? `${(distanceMeters ?? 0) <= geofenceLimitMeters ? 'In Office' : 'Out of range'} (${formatDistance(distanceMeters)})`
               : geoError
-              ? 'GPS unavailable'
+              ? wifiOk
+                ? 'GPS unavailable · Wi-Fi OK'
+                : 'GPS unavailable'
               : 'Acquiring GPS'}
             <button
               type="button"
@@ -508,13 +532,16 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             </button>
             {securityBlocksCheckIn && (
               <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
-                {!wifiOk
-                  ? 'Check-in blocked: you are not on the office Wi-Fi / IP whitelist.'
-                  : geoError
-                  ? `Check-in blocked: ${geoError}`
-                  : !coords
-                  ? 'Check-in blocked: waiting for GPS location.'
-                  : 'Check-in blocked: you are outside the office location radius.'}
+                {gpsClearlyOutOfRange
+                  ? 'Check-in blocked: you are outside the office location radius.'
+                  : !wifiOk
+                  ? 'Check-in blocked: connect to office Wi-Fi, or allow location if you are at the office.'
+                  : `Check-in blocked: ${geoError || 'waiting for GPS location.'}`}
+              </p>
+            )}
+            {!securityBlocksCheckIn && !isWfh && geoError && wifiOk && (
+              <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                GPS is unavailable in this browser. Check-in will use office Wi-Fi instead.
               </p>
             )}
             </div>

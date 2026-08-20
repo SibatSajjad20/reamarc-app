@@ -2,8 +2,13 @@
 Security and Geofencing Validators for Attendance Check-In / Check-Out.
 Enforces office IP / subnet whitelisting and GPS Haversine geofencing.
 
-Both checks are independently required when enabled. Passing only Wi-Fi or only
-GPS is not enough to punch in.
+Office proof is OR, not AND: a whitelisted office IP or an in-range GPS fix
+is enough to punch in. Desktop Chrome/Edge often cannot obtain GPS at all
+(Windows Location Services), so requiring both would lock out staff who are
+physically on office Wi-Fi.
+
+If GPS *is* returned and it is clearly outside the geofence, check-in is
+still blocked (covers home + office VPN).
 """
 from __future__ import annotations
 
@@ -259,7 +264,8 @@ def validate_punch_security(
     """
     Punch security:
     - Approved WFH may bypass both checks when allow_wfh_bypass is on.
-    - When a check is enabled it MUST pass. Both enabled => both must pass (AND).
+    - Enabled checks are OR: office IP *or* in-range GPS is enough.
+    - Usable GPS that is outside the geofence always blocks (VPN/home).
     """
     whitelist = collect_whitelist_entries(settings)
     ip_verified = False
@@ -276,24 +282,15 @@ def validate_punch_security(
             client_ip=client_ip,
         )
 
-    failures: List[str] = []
-
     if settings.enforce_ip_whitelist:
         ip_verified = validate_client_ip(client_ip, whitelist, ())
-        if not ip_verified:
-            shown = client_ip or "unknown"
-            failures.append(
-                f"Wi-Fi / IP check failed: '{shown}' is not on the office whitelist. "
-                "Only listed IPs can check in."
-            )
+
+    gps_out_of_range = False
+    gps_unusable_reason: Optional[str] = None
 
     if settings.enforce_gps_geofence:
         if user_lat is None or user_lon is None:
-            gps_verified = False
-            failures.append(
-                "Location check failed: GPS coordinates were not provided. "
-                "Allow location access and try again."
-            )
+            gps_unusable_reason = "browser did not provide GPS coordinates"
         else:
             freshness_error = validate_gps_freshness(
                 accuracy_meters,
@@ -301,8 +298,7 @@ def validate_punch_security(
                 settings.geofence_radius_meters,
             )
             if freshness_error:
-                gps_verified = False
-                failures.append(freshness_error)
+                gps_unusable_reason = freshness_error
             else:
                 gps_verified, dist = validate_gps_geofence(
                     user_lat,
@@ -313,28 +309,66 @@ def validate_punch_security(
                 )
                 distance = dist
                 if not gps_verified:
-                    km = dist / 1000.0
-                    dist_label = f"{dist:.0f}m" if dist < 1000 else f"{km:.1f} km"
-                    failures.append(
-                        f"Location check failed: you are {dist_label} from the office "
-                        f"(limit {settings.geofence_radius_meters:.0f}m)."
-                    )
+                    gps_out_of_range = True
 
-    if failures:
+    ip_required = settings.enforce_ip_whitelist
+    gps_required = settings.enforce_gps_geofence
+    proofs: List[bool] = []
+    if ip_required:
+        proofs.append(ip_verified)
+    if gps_required:
+        proofs.append(gps_verified)
+
+    if gps_required and gps_out_of_range:
+        km = (distance or 0) / 1000.0
+        dist_label = f"{distance:.0f}m" if (distance or 0) < 1000 else f"{km:.1f} km"
         return PunchSecurityResult(
             authorized=False,
-            error=" ".join(failures),
+            error=(
+                f"Location check failed: you are {dist_label} from the office "
+                f"(limit {settings.geofence_radius_meters:.0f}m)."
+            ),
             ip_verified=ip_verified,
-            gps_verified=gps_verified,
+            gps_verified=False,
             distance_meters=distance,
             client_ip=client_ip,
         )
 
+    if not proofs or any(proofs):
+        return PunchSecurityResult(
+            authorized=True,
+            error=None,
+            ip_verified=ip_verified if ip_required else True,
+            gps_verified=gps_verified if gps_required else True,
+            distance_meters=distance,
+            client_ip=client_ip,
+        )
+
+    shown = client_ip or "unknown"
+    if ip_required and gps_required:
+        error = (
+            f"Check-in blocked: you are not on office Wi-Fi (IP '{shown}') "
+            "and the browser could not confirm you are at the office. "
+            "Connect to office Wi-Fi or allow location and try again."
+        )
+        if gps_unusable_reason:
+            error = f"{error} ({gps_unusable_reason})"
+    elif ip_required:
+        error = (
+            f"Wi-Fi / IP check failed: '{shown}' is not on the office whitelist. "
+            "Only listed IPs can check in."
+        )
+    else:
+        error = (
+            "Location check failed: GPS coordinates were not provided. "
+            "Allow location access and try again."
+        )
+
     return PunchSecurityResult(
-        authorized=True,
-        error=None,
-        ip_verified=ip_verified if settings.enforce_ip_whitelist else True,
-        gps_verified=gps_verified if settings.enforce_gps_geofence else True,
+        authorized=False,
+        error=error,
+        ip_verified=ip_verified,
+        gps_verified=gps_verified,
         distance_meters=distance,
         client_ip=client_ip,
     )

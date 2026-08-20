@@ -985,7 +985,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                     })
                   }
                   label="Tier 1: Office IP & CIDR Subnet Whitelist"
-                  description="Validates client IP against configured office CIDRs on punch in/out."
+                  description="Staff on a listed office IP can check in even if the browser cannot get GPS (Chrome/Edge on Windows often cannot)."
                 />
               </div>
 
@@ -998,8 +998,8 @@ export const AttendancePoliciesSection: React.FC = () => {
                       enforce_gps_geofence: checked,
                     })
                   }
-                  label="Tier 3: Browser GPS Geofencing (150m Perimeter)"
-                  description="Validates distance ≤ 150m of Rawalpindi office coordinates via Haversine calculation."
+                  label="GPS Geofence (office radius)"
+                  description="If the browser returns GPS, staff must be inside the office radius. Out-of-range GPS always blocks. Missing GPS is OK when office Wi-Fi is verified."
                 />
               </div>
 

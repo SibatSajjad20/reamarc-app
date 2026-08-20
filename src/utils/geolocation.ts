@@ -1,8 +1,8 @@
 /**
  * Cross-browser geolocation.
- * Chrome/Edge on desktop often time out when enableHighAccuracy is required
- * (no GPS chip). Opera/Firefox may still return a Wi-Fi fix. We try precise
- * first, then fall back to network / watchPosition so punch-in is not browser-specific.
+ * Chrome/Edge on Windows often never return a fix (they depend on Windows
+ * Location Services). Opera GX uses its own provider and usually succeeds.
+ * We race a fast network fix against a precise fix so we do not wait 40s+.
  */
 
 export type GeoFix = {
@@ -11,16 +11,16 @@ export type GeoFix = {
   accuracy: number;
 };
 
-const PRECISE: PositionOptions = {
-  enableHighAccuracy: true,
-  timeout: 20000,
-  maximumAge: 0,
-};
-
 const NETWORK: PositionOptions = {
   enableHighAccuracy: false,
-  timeout: 15000,
-  maximumAge: 30_000,
+  timeout: 8000,
+  maximumAge: 60_000,
+};
+
+const PRECISE: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: 8000,
+  maximumAge: 0,
 };
 
 function unsupportedError(): Error {
@@ -33,37 +33,15 @@ function timeoutError(): Error {
 
 function requestPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
+    if (!window.isSecureContext) {
+      reject(new Error('Location requires HTTPS.'));
+      return;
+    }
     if (!navigator.geolocation) {
       reject(unsupportedError());
       return;
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, options);
-  });
-}
-
-function watchOnce(options: PositionOptions, maxMs: number): Promise<GeolocationPosition> {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(unsupportedError());
-      return;
-    }
-
-    let settled = false;
-    const finish = (fn: () => void) => {
-      if (settled) return;
-      settled = true;
-      window.clearTimeout(timer);
-      navigator.geolocation.clearWatch(watchId);
-      fn();
-    };
-
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => finish(() => resolve(pos)),
-      (err) => finish(() => reject(err)),
-      { ...options, timeout: maxMs, maximumAge: options.maximumAge }
-    );
-
-    const timer = window.setTimeout(() => finish(() => reject(timeoutError())), maxMs);
   });
 }
 
@@ -73,48 +51,50 @@ export function geoErrorMessage(error: unknown): string {
       ? Number((error as GeolocationPositionError).code)
       : NaN;
   if (code === 1) {
-    return 'Location permission denied. Click the lock icon next to the URL, allow Location, then refresh GPS.';
+    return 'Location permission denied. Click the lock icon next to the URL, allow Location, then refresh.';
   }
   if (code === 2) {
-    return 'Location unavailable. Turn on Location in Windows Settings (Privacy & security → Location) and try again.';
+    return 'Location unavailable. Chrome/Edge need Windows Location Services (Settings → Privacy → Location).';
   }
   if (code === 3) {
-    return 'Location request timed out. Allow Location for this site, turn on Windows Location Services, then tap refresh.';
+    return 'Location timed out. Chrome/Edge need Windows Location on; you can still check in on office Wi-Fi.';
   }
   if (error instanceof Error && error.message) return error.message;
   return 'Unable to capture location coordinates.';
 }
 
-export async function getBrowserLocation(): Promise<GeoFix> {
-  const toFix = (pos: GeolocationPosition): GeoFix => ({
+function toFix(pos: GeolocationPosition): GeoFix {
+  return {
     lat: pos.coords.latitude,
     lng: pos.coords.longitude,
     accuracy: pos.coords.accuracy,
-  });
+  };
+}
 
-  try {
-    return toFix(await requestPosition(PRECISE));
-  } catch (preciseError) {
-    const code =
-      typeof preciseError === 'object' && preciseError && 'code' in preciseError
-        ? Number((preciseError as GeolocationPositionError).code)
-        : NaN;
-    if (code === 1) {
-      throw preciseError;
+export async function getBrowserLocation(): Promise<GeoFix> {
+  if (navigator.permissions?.query) {
+    try {
+      const status = await navigator.permissions.query({ name: 'geolocation' });
+      if (status.state === 'denied') {
+        throw Object.assign(new Error('Location permission denied by browser.'), { code: 1 });
+      }
+    } catch (err) {
+      const code = typeof err === 'object' && err && 'code' in err ? Number((err as GeolocationPositionError).code) : NaN;
+      if (code === 1) throw err;
     }
   }
 
   try {
-    return toFix(await requestPosition(NETWORK));
-  } catch (networkError) {
-    const code =
-      typeof networkError === 'object' && networkError && 'code' in networkError
-        ? Number((networkError as GeolocationPositionError).code)
-        : NaN;
-    if (code === 1) {
-      throw networkError;
+    return toFix(
+      await Promise.any([requestPosition(NETWORK), requestPosition(PRECISE)])
+    );
+  } catch (aggregate) {
+    if (aggregate instanceof AggregateError && aggregate.errors?.length) {
+      const denied = aggregate.errors.find(
+        (err) => typeof err === 'object' && err && 'code' in err && Number((err as GeolocationPositionError).code) === 1
+      );
+      throw denied || aggregate.errors[0] || timeoutError();
     }
+    throw aggregate;
   }
-
-  return toFix(await watchOnce(NETWORK, 12000));
 }

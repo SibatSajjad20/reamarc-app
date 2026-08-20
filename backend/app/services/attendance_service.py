@@ -894,7 +894,7 @@ async def process_check_in(
                 ),
             )
 
-    # 4. Security verification — IP and GPS both required when enabled
+    # 4. Security verification — office IP or in-range GPS is enough when enabled
     settings = await get_security_settings()
     ip_to_check = resolve_effective_client_ip(
         client_ip,
