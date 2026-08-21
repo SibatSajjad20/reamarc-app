@@ -1,7 +1,8 @@
 /**
  * Cross-browser geolocation.
- * iOS Safari only shows the Allow popup if getCurrentPosition runs in the
- * same turn as a tap. Do not await anything before that call.
+ * iOS Safari only shows Allow if getCurrentPosition runs in the same turn as a tap.
+ * Android Chrome blocks a second prompt in the same moment with
+ * "This site can't ask for your permission" — share one in-flight request.
  */
 
 export type GeoFix = {
@@ -28,6 +29,11 @@ const MOBILE_PROMPT: PositionOptions = {
   maximumAge: 0,
 };
 
+const CACHE_MS = 20_000;
+
+let inFlight: Promise<GeoFix> | null = null;
+let lastFix: { fix: GeoFix; at: number } | null = null;
+
 function unsupportedError(): Error {
   return Object.assign(new Error('Geolocation is not supported by your browser.'), { code: 0 });
 }
@@ -36,12 +42,16 @@ function timeoutError(): Error {
   return Object.assign(new Error('Location request timed out.'), { code: 3 });
 }
 
+export function isAndroid(): boolean {
+  return typeof navigator !== 'undefined' && /Android/i.test(navigator.userAgent);
+}
+
 export function isLikelyMobile(): boolean {
   if (typeof navigator === 'undefined') return false;
   const ua = navigator.userAgent || '';
   if (/Android|iPhone|iPad|iPod|webOS|BlackBerry|IEMobile|Opera Mini/i.test(ua)) return true;
-  if (typeof window !== 'undefined' && navigator.maxTouchPoints > 1) {
-    return window.matchMedia?.('(pointer: coarse)').matches ?? false;
+  if (typeof window !== 'undefined' && navigator.maxTouchPoints > 0 && window.innerWidth < 1024) {
+    return true;
   }
   return false;
 }
@@ -61,19 +71,23 @@ function requestPosition(options: PositionOptions): Promise<GeolocationPosition>
 }
 
 export function geoErrorMessage(error: unknown): string {
+  const android = isAndroid();
   const mobile = isLikelyMobile();
   const code =
     typeof error === 'object' && error && 'code' in error
       ? Number((error as GeolocationPositionError).code)
       : NaN;
   if (code === 1) {
+    if (android) {
+      return 'Chrome blocked a second location prompt. Tap the lock icon → Permissions → Location → Allow, turn on Precise location, then tap Allow location once.';
+    }
     return mobile
       ? 'Safari blocked location. On iPhone: Settings → Privacy & Security → Location Services → On, then Safari → While Using. In Safari tap aA → Website Settings → Location → Allow, then tap Allow location again.'
       : 'Location permission denied. Click the lock icon next to the URL, allow Location, then refresh.';
   }
   if (code === 2) {
     return mobile
-      ? 'Location unavailable. Turn on Location Services, then tap Allow location again.'
+      ? 'Location unavailable. Turn on Location / GPS, then tap Allow location again.'
       : 'Location unavailable. Chrome/Edge need Windows Location Services (Settings → Privacy → Location).';
   }
   if (code === 3) {
@@ -102,7 +116,7 @@ function isDenied(error: unknown): boolean {
   );
 }
 
-export function getBrowserLocation(): Promise<GeoFix> {
+function fetchLocation(): Promise<GeoFix> {
   if (isLikelyMobile()) {
     return requestPosition(MOBILE_PROMPT).then(toFix);
   }
@@ -131,4 +145,22 @@ export function getBrowserLocation(): Promise<GeoFix> {
       throw networkError instanceof Error ? networkError : timeoutError();
     }
   })();
+}
+
+export function getBrowserLocation(): Promise<GeoFix> {
+  if (lastFix && Date.now() - lastFix.at < CACHE_MS) {
+    return Promise.resolve(lastFix.fix);
+  }
+  if (inFlight) {
+    return inFlight;
+  }
+  inFlight = fetchLocation()
+    .then((fix) => {
+      lastFix = { fix, at: Date.now() };
+      return fix;
+    })
+    .finally(() => {
+      inFlight = null;
+    });
+  return inFlight;
 }

@@ -7,7 +7,7 @@ import {
   haversineMeters,
   parseOfficeCoordinates,
 } from '../../constants/officeLocation';
-import { geoErrorMessage, getBrowserLocation } from '../../utils/geolocation';
+import { geoErrorMessage, getBrowserLocation, isLikelyMobile } from '../../utils/geolocation';
 
 type OfficePinValue = {
   office_latitude: number;
@@ -76,6 +76,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
   };
 
   useEffect(() => {
+    if (isLikelyMobile()) return;
     let cancelled = false;
     setPreviewError(null);
     void getBrowserLocation()
