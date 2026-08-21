@@ -97,10 +97,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   // Capture GPS on mount or manual refresh
   const captureGPS = useCallback(
     (showToast: boolean = false) => {
+      const request = getBrowserLocation();
       setIsCapturingGps(true);
       setGeoError(null);
 
-      void getBrowserLocation()
+      void request
         .then((fix) => {
           setCoords(fix);
           const dist = haversineMeters(fix.lat, fix.lng, officeLat, officeLng);
