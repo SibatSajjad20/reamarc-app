@@ -15,7 +15,7 @@ import {
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
-import { geoErrorMessage, getBrowserLocation } from '../../utils/geolocation';
+import { geoErrorMessage, getBrowserLocation, isLikelyMobile } from '../../utils/geolocation';
 import {
   GEOFENCE_RADIUS_METERS,
   OFFICE_LATITUDE,
@@ -128,6 +128,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   );
 
   useEffect(() => {
+    if (isLikelyMobile()) {
+      setGeoError('Tap Allow location so this phone can use GPS.');
+      return;
+    }
     captureGPS(false);
   }, [captureGPS]);
 
@@ -389,19 +393,17 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 : gpsQuality === 'out_of_range'
                   ? `Out of range (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
                   : `Location coarse (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})${wifiOk ? ' · Wi-Fi OK' : ''}`
-              : geoError
-              ? wifiOk
-                ? 'GPS unavailable · Wi-Fi OK'
-                : 'GPS unavailable'
-              : 'Acquiring GPS'}
+              : isCapturingGps
+              ? 'Acquiring GPS'
+              : 'Tap Allow location'}
             <button
               type="button"
               onClick={() => captureGPS(true)}
               disabled={isCapturingGps}
-              className="ml-0.5 text-current/70 hover:text-current cursor-pointer"
-              title="Refresh GPS location"
+              className="ml-0.5 inline-flex items-center justify-center min-w-6 min-h-6 text-current/70 hover:text-current cursor-pointer"
+              title="Allow or refresh GPS location"
             >
-              <RefreshCw className={`w-3 h-3 ${isCapturingGps ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isCapturingGps ? 'animate-spin' : ''}`} />
             </button>
           </span>
 
@@ -505,6 +507,26 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         </div>
 
         <div className="md:col-span-5 flex flex-col justify-center">
+          {!coords && (
+            <button
+              type="button"
+              onClick={() => captureGPS(true)}
+              disabled={isCapturingGps}
+              className="w-full mb-3 py-3 px-4 rounded-xl font-bold text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+            >
+              {isCapturingGps ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Waiting for GPS — tap Allow on the phone prompt…</span>
+                </>
+              ) : (
+                <>
+                  <MapPin className="w-4 h-4" />
+                  <span>Allow location</span>
+                </>
+              )}
+            </button>
+          )}
           {!isCheckedIn ? (
             checkInClosed ? (
               <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
@@ -555,7 +577,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
                 {gpsCoarse
                   ? 'Browser location is too coarse to prove the office. Check-in will use office Wi-Fi instead.'
-                  : 'GPS is unavailable in this browser. Check-in will use office Wi-Fi instead.'}
+                  : 'Tap Allow location so this phone can use GPS. Check-in can still use office Wi-Fi.'}
               </p>
             )}
             </div>
