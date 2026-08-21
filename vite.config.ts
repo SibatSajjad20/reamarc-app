@@ -14,6 +14,7 @@ export default defineConfig({
   },
   server: {
     host: true,
+    allowedHosts: ['.trycloudflare.com', '.ngrok-free.app', '.ngrok.io', '.loca.lt'],
     proxy: {
       '/uploads': {
         target: 'http://localhost:8000',
