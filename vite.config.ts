@@ -13,6 +13,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
     proxy: {
       '/uploads': {
         target: 'http://localhost:8000',

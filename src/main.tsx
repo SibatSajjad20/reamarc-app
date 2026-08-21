@@ -9,7 +9,7 @@ const envApiUrl =
   (import.meta as any).env?.NEXT_PUBLIC_API_URL ||
   (import.meta as any).env?.VITE_API_URL;
 
-if (!envApiUrl) {
+if (!envApiUrl && !(import.meta as any).env?.DEV) {
   console.warn(
     '⚠️ [Reamarc AI] NEXT_PUBLIC_API_URL is not defined in environment variables. Defaulting to http://localhost:8000/api/v1'
   );

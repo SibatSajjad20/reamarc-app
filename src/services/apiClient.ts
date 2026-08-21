@@ -22,13 +22,19 @@ interface RequestOptions extends RequestInit {
 
 const getBaseUrl = (): string => {
   const globalProcess = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined;
-  const envUrl =
+  const envUrl = (
     globalProcess?.env?.NEXT_PUBLIC_API_URL ||
     (import.meta as any).env?.NEXT_PUBLIC_API_URL ||
     (import.meta as any).env?.VITE_API_URL ||
-    'http://localhost:8000/api/v1';
+    ''
+  ).trim();
 
-  let cleaned = envUrl.trim().replace(/\/$/, '');
+  // Vite dev: same-origin `/api` so a phone on an https tunnel still hits this PC.
+  if ((import.meta as any).env?.DEV && !envUrl) {
+    return '/api/v1';
+  }
+
+  let cleaned = (envUrl || 'http://localhost:8000/api/v1').replace(/\/$/, '');
   if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
     cleaned = `${cleaned}/api/v1`;
   }
