@@ -3,6 +3,11 @@ Pydantic schemas for Attendance, Punch Card, Daily Matrix, and Punctuality.
 """
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
+from app.constants.office_location import (
+    GEOFENCE_RADIUS_METERS,
+    OFFICE_LATITUDE,
+    OFFICE_LONGITUDE,
+)
 from app.models.attendance import AttendanceStatus, BonusRecommendation
 from app.schemas.shift import ShiftResponse
 
@@ -148,9 +153,9 @@ class TodayAttendanceResponse(BaseModel):
     has_active_break: bool = False
     can_punch_in: bool = True
     can_punch_out: bool = False
-    office_latitude: float = 33.5315
-    office_longitude: float = 73.1382
-    geofence_radius_meters: float = 500.0
+    office_latitude: float = OFFICE_LATITUDE
+    office_longitude: float = OFFICE_LONGITUDE
+    geofence_radius_meters: float = GEOFENCE_RADIUS_METERS
     client_ip: Optional[str] = None
     is_ip_verified: bool = False
     enforce_ip_whitelist: bool = True
@@ -277,15 +282,15 @@ class SecuritySettingsSchema(BaseModel):
         description="Legacy alias merged into office_public_ips",
     )
     office_latitude: float = Field(
-        default=33.52049,
+        default=OFFICE_LATITUDE,
         description="Office geographic latitude (Business Bay, Sector F DHA Phase 1, Rawalpindi)"
     )
     office_longitude: float = Field(
-        default=73.09145,
+        default=OFFICE_LONGITUDE,
         description="Office geographic longitude (Business Bay, Sector F DHA Phase 1, Rawalpindi)"
     )
     geofence_radius_meters: float = Field(
-        default=150.0,
+        default=GEOFENCE_RADIUS_METERS,
         ge=10.0,
         description="Maximum permitted distance in meters from office coordinate"
     )

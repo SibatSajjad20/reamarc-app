@@ -7,8 +7,9 @@ is enough to punch in. Desktop Chrome/Edge often cannot obtain GPS at all
 (Windows Location Services), so requiring both would lock out staff who are
 physically on office Wi-Fi.
 
-If GPS *is* returned and it is clearly outside the geofence, check-in is
-still blocked (covers home + office VPN).
+A coarse / city-level browser guess is treated as GPS unknown (office Wi-Fi
+may still allow check-in). Only a tight fix whose accuracy circle cannot
+cover HQ is treated as out of range (covers home + office VPN).
 """
 from __future__ import annotations
 
@@ -16,9 +17,12 @@ import ipaddress
 import math
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Iterable, List, Optional, Sequence, Tuple
+from typing import Iterable, List, Literal, Optional, Sequence, Tuple
 
+from app.constants.office_location import MAX_GPS_ACCURACY_METERS
 from app.schemas.attendance import SecuritySettingsSchema
+
+GpsFixClass = Literal["in_range", "out_of_range", "coarse"]
 
 
 EARTH_RADIUS_METERS: float = 6371000.0
@@ -174,8 +178,30 @@ def calculate_haversine_distance(
 
 
 MAX_GPS_AGE_SECONDS = 90
-# Coarse IP-based or cached location is typically hundreds of meters to kilometers.
-MAX_GPS_ACCURACY_METERS = 500.0
+
+
+def gps_accuracy_cap(max_radius_meters: float) -> float:
+    return max(float(max_radius_meters or 150), MAX_GPS_ACCURACY_METERS)
+
+
+def classify_gps_fix(
+    distance_meters: float,
+    accuracy_meters: Optional[float],
+    max_radius_meters: float,
+) -> GpsFixClass:
+    """
+    Coarse guesses must not count as out-of-office.
+    Out of range only when a tight accuracy circle cannot cover HQ.
+    """
+    radius = float(max_radius_meters or 150)
+    cap = gps_accuracy_cap(radius)
+    if accuracy_meters is None or accuracy_meters > cap:
+        return "coarse"
+    if distance_meters - accuracy_meters > radius:
+        return "out_of_range"
+    if distance_meters <= radius:
+        return "in_range"
+    return "coarse"
 
 
 def _parse_gps_captured_at(raw: Optional[str]) -> Optional[datetime]:
@@ -218,12 +244,6 @@ def validate_gps_freshness(
             "Location check failed: GPS accuracy was not provided. "
             "Allow precise location and try again."
         )
-    accuracy_cap = max(float(max_radius_meters or 150), MAX_GPS_ACCURACY_METERS)
-    if accuracy_meters > accuracy_cap:
-        return (
-            f"Location check failed: GPS accuracy is {accuracy_meters:.0f}m "
-            f"(limit {accuracy_cap:.0f}m). Move near a window and retry."
-        )
     return None
 
 
@@ -265,7 +285,8 @@ def validate_punch_security(
     Punch security:
     - Approved WFH may bypass both checks when allow_wfh_bypass is on.
     - Enabled checks are OR: office IP *or* in-range GPS is enough.
-    - Usable GPS that is outside the geofence always blocks (VPN/home).
+    - Tight GPS that cannot cover HQ always blocks (VPN/home).
+    - Coarse GPS is ignored so office Wi-Fi can still allow check-in.
     """
     whitelist = collect_whitelist_entries(settings)
     ip_verified = False
@@ -300,7 +321,7 @@ def validate_punch_security(
             if freshness_error:
                 gps_unusable_reason = freshness_error
             else:
-                gps_verified, dist = validate_gps_geofence(
+                _in_radius, dist = validate_gps_geofence(
                     user_lat,
                     user_lon,
                     settings.office_latitude,
@@ -308,8 +329,20 @@ def validate_punch_security(
                     settings.geofence_radius_meters,
                 )
                 distance = dist
-                if not gps_verified:
+                quality = classify_gps_fix(
+                    dist,
+                    accuracy_meters,
+                    settings.geofence_radius_meters,
+                )
+                if quality == "in_range":
+                    gps_verified = True
+                elif quality == "out_of_range":
                     gps_out_of_range = True
+                else:
+                    gps_unusable_reason = (
+                        f"Location is too coarse (±{float(accuracy_meters or 0):.0f}m) "
+                        "to prove office presence"
+                    )
 
     ip_required = settings.enforce_ip_whitelist
     gps_required = settings.enforce_gps_geofence

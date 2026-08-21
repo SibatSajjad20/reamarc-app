@@ -1,8 +1,7 @@
 /**
  * Cross-browser geolocation.
- * Chrome/Edge on Windows often never return a fix (they depend on Windows
- * Location Services). Opera GX uses its own provider and usually succeeds.
- * We race a fast network fix against a precise fix so we do not wait 40s+.
+ * Prefer a precise reading. Only fall back to a network fix if high-accuracy
+ * times out — never let a cached city-level guess win a race.
  */
 
 export type GeoFix = {
@@ -11,14 +10,14 @@ export type GeoFix = {
   accuracy: number;
 };
 
-const NETWORK: PositionOptions = {
-  enableHighAccuracy: false,
-  timeout: 8000,
-  maximumAge: 60_000,
-};
-
 const PRECISE: PositionOptions = {
   enableHighAccuracy: true,
+  timeout: 15000,
+  maximumAge: 0,
+};
+
+const NETWORK: PositionOptions = {
+  enableHighAccuracy: false,
   timeout: 8000,
   maximumAge: 0,
 };
@@ -33,7 +32,7 @@ function timeoutError(): Error {
 
 function requestPosition(options: PositionOptions): Promise<GeolocationPosition> {
   return new Promise((resolve, reject) => {
-    if (!window.isSecureContext) {
+    if (typeof window !== 'undefined' && !window.isSecureContext) {
       reject(new Error('Location requires HTTPS.'));
       return;
     }
@@ -71,6 +70,10 @@ function toFix(pos: GeolocationPosition): GeoFix {
   };
 }
 
+function isDenied(error: unknown): boolean {
+  return typeof error === 'object' && error != null && 'code' in error && Number((error as GeolocationPositionError).code) === 1;
+}
+
 export async function getBrowserLocation(): Promise<GeoFix> {
   if (navigator.permissions?.query) {
     try {
@@ -79,22 +82,19 @@ export async function getBrowserLocation(): Promise<GeoFix> {
         throw Object.assign(new Error('Location permission denied by browser.'), { code: 1 });
       }
     } catch (err) {
-      const code = typeof err === 'object' && err && 'code' in err ? Number((err as GeolocationPositionError).code) : NaN;
-      if (code === 1) throw err;
+      if (isDenied(err)) throw err;
     }
   }
 
   try {
-    return toFix(
-      await Promise.any([requestPosition(NETWORK), requestPosition(PRECISE)])
-    );
-  } catch (aggregate) {
-    if (aggregate instanceof AggregateError && aggregate.errors?.length) {
-      const denied = aggregate.errors.find(
-        (err) => typeof err === 'object' && err && 'code' in err && Number((err as GeolocationPositionError).code) === 1
-      );
-      throw denied || aggregate.errors[0] || timeoutError();
-    }
-    throw aggregate;
+    return toFix(await requestPosition(PRECISE));
+  } catch (preciseError) {
+    if (isDenied(preciseError)) throw preciseError;
+  }
+
+  try {
+    return toFix(await requestPosition(NETWORK));
+  } catch (networkError) {
+    throw networkError instanceof Error ? networkError : timeoutError();
   }
 }

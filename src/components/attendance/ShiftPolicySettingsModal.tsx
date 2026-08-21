@@ -15,6 +15,12 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
+import { OfficePinControls } from './OfficePinControls';
+import {
+  GEOFENCE_RADIUS_METERS,
+  OFFICE_LATITUDE,
+  OFFICE_LONGITUDE,
+} from '../../constants/officeLocation';
 
 interface ShiftPolicySettingsModalProps {
   isOpen: boolean;
@@ -40,9 +46,9 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
     office_public_ips: ['127.0.0.1', '::1', '110.39.1.50'],
     office_subnets: ['192.168.1.0/24', '10.0.0.0/8', '110.39.1.0/24'],
     office_ip_whitelist: ['127.0.0.1', '::1', '192.168.1.0/24', '110.39.1.0/24'],
-    office_latitude: 33.52049,
-    office_longitude: 73.09145,
-    geofence_radius_meters: 150,
+    office_latitude: OFFICE_LATITUDE,
+    office_longitude: OFFICE_LONGITUDE,
+    geofence_radius_meters: GEOFENCE_RADIUS_METERS,
     grace_period_minutes: 30,
     late_threshold_minutes: 30,
     enforce_ip_whitelist: true,
@@ -167,9 +173,9 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
       const payload: SecuritySettings = {
         office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [],
         office_subnets: securitySettings.office_subnets || [],
-        office_latitude: Number(securitySettings.office_latitude) || 33.52049,
-        office_longitude: Number(securitySettings.office_longitude) || 73.09145,
-        geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || 150,
+        office_latitude: Number(securitySettings.office_latitude) || OFFICE_LATITUDE,
+        office_longitude: Number(securitySettings.office_longitude) || OFFICE_LONGITUDE,
+        geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || GEOFENCE_RADIUS_METERS,
         enforce_ip_whitelist: Boolean(securitySettings.enforce_ip_whitelist),
         enforce_gps_geofence: Boolean(securitySettings.enforce_gps_geofence),
         allow_wfh_bypass: Boolean(securitySettings.allow_wfh_bypass),
@@ -539,7 +545,7 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                         })
                       }
                       label="GPS Geofence (office radius)"
-                      description="If GPS is available, staff must be inside the office radius. Missing GPS is allowed when office Wi-Fi is verified."
+                      description="Tight GPS inside the radius can check in. Coarse guesses are ignored so office Wi-Fi can still allow check-in."
                     />
                   </div>
 
@@ -566,59 +572,20 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                   Office Geofence Coordinates (Rawalpindi HQ)
                 </h4>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">Latitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      value={securitySettings.office_latitude}
-                      onChange={(e) =>
-                        setSecuritySettings({
-                          ...securitySettings,
-                          office_latitude: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-800 dark:text-zinc-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">Longitude</label>
-                    <input
-                      type="number"
-                      step="any"
-                      required
-                      value={securitySettings.office_longitude}
-                      onChange={(e) =>
-                        setSecuritySettings({
-                          ...securitySettings,
-                          office_longitude: parseFloat(e.target.value),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-800 dark:text-zinc-200"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                      Radius Limit (Meters)
-                    </label>
-                    <input
-                      type="number"
-                      min="10"
-                      max="1000"
-                      required
-                      value={securitySettings.geofence_radius_meters}
-                      onChange={(e) =>
-                        setSecuritySettings({
-                          ...securitySettings,
-                          geofence_radius_meters: parseInt(e.target.value, 10),
-                        })
-                      }
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-bold text-zinc-800 dark:text-zinc-200"
-                    />
-                  </div>
-                </div>
+                <OfficePinControls
+                  value={{
+                    office_latitude: securitySettings.office_latitude,
+                    office_longitude: securitySettings.office_longitude,
+                    geofence_radius_meters: securitySettings.geofence_radius_meters,
+                  }}
+                  onChange={(next) =>
+                    setSecuritySettings({
+                      ...securitySettings,
+                      ...next,
+                    })
+                  }
+                  addToast={addToast}
+                />
               </div>
 
               {/* Office IP Whitelist */}
