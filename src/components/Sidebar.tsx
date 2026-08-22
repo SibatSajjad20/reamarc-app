@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { ViewType, ThemeMode } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { dailyLogService } from '../services/dailyLogService';
 import { LottieLogo } from './ui/LottieLogo';
 import { getInitials, getRoleLabel } from '../utils/badgeStyles';
 import {
@@ -15,6 +16,7 @@ import {
   Clock,
   Settings,
   LayoutDashboard,
+  Inbox,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -34,6 +36,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { user } = useAuth();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [requestCount, setRequestCount] = useState(0);
+
+  useEffect(() => {
+    const role = user?.role;
+    if (!role || !['team_member', 'team_lead', 'hr'].includes(role)) {
+      setRequestCount(0);
+      return;
+    }
+    let cancelled = false;
+    dailyLogService
+      .getDayTarget()
+      .then((t) => {
+        if (!cancelled) setRequestCount((t.follow_ups || []).length);
+      })
+      .catch(() => {
+        if (!cancelled) setRequestCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, user?.role, currentView]);
 
   const displayName = user?.full_name || user?.name || 'Guest Contributor';
   const displayInitials = getInitials(user?.full_name || user?.name, user?.email);
@@ -42,6 +65,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
+  const isLead = user?.role === 'team_lead';
+  const canSeeExceptions = isLead || isHR;
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -83,6 +108,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'daily-log' as ViewType,
             label: 'Daily Log',
             icon: ClipboardList,
+          },
+        ]
+      : []),
+    ...(canSeeExceptions
+      ? [
+          {
+            id: 'exceptions' as ViewType,
+            label: 'Exceptions',
+            icon: Inbox,
           },
         ]
       : []),
@@ -162,6 +196,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
                 {!isCollapsed && <span>{item.label}</span>}
               </div>
+              {!isCollapsed && requestCount > 0 && (item.id === 'daily-log' || item.id === 'dashboard') && (
+                <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>
+                  {requestCount}
+                </span>
+              )}
             </button>
           );
         })}

@@ -75,6 +75,16 @@ from app.services.attendance_security import (
     resolve_effective_client_ip,
     PunchSecurityResult,
 )
+from app.services.shift_assignment import resolve_shift_assignment_for_date
+from app.services.overtime_gate import (
+    checkout_gate_payload,
+    classify_checkout_gate,
+    minutes_after_shift_end,
+    settle_checkout_hours,
+    settled_to_record_fields,
+    shift_buffers,
+    shift_times,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +105,137 @@ def get_current_date_str() -> str:
 def get_current_time_str() -> str:
     """Returns current time in HH:MM format based on company local timezone (PKT)."""
     return get_now_pkt().strftime("%H:%M")
+
+
+def is_future_pkt_clock_time(date_str: Optional[str], time_hhmm: Optional[str]) -> bool:
+    """True when date + HH:MM is still ahead of current Pakistan time."""
+    if not date_str or not time_hhmm:
+        return False
+    today = get_current_date_str()
+    if date_str > today:
+        return True
+    if date_str < today:
+        return False
+    try:
+        return parse_time_to_minutes(time_hhmm) > parse_time_to_minutes(get_current_time_str())
+    except Exception:
+        return False
+
+
+def _blank_to_none(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, str) and not value.strip():
+        return None
+    return str(value).strip()
+
+
+def _assert_checkout_not_in_future(
+    date_str: Optional[str],
+    time_hhmm: Optional[str],
+    *,
+    for_reviewer: bool = False,
+) -> None:
+    if not is_future_pkt_clock_time(date_str, time_hhmm):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail=(
+            "Time Out cannot be in the future. If they are still working, reject this and ask for Time In Only, "
+            "or use Daily Matrix override and clear Time Out."
+            if for_reviewer
+            else "Time Out cannot be in the future. If you are still working, submit Time In Only so overtime is not lost."
+        ),
+    )
+
+
+async def _snapshot_attendance_punches(user_id: Optional[str], date_str: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    if not user_id or not date_str:
+        return None, None
+    db = get_database()
+    if db is None:
+        return None, None
+    rec = await db.attendance_records.find_one(
+        {"user_id": user_id, "date": date_str},
+        {"_id": 0, "check_in": 1, "check_out": 1, "punch_in": 1, "punch_out": 1},
+    )
+    if not rec:
+        return None, None
+    return rec.get("check_in") or rec.get("punch_in"), rec.get("check_out") or rec.get("punch_out")
+
+
+async def _attach_original_punches(docs: List[dict]) -> None:
+    """For pending corrections that never stored a snapshot, fill actual times from the live record."""
+    db = get_database()
+    if db is None or not docs:
+        return
+    pending: List[dict] = []
+    keys: List[Dict[str, str]] = []
+    for doc in docs:
+        lt = str(doc.get("leave_type") or "")
+        if lt not in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+            continue
+        if str(doc.get("status") or "") != LeaveStatus.PENDING.value:
+            continue
+        if doc.get("original_check_in") or doc.get("original_check_out") or doc.get("original_punch_in") or doc.get("original_punch_out"):
+            continue
+        date_str = doc.get("regularization_date") or doc.get("start_date")
+        user_id = doc.get("user_id")
+        if not user_id or not date_str:
+            continue
+        pending.append(doc)
+        keys.append({"user_id": user_id, "date": date_str})
+    if not pending:
+        return
+    recs = await db.attendance_records.find(
+        {"$or": keys},
+        {"_id": 0, "user_id": 1, "date": 1, "check_in": 1, "check_out": 1, "punch_in": 1, "punch_out": 1},
+    ).to_list(300)
+    lookup = {(r.get("user_id"), r.get("date")): r for r in recs}
+    for doc in pending:
+        rec = lookup.get((doc.get("user_id"), doc.get("regularization_date") or doc.get("start_date")))
+        if not rec:
+            continue
+        orig_in = rec.get("check_in") or rec.get("punch_in")
+        orig_out = rec.get("check_out") or rec.get("punch_out")
+        doc["original_check_in"] = orig_in
+        doc["original_check_out"] = orig_out
+        doc["original_punch_in"] = orig_in
+        doc["original_punch_out"] = orig_out
+
+
+async def _attach_applicant_roles(docs: List[dict]) -> None:
+    """Stamp live user.role onto each request so the inbox can hide out-of-scope actions."""
+    db = get_database()
+    if db is None or not docs:
+        return
+    user_ids = list({d.get("user_id") for d in docs if d.get("user_id")})
+    if not user_ids:
+        return
+    users = await db.users.find(
+        {"id": {"$in": user_ids}},
+        {"_id": 0, "id": 1, "role": 1},
+    ).to_list(2000)
+    role_map = {
+        str(u.get("id")): str(u.get("role") or "team_member").lower()
+        for u in users
+        if u.get("id")
+    }
+    for doc in docs:
+        uid = doc.get("user_id")
+        doc["user_role"] = role_map.get(uid) or str(doc.get("user_role") or "team_member").lower()
+
+
+async def _resolve_applicant_role(user_id: Optional[str], stored_role: Optional[str] = None) -> str:
+    db = get_database()
+    if db is not None and user_id:
+        user = await db.users.find_one(
+            {"$or": [{"id": user_id}, {"_id": user_id}]},
+            {"_id": 0, "role": 1},
+        )
+        if user and user.get("role"):
+            return str(user.get("role")).lower()
+    return str(stored_role or "team_member").lower()
 
 
 def shift_field(shift: Any, key: str, default: Any = None) -> Any:
@@ -199,6 +340,126 @@ def shift_calc_kwargs(shift: ShiftResponse, extra: Optional[Dict[str, Any]] = No
     if extra:
         kwargs.update(extra)
     return kwargs
+
+
+def compute_settled_checkout(
+    cin: str,
+    cout: str,
+    shift: Any,
+    extra: Optional[Dict[str, Any]] = None,
+    overtime_status: Optional[str] = None,
+    auto_approve: bool = False,
+):
+    """Claimed hours plus credited hours after the overtime / undertime gate."""
+    if isinstance(shift, ShiftResponse):
+        kwargs = shift_calc_kwargs(shift, extra)
+    else:
+        kwargs = shift_doc_calc_kwargs(shift, extra)
+    start, end, night = shift_times(shift)
+    ot_buf, ut_buf = shift_buffers(shift)
+    claimed = calculate_daily_attendance(
+        check_in_time=cin,
+        check_out_time=cout,
+        **kwargs,
+    )
+    shift_end_calc = calculate_daily_attendance(
+        check_in_time=cin,
+        check_out_time=end,
+        **kwargs,
+    )
+    gate = classify_checkout_gate(
+        check_out=cout,
+        claimed_overtime_minutes=claimed.overtime_minutes,
+        claimed_undertime_minutes=claimed.undertime_minutes,
+        shift_start=start,
+        shift_end=end,
+        is_night_shift=night,
+        overtime_buffer_minutes=ot_buf,
+        undertime_buffer_minutes=ut_buf,
+        check_in=cin,
+    )
+    delta = minutes_after_shift_end(cout, start, end, night, cin)
+    settled = settle_checkout_hours(
+        claimed=claimed,
+        shift_end_calc=shift_end_calc,
+        gate=gate,
+        minutes_past_end=delta,
+        overtime_status=overtime_status,
+        auto_approve=auto_approve,
+    )
+    return claimed, settled, gate, ot_buf, ut_buf, start, end
+
+
+async def _upsert_overtime_request(
+    user: dict,
+    date_str: str,
+    reason: str,
+    category: Optional[str],
+    overtime_minutes: int,
+    shift_end: str,
+    check_out: str,
+) -> str:
+    db = get_database()
+    user_id = user.get("id")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    existing = await db.leave_requests.find_one(
+        {
+            "user_id": user_id,
+            "leave_type": LeaveType.OVERTIME.value,
+            "start_date": date_str,
+            "status": LeaveStatus.PENDING.value,
+        },
+        {"_id": 0},
+    )
+    payload = {
+        "leave_type": LeaveType.OVERTIME.value,
+        "start_date": date_str,
+        "end_date": date_str,
+        "reason": reason,
+        "variance_category": category,
+        "overtime_date": date_str,
+        "overtime_minutes": int(overtime_minutes or 0),
+        "shift_end": shift_end,
+        "check_out": check_out,
+        "updated_at": now_iso,
+    }
+    if existing:
+        await db.leave_requests.update_one({"id": existing["id"]}, {"$set": payload})
+        return existing["id"]
+    req_id = f"leave_{uuid.uuid4().hex[:10]}"
+    await db.leave_requests.insert_one(
+        {
+            **payload,
+            "id": req_id,
+            "user_id": user_id,
+            "user_name": user.get("full_name") or user.get("name", "User"),
+            "user_role": str(user.get("role") or "team_member").lower(),
+            "department": user.get("department"),
+            "status": LeaveStatus.PENDING.value,
+            "created_at": now_iso,
+        }
+    )
+    return req_id
+
+
+async def _close_pending_overtime_requests(
+    user_id: str,
+    date_str: str,
+    status_value: str = LeaveStatus.CANCELLED.value,
+) -> None:
+    db = get_database()
+    if db is None or not user_id or not date_str:
+        return
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await db.leave_requests.update_many(
+        {
+            "user_id": user_id,
+            "leave_type": LeaveType.OVERTIME.value,
+            "start_date": date_str,
+            "status": LeaveStatus.PENDING.value,
+        },
+        {"$set": {"status": status_value, "updated_at": now_iso}},
+    )
 
 
 def shift_doc_calc_kwargs(raw_shift: Optional[Dict[str, Any]], extra: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
@@ -336,15 +597,6 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
         "is_short_leave": bool(doc.get("is_short_leave") or status_val == AttendanceStatus.SHORT_LEAVE.value),
         "short_leave_hours": float(doc.get("short_leave_hours") or 0.0),
     }
-    if isinstance(shift, ShiftResponse):
-        kwargs = shift_calc_kwargs(shift, extra)
-    else:
-        kwargs = shift_doc_calc_kwargs(shift, extra)
-    calc_res = calculate_daily_attendance(
-        check_in_time=cin,
-        check_out_time=cout,
-        **kwargs,
-    )
     keep_status = {
         AttendanceStatus.WFH.value,
         AttendanceStatus.SHORT_LEAVE.value,
@@ -355,16 +607,21 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
         AttendanceStatus.MISSED_PUNCH.value,
         AttendanceStatus.ON_LEAVE.value,
     }
-    if status_val not in keep_status:
-        doc["status"] = calc_res.status.value
-        doc["is_late"] = calc_res.is_late
-        doc["late_strike"] = calc_res.late_strike
-        doc["late_minutes"] = calc_res.late_minutes
     doc["check_in"] = cin
     doc["punch_in"] = cin
     doc["check_out"] = cout
     doc["punch_out"] = cout
     if not cout:
+        if isinstance(shift, ShiftResponse):
+            kwargs = shift_calc_kwargs(shift, extra)
+        else:
+            kwargs = shift_doc_calc_kwargs(shift, extra)
+        preview = calculate_daily_attendance(check_in_time=cin, check_out_time=None, **kwargs)
+        if status_val not in keep_status:
+            doc["status"] = preview.status.value
+            doc["is_late"] = preview.is_late
+            doc["late_strike"] = preview.late_strike
+            doc["late_minutes"] = preview.late_minutes
         doc["working_hours_minutes"] = 0
         doc["work_hours"] = 0.0
         doc["work_duration_formatted"] = "00:00"
@@ -374,16 +631,24 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
         doc["undertime_minutes"] = 0
         doc["undertime_hours"] = 0.0
         doc["undertime_formatted"] = "-00:00"
+        doc["pending_overtime_minutes"] = 0
+        doc["claimed_overtime_minutes"] = 0
+        doc["overtime_status"] = "not_applicable"
         return doc
-    doc["working_hours_minutes"] = calc_res.work_minutes
-    doc["work_hours"] = calc_res.work_hours
-    doc["work_duration_formatted"] = calc_res.work_duration_formatted
-    doc["overtime_minutes"] = calc_res.overtime_minutes
-    doc["overtime_hours"] = calc_res.overtime_hours
-    doc["overtime_formatted"] = calc_res.overtime_formatted
-    doc["undertime_minutes"] = calc_res.undertime_minutes
-    doc["undertime_hours"] = calc_res.undertime_hours
-    doc["undertime_formatted"] = calc_res.undertime_formatted
+    claimed, settled, _gate, _ot_buf, _ut_buf, _start, _end = compute_settled_checkout(
+        cin,
+        cout,
+        shift,
+        extra=extra,
+        overtime_status=doc.get("overtime_status"),
+        auto_approve=str(doc.get("overtime_status") or "").lower() == "approved",
+    )
+    if status_val not in keep_status:
+        doc["status"] = claimed.status.value
+        doc["is_late"] = claimed.is_late
+        doc["late_strike"] = claimed.late_strike
+        doc["late_minutes"] = claimed.late_minutes
+    doc.update(settled_to_record_fields(settled))
     return doc
 
 
@@ -654,30 +919,65 @@ async def delete_shift(shift_id: str) -> dict:
     return {"message": f"Shift '{shift_id}' deleted successfully", "id": shift_id}
 
 
+async def _load_user_shift_assignment(user_id: str) -> Optional[dict]:
+    db = get_database()
+    if db is None or not user_id:
+        return None
+    return await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
+
+
+async def is_auto_wfh_for_date(user_id: str, date_str: str) -> bool:
+    """True when the week pattern or a date override schedules WFH (no request needed)."""
+    assignment = await _load_user_shift_assignment(user_id)
+    return bool(resolve_shift_assignment_for_date(assignment, date_str).get("auto_wfh"))
+
+
 async def assign_user_shift(assignment: ShiftAssignmentRequest) -> dict:
-    """Assigns or updates a user's assigned shift."""
+    """Assigns or updates a user's default shift and optional weekday / date pattern."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    shift = await get_shift_by_id(assignment.shift_id)
-    if not shift:
-        raise HTTPException(status_code=404, detail=f"Shift '{assignment.shift_id}' does not exist")
+    shift_ids = {assignment.shift_id}
+    if assignment.weekday_rules:
+        for rule in assignment.weekday_rules.values():
+            if rule.shift_id:
+                shift_ids.add(rule.shift_id)
+    if assignment.date_overrides:
+        for override in assignment.date_overrides:
+            if override.shift_id:
+                shift_ids.add(override.shift_id)
 
+    for sid in shift_ids:
+        if not await get_shift_by_id(sid):
+            raise HTTPException(status_code=404, detail=f"Shift '{sid}' does not exist")
+
+    shift = await get_shift_by_id(assignment.shift_id)
     now_iso = datetime.now(timezone.utc).isoformat()
     doc = {
         "user_id": assignment.user_id,
         "shift_id": assignment.shift_id,
-        "shift_name": shift.name,
+        "shift_name": shift.name if shift else assignment.shift_id,
         "effective_from": assignment.effective_from or get_current_date_str(),
         "updated_at": now_iso,
     }
+    if assignment.weekday_rules is not None:
+        doc["weekday_rules"] = {
+            str(key): rule.model_dump() for key, rule in assignment.weekday_rules.items()
+        }
+    if assignment.date_overrides is not None:
+        doc["date_overrides"] = [override.model_dump() for override in assignment.date_overrides]
+
     await db.user_shift_assignments.update_one(
         {"user_id": assignment.user_id},
         {"$set": doc, "$setOnInsert": {"created_at": now_iso, "id": f"assign_{uuid.uuid4().hex[:10]}"}},
         upsert=True,
     )
-    return {"message": f"Shift '{shift.name}' assigned to user '{assignment.user_id}'", **doc}
+    saved = await db.user_shift_assignments.find_one({"user_id": assignment.user_id}, {"_id": 0})
+    return {
+        "message": f"Shift '{doc['shift_name']}' assigned to user '{assignment.user_id}'",
+        **(saved or doc),
+    }
 
 
 async def get_user_shift_assignments() -> List[dict]:
@@ -689,22 +989,30 @@ async def get_user_shift_assignments() -> List[dict]:
     return docs
 
 
-async def get_shift_for_user(user_id: str, department: Optional[str] = None) -> ShiftResponse:
+async def get_shift_for_user(
+    user_id: str,
+    department: Optional[str] = None,
+    date_str: Optional[str] = None,
+) -> ShiftResponse:
     """
-    Finds the active shift for a given user:
-    1. Check specific assignment in user_shift_assignments.
+    Finds the active shift for a given user on a calendar date (PKT today if omitted):
+    1. Date override, then weekday rule, then legacy assignment.shift_id.
     2. Fallback to HR shift if department is 'HR'.
     3. Fallback to the seeded Standard Shift (never a later custom template).
     """
     db = get_database()
     await ensure_default_shifts()
+    target_date = date_str or get_current_date_str()
 
     if db is not None:
         assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
         if assignment:
-            shift_doc = await db.shifts.find_one({"id": assignment.get("shift_id")}, {"_id": 0})
-            if shift_doc and shift_doc.get("is_active", True):
-                return ShiftResponse(**shift_doc)
+            resolved = resolve_shift_assignment_for_date(assignment, target_date)
+            shift_id = resolved.get("shift_id")
+            if shift_id:
+                shift_doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+                if shift_doc and shift_doc.get("is_active", True):
+                    return ShiftResponse(**shift_doc)
 
         all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
         std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
@@ -782,6 +1090,8 @@ async def persist_auto_absent(
 
     approved_leave = await get_approved_leave_for_date(user_id, date_str)
     if approved_leave:
+        return existing
+    if await is_auto_wfh_for_date(user_id, date_str):
         return existing
 
     try:
@@ -918,10 +1228,8 @@ async def update_security_settings(new_settings: SecuritySettingsSchema) -> Secu
 # 3. WFH & LEAVE APPROVAL CHECKS
 # ──────────────────────────────────────────────────────────
 
-async def is_wfh_approved_for_date(user_id: str, date_str: str) -> bool:
-    """
-    Checks whether a user has an approved WFH request spanning date_str.
-    """
+async def is_wfh_leave_approved_for_date(user_id: str, date_str: str) -> bool:
+    """True only when an approved WFH leave request covers date_str."""
     db = get_database()
     if db is None:
         return False
@@ -936,6 +1244,16 @@ async def is_wfh_approved_for_date(user_id: str, date_str: str) -> bool:
     return leave is not None
 
 
+async def is_wfh_approved_for_date(user_id: str, date_str: str) -> bool:
+    """
+    WFH for this date: approved request, or weekday/date pattern with auto_wfh.
+    A real office punch still records as office (see process_check_in).
+    """
+    if await is_wfh_leave_approved_for_date(user_id, date_str):
+        return True
+    return await is_auto_wfh_for_date(user_id, date_str)
+
+
 async def get_approved_leave_for_date(user_id: str, date_str: str) -> Optional[dict]:
     """
     Retrieves any approved leave document covering date_str for the user.
@@ -946,7 +1264,7 @@ async def get_approved_leave_for_date(user_id: str, date_str: str) -> Optional[d
 
     return await db.leave_requests.find_one({
         "user_id": user_id,
-        "leave_type": {"$nin": ["missed_punch_regularization", "regularization"]},
+        "leave_type": {"$nin": ["missed_punch_regularization", "regularization", "overtime"]},
         "status": LeaveStatus.APPROVED.value,
         "start_date": {"$lte": date_str},
         "end_date": {"$gte": date_str},
@@ -995,11 +1313,12 @@ async def process_check_in(
             detail=f"Attendance already recorded for {date_str}. Check-in: {existing_record.get('check_in')}"
         )
 
-    # 2. Check WFH
-    is_wfh = await is_wfh_approved_for_date(user_id, date_str)
+    # 2. Punch = office unless they have an approved WFH request.
+    # Auto WFH weekdays stay remote only when they do not punch.
+    is_wfh = await is_wfh_leave_approved_for_date(user_id, date_str)
 
     # 3. Shift window: nobody may punch in after their shift has ended
-    shift = await get_shift_for_user(user_id, department)
+    shift = await get_shift_for_user(user_id, department, date_str)
     if is_shift_window_closed(shift) and not custom_time:
         lock_date = closed_shift_attendance_date(shift)
         if lock_date == date_str:
@@ -1166,51 +1485,76 @@ async def process_check_out(
     shift_id = existing.get("shift_id")
     shift = await get_shift_by_id(shift_id) if shift_id else None
     if not shift:
-        shift = await get_shift_for_user(user_id, department)
+        shift = await get_shift_for_user(user_id, department, date_str)
 
     is_wfh = existing.get("is_wfh", False)
     is_short_leave = existing.get("is_short_leave", False)
     short_leave_hours = existing.get("short_leave_hours", 0.0)
     closed_break_minutes = accumulate_break_minutes(existing, time_str)
+    _ = closed_break_minutes
 
-    # Calculate final daily values
-    calc_res = calculate_daily_attendance(
-        check_in_time=cin,
-        check_out_time=time_str,
-        **shift_calc_kwargs(shift, {
-            "is_wfh": is_wfh,
-            "is_short_leave": is_short_leave,
-            "short_leave_hours": short_leave_hours,
-        }),
+    extra = {
+        "is_wfh": is_wfh,
+        "is_short_leave": is_short_leave,
+        "short_leave_hours": short_leave_hours,
+    }
+    claimed, settled, gate, _ot_buf, _ut_buf, _start, shift_end = compute_settled_checkout(
+        cin,
+        time_str,
+        shift,
+        extra=extra,
     )
+    reason = (check_out_req.variance_reason or "").strip()
+    category = (check_out_req.variance_category or "").strip() or None
+    if gate in ("overtime", "undertime") and len(reason) < 3:
+        label = "overtime" if gate == "overtime" else "leaving early"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Please enter a reason for {label}. Your shift ended at {shift_end}.",
+        )
 
     now_iso = datetime.now(timezone.utc).isoformat()
-    status_out = AttendanceStatus.WFH.value if is_wfh else calc_res.status.value
+    status_out = AttendanceStatus.WFH.value if is_wfh else claimed.status.value
     update_doc = {
         "check_out": time_str,
         "punch_out": time_str,
         "break_minutes": int(shift.break_duration_minutes or 0),
         "is_on_break": False,
         "break_start_time": None,
-        "working_hours_minutes": calc_res.work_minutes,
-        "work_hours": calc_res.work_hours,
-        "work_duration_formatted": calc_res.work_duration_formatted,
-        "overtime_minutes": calc_res.overtime_minutes,
-        "overtime_hours": calc_res.overtime_hours,
-        "overtime_formatted": calc_res.overtime_formatted,
-        "undertime_minutes": calc_res.undertime_minutes,
-        "undertime_hours": calc_res.undertime_hours,
-        "undertime_formatted": calc_res.undertime_formatted,
-        "late_minutes": calc_res.late_minutes,
-        "is_late": calc_res.is_late,
-        "late_strike": calc_res.late_strike,
+        **settled_to_record_fields(settled),
+        "late_minutes": claimed.late_minutes,
+        "is_late": claimed.is_late,
+        "late_strike": claimed.late_strike,
         "status": status_out,
         "is_missed_punch": False,
+        "variance_category": category,
         "updated_at": now_iso,
     }
+    if gate == "overtime":
+        update_doc["overtime_reason"] = reason
+        update_doc["overtime_request_id"] = await _upsert_overtime_request(
+            user=user,
+            date_str=date_str,
+            reason=reason,
+            category=category,
+            overtime_minutes=settled.claimed_overtime_minutes,
+            shift_end=shift_end,
+            check_out=time_str,
+        )
+    elif gate == "undertime":
+        update_doc["undertime_reason"] = reason
+        update_doc["overtime_reason"] = None
+    else:
+        update_doc["overtime_reason"] = None
+        update_doc["undertime_reason"] = None
+
     if check_out_req.notes:
         old_notes = existing.get("notes") or ""
         update_doc["notes"] = f"{old_notes} | Check-out: {check_out_req.notes}".strip(" | ")
+    elif reason:
+        old_notes = existing.get("notes") or ""
+        tag = "Overtime" if gate == "overtime" else "Undertime" if gate == "undertime" else "Check-out"
+        update_doc["notes"] = f"{old_notes} | {tag}: {reason}".strip(" | ")
 
     result = await db.attendance_records.find_one_and_update(
         {
@@ -1230,6 +1574,12 @@ async def process_check_out(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Already checked out today or check-in is missing.",
         )
+
+    try:
+        from app.services.log_compliance import recompute_day_score
+        await recompute_day_score(user_id, date_str)
+    except Exception:
+        logger.exception("Failed to recompute daily log score after check-out")
 
     return AttendanceRecordResponse.from_mongo(result)
 
@@ -1329,7 +1679,7 @@ async def get_today_status(
     now_pkt = get_now_pkt()
     target_date = date_str or now_pkt.strftime("%Y-%m-%d")
 
-    shift = await get_shift_for_user(user_id, department)
+    shift = await get_shift_for_user(user_id, department, target_date)
     is_wfh = await is_wfh_approved_for_date(user_id, target_date)
     sec_settings = await get_security_settings()
     whitelist = collect_whitelist_entries(sec_settings)
@@ -1400,6 +1750,34 @@ async def get_today_status(
     show_absent_record = record_status == AttendanceStatus.ABSENT.value and shift_ended
     record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and (cin or show_absent_record)) else None
 
+    gate_payload = checkout_gate_payload("none", shift.end_time, *shift_buffers(shift), 0, 0)
+    if is_checked_in and cin:
+        now_time = get_current_time_str()
+        extra = {
+            "is_wfh": is_wfh,
+            "is_short_leave": bool(record_doc.get("is_short_leave")) if record_doc else False,
+            "short_leave_hours": float((record_doc or {}).get("short_leave_hours") or 0.0),
+        }
+        claimed, settled, gate, ot_buf, ut_buf, _start, shift_end = compute_settled_checkout(
+            cin,
+            now_time,
+            shift,
+            extra=extra,
+        )
+        claimed_mins = (
+            settled.claimed_overtime_minutes if gate == "overtime"
+            else claimed.undertime_minutes if gate == "undertime"
+            else 0
+        )
+        gate_payload = checkout_gate_payload(
+            gate,
+            shift_end,
+            ot_buf,
+            ut_buf,
+            claimed_mins,
+            settled.minutes_past_end,
+        )
+
     punch_status = PunchStatusResponse(
         is_checked_in=is_checked_in,
         check_in_time=check_in_time,
@@ -1429,6 +1807,7 @@ async def get_today_status(
         enforce_ip_whitelist=bool(sec_settings.enforce_ip_whitelist),
         enforce_gps_geofence=bool(sec_settings.enforce_gps_geofence),
         shift_ended=bool(shift_ended and not cin),
+        checkout_gate=gate_payload,
     )
 
 
@@ -1448,13 +1827,8 @@ async def get_my_timesheet(
     month_str = f"{year:04d}-{month:02d}"
     shift = await get_shift_for_user(user_id, department)
     shifts_by_id: Dict[str, ShiftResponse] = {}
-    if db is not None:
-        for raw in await db.shifts.find({}, {"_id": 0}).to_list(200):
-            try:
-                parsed = ShiftResponse(**raw)
-                shifts_by_id[parsed.id] = parsed
-            except Exception:
-                continue
+    if shift and getattr(shift, "id", None):
+        shifts_by_id[shift.id] = shift
 
     records = []
     if db is not None:
@@ -1470,6 +1844,17 @@ async def get_my_timesheet(
             },
             {"_id": 0}
         ).sort("date", 1).to_list(100)
+        needed_ids = {
+            d.get("shift_id") for d in docs
+            if d.get("shift_id") and d.get("shift_id") not in shifts_by_id
+        }
+        if needed_ids:
+            for raw in await db.shifts.find({"id": {"$in": list(needed_ids)}}, {"_id": 0}).to_list(50):
+                try:
+                    parsed = ShiftResponse(**raw)
+                    shifts_by_id[parsed.id] = parsed
+                except Exception:
+                    continue
         for d in docs:
             rec_shift = shifts_by_id.get(d.get("shift_id")) or shift
             apply_daily_calc_fields(d, rec_shift)
@@ -1648,7 +2033,7 @@ async def get_daily_matrix(
     # 3. Fetch approved leaves covering date (excluding missed punch regularization)
     leaves_list = await db.leave_requests.find({
         "status": LeaveStatus.APPROVED.value,
-        "leave_type": {"$nin": ["missed_punch_regularization", "regularization"]},
+        "leave_type": {"$nin": ["missed_punch_regularization", "regularization", "overtime"]},
         "start_date": {"$lte": target_date},
         "end_date": {"$gte": target_date},
     }, {"_id": 0}).to_list(1000)
@@ -1668,7 +2053,7 @@ async def get_daily_matrix(
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
     all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
-    user_shift_map = {a["user_id"]: a["shift_id"] for a in all_assignments}
+    user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     rows: List[DailyMatrixRow] = []
     present_count = 0
@@ -1687,7 +2072,9 @@ async def get_daily_matrix(
         rec = records_by_user.get(u_id)
         approved_leave = leaves_by_user.get(u_id)
 
-        assigned_shift_id = user_shift_map.get(u_id)
+        resolved = resolve_shift_assignment_for_date(user_assignment_map.get(u_id), target_date)
+        assigned_shift_id = resolved.get("shift_id")
+        auto_wfh = bool(resolved.get("auto_wfh"))
         raw_shift = shifts_by_id.get(assigned_shift_id) if assigned_shift_id else None
         if not raw_shift and rec and rec.get("shift_id"):
             raw_shift = shifts_by_id.get(rec.get("shift_id"))
@@ -1744,8 +2131,9 @@ async def get_daily_matrix(
                     is_late_alert = is_late_flag
                     late_minutes = rec.get("late_minutes", calc_res.late_minutes)
 
-                work_mins = calc_res.work_minutes if check_out else 0
-                work_hours = calc_res.work_duration_formatted if check_out else "00:00"
+                stored_mins = rec.get("working_hours_minutes")
+                work_mins = int(stored_mins) if check_out and stored_mins is not None else (calc_res.work_minutes if check_out else 0)
+                work_hours = rec.get("work_duration_formatted") or (calc_res.work_duration_formatted if check_out else "00:00")
                 break_mins_val = shift_break
             else:
                 work_hours = "00:00"
@@ -1817,6 +2205,10 @@ async def get_daily_matrix(
                 is_wfh_approved=bool(is_wfh_flag or rec.get("is_wfh_approved")),
                 notes=rec.get("notes"),
                 record_id=rec.get("id") or rec.get("_id"),
+                overtime_status=rec.get("overtime_status"),
+                pending_overtime_minutes=int(rec.get("pending_overtime_minutes") or 0),
+                undertime_reason=rec.get("undertime_reason"),
+                overtime_reason=rec.get("overtime_reason"),
             ))
 
         elif approved_leave:
@@ -1943,11 +2335,17 @@ async def get_daily_matrix(
             ))
 
         else:
-            # Regular working day: awaiting until this employee's shift ends, then absent
-            status_enum = unpunched_day_status(raw_shift, target_date)
-            is_absent_now = status_enum == AttendanceStatus.ABSENT
-            if is_absent_now:
-                absent_count += 1
+            # Regular working day: awaiting until this employee's shift ends, then absent.
+            # Auto-WFH weekdays stay WFH without a punch.
+            if auto_wfh:
+                status_enum = AttendanceStatus.WFH
+                is_absent_now = False
+                wfh_count += 1
+            else:
+                status_enum = unpunched_day_status(raw_shift, target_date)
+                is_absent_now = status_enum == AttendanceStatus.ABSENT
+                if is_absent_now:
+                    absent_count += 1
             rows.append(DailyMatrixRow(
                 user_id=u_id,
                 employee_code=u_code,
@@ -1963,14 +2361,14 @@ async def get_daily_matrix(
                 break_minutes=shift_break,
                 effective_hours_minutes=0,
                 status=status_enum,
-                status_badge="Absent" if is_absent_now else "Awaiting",
+                status_badge="W.F.H" if auto_wfh else ("Absent" if is_absent_now else "Awaiting"),
                 work_hours="00:00",
                 late_minutes=0,
                 is_late=False,
                 is_late_alert=False,
                 ip_verified=False,
                 gps_verified=False,
-                is_wfh_approved=False,
+                is_wfh_approved=bool(auto_wfh),
                 notes=None,
                 record_id=None,
             ))
@@ -2169,6 +2567,18 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
 
     from app.services.leave_balance import assert_leave_quota
     lt = req.leave_type.value if isinstance(req.leave_type, LeaveType) else str(req.leave_type)
+    if lt in (LeaveType.OVERTIME.value, "overtime"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Overtime requests are created automatically at check-out.",
+        )
+    if lt in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+        correction_target = (req.correction_target or "time_in").strip().lower()
+        if correction_target in ("time_out", "both"):
+            _assert_checkout_not_in_future(
+                req.regularization_date or req.start_date,
+                req.regularization_check_out,
+            )
     await assert_leave_quota(
         user,
         lt,
@@ -2182,12 +2592,26 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
     req_dict["id"] = f"leave_{uuid.uuid4().hex[:10]}"
     req_dict["user_id"] = user_id
     req_dict["user_name"] = user_name
+    req_dict["user_role"] = str(user.get("role") or "team_member").lower()
     req_dict["department"] = department
     req_dict["status"] = LeaveStatus.PENDING.value
     if isinstance(req_dict.get("leave_type"), LeaveType):
         req_dict["leave_type"] = req_dict["leave_type"].value
     req_dict["created_at"] = now_iso
     req_dict["updated_at"] = now_iso
+
+    if lt in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+        orig_in, orig_out = await _snapshot_attendance_punches(
+            user_id, req.regularization_date or req.start_date
+        )
+        if orig_in is None:
+            orig_in = req.original_check_in
+        if orig_out is None:
+            orig_out = req.original_check_out
+        req_dict["original_check_in"] = orig_in
+        req_dict["original_check_out"] = orig_out
+        req_dict["original_punch_in"] = orig_in
+        req_dict["original_punch_out"] = orig_out
 
     await db.leave_requests.insert_one(req_dict)
     created_doc = await db.leave_requests.find_one({"id": req_dict["id"]}, {"_id": 0})
@@ -2200,6 +2624,8 @@ async def get_user_leave_requests(user_id: str) -> List[LeaveResponse]:
     if db is None:
         return []
     docs = await db.leave_requests.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    await _attach_original_punches(docs)
+    await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
 
 
@@ -2225,6 +2651,8 @@ async def get_all_leave_requests(
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(300)
+    await _attach_original_punches(docs)
+    await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
 
 
@@ -2239,6 +2667,8 @@ async def get_pending_leave_requests(department: Optional[str] = None) -> List[L
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    await _attach_original_punches(docs)
+    await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
 
 
@@ -2262,10 +2692,26 @@ async def review_leave_request(
     if not existing:
         raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
 
+    from app.services.leave_permissions import assert_can_review_leave_request
+
+    applicant_role = await _resolve_applicant_role(existing.get("user_id"), existing.get("user_role"))
+    assert_can_review_leave_request(reviewer_user, existing.get("user_id"), applicant_role)
+
     reviewer_id = reviewer_user.get("id")
     reviewer_name = reviewer_user.get("full_name") or reviewer_user.get("name", "Reviewer")
     now_iso = datetime.now(timezone.utc).isoformat()
     status_str = review_data.status.value if isinstance(review_data.status, LeaveStatus) else str(review_data.status)
+
+    if status_str == LeaveStatus.APPROVED.value:
+        leave_type_val = existing.get("leave_type")
+        if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+            correction_target = (existing.get("correction_target") or "time_in").strip().lower()
+            if correction_target in ("time_out", "both"):
+                _assert_checkout_not_in_future(
+                    existing.get("regularization_date") or existing.get("start_date"),
+                    existing.get("regularization_check_out") or existing.get("regularization_punch_out"),
+                    for_reviewer=True,
+                )
 
     update_fields = {
         "status": status_str,
@@ -2288,17 +2734,22 @@ async def review_leave_request(
         leave_type_val = existing.get("leave_type")
         target_user_id = existing.get("user_id")
         user_dept = existing.get("department")
-        shift = await get_shift_for_user(target_user_id, user_dept)
+        review_date = (
+            existing.get("regularization_date")
+            or existing.get("start_date")
+            or get_current_date_str()
+        )
+        shift = await get_shift_for_user(target_user_id, user_dept, review_date)
 
         # 1. Missed Punch Regularization Dynamic Recalculation
         if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
             reg_date = existing.get("regularization_date") or existing.get("start_date")
             existing_rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": reg_date})
-            correction_target = existing.get("correction_target", "both")
+            correction_target = (existing.get("correction_target") or "time_in").strip().lower()
 
             if correction_target == "time_in":
                 reg_in = existing.get("regularization_check_in") or shift.start_time
-                reg_out = existing_rec.get("check_out") if existing_rec else None
+                reg_out = ((existing_rec.get("check_out") or existing_rec.get("punch_out")) if existing_rec else None)
             elif correction_target == "time_out":
                 reg_in = (existing_rec.get("check_in") or existing_rec.get("punch_in")) if existing_rec else shift.start_time
                 reg_out = existing.get("regularization_check_out") or shift.end_time
@@ -2306,7 +2757,42 @@ async def review_leave_request(
                 reg_in = existing.get("regularization_check_in") or shift.start_time
                 reg_out = existing.get("regularization_check_out") or (existing_rec.get("check_out") if existing_rec else None)
 
-            calc_res = calculate_daily_attendance(
+            if reg_in and reg_out:
+                _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+                    reg_in,
+                    reg_out,
+                    shift,
+                    auto_approve=True,
+                )
+                hour_fields = settled_to_record_fields(settled)
+            else:
+                calc_res = calculate_daily_attendance(
+                    check_in_time=reg_in,
+                    check_out_time=reg_out,
+                    **shift_calc_kwargs(shift),
+                )
+                hour_fields = {
+                    "working_hours_minutes": calc_res.work_minutes,
+                    "work_hours": calc_res.work_hours,
+                    "work_duration_formatted": calc_res.work_duration_formatted,
+                    "overtime_minutes": calc_res.overtime_minutes,
+                    "overtime_hours": calc_res.overtime_hours,
+                    "overtime_formatted": calc_res.overtime_formatted,
+                    "undertime_minutes": calc_res.undertime_minutes,
+                    "undertime_hours": calc_res.undertime_hours,
+                    "undertime_formatted": calc_res.undertime_formatted,
+                    "pending_overtime_minutes": 0,
+                    "claimed_overtime_minutes": 0,
+                    "overtime_status": "not_applicable",
+                }
+                settled = None
+            if reg_out:
+                await _close_pending_overtime_requests(
+                    target_user_id,
+                    reg_date,
+                    LeaveStatus.APPROVED.value if (settled and settled.overtime_minutes > 0) else LeaveStatus.CANCELLED.value,
+                )
+            preview = calculate_daily_attendance(
                 check_in_time=reg_in,
                 check_out_time=reg_out,
                 **shift_calc_kwargs(shift),
@@ -2325,19 +2811,11 @@ async def review_leave_request(
                 "punch_in": reg_in,
                 "punch_out": reg_out,
                 "break_minutes": shift.break_duration_minutes if reg_out else 0,
-                "working_hours_minutes": calc_res.work_minutes,
-                "work_hours": calc_res.work_hours,
-                "work_duration_formatted": calc_res.work_duration_formatted,
-                "overtime_minutes": calc_res.overtime_minutes,
-                "overtime_hours": calc_res.overtime_hours,
-                "overtime_formatted": calc_res.overtime_formatted,
-                "undertime_minutes": calc_res.undertime_minutes,
-                "undertime_hours": calc_res.undertime_hours,
-                "undertime_formatted": calc_res.undertime_formatted,
-                "late_minutes": calc_res.late_minutes,
-                "is_late": calc_res.is_late,
-                "late_strike": calc_res.late_strike,
-                "status": calc_res.status.value,
+                **hour_fields,
+                "late_minutes": preview.late_minutes,
+                "is_late": preview.is_late,
+                "late_strike": preview.late_strike,
+                "status": preview.status.value,
                 "is_wfh": False,
                 "is_missed_punch": False,
                 "notes": f"Regularized punch ({correction_target.replace('_', ' ').title()}) approved by {reviewer_name}: {review_data.review_comments or ''}".strip(),
@@ -2348,6 +2826,12 @@ async def review_leave_request(
                 {"$set": att_doc, "$setOnInsert": {"created_at": now_iso}},
                 upsert=True
             )
+            if target_user_id and reg_date and reg_out:
+                try:
+                    from app.services.log_compliance import recompute_day_score
+                    await recompute_day_score(target_user_id, reg_date)
+                except Exception:
+                    logger.exception("Failed to recompute daily log score after punch regularization")
 
         # 2. WFH Dynamic Synchronization
         elif leave_type_val in (LeaveType.WFH.value, "wfh"):
@@ -2433,13 +2917,71 @@ async def review_leave_request(
                     upsert=True,
                 )
 
+        # 5. Overtime credit
+        elif leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
+            target_date = existing.get("overtime_date") or existing.get("start_date")
+            rec = await db.attendance_records.find_one(
+                {"user_id": target_user_id, "date": target_date},
+                {"_id": 0},
+            )
+            cin = (rec.get("check_in") or rec.get("punch_in")) if rec else None
+            cout = (rec.get("check_out") or rec.get("punch_out")) if rec else None
+            if rec and cin and cout:
+                _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+                    cin,
+                    cout,
+                    shift,
+                    extra={
+                        "is_wfh": bool(rec.get("is_wfh")),
+                        "is_short_leave": bool(rec.get("is_short_leave")),
+                        "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+                    },
+                    overtime_status="approved",
+                    auto_approve=True,
+                )
+                await db.attendance_records.update_one(
+                    {"user_id": target_user_id, "date": target_date},
+                    {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
+                )
+
+    elif status_str == LeaveStatus.REJECTED.value:
+        leave_type_val = existing.get("leave_type")
+        if leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
+            target_user_id = existing.get("user_id")
+            user_dept = existing.get("department")
+            target_date = existing.get("overtime_date") or existing.get("start_date")
+            shift = await get_shift_for_user(target_user_id, user_dept, target_date)
+            rec = await db.attendance_records.find_one(
+                {"user_id": target_user_id, "date": target_date},
+                {"_id": 0},
+            )
+            cin = (rec.get("check_in") or rec.get("punch_in")) if rec else None
+            cout = (rec.get("check_out") or rec.get("punch_out")) if rec else None
+            if rec and cin and cout:
+                _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+                    cin,
+                    cout,
+                    shift,
+                    extra={
+                        "is_wfh": bool(rec.get("is_wfh")),
+                        "is_short_leave": bool(rec.get("is_short_leave")),
+                        "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+                    },
+                    overtime_status="rejected",
+                )
+                await db.attendance_records.update_one(
+                    {"user_id": target_user_id, "date": target_date},
+                    {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
+                )
+
     return LeaveResponse(**result)
 
 
 async def delete_leave_request(request_id: str, current_user: dict) -> bool:
     """
-    Deletes a leave, WFH, short leave, or regularization request.
-    Allowed if the current user is the author of the request OR is an Admin/HR/Lead.
+    Deletes a pending leave, WFH, short leave, or regularization request.
+    Allowed for the applicant withdrawing their own request, or Admin.
+    HR and Operations cannot delete someone else's request.
     Idempotent: returns True if request was already deleted.
     """
     db = get_database()
@@ -2450,16 +2992,13 @@ async def delete_leave_request(request_id: str, current_user: dict) -> bool:
     if not existing:
         return True  # Already deleted (idempotent)
 
-    user_id = str(current_user.get("id") or current_user.get("_id") or "")
-    user_role = str(current_user.get("role") or "").lower()
-    is_author = str(existing.get("user_id") or "") == user_id
-    is_management = user_role in ("admin", "hr", "operations", "team_lead")
+    from app.services.leave_permissions import assert_can_delete_leave_request
 
-    if not (is_author or is_management):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have permission to delete this request."
-        )
+    assert_can_delete_leave_request(
+        current_user,
+        existing.get("user_id"),
+        existing.get("status"),
+    )
 
     await db.leave_requests.delete_one({"id": request_id})
     return True
@@ -2491,7 +3030,7 @@ async def admin_manual_attendance_entry(
 
     user_name = target_user.get("full_name") or target_user.get("name", "User")
     department = target_user.get("department")
-    shift = await get_shift_for_user(user_id, department)
+    shift = await get_shift_for_user(user_id, department, date_str)
     existing = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
     rec_id = existing.get("id") if existing else f"att_{user_id}_{date_str}"
 
@@ -2515,17 +3054,38 @@ async def admin_manual_attendance_entry(
         check_out = None
 
     if check_in and not is_absent_override and not is_leave_override:
-        calc_res = calculate_daily_attendance(
-            check_in_time=check_in,
-            check_out_time=check_out,
-            **shift_calc_kwargs(shift),
-        )
-        work_hours = calc_res.work_hours
-        work_duration_formatted = calc_res.work_duration_formatted
-        overtime_hours = calc_res.overtime_hours
-        overtime_formatted = calc_res.overtime_formatted
-        undertime_hours = calc_res.undertime_hours
-        undertime_formatted = calc_res.undertime_formatted
+        if check_out:
+            calc_res, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+                check_in,
+                check_out,
+                shift,
+                auto_approve=True,
+            )
+            work_hours = settled.work_hours
+            work_duration_formatted = settled.work_duration_formatted
+            overtime_hours = settled.overtime_hours
+            overtime_formatted = settled.overtime_formatted
+            undertime_hours = settled.undertime_hours
+            undertime_formatted = settled.undertime_formatted
+            ot_fields = settled_to_record_fields(settled)
+        else:
+            calc_res = calculate_daily_attendance(
+                check_in_time=check_in,
+                check_out_time=check_out,
+                **shift_calc_kwargs(shift),
+            )
+            work_hours = calc_res.work_hours
+            work_duration_formatted = calc_res.work_duration_formatted
+            overtime_hours = calc_res.overtime_hours
+            overtime_formatted = calc_res.overtime_formatted
+            undertime_hours = calc_res.undertime_hours
+            undertime_formatted = calc_res.undertime_formatted
+            ot_fields = {
+                "overtime_minutes": 0,
+                "pending_overtime_minutes": 0,
+                "claimed_overtime_minutes": 0,
+                "overtime_status": "not_applicable",
+            }
         if status_override == AttendanceStatus.WFH:
             late_minutes = 0
             is_late = False
@@ -2553,6 +3113,12 @@ async def admin_manual_attendance_entry(
         is_late = False
         late_strike = 0
         final_status = status_override.value if status_override else AttendanceStatus.ABSENT.value
+        ot_fields = {
+            "overtime_minutes": 0,
+            "pending_overtime_minutes": 0,
+            "claimed_overtime_minutes": 0,
+            "overtime_status": "not_applicable",
+        }
 
     record_doc = {
         "id": f"att_{user_id}_{date_str}",
@@ -2566,7 +3132,7 @@ async def admin_manual_attendance_entry(
         "check_out": check_out,
         "punch_in": check_in,
         "punch_out": check_out,
-        "break_minutes": 0 if is_absent_override or is_leave_override else int(shift.break_duration_minutes or 0),
+        "break_minutes": 0 if is_absent_override or is_leave_override or not check_out else int(shift.break_duration_minutes or 0),
         "working_hours_minutes": int(round(float(work_hours or 0) * 60)),
         "work_hours": work_hours,
         "work_duration_formatted": work_duration_formatted,
@@ -2582,6 +3148,7 @@ async def admin_manual_attendance_entry(
         "is_missed_punch": False,
         "notes": f"Manual override by {admin_name}: {notes or ''}".strip(),
         "updated_at": now_iso,
+        **ot_fields,
     }
 
     await db.attendance_records.update_one(
@@ -2589,6 +3156,18 @@ async def admin_manual_attendance_entry(
         {"$set": record_doc, "$setOnInsert": {"created_at": now_iso}},
         upsert=True
     )
+    await _close_pending_overtime_requests(
+        user_id,
+        date_str,
+        LeaveStatus.APPROVED.value if (ot_fields.get("overtime_minutes") or 0) > 0 else LeaveStatus.CANCELLED.value,
+    )
+
+    if user_id and date_str:
+        try:
+            from app.services.log_compliance import recompute_day_score
+            await recompute_day_score(user_id, date_str)
+        except Exception:
+            logger.exception("Failed to recompute daily log score after attendance override")
 
     return AttendanceRecordResponse(**record_doc)
 
@@ -2606,7 +3185,7 @@ async def override_attendance_record(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
-    date_str = override_data.get("date") or datetime.now(ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d")
+    date_str = override_data.get("date") or get_current_date_str()
     user_id = target_id
 
     # 1. Check if target_id is an existing record ID
@@ -2621,8 +3200,10 @@ async def override_attendance_record(
             user_id = target_id
             rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
 
-    punch_in = override_data.get("punch_in") or override_data.get("check_in")
-    punch_out = override_data.get("punch_out") or override_data.get("check_out")
+    punch_in = _blank_to_none(override_data.get("punch_in")) or _blank_to_none(override_data.get("check_in"))
+    punch_out = _blank_to_none(override_data.get("punch_out"))
+    if punch_out is None:
+        punch_out = _blank_to_none(override_data.get("check_out"))
     status_val = override_data.get("status")
     status_override = AttendanceStatus(status_val) if status_val else None
     notes = override_data.get("notes") or override_data.get("reason") or "HR Attendance Override"

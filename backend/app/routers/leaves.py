@@ -57,11 +57,11 @@ async def get_all_or_user_requests(
 ):
     """
     Get leave/WFH/regularization requests across all statuses.
-    If HR/Lead/Admin/Operations, returns all organization or department requests.
+    If Admin/HR/Operations, returns all organization or department requests.
     Otherwise returns current user's requests.
     """
     user_role = current_user.get("role")
-    if user_role in ["admin", "hr", "operations", "team_lead"]:
+    if user_role in ["admin", "hr", "operations"]:
         return await attendance_service.get_all_leave_requests(
             status_filter=status,
             department=department,
@@ -89,10 +89,10 @@ async def get_my_leave_requests(
 @router.get("/pending", response_model=List[LeaveResponse])
 async def get_pending_requests(
     department: Optional[str] = Query(default=None, description="Filter pending requests by department"),
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead"])),
+    current_user: dict = Depends(require_roles(["admin", "hr", "operations"])),
 ):
     """
-    Get all pending leave requests for HR, Team Lead, and Admin review inbox.
+    Get all pending leave requests for Admin, HR, and Operations review inbox.
     """
     return await attendance_service.get_pending_leave_requests(department=department)
 
@@ -101,7 +101,7 @@ async def get_pending_requests(
 async def review_leave_request(
     id: str,
     review_in: LeaveReviewRequest,
-    current_user: dict = Depends(require_roles(["admin", "hr", "operations", "team_lead"])),
+    current_user: dict = Depends(require_roles(["admin", "hr", "operations"])),
 ):
     """
     Approve or reject a request with audit comments and trigger DYNAMIC SYNCHRONIZATION:
@@ -122,8 +122,9 @@ async def delete_leave_request(
     current_user: dict = Depends(require_internal_user),
 ):
     """
-    Delete a request (e.g. accidental or incorrect submission).
-    Allowed if the current user is the applicant or an Admin/HR.
+    Delete a pending request.
+    Allowed if the current user is the applicant or an Admin.
+    HR and Operations cannot delete someone else's request.
     """
     success = await attendance_service.delete_leave_request(
         request_id=id,

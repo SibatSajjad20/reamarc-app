@@ -23,6 +23,7 @@ import type {
   SecuritySettings,
   CompanyCalendarEvent,
   LeaveBalance,
+  ShiftAssignment,
 } from '../../../types/attendance';
 import type { AdminMember } from '../../../types/admin';
 import { CustomSelect } from '../../ui/CustomSelect';
@@ -38,6 +39,8 @@ import {
 } from '../../../constants/officeLocation';
 import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
 import { OfficePinControls } from '../../attendance/OfficePinControls';
+import { ShiftPatternModal } from './ShiftPatternModal';
+import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal } from '../../../utils/shiftAssignment';
 
 const timeToMinutes = (value?: string | null) => {
   if (!value) return 0;
@@ -97,6 +100,8 @@ export const AttendancePoliciesSection: React.FC = () => {
   // Member Shift Assignments State
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [shiftAssignments, setShiftAssignments] = useState<Record<string, string>>({});
+  const [assignmentDocs, setAssignmentDocs] = useState<Record<string, ShiftAssignment>>({});
+  const [patternMember, setPatternMember] = useState<AdminMember | null>(null);
   const [searchMemberQuery, setSearchMemberQuery] = useState('');
   const [isAssigning, setIsAssigning] = useState<Record<string, boolean>>({});
   const [pendingShiftChange, setPendingShiftChange] = useState<{
@@ -229,12 +234,15 @@ export const AttendancePoliciesSection: React.FC = () => {
 
       if (fetchedAssignments.status === 'fulfilled' && Array.isArray(fetchedAssignments.value)) {
         const map: Record<string, string> = {};
-        fetchedAssignments.value.forEach((a: any) => {
+        const docs: Record<string, ShiftAssignment> = {};
+        fetchedAssignments.value.forEach((a) => {
           if (a.user_id && a.shift_id) {
             map[a.user_id] = a.shift_id;
+            docs[a.user_id] = a;
           }
         });
         setShiftAssignments(map);
+        setAssignmentDocs(docs);
       }
 
       try {
@@ -299,7 +307,11 @@ export const AttendancePoliciesSection: React.FC = () => {
       setIsAssigning((prev) => ({ ...prev, [userId]: true }));
       setShiftAssignments((prev) => ({ ...prev, [userId]: shiftId }));
 
-      await attendanceService.assignShift({ user_id: userId, shift_id: shiftId });
+      const saved = await attendanceService.assignShift({ user_id: userId, shift_id: shiftId });
+      setAssignmentDocs((prev) => ({
+        ...prev,
+        [userId]: { ...prev[userId], ...saved, user_id: userId, shift_id: shiftId },
+      }));
       const targetShift = shifts.find((s) => s.id === shiftId);
       addToast(
         'Shift Assigned 🕒',
@@ -341,6 +353,40 @@ export const AttendancePoliciesSection: React.FC = () => {
     await handleAssignUserShift(member.id, newShiftId);
   };
 
+  const memberDefaultShiftId = (member: AdminMember) => {
+    const isHRMember = member.department?.toUpperCase() === 'HR';
+    return isHRMember
+      ? (shifts.find((s) => s.code === 'HR' || s.name.includes('HR'))?.id || 'hr_shift')
+      : (shifts.find((s) => s.code === 'STD' || s.name.includes('Standard'))?.id || 'standard_shift');
+  };
+
+  const handleSavePattern = async (
+    member: AdminMember,
+    payload: {
+      shift_id: string;
+      weekday_rules: ShiftAssignment['weekday_rules'];
+      date_overrides: ShiftAssignment['date_overrides'];
+    }
+  ) => {
+    try {
+      setIsAssigning((prev) => ({ ...prev, [member.id]: true }));
+      const saved = await attendanceService.assignShift({
+        user_id: member.id,
+        shift_id: payload.shift_id || memberDefaultShiftId(member),
+        weekday_rules: payload.weekday_rules,
+        date_overrides: payload.date_overrides,
+      });
+      setShiftAssignments((prev) => ({ ...prev, [member.id]: saved.shift_id || payload.shift_id }));
+      setAssignmentDocs((prev) => ({ ...prev, [member.id]: { ...saved, user_id: member.id } }));
+      setPatternMember(null);
+      addToast('Week pattern saved', `Updated weekday shifts and WFH for ${member.full_name || 'employee'}.`, 'success');
+    } catch (err: any) {
+      addToast('Pattern failed', err?.message || 'Could not save week pattern.', 'error');
+    } finally {
+      setIsAssigning((prev) => ({ ...prev, [member.id]: false }));
+    }
+  };
+
   const handleConfirmDeleteShift = async () => {
     if (!shiftToDelete) return;
     try {
@@ -377,6 +423,8 @@ export const AttendancePoliciesSection: React.FC = () => {
       start_time: '09:30',
       end_time: '18:30',
       grace_period_minutes: 30,
+      overtime_buffer_minutes: 10,
+      undertime_buffer_minutes: 10,
       break_duration_minutes: 60,
       break_start_time: '13:00',
       break_end_time: '14:00',
@@ -712,7 +760,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   Employee Shift Assignments
                 </h3>
                 <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Assign custom shifts to individual team members. By default, HR department follows HR Shift (09:00-18:00) and other departments follow Standard Shift (09:30-18:30).
+                  Assign a default shift, or a weekday pattern (auto WFH Mon–Fri is editable). Today’s shift is what late and Daily Log use.
                 </p>
               </div>
 
@@ -739,14 +787,15 @@ export const AttendancePoliciesSection: React.FC = () => {
                     <th className="py-3 px-4">Employee</th>
                     <th className="py-3 px-4">Department</th>
                     <th className="py-3 px-4">Role</th>
-                    <th className="py-3 px-4">Designated Shift</th>
-                    <th className="py-3 px-4">Shift Timings</th>
+                    <th className="py-3 px-4">Default Shift</th>
+                    <th className="py-3 px-4">Today</th>
+                    <th className="py-3 px-4">Pattern</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
                   {filteredMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-zinc-400">
+                      <td colSpan={6} className="py-8 text-center text-zinc-400">
                         No team members found.
                       </td>
                     </tr>
@@ -758,7 +807,13 @@ export const AttendancePoliciesSection: React.FC = () => {
                         : (shifts.find((s) => s.code === 'STD' || s.name.includes('Standard'))?.id || 'standard_shift');
 
                       const currentShiftId = shiftAssignments[member.id] || defaultShiftId;
-                      const currentShiftObj = shifts.find((s) => s.id === currentShiftId);
+                      const assignment = assignmentDocs[member.id];
+                      const todayResolved = resolveAssignmentForDate(
+                        assignment || { user_id: member.id, shift_id: currentShiftId },
+                        todayIsoLocal()
+                      );
+                      const todayShift = shifts.find((s) => s.id === (todayResolved.shift_id || currentShiftId));
+                      const patterned = hasWeekPattern(assignment);
 
                       return (
                         <tr key={member.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
@@ -789,10 +844,25 @@ export const AttendancePoliciesSection: React.FC = () => {
                               }))}
                             />
                           </td>
-                          <td className="py-3 px-4 font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                            {currentShiftObj
-                              ? `${currentShiftObj.start_time} — ${currentShiftObj.end_time}`
-                              : '09:30 — 18:30'}
+                          <td className="py-3 px-4 whitespace-nowrap">
+                            <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">
+                              {todayShift
+                                ? `${todayShift.start_time} — ${todayShift.end_time}`
+                                : '09:30 — 18:30'}
+                            </div>
+                            {todayResolved.auto_wfh && (
+                              <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400 mt-0.5">Auto WFH</div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <button
+                              type="button"
+                              disabled={isAssigning[member.id]}
+                              onClick={() => setPatternMember(member)}
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+                            >
+                              {patterned ? 'Edit pattern' : 'Set pattern'}
+                            </button>
                           </td>
                         </tr>
                       );
@@ -1180,6 +1250,37 @@ export const AttendancePoliciesSection: React.FC = () => {
                 </div>
               </div>
 
+              <div className="grid grid-cols-2 gap-3">
+                <NumberStepper
+                  label="OT buffer"
+                  min={0}
+                  max={60}
+                  step={5}
+                  unit="mins"
+                  value={editingShift.overtime_buffer_minutes ?? 10}
+                  onChange={(val) =>
+                    setEditingShift({
+                      ...editingShift,
+                      overtime_buffer_minutes: val,
+                    })
+                  }
+                />
+                <NumberStepper
+                  label="Early-out buffer"
+                  min={0}
+                  max={60}
+                  step={5}
+                  unit="mins"
+                  value={editingShift.undertime_buffer_minutes ?? 10}
+                  onChange={(val) =>
+                    setEditingShift({
+                      ...editingShift,
+                      undertime_buffer_minutes: val,
+                    })
+                  }
+                />
+              </div>
+
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <NumberStepper
@@ -1414,6 +1515,18 @@ export const AttendancePoliciesSection: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {patternMember && (
+        <ShiftPatternModal
+          member={patternMember}
+          assignment={assignmentDocs[patternMember.id]}
+          defaultShiftId={memberDefaultShiftId(patternMember)}
+          shifts={shifts}
+          saving={Boolean(isAssigning[patternMember.id])}
+          onClose={() => setPatternMember(null)}
+          onSave={(payload) => handleSavePattern(patternMember, payload)}
+        />
       )}
 
       {/* ─── Shift Change Confirmation Modal ─── */}

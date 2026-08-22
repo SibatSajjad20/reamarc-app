@@ -5,11 +5,13 @@ import { DashboardView } from './components/views/DashboardView';
 import { PerformanceMarketing } from './components/views/PerformanceMarketing';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { DailyLogView } from './components/views/DailyLogView';
+import { ExceptionInboxView } from './components/views/ExceptionInboxView';
 import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ProfileSettingsView } from './components/views/ProfileSettingsView';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { useAdAccounts } from './hooks/useAdAccounts';
@@ -18,6 +20,7 @@ import { Sparkles } from 'lucide-react';
 function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading } = useAuth();
+  const moduleClicksBlocked = useModuleLoadBlocked();
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -32,6 +35,9 @@ function AppInner() {
     ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
+  const canSeeExceptions = user?.role === 'team_lead' || isHR;
+
+  const v1Views: ViewType[] = ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions'];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'marketing';
@@ -42,7 +48,7 @@ function AppInner() {
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
     if (saved === 'dashboard' && isAdmin) return 'attendance';
-    return saved && ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile'].includes(saved)
+    return saved && v1Views.includes(saved)
       ? saved
       : isAdmin
       ? 'attendance'
@@ -103,6 +109,16 @@ function AppInner() {
           setCurrentView('daily-log');
           localStorage.setItem('reamarc_active_view', 'daily-log');
         }
+      } else if (currentPath === 'exceptions') {
+        if (canSeeExceptions) {
+          setCurrentView('exceptions');
+          localStorage.setItem('reamarc_active_view', 'exceptions');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'marketing') {
         if (canSeeMarketing) {
           setCurrentView('marketing');
@@ -119,7 +135,7 @@ function AppInner() {
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
-        if (!currentSaved || !['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile'].includes(currentSaved)) {
+        if (!currentSaved || !v1Views.includes(currentSaved)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -139,6 +155,11 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'exceptions' && !canSeeExceptions) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'dashboard' && (isAdmin || isClient)) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -151,7 +172,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
@@ -162,6 +183,7 @@ function AppInner() {
       allowedViews.push('attendance');
       allowedViews.push('daily-log');
     }
+    if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
     allowedViews.push('profile');
@@ -275,7 +297,17 @@ function AppInner() {
       />
 
       {/* Main View Display Area */}
-      <main className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-slate-50 dark:bg-[#0f1117]">
+      <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-slate-50 dark:bg-[#0f1117]">
+        {moduleClicksBlocked && (
+          <div
+            className="absolute inset-0 z-40"
+            aria-hidden
+            onPointerDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          />
+        )}
         {currentView === 'dashboard' && !isAdmin && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <DashboardView onNavigateView={handleSelectView} />
@@ -303,6 +335,12 @@ function AppInner() {
         {currentView === 'daily-log' && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <DailyLogView />
+          </div>
+        )}
+
+        {currentView === 'exceptions' && canSeeExceptions && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <ExceptionInboxView onOpenDailyLog={() => handleSelectView('daily-log')} />
           </div>
         )}
 
@@ -335,7 +373,9 @@ export function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <AppInner />
+        <ModuleLoadGateProvider>
+          <AppInner />
+        </ModuleLoadGateProvider>
       </AuthProvider>
     </ToastProvider>
   );

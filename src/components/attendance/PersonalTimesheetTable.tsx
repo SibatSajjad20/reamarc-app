@@ -308,7 +308,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       {isLoading && rows.length === 0 && !summary ? (
         <div className="py-24 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
           <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading personal timesheet data...</span>
+          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+            {employeeName ? `Loading ${employeeName}'s timesheet...` : 'Loading timesheet data...'}
+          </span>
         </div>
       ) : rows.length === 0 ? (
         <div className="py-16 text-center text-zinc-400 dark:text-zinc-500">
@@ -361,7 +363,11 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 let utDisplay = '-';
 
                 if (!isOffDay && record && punchIn && punchOut) {
-                  if (record.overtime_minutes > 0) {
+                  if (record.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0) {
+                    const otH = Math.floor((record.pending_overtime_minutes || 0) / 60);
+                    const otM = (record.pending_overtime_minutes || 0) % 60;
+                    otDisplay = `Pending +${String(otH).padStart(2, '0')}:${String(otM).padStart(2, '0')}`;
+                  } else if (record.overtime_minutes > 0) {
                     const otH = Math.floor(record.overtime_minutes / 60);
                     const otM = record.overtime_minutes % 60;
                     otDisplay = `+${String(otH).padStart(2, '0')}:${String(otM).padStart(2, '0')}`;
@@ -452,7 +458,16 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     {/* Overtime */}
                     <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
                       {otDisplay !== '-' ? (
-                        <span className={record && record.overtime_minutes > 0 ? "text-emerald-600 dark:text-emerald-400" : "text-zinc-600 dark:text-zinc-400"}>
+                        <span
+                          className={
+                            record?.overtime_status === 'pending'
+                              ? 'text-amber-600 dark:text-amber-400'
+                              : record && record.overtime_minutes > 0
+                              ? 'text-emerald-600 dark:text-emerald-400'
+                              : 'text-zinc-600 dark:text-zinc-400'
+                          }
+                          title={record?.overtime_reason || undefined}
+                        >
                           {otDisplay}
                         </span>
                       ) : (
@@ -463,8 +478,16 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     {/* Undertime */}
                     <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
                       {utDisplay !== '-' ? (
-                        <span className={record && record.undertime_minutes > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"}>
+                        <span
+                          className={record && record.undertime_minutes > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"}
+                          title={record?.undertime_reason || undefined}
+                        >
                           {utDisplay}
+                          {record?.undertime_reason ? (
+                            <span className="block text-[10px] font-normal text-zinc-400 truncate max-w-[140px]">
+                              {record.undertime_reason}
+                            </span>
+                          ) : null}
                         </span>
                       ) : (
                         <span className="text-zinc-400 font-normal">-</span>

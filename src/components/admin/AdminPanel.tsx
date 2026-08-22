@@ -3,6 +3,7 @@ import { adminService } from '../../services/adminService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { AdminSidebarNav } from './AdminSidebarNav';
 import type { AdminSectionType } from './AdminSidebarNav';
 import { UserManagementSection } from './sections/UserManagementSection';
@@ -42,6 +43,7 @@ export const AdminPanel: React.FC = () => {
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [activities, setActivities] = useState<Record<string, MemberActivity>>({});
   const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(true);
+  useModuleLoadGate(isLoadingMembers);
   const [isSendingReminder, setIsSendingReminder] = useState<Record<string, boolean>>({});
 
   // Workspaces (from hook)
@@ -130,9 +132,14 @@ export const AdminPanel: React.FC = () => {
     if (!memberToDelete) return;
     try {
       await adminService.deleteMember(memberToDelete.id);
-      addToast('Member Removed', `${memberToDelete.full_name} was removed from directory.`, 'info');
+      addToast(
+        'Member Removed',
+        `${memberToDelete.full_name} and all of their daily logs, attendance, and leave records were deleted.`,
+        'info'
+      );
       setMemberToDelete(null);
       await fetchMembers();
+      window.dispatchEvent(new Event('reamarc-member-deleted'));
     } catch (err: any) {
       addToast('Error', err.message || 'Failed to delete member', 'warning');
     }
@@ -208,10 +215,9 @@ export const AdminPanel: React.FC = () => {
     return Object.values(activities).filter(
       (a) =>
         a.role !== 'admin' &&
-        a.role !== 'hr' &&
         a.role !== 'operations' &&
         a.role !== 'client' &&
-        (!a.logged_today || a.days_missed > 0)
+        (a.missing_dates || []).length > 0,
     ).length;
   }, [activities]);
 
@@ -366,7 +372,8 @@ export const AdminPanel: React.FC = () => {
               Remove {memberToDelete.full_name}?
             </h3>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              This will permanently revoke access and remove the user account from the directory.
+              This permanently deletes their account, Daily Log entries, Exception inbox items,
+              attendance punches, and leave records. This cannot be undone.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button

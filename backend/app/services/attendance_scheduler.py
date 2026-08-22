@@ -169,7 +169,7 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             # Resolve user's shift for expected hours
             shift = await attendance_service.get_shift_by_id(shift_id) if shift_id else None
             if not shift:
-                shift = await attendance_service.get_shift_for_user(u_id, u_dept)
+                shift = await attendance_service.get_shift_for_user(u_id, u_dept, target_date)
 
             expected_hours = float(shift.expected_hours) if shift else 8.0
             expected_minutes = int(round(expected_hours * 60))
@@ -252,9 +252,16 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
                 u_name = u.get("full_name") or u.get("name", "User")
                 u_dept = u.get("department")
 
-                shift = await attendance_service.get_shift_for_user(u_id, u_dept)
+                shift = await attendance_service.get_shift_for_user(u_id, u_dept, target_date)
                 expected_hours = float(shift.expected_hours) if shift else 8.0
                 expected_minutes = int(round(expected_hours * 60))
+                auto_wfh = await attendance_service.is_auto_wfh_for_date(u_id, target_date)
+                day_status = AttendanceStatus.WFH.value if auto_wfh else AttendanceStatus.ABSENT.value
+                day_notes = (
+                    "Auto-marked WFH from weekday pattern by Midnight Background Worker"
+                    if auto_wfh
+                    else "Auto-marked Absent by Midnight Background Worker"
+                )
 
                 absent_doc = {
                     "user_id": u_id,
@@ -265,24 +272,24 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
                     "shift_name": shift.name if shift else "Standard Shift",
                     "check_in": None,
                     "check_out": None,
-                    "work_hours": 0.0,
-                    "working_hours_minutes": 0,
-                    "work_duration_formatted": "00:00",
+                    "work_hours": 0.0 if not auto_wfh else expected_hours,
+                    "working_hours_minutes": 0 if not auto_wfh else expected_minutes,
+                    "work_duration_formatted": "00:00" if not auto_wfh else format_minutes_to_hhmm(expected_minutes),
                     "overtime_hours": 0.0,
                     "overtime_minutes": 0,
                     "overtime_formatted": "+00:00",
-                    "undertime_hours": expected_hours,
-                    "undertime_minutes": expected_minutes,
-                    "undertime_formatted": format_minutes_to_hhmm(-expected_minutes, show_sign=True),
+                    "undertime_hours": 0.0 if auto_wfh else expected_hours,
+                    "undertime_minutes": 0 if auto_wfh else expected_minutes,
+                    "undertime_formatted": "+00:00" if auto_wfh else format_minutes_to_hhmm(-expected_minutes, show_sign=True),
                     "late_minutes": 0,
                     "is_late": False,
                     "late_strike": 0,
-                    "status": AttendanceStatus.ABSENT.value,
-                    "is_wfh": False,
+                    "status": day_status,
+                    "is_wfh": bool(auto_wfh),
                     "is_missed_punch": False,
                     "is_short_leave": False,
                     "short_leave_hours": 0.0,
-                    "notes": "Auto-marked Absent by Midnight Background Worker",
+                    "notes": day_notes,
                     "updated_at": now_iso,
                 }
 
@@ -333,31 +340,41 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
             {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
             {"_id": 0, "hashed_password": 0},
         ).to_list(1000)
+        today_str = now_pkt.strftime("%Y-%m-%d")
+        yesterday_str = (now_pkt.date() - timedelta(days=1)).isoformat()
         for user in users:
-            shift = await attendance_service.get_shift_for_user(user.get("id"), user.get("department"))
-            if not attendance_service.is_shift_window_closed(shift, now_pkt):
-                continue
-            date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
-            if not await is_workday_for_date(date_str):
-                skipped += 1
-                continue
-            before = await db.attendance_records.find_one(
-                {"user_id": user.get("id"), "date": date_str},
-                {"_id": 0, "check_in": 1, "punch_in": 1, "status": 1},
-            )
-            if before and (before.get("check_in") or before.get("punch_in")):
-                continue
-            doc = await attendance_service.persist_auto_absent(
-                user,
-                shift,
-                date_str,
-                notes="Auto-marked Absent after shift end without check-in",
-            )
-            if doc and str(doc.get("status")) == AttendanceStatus.ABSENT.value and not (
-                doc.get("check_in") or doc.get("punch_in")
-            ):
-                if not before or str(before.get("status")) != AttendanceStatus.ABSENT.value:
-                    closed += 1
+            uid = user.get("id")
+            dept = user.get("department")
+            for check_date in (today_str, yesterday_str):
+                shift = await attendance_service.get_shift_for_user(uid, dept, check_date)
+                if await attendance_service.is_auto_wfh_for_date(uid, check_date):
+                    skipped += 1
+                    continue
+                if not attendance_service.is_shift_window_closed(shift, now_pkt):
+                    continue
+                date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
+                if date_str != check_date:
+                    continue
+                if not await is_workday_for_date(date_str):
+                    skipped += 1
+                    continue
+                before = await db.attendance_records.find_one(
+                    {"user_id": uid, "date": date_str},
+                    {"_id": 0, "check_in": 1, "punch_in": 1, "status": 1},
+                )
+                if before and (before.get("check_in") or before.get("punch_in")):
+                    continue
+                doc = await attendance_service.persist_auto_absent(
+                    user,
+                    shift,
+                    date_str,
+                    notes="Auto-marked Absent after shift end without check-in",
+                )
+                if doc and str(doc.get("status")) == AttendanceStatus.ABSENT.value and not (
+                    doc.get("check_in") or doc.get("punch_in")
+                ):
+                    if not before or str(before.get("status")) != AttendanceStatus.ABSENT.value:
+                        closed += 1
     except Exception as e:
         logger.error(f"[Scheduler] Error closing elapsed shifts: {e}")
         return {"success": False, "closed": closed, "error": str(e)}

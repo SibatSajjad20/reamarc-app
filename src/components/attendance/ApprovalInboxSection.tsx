@@ -10,11 +10,19 @@ import {
   Search,
   X,
   Trash2,
+  AlertTriangle,
 } from 'lucide-react';
 import type { AttendanceRequest, RequestStatus } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import { isFuturePktClockTime } from '../../constants/attendance';
+import {
+  canDeleteLeaveRequest,
+  canReviewLeaveRequest,
+  reviewScopeHint,
+} from '../../utils/leaveRequestAccess';
 
 interface ApprovalInboxSectionProps {
   requests: AttendanceRequest[];
@@ -23,12 +31,34 @@ interface ApprovalInboxSectionProps {
   canReview?: boolean;
 }
 
+const hhmm = (value?: string | null) => {
+  if (!value) return '—';
+  return value.substring(0, 5);
+};
+
+const changeArrow = (from?: string | null, to?: string | null) => `${hhmm(from)} → ${hhmm(to)}`;
+
+const formatCorrectionChange = (req: AttendanceRequest): string => {
+  const origIn = req.original_punch_in || req.original_check_in;
+  const origOut = req.original_punch_out || req.original_check_out;
+  const nextIn = req.regularization_punch_in || req.regularization_check_in;
+  const nextOut = req.regularization_punch_out || req.regularization_check_out;
+  if (req.correction_target === 'time_in') {
+    return `Time In: ${changeArrow(origIn, nextIn)}`;
+  }
+  if (req.correction_target === 'time_out') {
+    return `Time Out: ${changeArrow(origOut, nextOut)}`;
+  }
+  return `In: ${changeArrow(origIn, nextIn)} · Out: ${changeArrow(origOut, nextOut)}`;
+};
+
 export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
   requests,
   onRefresh,
   canReview = true,
 }) => {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const [typeFilter, setTypeFilter] = useState('All');
   const [statusFilter, setStatusFilter] = useState('All');
   const [searchTerm, setSearchTerm] = useState('');
@@ -50,7 +80,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         (typeFilter === 'leave' && req.request_type === 'leave') ||
         (typeFilter === 'short_leave' && req.request_type === 'short_leave') ||
         (typeFilter === 'wfh' && req.request_type === 'wfh') ||
-        (typeFilter === 'regularization' && req.request_type === 'regularization');
+        (typeFilter === 'regularization' && req.request_type === 'regularization') ||
+        (typeFilter === 'overtime' && req.request_type === 'overtime');
 
       const matchesStatus =
         statusFilter === 'All' || req.status.toLowerCase() === statusFilter.toLowerCase();
@@ -83,6 +114,28 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
 
     if (reviewingItem.action === 'rejected' && !reviewComment.trim()) {
       addToast('Rejection Reason Required', 'Please provide a justification for declining this request.', 'warning');
+      return;
+    }
+
+    const req = reviewingItem.request;
+    if (!canReviewLeaveRequest(user?.id, user?.role, req)) {
+      addToast('Not allowed', 'You cannot review this request.', 'warning');
+      return;
+    }
+    const outTime = req.regularization_punch_out || req.regularization_check_out || '';
+    const correctionClosesDay =
+      req.request_type === 'regularization' &&
+      (req.correction_target === 'both' || req.correction_target === 'time_out');
+    if (
+      reviewingItem.action === 'approved' &&
+      correctionClosesDay &&
+      isFuturePktClockTime(req.start_date, outTime)
+    ) {
+      addToast(
+        'This would check them out too early',
+        `Time Out ${outTime} is still in the future. Ask for Time In Only, or use Daily Matrix override and clear Time Out so they can still Check Out.`,
+        'warning'
+      );
       return;
     }
 
@@ -151,6 +204,13 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700">
             <Sparkles className="w-3 h-3 text-amber-600" /> Correction
+          </span>
+        );
+      case 'overtime':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+            <Clock className="w-3 h-3" /> Overtime
+            {req.overtime_minutes ? ` (+${String(Math.floor(req.overtime_minutes / 60)).padStart(2, '0')}:${String(req.overtime_minutes % 60).padStart(2, '0')})` : ''}
           </span>
         );
       default:
@@ -277,6 +337,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 { value: 'short_leave', label: 'Type: Short Leave' },
                 { value: 'wfh', label: 'Type: WFH' },
                 { value: 'regularization', label: 'Type: Correction' },
+                { value: 'overtime', label: 'Type: Overtime' },
               ]}
             />
           </div>
@@ -334,6 +395,12 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               ) : (
                 filteredRequests.map((req) => {
                   const isPending = req.status === 'pending';
+                  const canReviewThis =
+                    canReview &&
+                    isPending &&
+                    canReviewLeaveRequest(user?.id, user?.role, req);
+                  const canDeleteThis = canDeleteLeaveRequest(user?.id, user?.role, req);
+                  const scopeHint = isPending ? reviewScopeHint(user?.id, user?.role, req) : null;
 
                   return (
                     <tr
@@ -373,11 +440,21 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                           <div>
                             <p className="font-semibold">{req.start_date}</p>
                             <p className="text-[10px] text-zinc-400 font-mono">
+                              {formatCorrectionChange(req)}
+                            </p>
+                            <p className="text-[10px] text-zinc-400">
                               {req.correction_target === 'time_in'
-                                ? `Time In: ${req.regularization_punch_in || req.regularization_check_in || '--'} (In Only)`
+                                ? 'In only'
                                 : req.correction_target === 'time_out'
-                                ? `Time Out: ${req.regularization_punch_out || req.regularization_check_out || '--'} (Out Only)`
-                                : `In: ${req.regularization_punch_in || req.regularization_check_in || '--'} | Out: ${req.regularization_punch_out || req.regularization_check_out || '--'}`}
+                                ? 'Out only'
+                                : 'In & Out'}
+                            </p>
+                          </div>
+                        ) : req.request_type === 'overtime' ? (
+                          <div>
+                            <p className="font-semibold">{req.start_date}</p>
+                            <p className="text-[10px] text-zinc-400 font-mono">
+                              Shift end {req.shift_end || '—'} → Out {req.check_out || '—'}
                             </p>
                           </div>
                         ) : req.start_date === req.end_date ? (
@@ -392,9 +469,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       {/* Reason */}
                       <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 max-w-xs truncate" title={req.reason}>
                         {req.reason}
-                        {req.rejection_reason && (
+                        {(req.rejection_reason || req.review_comments) && (
                           <p className="text-[10px] text-rose-600 font-semibold mt-0.5 truncate">
-                            Note: {req.rejection_reason}
+                            Note: {req.rejection_reason || req.review_comments}
                           </p>
                         )}
                       </td>
@@ -412,7 +489,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       {/* Actions */}
                       <td className="py-3.5 px-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
-                          {canReview && isPending && (
+                          {canReviewThis && (
                             <>
                               <button
                                 type="button"
@@ -430,20 +507,26 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                               </button>
                             </>
                           )}
+                          {isPending && !canReviewThis && scopeHint && (
+                            <span className="text-[11px] text-zinc-400 mr-1 max-w-[11rem] truncate" title={scopeHint}>
+                              {scopeHint}
+                            </span>
+                          )}
                           {!canReview && !isPending && req.reviewed_by_name && (
                             <span className="text-[11px] text-zinc-400 mr-1">
                               By {req.reviewed_by_name}
                             </span>
                           )}
-                          {/* Delete / Cancel Request Button */}
-                          <button
-                            type="button"
-                            onClick={() => setDeletingItem(req)}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 dark:hover:text-rose-400 transition-colors cursor-pointer"
-                            title="Delete / Cancel Request"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canDeleteThis && (
+                            <button
+                              type="button"
+                              onClick={() => setDeletingItem(req)}
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                              title="Delete / Cancel Request"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -486,23 +569,47 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               </p>
               <p>
                 <strong>Dates / Time:</strong> {reviewingItem.request.start_date}{' '}
-                {reviewingItem.request.request_type === 'regularization' && (
-                  <span className="font-semibold text-amber-600 dark:text-amber-400 ml-1">
-                    [{reviewingItem.request.correction_target === 'time_in'
-                      ? `Time In: ${reviewingItem.request.regularization_punch_in || reviewingItem.request.regularization_check_in || '--'}`
-                      : reviewingItem.request.correction_target === 'time_out'
-                      ? `Time Out: ${reviewingItem.request.regularization_punch_out || reviewingItem.request.regularization_check_out || '--'}`
-                      : `In: ${reviewingItem.request.regularization_punch_in || '--'} | Out: ${reviewingItem.request.regularization_punch_out || '--'}`}]
-                  </span>
-                )}
                 {reviewingItem.request.end_date !== reviewingItem.request.start_date
                   ? `to ${reviewingItem.request.end_date}`
                   : ''}
               </p>
+              {reviewingItem.request.request_type === 'regularization' && (
+                <p>
+                  <strong>Punch change:</strong>{' '}
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                    {formatCorrectionChange(reviewingItem.request)}
+                  </span>
+                </p>
+              )}
+              {reviewingItem.request.request_type === 'overtime' && (
+                <p>
+                  <strong>Claimed overtime:</strong>{' '}
+                  <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                    {reviewingItem.request.overtime_minutes
+                      ? `+${String(Math.floor(reviewingItem.request.overtime_minutes / 60)).padStart(2, '0')}:${String(reviewingItem.request.overtime_minutes % 60).padStart(2, '0')}`
+                      : '—'}
+                  </span>
+                  {reviewingItem.request.shift_end && reviewingItem.request.check_out
+                    ? ` · ${reviewingItem.request.shift_end} → ${reviewingItem.request.check_out}`
+                    : ''}
+                </p>
+              )}
               <p>
                 <strong>Reason:</strong> {reviewingItem.request.reason}
               </p>
             </div>
+
+            {reviewingItem.action === 'approved' &&
+              reviewingItem.request.request_type === 'regularization' &&
+              (reviewingItem.request.correction_target === 'both' ||
+                reviewingItem.request.correction_target === 'time_out') && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-300 flex items-start gap-2 text-xs">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="leading-tight">
+                    Approving Time Out will mark this person as checked out even if their shift has not ended. Overtime after that time will not count. If they are still working, reject this and ask for <strong>Time In Only</strong>, or use Daily Matrix override and click X on Time Out.
+                  </p>
+                </div>
+              )}
 
             <form onSubmit={handleConfirmReview} className="space-y-3 text-xs">
               <div>

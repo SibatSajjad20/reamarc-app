@@ -32,6 +32,7 @@ from app.core.security import (
 )
 from app.database import get_database
 from app.services.email_service import EmailService
+from app.services.log_compliance import pkt_today, PKT, batch_expected_targets, person_day_is_leave, person_day_is_due
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
 
 router = APIRouter(
@@ -187,8 +188,8 @@ async def list_members_activity(
     cursor = db.users.find(query).sort("full_name", 1)
     users = await cursor.to_list(200)
 
-    now = datetime.now(timezone.utc)
-    today_str = now.strftime("%Y-%m-%d")
+    now = datetime.now(PKT)
+    today_str = pkt_today()
 
     try:
         start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
@@ -201,6 +202,18 @@ async def list_members_activity(
         if is_workday(curr):
             workdays.append(curr.strftime("%Y-%m-%d"))
         curr -= timedelta(days=1)
+
+    user_ids = [u.get("id") or str(u.get("_id")) for u in users]
+    att_by_key: dict = {}
+    if user_ids and workdays:
+        att_docs = await db.attendance_records.find(
+            {"user_id": {"$in": user_ids}, "date": {"$in": workdays}},
+            {"_id": 0, "user_id": 1, "date": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "status": 1},
+        ).to_list(4000)
+        for rec in att_docs:
+            if rec.get("user_id") and rec.get("date"):
+                att_by_key[(rec["user_id"], rec["date"])] = rec
+    targets = await batch_expected_targets(users, workdays) if workdays else {}
 
     result = []
     for u in users:
@@ -217,7 +230,17 @@ async def list_members_activity(
         logged_dates = {e["date"] for e in recent_entries if e.get("date")}
         logged_today = today_str in logged_dates
 
-        missing = [d for d in workdays if d not in logged_dates]
+        missing = []
+        for d in workdays:
+            if d in logged_dates:
+                continue
+            att = att_by_key.get((uid, d)) or {}
+            target = targets.get((uid, d)) or {}
+            if person_day_is_leave(target, att):
+                continue
+            if d == today_str and not person_day_is_due(d, today_str, target, att):
+                continue
+            missing.append(d)
 
         last_entry = await db.daily_log_entries.find_one(
             {"$or": [{"user_id": uid}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}]},
@@ -262,8 +285,22 @@ async def remind_member_log(
     if not member:
         raise HTTPException(status_code=404, detail="Member not found.")
 
-    now = datetime.now(timezone.utc)
-    today_str = now.strftime("%Y-%m-%d")
+    open_req = await db.daily_log_day_scores.find_one(
+        {
+            "user_id": user_id,
+            "action_status": {"$in": ["waiting_on_employee", "waiting_on_reviewer"]},
+        },
+        {"_id": 0, "date": 1, "action_by_name": 1},
+    )
+    if open_req:
+        who = open_req.get("action_by_name") or "their lead"
+        raise HTTPException(
+            status_code=409,
+            detail=f"Already has an open log request from {who} for {open_req.get('date')}. Use Exceptions instead of a second reminder.",
+        )
+
+    now = datetime.now(PKT)
+    today_str = pkt_today()
     try:
         start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
     except Exception:
@@ -285,9 +322,28 @@ async def remind_member_log(
         {"date": 1}
     ).to_list(20)
     logged_dates = {e["date"] for e in recent_entries if e.get("date")}
-    missing_dates = [d for d in workdays if d not in logged_dates]
-    if not missing_dates and is_workday(now.date()):
-        missing_dates = [today_str]
+    att_docs = await db.attendance_records.find(
+        {"user_id": user_id, "date": {"$in": workdays}},
+        {"_id": 0, "date": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "status": 1},
+    ).to_list(20)
+    att_by_day = {d.get("date"): d for d in att_docs if d.get("date")}
+    targets = await batch_expected_targets([member], workdays)
+    missing_dates = []
+    for d in workdays:
+        if d in logged_dates:
+            continue
+        att = att_by_day.get(d) or {}
+        target = targets.get((user_id, d)) or {}
+        if person_day_is_leave(target, att):
+            continue
+        if d == today_str and not person_day_is_due(d, today_str, target, att):
+            continue
+        missing_dates.append(d)
+    if not missing_dates:
+        raise HTTPException(
+            status_code=409,
+            detail="Nothing to remind — they are on leave or today's shift has not finished.",
+        )
 
     formatted_missing = ", ".join(missing_dates) if missing_dates else today_str
 
@@ -493,7 +549,10 @@ async def delete_member(
         )
 
     await db.users.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    return {"message": "Member successfully deleted."}
+    from app.services.member_cleanup import purge_user_related_records, purge_orphaned_member_records
+    await purge_user_related_records(db, existing_user, user_id)
+    await purge_orphaned_member_records(db)
+    return {"message": "Member and all related logs, attendance, and leave records were deleted."}
 
 
 # ─── WORKSPACES MANAGEMENT ───────────────────────────────────────────────────

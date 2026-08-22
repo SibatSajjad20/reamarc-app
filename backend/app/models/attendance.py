@@ -32,6 +32,7 @@ class LeaveType(str, Enum):
     WFH = "wfh"
     SHORT_LEAVE = "short_leave"
     MISSED_PUNCH_REGULARIZATION = "missed_punch_regularization"
+    OVERTIME = "overtime"
 
 
 class LeaveStatus(str, Enum):

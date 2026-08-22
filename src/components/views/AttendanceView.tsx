@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Grid,
   BarChart3,
@@ -9,8 +9,10 @@ import {
   Clock,
   Calendar,
   Users,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
 import { adminService } from '../../services/adminService';
@@ -77,7 +79,9 @@ export const AttendanceView: React.FC = () => {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
 
   // Loading States
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoadingTimesheet, setIsLoadingTimesheet] = useState<boolean>(false);
+  useModuleLoadGate(isLoading);
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
   // Data States
@@ -88,6 +92,8 @@ export const AttendanceView: React.FC = () => {
   const [directoryMembers, setDirectoryMembers] = useState<AdminMember[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeTimesheet, setEmployeeTimesheet] = useState<PersonalTimesheetResponse | null>(null);
+  const timesheetAbortRef = useRef<AbortController | null>(null);
+  const timesheetReqIdRef = useRef(0);
 
   // Modal States
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -159,14 +165,28 @@ export const AttendanceView: React.FC = () => {
   const loadEmployeeTimesheet = useCallback(async (userId: string, y: number, m: number) => {
     if (!userId) {
       setEmployeeTimesheet(null);
+      setIsLoadingTimesheet(false);
       return;
     }
+    timesheetAbortRef.current?.abort();
+    const controller = new AbortController();
+    timesheetAbortRef.current = controller;
+    const reqId = ++timesheetReqIdRef.current;
+    setIsLoadingTimesheet(true);
+    setEmployeeTimesheet(null);
     try {
-      const data = await attendanceService.getEmployeeTimesheet(userId, y, m);
+      const data = await attendanceService.getEmployeeTimesheet(userId, y, m, { signal: controller.signal });
+      if (reqId !== timesheetReqIdRef.current) return;
       setEmployeeTimesheet(data || null);
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== timesheetReqIdRef.current) return;
       console.error('Failed to load employee timesheet:', err);
       setEmployeeTimesheet(null);
+    } finally {
+      if (reqId === timesheetReqIdRef.current) {
+        setIsLoadingTimesheet(false);
+      }
     }
   }, []);
 
@@ -221,13 +241,11 @@ export const AttendanceView: React.FC = () => {
 
   useEffect(() => {
     if (!isManagementRole || !selectedEmployeeId) return;
-    if (activeTab !== 'employee-timesheets' && activeTab !== 'punctuality-hub') return;
-    if (activeTab === 'employee-timesheets') {
-      setIsLoading(true);
-      loadEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth).finally(() =>
-        setIsLoading(false)
-      );
-    }
+    if (activeTab !== 'employee-timesheets') return;
+    const timer = window.setTimeout(() => {
+      void loadEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth);
+    }, 150);
+    return () => window.clearTimeout(timer);
   }, [
     isManagementRole,
     activeTab,
@@ -256,9 +274,6 @@ export const AttendanceView: React.FC = () => {
     setSelectedMonth(nextMonth);
     if (isManagementRole) {
       loadMonthlySummary(nextYear, nextMonth);
-      if (selectedEmployeeId) {
-        loadEmployeeTimesheet(selectedEmployeeId, nextYear, nextMonth);
-      }
     } else {
       loadTimesheet(nextYear, nextMonth);
     }
@@ -551,13 +566,16 @@ export const AttendanceView: React.FC = () => {
                               key={m.id}
                               type="button"
                               onClick={() => setSelectedEmployeeId(m.id)}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer shrink-0 whitespace-nowrap ${
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 ${
                                 selected
                                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
                                   : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
                               }`}
                               title={m.department ? `${m.full_name} · ${m.department}` : m.full_name}
                             >
+                              {selected && isLoadingTimesheet && (
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                              )}
                               {m.full_name || m.email}
                             </button>
                           );
@@ -574,7 +592,7 @@ export const AttendanceView: React.FC = () => {
                     selectedYear={selectedYear}
                     selectedMonth={selectedMonth}
                     onYearMonthChange={handleYearMonthChange}
-                    isLoading={isLoading}
+                    isLoading={isLoadingTimesheet}
                     readOnly
                     allowHistoryMonths
                     employeeName={
@@ -596,7 +614,7 @@ export const AttendanceView: React.FC = () => {
                 requests={requests}
                 isLoading={isLoading}
                 onRefresh={loadRequests}
-                canReview={isAdmin || isHR}
+                canReview={isAdmin || isHR || isOperations}
               />
             )}
           </>

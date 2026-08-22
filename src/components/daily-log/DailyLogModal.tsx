@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import {
   X,
   Calendar as CalendarIcon,
@@ -21,9 +21,11 @@ import {
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
+import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
+import { findDuplicate } from '../../utils/logTimeChecks';
 
 interface DailyLogModalProps {
   isOpen: boolean;
@@ -33,6 +35,7 @@ interface DailyLogModalProps {
   columns?: DailyLogColumn[];
   activeSheet: string;
   currentUser?: { name?: string; role?: string; full_name?: string; department?: string } | null;
+  existingEntries?: DailyLogEntry[];
   onClose: () => void;
   onSaved: (entry: DailyLogEntry) => void;
   onRefreshRequired?: () => void;
@@ -58,11 +61,13 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   columns = [],
   activeSheet,
   currentUser,
+  existingEntries = [],
   onClose,
   onSaved,
   onRefreshRequired,
 }) => {
   const { workspaces } = useWorkspaces();
+  const { addToast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getTodayIso = () => {
@@ -206,6 +211,25 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     }
   }, [isOpen, mode, initialData, currentUser, prefilledDate, workspaces]);
 
+  const sameDayEntries = useMemo(
+    () => existingEntries.filter((e) => e.date === date),
+    [existingEntries, date],
+  );
+
+  const duplicateHit = useMemo(
+    () =>
+      findDuplicate(
+        {
+          id: initialData?.id,
+          date,
+          task_description: taskDescription,
+          hours_utilized: hoursUtilized,
+        },
+        sameDayEntries,
+      ),
+    [initialData?.id, date, taskDescription, hoursUtilized, sameDayEntries],
+  );
+
   if (!isOpen) return null;
 
   // --- Revision Points Handlers ---
@@ -302,6 +326,14 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     if (date.trim() < '2026-08-19') {
       setErrorMessage('Daily log entries cannot be logged for dates before 2026-08-19.');
       return;
+    }
+
+    if (duplicateHit) {
+      addToast(
+        'Similar entry exists',
+        'You already have a log with this task and duration today. Saving anyway.',
+        'info',
+      );
     }
 
     setErrorMessage(null);
@@ -725,7 +757,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
             </div>
           </div>
 
-          {/* Row 7: Hours Utilized with Quick Selector Chips */}
+          {/* Row 7: Hours Utilized */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
@@ -746,7 +778,6 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 className="w-40 px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
               />
 
-              {/* Quick Duration Buttons */}
               <div className="flex items-center gap-1.5 flex-wrap">
                 {QUICK_DURATIONS.map((d) => (
                   <button

@@ -473,6 +473,38 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                           }
                         />
                       </div>
+                      <div>
+                        <NumberStepper
+                          label="OT buffer"
+                          min={0}
+                          max={60}
+                          step={5}
+                          unit="mins"
+                          value={editingShift.overtime_buffer_minutes ?? 10}
+                          onChange={(val) =>
+                            setEditingShift({
+                              ...editingShift,
+                              overtime_buffer_minutes: val,
+                            })
+                          }
+                        />
+                      </div>
+                      <div>
+                        <NumberStepper
+                          label="Early-out buffer"
+                          min={0}
+                          max={60}
+                          step={5}
+                          unit="mins"
+                          value={editingShift.undertime_buffer_minutes ?? 10}
+                          onChange={(val) =>
+                            setEditingShift({
+                              ...editingShift,
+                              undertime_buffer_minutes: val,
+                            })
+                          }
+                        />
+                      </div>
                     </div>
 
                     <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">

@@ -18,6 +18,7 @@ import type {
   OverrideAttendancePayload,
   LeaveBalance,
   AttendanceConfig,
+  ShiftAssignment,
 } from '../types/attendance';
 
 class AttendanceService {
@@ -25,10 +26,7 @@ class AttendanceService {
    * Fetch current user's today attendance status, assigned shift, and WFH state
    */
   public async getTodayStatus(): Promise<TodayAttendanceResponse> {
-    const publicIp = await detectPublicIp();
-    return apiClient.get<TodayAttendanceResponse>('/attendance/today', {
-      headers: publicIp ? { 'X-Detected-Public-IP': publicIp } : {},
-    });
+    return apiClient.get<TodayAttendanceResponse>('/attendance/today');
   }
 
   /**
@@ -71,10 +69,12 @@ class AttendanceService {
   public async getEmployeeTimesheet(
     userId: string,
     year: number,
-    month: number
+    month: number,
+    options?: { signal?: AbortSignal }
   ): Promise<PersonalTimesheetResponse> {
     return apiClient.get<PersonalTimesheetResponse>(
-      `/attendance/timesheet/${encodeURIComponent(userId)}?year=${year}&month=${month}`
+      `/attendance/timesheet/${encodeURIComponent(userId)}?year=${year}&month=${month}`,
+      options
     );
   }
 
@@ -153,15 +153,21 @@ class AttendanceService {
   /**
    * Fetch all user shift assignments
    */
-  public async getShiftAssignments(): Promise<Array<{ user_id: string; shift_id: string; shift_name: string; effective_from: string }>> {
-    return apiClient.get<Array<{ user_id: string; shift_id: string; shift_name: string; effective_from: string }>>('/shifts/assignments');
+  public async getShiftAssignments(): Promise<ShiftAssignment[]> {
+    return apiClient.get<ShiftAssignment[]>('/shifts/assignments');
   }
 
   /**
    * Assign or update a user's designated shift template (HR / Admin only)
    */
-  public async assignShift(payload: { user_id: string; shift_id: string; effective_from?: string }): Promise<any> {
-    return apiClient.post<any>('/shifts/assignments', payload);
+  public async assignShift(payload: {
+    user_id: string;
+    shift_id: string;
+    effective_from?: string;
+    weekday_rules?: ShiftAssignment['weekday_rules'];
+    date_overrides?: ShiftAssignment['date_overrides'];
+  }): Promise<ShiftAssignment> {
+    return apiClient.post<ShiftAssignment>('/shifts/assignments', payload);
   }
 
   /**

@@ -125,7 +125,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
     setOverrideBreak(row.break_minutes ?? 60);
     setOverrideReason('');
 
-    const { start, end } = parseShiftTiming(row.shift_timing);
+    const { start } = parseShiftTiming(row.shift_timing);
     const isNonWorking = ['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'sunday_off', 'first_saturday_off', 'holiday'].includes(currentStatus);
 
     if (row.punch_in || row.check_in) {
@@ -136,10 +136,10 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
       setOverrideOut('');
     } else if (currentStatus === 'late') {
       setOverrideIn(calculateLateTime(start, 30));
-      setOverrideOut(end);
+      setOverrideOut('');
     } else {
       setOverrideIn(start);
-      setOverrideOut(end);
+      setOverrideOut('');
     }
   };
 
@@ -162,12 +162,11 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
     if (newStatus === 'present' || newStatus === 'wfh') {
       setOverrideIn(start);
-      setOverrideOut(end);
+      // Leave Time Out empty so HR does not accidentally close an open shift.
       setOverrideBreak(editingRow?.break_minutes ?? 60);
     } else if (newStatus === 'late') {
       const lateIn = calculateLateTime(start, 30);
       setOverrideIn(lateIn);
-      setOverrideOut(end);
       setOverrideBreak(editingRow?.break_minutes ?? 60);
     } else if (['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'sunday_off', 'first_saturday_off', 'holiday'].includes(newStatus)) {
       setOverrideIn('');
@@ -199,9 +198,14 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
     try {
       setIsSavingOverride(true);
       const isNonWorking = ['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'sunday_off', 'first_saturday_off', 'holiday'].includes(overrideStatus);
-      const isTime = (t: string) => !t || /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
-      if (!isNonWorking && (!isTime(overrideIn) || !isTime(overrideOut))) {
-        addToast('Invalid Time', 'Time In and Time Out must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+      const isValidTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+      if (!isNonWorking && !isValidTime(overrideIn)) {
+        addToast('Time In required', 'Enter a valid Time In (HH:MM). Time Out can be left empty if they are still working.', 'warning');
+        setIsSavingOverride(false);
+        return;
+      }
+      if (!isNonWorking && overrideOut && !isValidTime(overrideOut)) {
+        addToast('Invalid Time Out', 'Time Out must be HH:MM (24-hour), e.g. 18:30, or cleared to keep the day in progress.', 'warning');
         setIsSavingOverride(false);
         return;
       }
@@ -211,7 +215,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
         date: selectedDate,
         punch_in: isNonWorking ? null : (overrideIn || null),
         punch_out: isNonWorking ? null : (overrideOut || null),
-        break_minutes: isNonWorking ? 0 : Number(overrideBreak),
+        break_minutes: isNonWorking || !overrideOut ? 0 : Number(overrideBreak),
         status: overrideStatus,
         notes: overrideReason.trim() ? `HR Override: ${overrideReason.trim()}` : 'HR Attendance Override',
         reason: overrideReason.trim() || 'HR Attendance Override',
@@ -471,17 +475,30 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
                         {/* Effective Hours */}
                         <td className="py-3 px-4 font-mono font-bold text-zinc-800 dark:text-zinc-200">
-                          {row.punch_in || row.check_in ? (
-                            row.effective_hours_minutes > 0 ? (
-                              `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
-                            ) : row.punch_out || row.check_out ? (
-                              '0h 0m'
+                          <div>
+                            {row.punch_in || row.check_in ? (
+                              row.effective_hours_minutes > 0 ? (
+                                `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
+                              ) : row.punch_out || row.check_out ? (
+                                '0h 0m'
+                              ) : (
+                                <span className="text-indigo-600 dark:text-indigo-400 font-semibold">In Progress</span>
+                              )
                             ) : (
-                              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">In Progress</span>
-                            )
-                          ) : (
-                            <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
-                          )}
+                              <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                            )}
+                            {row.overtime_status === 'pending' && (row.pending_overtime_minutes || 0) > 0 && (
+                              <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400" title={row.overtime_reason || 'Pending overtime'}>
+                                OT pending +{String(Math.floor((row.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
+                                {String((row.pending_overtime_minutes || 0) % 60).padStart(2, '0')}
+                              </p>
+                            )}
+                            {row.undertime_reason && (
+                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.undertime_reason}>
+                                {row.undertime_reason}
+                              </p>
+                            )}
+                          </div>
                         </td>
 
                         {/* Register Status */}
@@ -590,13 +607,20 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 </div>
                 <div>
                   <CustomTimePicker
-                    label={`Time Out ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : ''}`}
+                    label={`Time Out ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : '(optional)'}`}
                     disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
                     value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideOut}
                     onChange={setOverrideOut}
+                    allowClear={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) === false}
+                    clearTitle="Clear time out (keep day in progress)"
                   />
                 </div>
               </div>
+              {!['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) && (
+                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 -mt-1">
+                  Time Out is optional. Click the X to remove checkout so the day stays <strong>In Progress</strong> and the employee can still Check Out.
+                </p>
+              )}
 
               <div className="grid grid-cols-2 gap-3 items-end">
                 <div>

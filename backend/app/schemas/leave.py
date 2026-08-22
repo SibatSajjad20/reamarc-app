@@ -7,7 +7,7 @@ from app.models.attendance import LeaveType, LeaveStatus
 
 
 class LeaveCreateRequest(BaseModel):
-    leave_type: LeaveType = Field(..., description="Type of request: sick, casual, annual, unpaid, wfh, short_leave, missed_punch_regularization")
+    leave_type: LeaveType = Field(..., description="Type of request: sick, casual, annual, unpaid, wfh, short_leave, missed_punch_regularization, overtime")
     start_date: str = Field(..., description="Start date of leave or event in YYYY-MM-DD format")
     end_date: str = Field(..., description="End date of leave or event in YYYY-MM-DD format")
     reason: str = Field(..., description="Detailed explanation or justification for the request")
@@ -19,9 +19,15 @@ class LeaveCreateRequest(BaseModel):
     
     # Specific fields for Missed Punch Regularization
     regularization_date: Optional[str] = Field(default=None, description="Target date of missed punch to regularize (YYYY-MM-DD)")
-    correction_target: Optional[str] = Field(default="both", description="Correction scope: 'time_in', 'time_out', or 'both'")
+    correction_target: Optional[str] = Field(default="time_in", description="Correction scope: 'time_in', 'time_out', or 'both'")
     regularization_check_in: Optional[str] = Field(default=None, description="Corrected check-in time (HH:MM)")
     regularization_check_out: Optional[str] = Field(default=None, description="Corrected check-out time (HH:MM)")
+    original_check_in: Optional[str] = Field(default=None, description="Actual Time In on the record when the correction was submitted")
+    original_check_out: Optional[str] = Field(default=None, description="Actual Time Out on the record when the correction was submitted")
+    overtime_date: Optional[str] = Field(default=None, description="Date of claimed overtime YYYY-MM-DD")
+    overtime_minutes: Optional[int] = Field(default=None, ge=0, description="Claimed overtime minutes")
+    shift_end: Optional[str] = Field(default=None, description="Assigned shift end HH:MM")
+    check_out: Optional[str] = Field(default=None, description="Actual checkout HH:MM")
 
     @model_validator(mode="before")
     @classmethod
@@ -37,7 +43,7 @@ class LeaveCreateRequest(BaseModel):
             data["leave_type"] = LeaveType.MISSED_PUNCH_REGULARIZATION.value
         elif req_type == "leave":
             data["leave_type"] = category or LeaveType.CASUAL.value
-        elif req_type in ("wfh", "short_leave", "sick", "casual", "annual", "unpaid"):
+        elif req_type in ("wfh", "short_leave", "sick", "casual", "annual", "unpaid", "overtime"):
             data["leave_type"] = req_type
 
         # 2. Normalize regularization check-in / check-out aliases
@@ -45,6 +51,10 @@ class LeaveCreateRequest(BaseModel):
             data["regularization_check_in"] = data["regularization_punch_in"]
         if "regularization_punch_out" in data and not data.get("regularization_check_out"):
             data["regularization_check_out"] = data["regularization_punch_out"]
+        if "original_punch_in" in data and not data.get("original_check_in"):
+            data["original_check_in"] = data["original_punch_in"]
+        if "original_punch_out" in data and not data.get("original_check_out"):
+            data["original_check_out"] = data["original_punch_out"]
 
         # 3. Normalize short leave duration aliases
         if "short_leave_duration_hours" in data and data.get("short_leave_hours") is None:
@@ -97,6 +107,7 @@ class LeaveResponse(BaseModel):
     id: str
     user_id: str
     user_name: Optional[str] = None
+    user_role: Optional[str] = None
     department: Optional[str] = None
     leave_type: LeaveType
     request_type: Optional[str] = None
@@ -115,9 +126,18 @@ class LeaveResponse(BaseModel):
     regularization_check_out: Optional[str] = None
     regularization_punch_in: Optional[str] = None
     regularization_punch_out: Optional[str] = None
+    original_check_in: Optional[str] = None
+    original_check_out: Optional[str] = None
+    original_punch_in: Optional[str] = None
+    original_punch_out: Optional[str] = None
+    overtime_date: Optional[str] = None
+    overtime_minutes: Optional[int] = None
+    shift_end: Optional[str] = None
+    check_out: Optional[str] = None
     reviewed_by_id: Optional[str] = None
     reviewed_by_name: Optional[str] = None
     review_comments: Optional[str] = None
+    rejection_reason: Optional[str] = None
     reviewed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
@@ -144,7 +164,13 @@ class LeaveResponse(BaseModel):
             data["regularization_punch_in"] = data["regularization_check_in"]
         if "regularization_check_out" in data and not data.get("regularization_punch_out"):
             data["regularization_punch_out"] = data["regularization_check_out"]
+        if "original_check_in" in data and not data.get("original_punch_in"):
+            data["original_punch_in"] = data["original_check_in"]
+        if "original_check_out" in data and not data.get("original_punch_out"):
+            data["original_punch_out"] = data["original_check_out"]
         if "short_leave_hours" in data and not data.get("short_leave_duration_hours"):
             data["short_leave_duration_hours"] = data["short_leave_hours"]
+        if data.get("review_comments") and not data.get("rejection_reason"):
+            data["rejection_reason"] = data["review_comments"]
 
         return data

@@ -22,6 +22,7 @@ import type { AdAccount } from '../../types/admin';
 import { useMarketingMatrix } from '../../hooks/useMarketingMatrix';
 import { marketingService } from '../../services/marketingService';
 import { useAuth } from '../../context/AuthContext';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 
@@ -113,6 +114,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     triggerSyncNow,
     refetch,
   } = useMarketingMatrix(selectedWorkspace?.id);
+  useModuleLoadGate(isLoading);
 
   const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);

@@ -15,6 +15,8 @@ export interface ShiftTemplate {
   break_start_time?: string | null; // "13:00"
   break_end_time?: string | null;   // "14:00"
   grace_period_minutes: number;   // 30
+  overtime_buffer_minutes?: number;
+  undertime_buffer_minutes?: number;
   late_threshold_time?: string;    // "10:00"
   is_cross_midnight?: boolean;     // false
   is_night_shift?: boolean;
@@ -72,6 +74,12 @@ export interface AttendanceRecord {
   is_on_break?: boolean;
   break_start_time?: string | null;
   notes?: string;
+  overtime_status?: 'not_applicable' | 'pending' | 'approved' | 'rejected' | string;
+  pending_overtime_minutes?: number;
+  claimed_overtime_minutes?: number;
+  overtime_reason?: string | null;
+  undertime_reason?: string | null;
+  variance_category?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -100,6 +108,10 @@ export interface DailyMatrixEmployeeRow {
   is_wfh_approved: boolean;
   notes?: string;
   record_id?: string;
+  overtime_status?: string | null;
+  pending_overtime_minutes?: number;
+  undertime_reason?: string | null;
+  overtime_reason?: string | null;
 }
 
 export interface DailyMatrixSummary {
@@ -186,7 +198,7 @@ export interface PersonalTimesheetResponse {
   summary: MonthlyPunctualityRow;
 }
 
-export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization';
+export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization' | 'overtime';
 export type LeaveCategory = 'sick' | 'casual' | 'annual' | 'unpaid';
 export type RequestStatus = 'pending' | 'approved' | 'rejected';
 
@@ -194,6 +206,7 @@ export interface AttendanceRequest {
   id: string;
   user_id: string;
   user_name: string;
+  user_role?: string;
   department: string;
   request_type: RequestType;
   leave_category?: LeaveCategory;
@@ -207,11 +220,20 @@ export interface AttendanceRequest {
   regularization_punch_out?: string;
   regularization_check_in?: string;
   regularization_check_out?: string;
+  original_punch_in?: string | null;
+  original_punch_out?: string | null;
+  original_check_in?: string | null;
+  original_check_out?: string | null;
+  overtime_date?: string;
+  overtime_minutes?: number;
+  shift_end?: string;
+  check_out?: string;
   reason: string;
   status: RequestStatus;
   reviewed_by?: string;
   reviewed_by_name?: string;
   reviewed_at?: string;
+  review_comments?: string;
   rejection_reason?: string;
   created_at: string;
 }
@@ -280,6 +302,18 @@ export interface TodayAttendanceResponse {
   enforce_ip_whitelist?: boolean;
   enforce_gps_geofence?: boolean;
   shift_ended?: boolean;
+  checkout_gate?: CheckoutGate;
+}
+
+export interface CheckoutGate {
+  type: 'none' | 'overtime' | 'undertime' | string;
+  shift_end?: string;
+  overtime_buffer_minutes?: number;
+  undertime_buffer_minutes?: number;
+  claimed_minutes?: number;
+  minutes_past_end?: number;
+  past_shift_end?: boolean;
+  message?: string | null;
 }
 
 export interface CheckInPayload {
@@ -293,6 +327,8 @@ export interface CheckInPayload {
 
 export interface CheckOutPayload {
   notes?: string;
+  variance_reason?: string;
+  variance_category?: string;
 }
 
 export interface BreakActionPayload {
@@ -315,6 +351,10 @@ export interface CreateLeavePayload {
   regularization_punch_out?: string;
   regularization_check_in?: string;
   regularization_check_out?: string;
+  original_punch_in?: string | null;
+  original_punch_out?: string | null;
+  original_check_in?: string | null;
+  original_check_out?: string | null;
   reason: string;
 }
 
@@ -340,4 +380,24 @@ export interface CompanyCalendarEvent {
   is_off_day?: boolean;
   is_workday_override?: boolean;
   description?: string;
+}
+
+export interface WeekdayShiftRule {
+  shift_id?: string | null;
+  auto_wfh?: boolean;
+}
+
+export interface DateShiftOverride {
+  date: string;
+  shift_id?: string | null;
+  auto_wfh?: boolean | null;
+}
+
+export interface ShiftAssignment {
+  user_id: string;
+  shift_id: string;
+  shift_name?: string;
+  effective_from?: string;
+  weekday_rules?: Record<string, WeekdayShiftRule>;
+  date_overrides?: DateShiftOverride[];
 }

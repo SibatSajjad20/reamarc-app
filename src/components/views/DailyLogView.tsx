@@ -21,16 +21,29 @@ import {
   CalendarRange,
   Paperclip,
   Download,
+  Clock,
+  ClipboardList,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
-import type { DailyLogEntry, DailyLogColumn, UserLogActivity, GetDailyLogEntriesParams } from '../../types/dailyLog';
+import { logExceptionService } from '../../services/logExceptionService';
+import type {
+  DailyLogEntry,
+  DailyLogColumn,
+  UserLogActivity,
+  GetDailyLogEntriesParams,
+  DayTarget,
+  DayTargetFollowUp,
+} from '../../types/dailyLog';
 import { useAuth } from '../../context/AuthContext';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
+import { useToast } from '../../context/ToastContext';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { getDeptBadgeClass, getRoleBadgeClass, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
+import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
@@ -78,12 +91,24 @@ const FIELD_TYPE_OPTIONS: { id: 'text' | 'select' | 'date' | 'number'; label: st
   { id: 'number', label: 'Numeric' },
 ];
 
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const FOLLOW_UP_CHIP_LIMIT = 4;
+
 const getTodayIso = () => {
   const d = new Date();
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+};
+
+const formatChipDate = (iso: string): string => {
+  const parts = String(iso || '').split('-');
+  if (parts.length !== 3) return iso;
+  const month = Number(parts[1]);
+  const day = Number(parts[2]);
+  if (!month || !day || month < 1 || month > 12) return iso;
+  return `${MONTH_SHORT[month - 1]} ${day}`;
 };
 
 const getThisWeekBounds = () => {
@@ -177,10 +202,12 @@ const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) =>
 
 export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
+  const { addToast } = useToast();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isLead = user?.role === 'team_lead';
+  const canSubmitLogs = user?.role === 'team_member' || user?.role === 'team_lead' || user?.role === 'hr';
   const userDept = user?.department || '';
   const { departments } = useSystemConfig();
 
@@ -189,6 +216,7 @@ export const DailyLogView: React.FC = () => {
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
   const [activeSheet, setActiveSheet] = useState<string>('August - 2026');
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  useModuleLoadGate(isLoading);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Department & Team Lead Filter State
@@ -214,6 +242,30 @@ export const DailyLogView: React.FC = () => {
 
   // User Activity & Missing Days State
   const [myActivity, setMyActivity] = useState<UserLogActivity | null>(null);
+  const [dayTarget, setDayTarget] = useState<DayTarget | null>(null);
+  const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
+  const [sendingReasonDate, setSendingReasonDate] = useState<string | null>(null);
+  const [openFollowUpDate, setOpenFollowUpDate] = useState<string | null>(null);
+  const [showReasonInput, setShowReasonInput] = useState(false);
+  const [pendingFollowUpDate, setPendingFollowUpDate] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('reamarc_daily_log_focus');
+      if (!raw) return;
+      const focus = JSON.parse(raw) as { date?: string; resourceName?: string };
+      localStorage.removeItem('reamarc_daily_log_focus');
+      if (focus.date) {
+        setDatePreset('custom');
+        setCustomStartDate(focus.date);
+        setCustomEndDate(focus.date);
+        setPendingFollowUpDate(focus.date);
+      }
+      if (focus.resourceName) setSearchQuery(focus.resourceName);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
@@ -372,6 +424,170 @@ export const DailyLogView: React.FC = () => {
   useEffect(() => {
     fetchEntries();
   }, [fetchEntries]);
+
+  useEffect(() => {
+    const onDeleted = () => {
+      fetchEntries();
+    };
+    window.addEventListener('reamarc-member-deleted', onDeleted);
+    return () => window.removeEventListener('reamarc-member-deleted', onDeleted);
+  }, [fetchEntries]);
+
+  const bannerDate = useMemo(() => {
+    if (datePreset === 'today') return getTodayIso();
+    if (datePreset === 'custom' && customStartDate && customStartDate === customEndDate) return customStartDate;
+    return getTodayIso();
+  }, [datePreset, customStartDate, customEndDate]);
+
+  useEffect(() => {
+    if (!canSubmitLogs) {
+      setDayTarget(null);
+      return;
+    }
+    dailyLogService.getDayTarget(bannerDate).then(setDayTarget).catch(() => setDayTarget(null));
+  }, [canSubmitLogs, bannerDate, entries]);
+
+  const liveLoggedHours = useMemo(() => {
+    const uid = user?.id;
+    const uname = (user?.full_name || user?.name || '').trim().toLowerCase();
+    return entries
+      .filter((e) => {
+        if (e.date !== bannerDate) return false;
+        if (uid && e.user_id === uid) return true;
+        if (uname && (e.resource_name || '').trim().toLowerCase() === uname) return true;
+        return false;
+      })
+      .reduce((sum, e) => sum + (Number(e.hours_utilized) || 0), 0);
+  }, [entries, bannerDate, user]);
+
+  const hoursChip = useMemo(() => {
+    if (!canSubmitLogs || !dayTarget || dayTarget.is_full_leave) return null;
+    const logged = formatHours(liveLoggedHours);
+    const worked = formatHours(dayTarget.worked_hours || 0);
+    const stillIn = Boolean(dayTarget.has_checkin && !dayTarget.has_checkout);
+    const gap = (dayTarget.worked_hours || 0) - liveLoggedHours;
+    const short = dayTarget.compare_ready && gap > 0.25;
+    const over = dayTarget.compare_ready && gap < -0.25;
+    const severeShort = dayTarget.compare_ready && liveLoggedHours <= 2 && (dayTarget.worked_hours || 0) > 2;
+
+    let tone: 'ok' | 'warn' | 'alert' = 'ok';
+    if (severeShort) tone = 'alert';
+    else if (short || over) tone = 'warn';
+
+    const extras = [
+      dayTarget.is_wfh ? 'WFH' : '',
+      dayTarget.is_full_leave ? 'on leave' : '',
+    ].filter(Boolean);
+
+    let label = `${logged} / ${worked}`;
+    let title = `Logged ${logged} / ${worked} at work`;
+    if (stillIn) {
+      label = `${logged} · in`;
+      title = `Logged ${logged} · still checked in — comparison waits until check-out`;
+    } else if (short) {
+      title = `Logged ${logged} / ${worked} at work — ${formatHours(gap)} short`;
+    } else if (over) {
+      title = `Logged ${logged} / ${worked} at work — ${formatHours(-gap)} over`;
+    } else if (dayTarget.compare_ready) {
+      title = `Logged ${logged} / ${worked} at work — matches time in/out`;
+    } else {
+      title = `Logged ${logged} / ${worked} at work — waiting on check-out`;
+    }
+    if (extras.length) title += ` · ${extras.join(' · ')}`;
+
+    return { label, title, tone };
+  }, [canSubmitLogs, dayTarget, liveLoggedHours]);
+
+  const followUps = useMemo(() => {
+    const list = [...(dayTarget?.follow_ups || [])] as DayTargetFollowUp[];
+    list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
+    return list;
+  }, [dayTarget?.follow_ups]);
+
+  const followUpByDate = useMemo(() => {
+    const map = new Map<string, DayTargetFollowUp>();
+    followUps.forEach((item) => {
+      if (item.date) map.set(item.date, item);
+    });
+    return map;
+  }, [followUps]);
+
+  const extraMissingDates = useMemo(() => {
+    return (myActivity?.missing_dates || []).filter(
+      (d) => d >= '2026-08-19' && !followUpByDate.has(d)
+    );
+  }, [myActivity?.missing_dates, followUpByDate]);
+
+  const openFollowUp = useCallback((date: string) => {
+    setOpenFollowUpDate(date);
+    setShowReasonInput(false);
+  }, []);
+
+  const handleNextFollowUp = useCallback(() => {
+    const actionable = followUps.filter((item) => item.can_send_reason);
+    const pool = actionable.length ? actionable : followUps;
+    if (!pool.length) return;
+    const idx = pool.findIndex((item) => item.date === openFollowUpDate);
+    const next = pool[(idx + 1) % pool.length];
+    if (next?.date) openFollowUp(next.date);
+  }, [followUps, openFollowUpDate, openFollowUp]);
+
+  const openAddTimeForDate = useCallback((date: string) => {
+    setDatePreset('custom');
+    setCustomStartDate(date);
+    setCustomEndDate(date);
+    setPrefilledDate(date);
+    setSelectedEntry(null);
+    setEntryModalMode('create');
+    setIsEntryModalOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!openFollowUpDate) return;
+    if (followUpByDate.has(openFollowUpDate)) return;
+    const next = followUps.find((item) => item.can_send_reason) || followUps[0];
+    setOpenFollowUpDate(next?.date || null);
+    setShowReasonInput(false);
+  }, [followUps, followUpByDate, openFollowUpDate]);
+
+  useEffect(() => {
+    if (!pendingFollowUpDate) return;
+    if (followUpByDate.has(pendingFollowUpDate)) {
+      openFollowUp(pendingFollowUpDate);
+      setPendingFollowUpDate(null);
+    }
+  }, [pendingFollowUpDate, followUpByDate, openFollowUp]);
+
+  const openFollowUpItem = openFollowUpDate ? followUpByDate.get(openFollowUpDate) : undefined;
+  const followUpActorNames = [
+    ...new Set(followUps.map((item) => (item.action_by_name || '').trim()).filter(Boolean)),
+  ];
+  const followUpActorLabel = followUpActorNames.length === 1 ? ` from ${followUpActorNames[0]}` : '';
+  const visibleFollowUpChips = (() => {
+    const first = followUps.slice(0, FOLLOW_UP_CHIP_LIMIT);
+    if (!openFollowUpItem) return first;
+    if (first.some((item) => item.date === openFollowUpItem.date)) return first;
+    return [...first.slice(0, Math.max(0, FOLLOW_UP_CHIP_LIMIT - 1)), openFollowUpItem];
+  })();
+  const hiddenFollowUpCount = Math.max(0, followUps.length - FOLLOW_UP_CHIP_LIMIT);
+
+  const submitFollowUpReason = async (date: string) => {
+    const text = (reasonDrafts[date] || '').trim();
+    if (text.length < 3) return;
+    setSendingReasonDate(date);
+    try {
+      await logExceptionService.submitReason(date, text);
+      addToast('Reason sent', 'Your lead can accept it. This is not a task log.', 'success');
+      const next = await dailyLogService.getDayTarget(bannerDate);
+      setDayTarget(next);
+      setReasonDrafts((prev) => ({ ...prev, [date]: '' }));
+      setShowReasonInput(false);
+    } catch (err: any) {
+      addToast('Could not send reason', err.message || 'Try again.', 'warning');
+    } finally {
+      setSendingReasonDate(null);
+    }
+  };
 
   // Switch Month Sheet Tab
   const handleSheetChange = async (sheetName: string) => {
@@ -610,13 +826,13 @@ export const DailyLogView: React.FC = () => {
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
       {/* ─── Top Toolbar: Search, Date Filter & Add Log Button ─── */}
       <div className="sticky top-0 z-40 px-6 py-3 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center gap-2.5 shadow-xs shrink-0">
-        <div className="flex items-center gap-2.5 flex-1 min-w-[240px]">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
           {/* Search */}
-          <div className="relative flex-1">
+          <div className="relative flex-1 min-w-[160px] max-w-[380px]">
             <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
-              placeholder="Search logs by keyword, task, member, project..."
+              placeholder="Search logs..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-9 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
@@ -632,6 +848,22 @@ export const DailyLogView: React.FC = () => {
               </button>
             )}
           </div>
+
+          {hoursChip && (
+            <div
+              title={hoursChip.title}
+              className={`flex items-center gap-1.5 shrink-0 px-2.5 py-2 rounded-xl border text-xs font-bold shadow-2xs ${
+                hoursChip.tone === 'alert'
+                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/50 text-rose-800 dark:text-rose-200'
+                  : hoursChip.tone === 'warn'
+                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200'
+                    : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200'
+              }`}
+            >
+              <Clock className="w-3.5 h-3.5 shrink-0 opacity-80" />
+              <span className="whitespace-nowrap tabular-nums">{hoursChip.label}</span>
+            </div>
+          )}
 
           {/* Enhanced 4-Preset Date Filter Popover */}
           <div className="relative" ref={dateDropdownRef}>
@@ -836,12 +1068,157 @@ export const DailyLogView: React.FC = () => {
         </div>
       </div>
 
+      {canSubmitLogs && followUps.length > 0 && (
+        <div className="px-5 py-2 border-b bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <ClipboardList className="w-3.5 h-3.5 shrink-0 opacity-80" />
+            <span className="font-semibold">
+              {followUps.length} {followUps.length === 1 ? 'request' : 'requests'}
+              {followUpActorLabel}
+            </span>
+            <div className="flex items-center gap-1 flex-wrap">
+              {visibleFollowUpChips.map((item) => {
+                const isOpen = item.date === openFollowUpDate;
+                const waiting = item.action_status === 'waiting_on_reviewer';
+                return (
+                  <button
+                    key={`${item.date}-${item.action_status}`}
+                    type="button"
+                    onClick={() => openFollowUp(item.date)}
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold cursor-pointer border transition-colors ${
+                      isOpen
+                        ? 'bg-amber-600 text-white border-amber-600'
+                        : waiting
+                          ? 'bg-white/50 dark:bg-zinc-900/40 text-amber-800/80 dark:text-amber-100/80 border-amber-500/20'
+                          : 'bg-white/80 dark:bg-zinc-900/50 text-amber-900 dark:text-amber-100 border-amber-500/30 hover:border-amber-500/60'
+                    }`}
+                    title={waiting ? 'Waiting on review' : 'Needs a reply'}
+                  >
+                    {formatChipDate(item.date)}
+                  </button>
+                );
+              })}
+              {hiddenFollowUpCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const hidden = followUps[FOLLOW_UP_CHIP_LIMIT];
+                    if (hidden?.date) openFollowUp(hidden.date);
+                  }}
+                  className="text-[11px] font-semibold opacity-70 hover:opacity-100 cursor-pointer"
+                >
+                  +{hiddenFollowUpCount}
+                </button>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              onClick={handleNextFollowUp}
+              className="ml-auto shrink-0 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+            >
+              {openFollowUpItem ? 'Next' : 'Handle next'}
+            </button>
+          </div>
+
+          {openFollowUpItem ? (
+            <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold inline-flex items-center flex-wrap gap-x-1.5 gap-y-1">
+                  <span>{formatChipDate(openFollowUpItem.date)}</span>
+                  <span className="font-normal opacity-80">
+                    {formatHours(Number(openFollowUpItem.logged_hours) || 0)} logged /{' '}
+                    {formatHours(Number(openFollowUpItem.worked_hours) || 0)} at work
+                  </span>
+                  {openFollowUpItem.is_missing_log ? (
+                    <span className="text-amber-800 dark:text-amber-200">Didn't log</span>
+                  ) : (openFollowUpItem.signed_gap_hours || 0) > 0.01 ? (
+                    <span className="text-emerald-700 dark:text-emerald-400">
+                      {formatSignedHours(Number(openFollowUpItem.signed_gap_hours))}
+                    </span>
+                  ) : (openFollowUpItem.signed_gap_hours || 0) < -0.01 ? (
+                    <span className="text-rose-700 dark:text-rose-400">
+                      {formatSignedHours(Number(openFollowUpItem.signed_gap_hours))}
+                    </span>
+                  ) : null}
+                  {openFollowUpItem.action_status === 'waiting_on_reviewer' ? (
+                    <span className="font-normal opacity-80">
+                      — waiting on {openFollowUpItem.action_by_name || 'your lead'}
+                    </span>
+                  ) : openFollowUpItem.action_by_name ? (
+                    <span className="font-normal opacity-80">
+                      — {openFollowUpItem.action_by_name} asked you to{' '}
+                      {openFollowUpItem.action_type === 'explain' ? 'send a reason' : 'add time'}
+                    </span>
+                  ) : null}
+                </span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {openFollowUpItem.can_send_reason ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openAddTimeForDate(openFollowUpItem.date)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
+                      >
+                        Add missing time
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowReasonInput((prev) => !prev)}
+                        className="px-2.5 py-1 rounded-lg border border-amber-600 text-amber-900 dark:text-amber-100 text-[11px] font-bold cursor-pointer"
+                      >
+                        Send a reason
+                      </button>
+                    </>
+                  ) : null}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setOpenFollowUpDate(null);
+                      setShowReasonInput(false);
+                    }}
+                    className="px-2 py-1 text-[11px] font-semibold opacity-70 hover:opacity-100 cursor-pointer"
+                  >
+                    Later
+                  </button>
+                </div>
+              </div>
+              {openFollowUpItem.action_status === 'waiting_on_reviewer' && openFollowUpItem.member_reason ? (
+                <p className="text-[11px] opacity-80">Pending review: “{openFollowUpItem.member_reason}”</p>
+              ) : null}
+              {openFollowUpItem.can_send_reason && showReasonInput ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={reasonDrafts[openFollowUpItem.date] || ''}
+                    onChange={(e) =>
+                      setReasonDrafts((prev) => ({ ...prev, [openFollowUpItem.date]: e.target.value }))
+                    }
+                    placeholder="e.g. client meeting 2h — this is not a log row"
+                    className="flex-1 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-zinc-900/60 border border-amber-500/30 text-[11px] text-zinc-900 dark:text-zinc-100"
+                  />
+                  <button
+                    type="button"
+                    disabled={
+                      sendingReasonDate === openFollowUpItem.date ||
+                      !(reasonDrafts[openFollowUpItem.date] || '').trim()
+                    }
+                    onClick={() => submitFollowUpReason(openFollowUpItem.date)}
+                    className="shrink-0 px-2.5 py-1 rounded-lg border border-amber-600 text-amber-900 dark:text-amber-100 text-[11px] font-bold cursor-pointer disabled:opacity-40"
+                  >
+                    {sendingReasonDate === openFollowUpItem.date ? 'Sending…' : 'Send reason'}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      )}
+
       {/* Smart Missing Work Log Banner */}
       {(() => {
-        const validMissingDates = (myActivity?.missing_dates || []).filter((d) => d >= '2026-08-19');
-        if (isAdmin || isOperations || validMissingDates.length === 0) return null;
+        if (isAdmin || isOperations || extraMissingDates.length === 0) return null;
         return (
-          <div className="px-5 py-3 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
+          <div className="px-5 py-2 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
             <div className="flex items-center gap-2.5">
               <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
               <div>
@@ -849,8 +1226,8 @@ export const DailyLogView: React.FC = () => {
                 <span>
                   You haven't recorded entries for{' '}
                   <strong className="underline font-mono font-bold">
-                    {validMissingDates.slice(0, 3).join(', ')}
-                    {validMissingDates.length > 3 ? ` (+${validMissingDates.length - 3} more)` : ''}
+                    {extraMissingDates.slice(0, 3).join(', ')}
+                    {extraMissingDates.length > 3 ? ` (+${extraMissingDates.length - 3} more)` : ''}
                   </strong>
                   .
                 </span>
@@ -859,7 +1236,7 @@ export const DailyLogView: React.FC = () => {
             <button
               type="button"
               onClick={() => {
-                setPrefilledDate(validMissingDates[0]);
+                setPrefilledDate(extraMissingDates[0]);
                 setSelectedEntry(null);
                 setEntryModalMode('create');
                 setIsEntryModalOpen(true);
@@ -867,7 +1244,7 @@ export const DailyLogView: React.FC = () => {
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>+ Log for {validMissingDates[0]}</span>
+              <span>+ Log for {extraMissingDates[0]}</span>
             </button>
           </div>
         );
@@ -1082,6 +1459,7 @@ export const DailyLogView: React.FC = () => {
                 ) : (
                   filteredEntries.map((row, idx) => {
                     const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
+                    const rowFollowUp = canEditEntry(row) ? followUpByDate.get(row.date) : undefined;
 
                     return (
                       <tr
@@ -1096,7 +1474,7 @@ export const DailyLogView: React.FC = () => {
                         }}
                         className={`hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group ${
                           canEditEntry(row) ? 'cursor-pointer' : ''
-                        }`}
+                        } ${rowFollowUp ? 'bg-amber-50/50 dark:bg-amber-950/15' : ''}`}
                         title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
                       >
                         {/* Row Index */}
@@ -1107,6 +1485,47 @@ export const DailyLogView: React.FC = () => {
                         {/* Column Cells */}
                         {columns.map((col) => {
                           const val = (row as any)[col.key] || row.custom_fields?.[col.key];
+
+                          if (col.key === 'date') {
+                            const dateStr = String(val || row.date || '');
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-800 dark:text-zinc-200"
+                                title={dateStr}
+                              >
+                                {dateStr ? (
+                                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                                    {rowFollowUp ? (
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          openFollowUp(row.date);
+                                        }}
+                                        className="inline-flex items-center gap-1.5 min-w-0 cursor-pointer"
+                                        title={
+                                          rowFollowUp.can_send_reason
+                                            ? 'Needs a reply — open request'
+                                            : 'Waiting on review'
+                                        }
+                                      >
+                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
+                                        <span className="truncate">{dateStr}</span>
+                                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
+                                          {rowFollowUp.can_send_reason ? 'Needs reply' : 'Waiting'}
+                                        </span>
+                                      </button>
+                                    ) : (
+                                      <span className="truncate">{dateStr}</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
+                                )}
+                              </td>
+                            );
+                          }
 
                           if (col.key === 'task_status') {
                             const statusStr = String(val || 'Incomplete');
@@ -1414,6 +1833,13 @@ export const DailyLogView: React.FC = () => {
               }
             : null
         }
+        existingEntries={entries.filter((e) => {
+          const uid = user?.id;
+          const uname = (user?.full_name || user?.name || '').trim().toLowerCase();
+          if (uid && e.user_id === uid) return true;
+          if (uname && (e.resource_name || '').trim().toLowerCase() === uname) return true;
+          return false;
+        })}
         onClose={() => {
           setIsEntryModalOpen(false);
           setPrefilledDate(undefined);

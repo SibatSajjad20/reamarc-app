@@ -81,6 +81,26 @@ def is_workday(date_obj: datetime) -> bool:
     return True  # Monday - Friday
 
 
+async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
+    from app.services.log_compliance import batch_expected_targets, person_day_is_leave
+
+    db = get_database()
+    ids = {m.get("id") for m in members if m.get("id")}
+    if db is None or not ids:
+        return set()
+    targets = await batch_expected_targets(members, [date_str])
+    att_docs = await db.attendance_records.find(
+        {"user_id": {"$in": list(ids)}, "date": date_str},
+        {"_id": 0, "user_id": 1, "status": 1},
+    ).to_list(500)
+    att_by_user = {d.get("user_id"): d for d in att_docs if d.get("user_id")}
+    on_leave = set()
+    for uid in ids:
+        if person_day_is_leave(targets.get((uid, date_str)) or {}, att_by_user.get(uid)):
+            on_leave.add(uid)
+    return on_leave
+
+
 def _get_previous_workday(today_date: datetime) -> str:
     """Returns the previous workday string (YYYY-MM-DD), skipping Sundays and the 1st Saturday of the month."""
     check_date = today_date - timedelta(days=1)
@@ -122,10 +142,13 @@ async def run_evening_log_reminder_check():
 
     logged_user_ids = {e["user_id"] for e in today_entries if e.get("user_id")}
     logged_names = {(e.get("resource_name") or "").strip().lower() for e in today_entries if e.get("resource_name")}
+    on_leave_ids = await _user_ids_on_leave(members, today_str)
 
     reminded_count = 0
     for m in members:
         uid = m.get("id")
+        if uid in on_leave_ids:
+            continue
         fname = m.get("full_name") or m.get("name", "Team Member")
         fname_lower = fname.strip().lower()
 
@@ -186,10 +209,13 @@ async def run_morning_log_reminder_check():
 
     logged_user_ids = {e["user_id"] for e in prev_entries if e.get("user_id")}
     logged_names = {(e.get("resource_name") or "").strip().lower() for e in prev_entries if e.get("resource_name")}
+    on_leave_ids = await _user_ids_on_leave(members, prev_workday_str)
 
     reminded_count = 0
     for m in members:
         uid = m.get("id")
+        if uid in on_leave_ids:
+            continue
         fname = m.get("full_name") or m.get("name", "Team Member")
         fname_lower = fname.strip().lower()
 

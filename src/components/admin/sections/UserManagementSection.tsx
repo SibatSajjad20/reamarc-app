@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import type { AdminMember } from '../../../types/admin';
 import { CustomSelect } from '../../ui/CustomSelect';
-import { useAuth } from '../../../context/AuthContext';
 
 export const SYSTEM_DEPARTMENTS = [
   'Website',
@@ -50,9 +49,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   onDeleteMember,
   canManageMembers = true,
 }) => {
-  const { user: currentUser } = useAuth();
-  const isCurrentAdmin = currentUser?.role === 'admin';
-
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
@@ -329,10 +325,10 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       {canManageMembers && (
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end gap-1.5">
-                            {m.role === 'admin' && !isCurrentAdmin ? (
+                            {m.role === 'admin' ? (
                               <span
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold text-zinc-400 dark:text-zinc-500 bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200/60 dark:border-zinc-700/60"
-                                title="Super Admin is protected and can only be modified by the Super Admin"
+                                title="Super Admin accounts cannot be edited from the directory"
                               >
                                 <Lock className="w-3 h-3" />
                                 <span>Protected</span>
@@ -347,16 +343,14 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                                 >
                                   <Edit2 className="w-3.5 h-3.5" />
                                 </button>
-                                {m.role !== 'admin' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => onDeleteMember(m)}
-                                    className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
-                                    title="Delete member"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => onDeleteMember(m)}
+                                  className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                                  title="Delete member"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </>
                             )}
                           </div>

@@ -15,6 +15,16 @@ class ShiftBase(BaseModel):
     break_start_time: Optional[str] = Field(default=None, description="Unpaid break start HH:MM (e.g. 13:00)")
     break_end_time: Optional[str] = Field(default=None, description="Unpaid break end HH:MM (e.g. 14:00)")
     grace_period_minutes: int = Field(default=30, ge=0, description="Buffer in minutes before arrival counts as late strike")
+    overtime_buffer_minutes: int = Field(
+        default=10,
+        ge=0,
+        description="Minutes after shift end before late checkout requires an overtime reason",
+    )
+    undertime_buffer_minutes: int = Field(
+        default=10,
+        ge=0,
+        description="Minutes before shift end before early checkout requires an undertime reason",
+    )
     expected_hours: float = Field(default=8.0, ge=0.0, description="Net expected working hours per day (span minus unpaid break)")
     is_night_shift: bool = Field(default=False, description="Whether shift spans across midnight into the next day")
     description: Optional[str] = Field(default=None, description="Optional notes or description for the shift")
@@ -35,6 +45,8 @@ class ShiftUpdate(BaseModel):
     break_start_time: Optional[str] = None
     break_end_time: Optional[str] = None
     grace_period_minutes: Optional[int] = None
+    overtime_buffer_minutes: Optional[int] = None
+    undertime_buffer_minutes: Optional[int] = None
     expected_hours: Optional[float] = None
     is_night_shift: Optional[bool] = None
     description: Optional[str] = None
@@ -47,10 +59,34 @@ class ShiftResponse(ShiftBase):
     updated_at: Optional[str] = None
 
 
+class WeekdayShiftRule(BaseModel):
+    """One weekday in a hybrid pattern. Keys are Monday=0 … Sunday=6."""
+    shift_id: Optional[str] = Field(default=None, description="Shift for this weekday; omit to use the default shift_id")
+    auto_wfh: bool = Field(default=False, description="Treat this weekday as WFH without a request")
+
+
+class DateShiftOverride(BaseModel):
+    """One-day exception to the week pattern (office Monday, extra WFH, etc.)."""
+    date: str = Field(..., description="Override date YYYY-MM-DD")
+    shift_id: Optional[str] = Field(default=None, description="Shift for this date; omit to keep the weekday/default shift")
+    auto_wfh: Optional[bool] = Field(
+        default=None,
+        description="If set, overrides weekday auto-WFH for this date only",
+    )
+
+
 class ShiftAssignmentRequest(BaseModel):
     user_id: str = Field(..., description="Target user ID for shift assignment")
-    shift_id: str = Field(..., description="Target shift ID")
+    shift_id: str = Field(..., description="Default / fallback shift ID when no weekday or date rule applies")
     effective_from: Optional[str] = Field(default=None, description="Effective start date YYYY-MM-DD")
+    weekday_rules: Optional[Dict[str, WeekdayShiftRule]] = Field(
+        default=None,
+        description="Optional Mon–Sun map keyed '0'–'6'. Omit to leave an existing pattern unchanged.",
+    )
+    date_overrides: Optional[List[DateShiftOverride]] = Field(
+        default=None,
+        description="Optional one-day overrides. Omit to leave existing overrides unchanged.",
+    )
 
 
 DEFAULT_SHIFTS: List[Dict[str, Any]] = [
@@ -63,6 +99,8 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": "13:00",
         "break_end_time": "14:00",
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 8.0,
         "is_night_shift": False,
         "description": "Standard office working hours (09:30 AM - 06:30 PM with 1 hour lunch break)",
@@ -77,6 +115,8 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": "13:00",
         "break_end_time": "14:00",
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 8.0,
         "is_night_shift": False,
         "description": "Human Resources working hours (09:00 AM - 06:00 PM with 1 hour lunch break)",
@@ -91,6 +131,8 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": None,
         "break_end_time": None,
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 6.0,
         "is_night_shift": False,
         "description": "Afternoon shift (02:00 PM - 08:00 PM, no unpaid break, 6 expected hours)",
@@ -105,6 +147,8 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": "01:00",
         "break_end_time": "02:00",
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 7.0,
         "is_night_shift": True,
         "description": "Overnight shift (09:00 PM - 05:00 AM next day with 1 hour meal break)",
@@ -119,6 +163,8 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": "14:00",
         "break_end_time": "15:00",
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 8.0,
         "is_night_shift": False,
         "description": "Remote daytime template (10:00 AM - 07:00 PM). Assign then edit times per person.",
@@ -134,10 +180,46 @@ DEFAULT_SHIFTS: List[Dict[str, Any]] = [
         "break_start_time": "01:00",
         "break_end_time": "02:00",
         "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
         "expected_hours": 7.0,
         "is_night_shift": True,
         "description": "Remote overnight template (09:00 PM - 05:00 AM). Assign then edit times per person.",
         "is_active": True,
         "id": "shift_wfh_night",
+    },
+    {
+        "name": "WFH Evening",
+        "shift_type": ShiftType.CUSTOM,
+        "start_time": "19:00",
+        "end_time": "01:00",
+        "break_duration_minutes": 0,
+        "break_start_time": None,
+        "break_end_time": None,
+        "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
+        "expected_hours": 6.0,
+        "is_night_shift": True,
+        "description": "Remote weekday night (07:00 PM - 01:00 AM next day, no unpaid break). Hybrid default Mon–Fri.",
+        "is_active": True,
+        "id": "shift_wfh_evening",
+    },
+    {
+        "name": "Saturday Office",
+        "shift_type": ShiftType.CUSTOM,
+        "start_time": "12:00",
+        "end_time": "19:00",
+        "break_duration_minutes": 60,
+        "break_start_time": "15:00",
+        "break_end_time": "16:00",
+        "grace_period_minutes": 30,
+        "overtime_buffer_minutes": 10,
+        "undertime_buffer_minutes": 10,
+        "expected_hours": 6.0,
+        "is_night_shift": False,
+        "description": "Saturday office (12:00 PM - 07:00 PM with 1 hour break).",
+        "is_active": True,
+        "id": "shift_saturday_office",
     },
 ]

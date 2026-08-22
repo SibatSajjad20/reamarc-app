@@ -7,6 +7,7 @@ import {
   Sparkles,
   Calendar,
   Info,
+  AlertTriangle,
 } from 'lucide-react';
 import type {
   RequestType,
@@ -19,7 +20,7 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
-import { getAttendanceMinDate } from '../../constants/attendance';
+import { getAttendanceMinDate, isFuturePktClockTime } from '../../constants/attendance';
 import type { LeaveBalance } from '../../types/attendance';
 
 interface RequestManagementModalProps {
@@ -80,13 +81,20 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   useEffect(() => {
     if (!isOpen) return;
     setActiveTab(defaultTab);
+    setCorrectionTarget('time_in');
     if (initialRecord?.date) {
       setRegularizeDate(initialRecord.date);
-      if (initialRecord.punch_in) {
-        setRegularizeIn(initialRecord.punch_in.substring(0, 5));
+      const existingIn = initialRecord.punch_in || initialRecord.check_in;
+      const existingOut = initialRecord.punch_out || initialRecord.check_out;
+      if (existingIn) {
+        setRegularizeIn(existingIn.substring(0, 5));
       }
-      if (initialRecord.punch_out) {
-        setRegularizeOut(initialRecord.punch_out.substring(0, 5));
+      if (existingOut) {
+        setRegularizeOut(existingOut.substring(0, 5));
+      }
+      // Already checked in with no checkout: only fix time in so the day stays open.
+      if (existingIn && !existingOut) {
+        setCorrectionTarget('time_in');
       }
     }
     attendanceService
@@ -202,6 +210,18 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           setIsSubmitting(false);
           return;
         }
+        if (
+          (correctionTarget === 'time_out' || correctionTarget === 'both') &&
+          isFuturePktClockTime(regularizeDate, regularizeOut)
+        ) {
+          addToast(
+            'Time Out is still in the future',
+            'That would check you out before you leave and hide overtime. Use Time In Only while you are still working.',
+            'warning'
+          );
+          setIsSubmitting(false);
+          return;
+        }
         payload = {
           leave_type: 'missed_punch_regularization',
           request_type: 'regularization',
@@ -213,6 +233,10 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           regularization_check_out: (correctionTarget === 'time_out' || correctionTarget === 'both') ? regularizeOut : undefined,
           regularization_punch_in: (correctionTarget === 'time_in' || correctionTarget === 'both') ? regularizeIn : undefined,
           regularization_punch_out: (correctionTarget === 'time_out' || correctionTarget === 'both') ? regularizeOut : undefined,
+          original_check_in: (initialRecord?.punch_in || initialRecord?.check_in || '').substring(0, 5) || undefined,
+          original_check_out: (initialRecord?.punch_out || initialRecord?.check_out || '').substring(0, 5) || undefined,
+          original_punch_in: (initialRecord?.punch_in || initialRecord?.check_in || '').substring(0, 5) || undefined,
+          original_punch_out: (initialRecord?.punch_out || initialRecord?.check_out || '').substring(0, 5) || undefined,
           reason: regularizeReason.trim(),
         };
       }
@@ -258,7 +282,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               </h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 {isCorrectionMode
-                  ? 'Submit time in / time out corrections for HR or Team Lead approval'
+                  ? 'Submit time in / time out corrections for HR, Operations, or Admin approval'
                   : 'Submit self-service requests for leaves, short leaves or remote work'}
               </p>
             </div>
@@ -495,7 +519,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-300 flex items-start gap-2">
                 <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
                 <p className="leading-tight">
-                  Punch time corrections recalculate your working hours, undertime, and punctuality record once approved by HR or Team Lead.
+                  Punch time corrections recalculate your working hours, undertime, and punctuality record once approved.
                 </p>
               </div>
 
@@ -549,6 +573,15 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   </button>
                 </div>
               </div>
+
+              {(correctionTarget === 'both' || correctionTarget === 'time_out') && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-rose-800 dark:text-rose-300 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="leading-tight">
+                    Including Time Out will check you out at that time. If your shift has not ended, HR will see you as already gone and overtime will be lost. Use <strong>Time In Only</strong> unless you have already left.
+                  </p>
+                </div>
+              )}
 
               {/* Dynamic Time Pickers */}
               <div className={`grid ${correctionTarget === 'both' ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>

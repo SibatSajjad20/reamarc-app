@@ -143,7 +143,6 @@ async def get_my_log_activity(
     user_role = current_user.get("role", "team_member")
     is_exempt = user_role in (
         UserRole.ADMIN.value, "admin",
-        UserRole.HR.value, "hr",
         UserRole.OPERATIONS.value, "operations",
         UserRole.CLIENT.value, "client"
     )
@@ -174,7 +173,35 @@ async def get_my_log_activity(
     entries = await entries_cursor.to_list(length=100)
     submitted_dates = {e["date"] for e in entries if e.get("date")}
 
-    missing = [w for w in workdays if w not in submitted_dates]
+    from app.services.log_compliance import (
+        batch_expected_targets,
+        person_day_is_leave,
+        person_day_is_due,
+        pkt_today,
+    )
+
+    leave_days = set()
+    not_due_today = False
+    if workdays:
+        targets = await batch_expected_targets([current_user], workdays)
+        att_docs = await db.attendance_records.find(
+            {"user_id": uid, "date": {"$in": workdays}},
+            {"_id": 0, "date": 1, "status": 1, "check_out": 1, "punch_out": 1, "work_hours": 1},
+        ).to_list(40)
+        att_by_day = {d.get("date"): d for d in att_docs if d.get("date")}
+        today_pkt = pkt_today()
+        for day in workdays:
+            att = att_by_day.get(day) or {}
+            target = targets.get((uid, day)) or {}
+            if person_day_is_leave(target, att):
+                leave_days.add(day)
+            if day == today_pkt and not person_day_is_due(day, today_pkt, target, att):
+                not_due_today = True
+
+    missing = [
+        w for w in workdays
+        if w not in submitted_dates and w not in leave_days and not (w == today_iso and not_due_today)
+    ]
     logged_today = today_iso in submitted_dates
 
     sorted_submitted = sorted(list(submitted_dates), reverse=True)
@@ -186,6 +213,146 @@ async def get_my_log_activity(
         "last_logged_date": last_logged,
         "logged_today": logged_today,
         "missing_dates": missing,
+    }
+
+
+@router.get("/day-target")
+async def get_day_target(
+    date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today PKT"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Logged hours vs attendance time-in/time-out for the current user, plus open follow-ups."""
+    from app.services.log_compliance import (
+        pkt_today,
+        get_expected_log_hours,
+        get_attendance_worked,
+        load_user_day_entries,
+        classify_day_status,
+        recent_workdays,
+        person_day_is_leave,
+        live_day_hours,
+    )
+
+    user_role = current_user.get("role", "team_member")
+    if user_role in (UserRole.CLIENT.value, "client"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Client accounts do not have access to internal daily logs.")
+
+    date_str = date or pkt_today()
+    uid = current_user["id"]
+    target = await get_expected_log_hours(uid, date_str, current_user.get("department"))
+    punch = await get_attendance_worked(uid, date_str)
+    entries = await load_user_day_entries(uid, date_str)
+    logged = 0.0
+    for e in entries:
+        try:
+            logged += float(e.get("hours_utilized") or 0)
+        except (TypeError, ValueError):
+            pass
+    logged = round(logged, 2)
+    is_wfh = bool(target.get("is_wfh") or punch.get("is_wfh"))
+    has_checkout = bool(punch.get("has_checkout"))
+    has_checkin = bool(punch.get("has_checkin"))
+    if has_checkout:
+        worked = float(punch.get("work_hours") or 0)
+        compare_ready = True
+    elif is_wfh and not has_checkin:
+        worked = float(target.get("expected_hours") or 0)
+        compare_ready = True
+    else:
+        worked = float(punch.get("work_hours") or 0)
+        compare_ready = False
+
+    on_leave = person_day_is_leave(target, punch)
+    status, _exc = classify_day_status(
+        logged,
+        worked,
+        is_full_leave=on_leave,
+        has_checkout=has_checkout,
+        has_checkin=has_checkin,
+        has_log=logged > 0 or len(entries) > 0,
+        is_wfh=is_wfh,
+        compare_ready=compare_ready,
+    )
+
+    remaining = round(max(0.0, worked - logged), 2) if compare_ready else 0.0
+    pending_action = None
+    pending_message = None
+    follow_ups = []
+    db = get_database()
+    if db is not None:
+        score = await db.daily_log_day_scores.find_one({"user_id": uid, "date": date_str}, {"_id": 0})
+        if (not on_leave) and score and score.get("action_status") == "waiting_on_employee":
+            pending_action = score.get("action_type") or "explain"
+            who = "HR" if str(score.get("action_by_role") or "").lower() == "hr" else "your lead"
+            if "hr" in (score.get("action_by_name") or "").lower() and not score.get("action_by_role"):
+                who = "HR"
+            pending_message = f"{who} asked you to {pending_action} your log for {date_str}."
+
+        window = recent_workdays(7)
+        waiting = await db.daily_log_day_scores.find(
+            {
+                "user_id": uid,
+                "date": {"$in": window},
+                "action_status": {"$in": ["waiting_on_employee", "waiting_on_reviewer"]},
+            },
+            {"_id": 0},
+        ).to_list(20)
+        from app.services.log_compliance import person_day_is_leave, batch_expected_targets
+        leave_targets = await batch_expected_targets([current_user], window)
+        leave_att = await db.attendance_records.find(
+            {"user_id": uid, "date": {"$in": window}},
+            {"_id": 0, "date": 1, "status": 1},
+        ).to_list(20)
+        leave_att_by_day = {d.get("date"): d for d in leave_att if d.get("date")}
+        for item in waiting:
+            item_day = item.get("date")
+            if person_day_is_leave(leave_targets.get((uid, item_day)) or {}, leave_att_by_day.get(item_day)):
+                continue
+            actor_role = str(item.get("action_by_role") or "").lower()
+            who = item.get("action_by_name") or ("HR" if actor_role == "hr" else "Your lead")
+            astatus = item.get("action_status")
+            live = await live_day_hours(uid, item_day)
+            logged_h = live["logged_hours"]
+            worked_h = live["worked_hours"]
+            signed = live["signed_gap_hours"]
+            if astatus == "waiting_on_reviewer":
+                msg = f"Your reason for {item.get('date')} is waiting on {who}."
+            else:
+                verb = "send a reason" if item.get("action_type") == "explain" else "add the missing time"
+                msg = f"{who} asked you to {verb} for {item.get('date')} — {logged_h}h logged vs {worked_h}h at work."
+            follow_ups.append({
+                "date": item.get("date"),
+                "id": item.get("id"),
+                "action_type": item.get("action_type"),
+                "action_status": astatus,
+                "action_by_name": item.get("action_by_name"),
+                "member_reason": item.get("member_reason") or "",
+                "logged_hours": logged_h,
+                "worked_hours": worked_h,
+                "signed_gap_hours": signed,
+                "is_missing_log": live["is_missing_log"],
+                "can_send_reason": astatus == "waiting_on_employee",
+                "message": msg,
+            })
+
+    return {
+        "date": date_str,
+        "expected_hours": float(target["expected_hours"]),
+        "worked_hours": worked,
+        "logged_hours": logged,
+        "remaining_hours": remaining,
+        "has_checkin": has_checkin,
+        "has_checkout": has_checkout,
+        "compare_ready": compare_ready,
+        "shift_name": target.get("shift_name"),
+        "shift_start": target.get("shift_start"),
+        "shift_end": target.get("shift_end"),
+        "is_full_leave": on_leave,
+        "is_wfh": is_wfh,
+        "status": status,
+        "pending_action": pending_action,
+        "pending_message": pending_message,
+        "follow_ups": follow_ups,
     }
 
 
@@ -341,6 +508,13 @@ async def get_entries(
     if task_type:
         query_filter["task_type"] = task_type
 
+    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.OPERATIONS.value, "operations"):
+        from app.services.member_cleanup import purge_orphaned_member_records
+        try:
+            await purge_orphaned_member_records(db)
+        except Exception:
+            pass
+
     cursor = (
         db.daily_log_entries
         .find(query_filter)
@@ -415,8 +589,17 @@ async def upload_deliverable(
 
 
 @router.get("/download-file")
-async def download_file(file_path: str = Query(..., description="File path under /uploads")):
-    """Download an uploaded file attachment directly as raw binary stream."""
+async def download_file(
+    file_path: str = Query(..., description="File path under /uploads"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Download an uploaded file attachment. Requires an authenticated internal user."""
+    user_role = current_user.get("role", "team_member")
+    if user_role in ("client", UserRole.CLIENT.value):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Client accounts do not have access to internal daily logs.",
+        )
     clean_relative = file_path.replace("/uploads/", "").lstrip("/").lstrip("\\")
     base_uploads = os.path.abspath(os.path.join(
         os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -447,10 +630,14 @@ async def create_entry(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     user_role = current_user.get("role", "team_member")
-    if user_role in ("client", UserRole.CLIENT.value, "operations", UserRole.OPERATIONS.value):
+    if user_role in (
+        "client", UserRole.CLIENT.value,
+        "operations", UserRole.OPERATIONS.value,
+        "admin", UserRole.ADMIN.value,
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operations and Client accounts do not log daily entries.",
+            detail="Admin, Operations, and Client accounts do not log daily entries.",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -506,7 +693,30 @@ async def create_entry(
     entry_dict["created_at"] = now_iso
     entry_dict["updated_at"] = now_iso
 
+    from app.services.log_compliance import (
+        hours_from_start_end,
+        load_user_day_entries,
+        assert_no_overlap_or_duplicate,
+        recompute_day_score,
+    )
+
+    auto_hours = hours_from_start_end(entry_dict.get("start_time"), entry_dict.get("end_time"))
+    if auto_hours is not None:
+        entry_dict["hours_utilized"] = auto_hours
+
+    existing_same_day = await load_user_day_entries(entry_dict["user_id"], entry_dict["date"])
+    assert_no_overlap_or_duplicate(existing_same_day, entry_dict)
+
     await db.daily_log_entries.insert_one(entry_dict)
+    try:
+        await recompute_day_score(
+            entry_dict["user_id"],
+            entry_dict["date"],
+            variance_reason=entry_dict.get("variance_reason"),
+            actor=current_user,
+        )
+    except Exception:
+        pass
     return entry_dict
 
 
@@ -543,8 +753,9 @@ async def update_entry(
             or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
         )
         is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
+        is_hr = user_role in (UserRole.HR.value, "hr")
 
-        if not (is_own_entry or is_dept_lead_entry):
+        if not (is_own_entry or is_dept_lead_entry or is_hr):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to edit this log entry. Only the author who logged the entry can edit it.",
@@ -578,6 +789,25 @@ async def update_entry(
             pass
 
     update_data["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    from app.services.log_compliance import (
+        hours_from_start_end,
+        load_user_day_entries,
+        assert_no_overlap_or_duplicate,
+        recompute_day_score,
+    )
+
+    merged = {**existing_entry, **update_data}
+    auto_hours = hours_from_start_end(merged.get("start_time"), merged.get("end_time"))
+    if auto_hours is not None:
+        update_data["hours_utilized"] = auto_hours
+        merged["hours_utilized"] = auto_hours
+
+    target_uid = existing_entry.get("user_id")
+    target_date = merged.get("date") or existing_entry.get("date")
+    if target_uid and target_date:
+        existing_same_day = await load_user_day_entries(target_uid, target_date)
+        assert_no_overlap_or_duplicate(existing_same_day, merged, exclude_id=entry_id)
 
     # Optimistic Concurrency Control (OCC) Check
     if entry_in.version is not None:
@@ -613,6 +843,22 @@ async def update_entry(
     res["id"] = res.get("id") or str(res.get("_id"))
     res["workspace_id"] = res.get("workspace_id", "global")
     res["version"] = int(res.get("version", 1))
+    try:
+        from app.services.log_compliance import recompute_day_score
+        uid = res.get("user_id") or existing_entry.get("user_id")
+        dte = res.get("date") or existing_entry.get("date")
+        if uid and dte:
+            await recompute_day_score(
+                uid,
+                dte,
+                variance_reason=update_data.get("variance_reason"),
+                actor=current_user,
+            )
+            old_date = existing_entry.get("date")
+            if old_date and old_date != dte:
+                await recompute_day_score(uid, old_date, actor=current_user)
+    except Exception:
+        pass
     return res
 
 
@@ -646,8 +892,9 @@ async def delete_entry(
             or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
         )
         is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
+        is_hr = user_role in (UserRole.HR.value, "hr")
 
-        if not (is_own_entry or is_dept_lead_entry):
+        if not (is_own_entry or is_dept_lead_entry or is_hr):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
@@ -655,6 +902,13 @@ async def delete_entry(
 
     res = await db.daily_log_entries.delete_one({"id": entry_id})
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
+        raise HTTPException(status_code=404, detail="Log entry '{entry_id}' not found.")
+
+    try:
+        from app.services.log_compliance import recompute_day_score
+        if entry_uid and existing_entry.get("date"):
+            await recompute_day_score(entry_uid, existing_entry["date"], actor=current_user)
+    except Exception:
+        pass
 
     return {"message": "Entry deleted successfully."}

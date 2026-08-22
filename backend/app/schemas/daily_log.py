@@ -90,6 +90,10 @@ class DailyLogEntryCreate(BaseModel):
     deliverables: str = ""
     hours_utilized: Union[float, str] = 0.0
     remarks: Optional[str] = ""
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    variance_reason: Optional[str] = None
     month_sheet: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
 
@@ -114,6 +118,10 @@ class DailyLogEntryUpdate(BaseModel):
     deliverables: Optional[str] = None
     hours_utilized: Optional[Union[float, str]] = None
     remarks: Optional[str] = None
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    variance_reason: Optional[str] = None
     month_sheet: Optional[str] = None
     custom_fields: Optional[Dict[str, Any]] = None
 
@@ -142,6 +150,10 @@ class DailyLogEntryResponse(BaseModel):
     deliverables: str
     hours_utilized: float = 0.0
     remarks: Optional[str] = ""
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    estimated_hours: Optional[float] = None
+    variance_reason: Optional[str] = None
     month_sheet: str
     custom_fields: Optional[Dict[str, Any]] = None
     created_at: Optional[str] = None

@@ -11,6 +11,7 @@ import {
   Wifi,
   MapPin,
   Loader2,
+  X,
 } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
@@ -76,8 +77,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     }
   }, [todayData?.office_latitude, todayData?.office_longitude, todayData?.geofence_radius_meters]);
 
-  // Fetch security settings on mount as fallback
+  // Fetch security settings only if today's payload did not already include the HQ pin.
   useEffect(() => {
+    if (todayData?.office_latitude && todayData?.office_longitude) return;
+    if (isLoading) return;
     attendanceService
       .getSecuritySettings()
       .then((sec) => {
@@ -92,7 +95,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       .catch(() => {
         // Keep defaults
       });
-  }, []);
+  }, [todayData?.office_latitude, todayData?.office_longitude, isLoading]);
 
   // Capture GPS on mount or manual refresh
   const captureGPS = useCallback(
@@ -173,6 +176,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   // Button Action Handlers with Verification Loader
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [varianceOpen, setVarianceOpen] = useState(false);
+  const [varianceReason, setVarianceReason] = useState('');
+  const [varianceCategory, setVarianceCategory] = useState('');
   const [verificationStep, setVerificationStep] = useState<string>('');
 
   const handleCheckIn = async () => {
@@ -272,13 +278,22 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     }
   };
 
-  const handleCheckOut = async () => {
+  const checkoutGate = todayData?.checkout_gate;
+  const gateType = checkoutGate?.type || 'none';
+  const needsVarianceReason = gateType === 'overtime' || gateType === 'undertime';
+
+  const submitCheckOut = async (reason?: string, category?: string) => {
     try {
       setIsSubmitting(true);
       setVerificationStep('Submitting Check-Out Punch...');
       await attendanceService.checkOut({
         notes: 'Shift check-out',
+        variance_reason: reason || undefined,
+        variance_category: category || undefined,
       });
+      setVarianceOpen(false);
+      setVarianceReason('');
+      setVarianceCategory('');
       addToast('Check-Out Recorded 👋', 'Your shift has ended and timesheet calculated.', 'success');
       onRefresh();
     } catch (err: any) {
@@ -287,6 +302,14 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       setIsSubmitting(false);
       setVerificationStep('');
     }
+  };
+
+  const handleCheckOut = async () => {
+    if (needsVarianceReason) {
+      setVarianceOpen(true);
+      return;
+    }
+    await submitCheckOut();
   };
 
   // Status Badge Info
@@ -584,40 +607,142 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             </div>
             )
           ) : isCheckedOut ? (
-            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex items-center justify-center gap-2.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
-              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-              <span>
-                Today's Shift Finished (
-                {record?.working_hours_minutes
-                  ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
-                      record.working_hours_minutes % 60
-                    ).padStart(2, '0')}m worked`
-                  : 'Completed'}
-                )
+            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex flex-col items-center justify-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
+              <span className="inline-flex items-center gap-2.5">
+                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <span>
+                  Today's Shift Finished (
+                  {record?.working_hours_minutes
+                    ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
+                        record.working_hours_minutes % 60
+                      ).padStart(2, '0')}m worked`
+                    : 'Completed'}
+                  )
+                </span>
               </span>
+              {record?.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0 && (
+                <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                  +{String(Math.floor((record.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
+                  {String((record.pending_overtime_minutes || 0) % 60).padStart(2, '0')} overtime pending HR review
+                </span>
+              )}
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={handleCheckOut}
-              disabled={isSubmitting}
-              className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{verificationStep || 'Submitting Check-Out...'}</span>
-                </>
-              ) : (
-                <>
-                  <LogOut className="w-5 h-5" />
-                  <span>Check Out</span>
-                </>
+            <div className="space-y-2">
+              {(checkoutGate?.past_shift_end || gateType === 'overtime') && checkoutGate?.message && (
+                <p className="text-[11px] font-medium text-center text-amber-700 dark:text-amber-300 px-1">
+                  {checkoutGate.message}
+                </p>
               )}
-            </button>
+              <button
+                type="button"
+                onClick={handleCheckOut}
+                disabled={isSubmitting}
+                className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <span>{verificationStep || 'Submitting Check-Out...'}</span>
+                  </>
+                ) : (
+                  <>
+                    <LogOut className="w-5 h-5" />
+                    <span>Check Out</span>
+                  </>
+                )}
+              </button>
+            </div>
           )}
         </div>
       </div>
+
+      {varianceOpen && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
+              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                {gateType === 'overtime' ? 'Overtime reason required' : 'Early check-out reason'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setVarianceOpen(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+              {checkoutGate?.message ||
+                (gateType === 'overtime'
+                  ? `Your shift ended at ${shift?.end_time || '18:30'}. Enter the reason you stayed.`
+                  : `You are leaving before ${shift?.end_time || '18:30'}. Enter the reason.`)}
+            </p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (varianceReason.trim().length < 3) return;
+                void submitCheckOut(varianceReason.trim(), varianceCategory || undefined);
+              }}
+              className="space-y-3"
+            >
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
+                <select
+                  value={varianceCategory}
+                  onChange={(e) => setVarianceCategory(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200"
+                >
+                  <option value="">Select (optional)</option>
+                  {gateType === 'overtime' ? (
+                    <>
+                      <option value="client_deadline">Client deadline</option>
+                      <option value="deployment">Deployment / release</option>
+                      <option value="meeting">Meeting ran late</option>
+                      <option value="other">Other</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="personal">Personal</option>
+                      <option value="appointment">Appointment</option>
+                      <option value="short_leave">Looks like short leave</option>
+                      <option value="other">Other</option>
+                    </>
+                  )}
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Reason</label>
+                <textarea
+                  required
+                  minLength={3}
+                  rows={3}
+                  value={varianceReason}
+                  onChange={(e) => setVarianceReason(e.target.value)}
+                  placeholder="Enter a short reason..."
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setVarianceOpen(false)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting || varianceReason.trim().length < 3}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-60"
+                >
+                  {isSubmitting ? 'Checking out...' : 'Confirm check out'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

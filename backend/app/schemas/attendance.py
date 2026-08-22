@@ -40,6 +40,16 @@ class CheckOutRequest(BaseModel):
     latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
     longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
     notes: Optional[str] = Field(default=None, description="Optional check-out notes / remarks")
+    variance_reason: Optional[str] = Field(
+        default=None,
+        max_length=500,
+        description="Required when checkout is overtime or undertime past the shift buffer",
+    )
+    variance_category: Optional[str] = Field(
+        default=None,
+        max_length=40,
+        description="Optional category: client_deadline, deployment, meeting, personal, short_leave, other",
+    )
 
 
 class BreakActionRequest(BaseModel):
@@ -88,6 +98,12 @@ class AttendanceRecordResponse(BaseModel):
     overtime_formatted: str = Field(default="+00:00", description="Formatted overtime as +HH:MM")
     undertime_hours: float = Field(default=0.0, description="Net undertime hours in decimal format")
     undertime_formatted: str = Field(default="-00:00", description="Formatted undertime as -HH:MM")
+    overtime_status: Optional[str] = Field(default=None, description="not_applicable | pending | approved | rejected")
+    pending_overtime_minutes: int = Field(default=0, description="Claimed overtime waiting for HR approval")
+    claimed_overtime_minutes: int = Field(default=0, description="Clocked overtime before approval")
+    overtime_reason: Optional[str] = None
+    undertime_reason: Optional[str] = None
+    variance_category: Optional[str] = None
     late_minutes: int = Field(default=0, description="Minutes late compared to shift start")
     is_late: bool = Field(default=False, description="Whether arrival triggered a late strike (> 30 min buffer)")
     late_strike: int = Field(default=0, description="Late strike counter (0 or 1)")
@@ -161,6 +177,7 @@ class TodayAttendanceResponse(BaseModel):
     enforce_ip_whitelist: bool = True
     enforce_gps_geofence: bool = True
     shift_ended: bool = False
+    checkout_gate: Optional[Dict[str, Any]] = None
 
 
 class DailyMatrixSummary(BaseModel):
@@ -199,6 +216,10 @@ class DailyMatrixRow(BaseModel):
     is_wfh_approved: bool = False
     notes: Optional[str] = None
     record_id: Optional[str] = None
+    overtime_status: Optional[str] = None
+    pending_overtime_minutes: int = 0
+    undertime_reason: Optional[str] = None
+    overtime_reason: Optional[str] = None
 
 
 class DailyMatrixResponse(BaseModel):

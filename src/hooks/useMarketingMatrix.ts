@@ -14,7 +14,7 @@ export function useMarketingMatrix(workspaceId?: string) {
   const [rows, setRows] = useState<MarketingMatrixRow[]>([]);
   const [hiddenCount, setHiddenCount] = useState<number>(0);
   const [showInactive, setShowInactive] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const today = new Date();

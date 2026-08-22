@@ -7,6 +7,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { ViewType } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { attendanceService } from '../../services/attendanceService';
 import { dailyLogService } from '../../services/dailyLogService';
 import type {
@@ -14,7 +15,7 @@ import type {
   PersonalTimesheetResponse,
   RequestType,
 } from '../../types/attendance';
-import type { DailyLogEntry } from '../../types/dailyLog';
+import type { DailyLogEntry, DayTarget } from '../../types/dailyLog';
 
 import { EmployeePunchCard } from '../attendance/EmployeePunchCard';
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
@@ -29,7 +30,6 @@ import {
   Clock,
   ChevronRight,
   RefreshCw,
-  Loader2,
 } from 'lucide-react';
 import { getDeptBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
 
@@ -60,13 +60,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // Loading States
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
+  const [isLoadingTimesheet, setIsLoadingTimesheet] = useState(true);
   const [isLoadingDailyLog, setIsLoadingDailyLog] = useState(true);
+  useModuleLoadGate(isLoadingAttendance);
 
   // Data States
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(null);
   const [personalTimesheet, setPersonalTimesheet] = useState<PersonalTimesheetResponse | null>(null);
   const [todayLogEntries, setTodayLogEntries] = useState<DailyLogEntry[]>([]);
   const [yesterdayLogEntries, setYesterdayLogEntries] = useState<DailyLogEntry[]>([]);
+  const [logFollowUps, setLogFollowUps] = useState<DayTarget['follow_ups']>([]);
 
   // Request Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -79,21 +82,26 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const loadAttendance = useCallback(async () => {
     try {
       setIsLoadingAttendance(true);
-      const [todayData, timesheetData] = await Promise.allSettled([
-        attendanceService.getTodayStatus(),
-        attendanceService.getMyTimesheet(today.getFullYear(), today.getMonth() + 1),
-      ]);
-
-      if (todayData.status === 'fulfilled' && todayData.value) {
-        setTodayAttendance(todayData.value);
-      }
-      if (timesheetData.status === 'fulfilled' && timesheetData.value) {
-        setPersonalTimesheet(timesheetData.value);
+      const todayData = await attendanceService.getTodayStatus();
+      if (todayData) {
+        setTodayAttendance(todayData);
       }
     } catch (err) {
       console.error('Failed to load dashboard attendance:', err);
     } finally {
       setIsLoadingAttendance(false);
+    }
+
+    try {
+      setIsLoadingTimesheet(true);
+      const timesheetData = await attendanceService.getMyTimesheet(today.getFullYear(), today.getMonth() + 1);
+      if (timesheetData) {
+        setPersonalTimesheet(timesheetData);
+      }
+    } catch (err) {
+      console.error('Failed to load dashboard timesheet:', err);
+    } finally {
+      setIsLoadingTimesheet(false);
     }
   }, [today]);
 
@@ -102,7 +110,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     if (isOperations) return;
     try {
       setIsLoadingDailyLog(true);
-      const [todayRes, yesterdayRes] = await Promise.allSettled([
+      const [todayRes, yesterdayRes, targetRes] = await Promise.allSettled([
         dailyLogService.getEntries({
           start_date: todayIso,
           end_date: todayIso,
@@ -115,6 +123,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           user_id: user?.id,
           limit: 100,
         }),
+        dailyLogService.getDayTarget(),
       ]);
 
       if (todayRes.status === 'fulfilled') {
@@ -122,6 +131,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       }
       if (yesterdayRes.status === 'fulfilled') {
         setYesterdayLogEntries(yesterdayRes.value || []);
+      }
+      if (targetRes.status === 'fulfilled') {
+        setLogFollowUps(targetRes.value.follow_ups || []);
       }
     } catch (err) {
       console.error('Failed to load dashboard daily logs:', err);
@@ -177,15 +189,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const hours = parseInt(hStr || '0', 10);
     return `${hours} hrs ${sign}`;
   }, [netVarianceFormatted]);
-
-  if (isLoadingAttendance) {
-    return (
-      <div className="flex-1 overflow-y-auto p-6 max-w-7xl mx-auto w-full flex flex-col items-center justify-center min-h-[60vh] gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-        <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading dashboard...</span>
-      </div>
-    );
-  }
 
   return (
     <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6 max-w-7xl mx-auto w-full">
@@ -318,6 +321,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   )}
 
                   {/* Missed Yesterday Notice */}
+                  {logFollowUps && logFollowUps.length > 0 && (
+                    <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 space-y-2">
+                      <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Requests</p>
+                      {logFollowUps.map((fu) => (
+                        <div key={`${fu.date}-${fu.action_status}`} className="flex items-center justify-between gap-2 text-xs text-indigo-900 dark:text-indigo-200">
+                          <span>
+                            {fu.action_status === 'waiting_on_reviewer'
+                              ? `Your reason for ${fu.date} is waiting on ${fu.action_by_name || 'your lead'}.`
+                              : `You have a log request for ${fu.date}.`}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => onNavigateView('daily-log')}
+                            className="underline font-bold cursor-pointer shrink-0"
+                          >
+                            Open Daily Log
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {isYesterdayMissed && (
                     <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 flex items-center justify-between text-xs text-rose-800 dark:text-rose-300">
                       <span className="flex items-center gap-2">
@@ -372,7 +397,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>{punctualityScore}% Score</span>
+                  <span>{isLoadingTimesheet ? '…' : `${punctualityScore}% Score`}</span>
                 </div>
               </div>
 

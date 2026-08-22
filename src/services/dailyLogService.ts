@@ -59,6 +59,11 @@ export const dailyLogService = {
     return apiClient.get<import('../types/dailyLog').UserLogActivity>(`/daily-log/my-activity?days=${days}`);
   },
 
+  async getDayTarget(date?: string): Promise<import('../types/dailyLog').DayTarget> {
+    const q = date ? `?date=${encodeURIComponent(date)}` : '';
+    return apiClient.get<import('../types/dailyLog').DayTarget>(`/daily-log/day-target${q}`);
+  },
+
   async uploadDeliverableFile(file: File): Promise<{ file_url: string; file_name: string; file_size: number }> {
     const formData = new FormData();
     formData.append('file', file);

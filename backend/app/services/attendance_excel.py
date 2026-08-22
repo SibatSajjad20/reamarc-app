@@ -309,11 +309,20 @@ async def generate_multi_tab_attendance_workbook(
 
         shift = await attendance_service.get_shift_for_user(u_id, u_dept)
         u_records = records_by_user.get(u_id, [])
+        shift_by_date: Dict[str, Any] = {}
 
         daily_dicts = []
         missed_punches_count = 0
         for r in u_records:
-            attendance_service.apply_daily_calc_fields(r, shift)
+            rec_date = r.get("date")
+            rec_shift = shift
+            if rec_date:
+                if rec_date not in shift_by_date:
+                    shift_by_date[rec_date] = await attendance_service.get_shift_for_user(
+                        u_id, u_dept, rec_date
+                    )
+                rec_shift = shift_by_date[rec_date]
+            attendance_service.apply_daily_calc_fields(r, rec_shift)
             st = r.get("status", AttendanceStatus.PRESENT)
             is_missed = r.get("is_missed_punch", False) or (st in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
             if is_missed:
