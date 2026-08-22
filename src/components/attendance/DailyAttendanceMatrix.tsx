@@ -494,7 +494,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               </p>
                             )}
                             {(row.overtime_reason || row.undertime_reason) && (
-                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.overtime_reason || row.undertime_reason}>
+                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.overtime_reason || row.undertime_reason || undefined}>
                                 {row.overtime_reason || row.undertime_reason}
                               </p>
                             )}
