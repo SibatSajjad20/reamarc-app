@@ -1038,6 +1038,42 @@ async def get_shift_for_user(
     )
 
 
+def resolve_shift_doc_for_date(
+    assignment: Optional[Dict[str, Any]],
+    date_str: str,
+    shifts_by_id: Dict[str, Any],
+    stored_shift_id: Optional[str] = None,
+    fallback: Any = None,
+) -> Any:
+    """Same priority as the daily matrix: date override → weekday → default → stored."""
+    try:
+        resolved = resolve_shift_assignment_for_date(assignment, date_str)
+    except (TypeError, ValueError):
+        resolved = {}
+    assigned_id = resolved.get("shift_id")
+    if assigned_id and assigned_id in shifts_by_id:
+        return shifts_by_id[assigned_id]
+    if stored_shift_id and stored_shift_id in shifts_by_id:
+        return shifts_by_id[stored_shift_id]
+    return fallback
+
+
+def _shift_label(shift: Any, default: str = "Standard Shift") -> str:
+    if shift is None:
+        return default
+    if isinstance(shift, ShiftResponse):
+        return shift.name or default
+    return (shift.get("name") if isinstance(shift, dict) else None) or default
+
+
+def _shift_id(shift: Any) -> Optional[str]:
+    if shift is None:
+        return None
+    if isinstance(shift, ShiftResponse):
+        return shift.id
+    return shift.get("id") if isinstance(shift, dict) else None
+
+
 LEAVE_LOCK_STATUSES = {
     AttendanceStatus.WFH.value,
     AttendanceStatus.SHORT_LEAVE.value,
@@ -1827,6 +1863,7 @@ async def get_my_timesheet(
     month_str = f"{year:04d}-{month:02d}"
     shift = await get_shift_for_user(user_id, department)
     shifts_by_id: Dict[str, ShiftResponse] = {}
+    assignment: Optional[Dict[str, Any]] = None
     if shift and getattr(shift, "id", None):
         shifts_by_id[shift.id] = shift
 
@@ -1834,6 +1871,13 @@ async def get_my_timesheet(
     if db is not None:
         from app.services.attendance_golive import get_effective_start_date
         min_date = get_effective_start_date()
+        assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
+        for raw in await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100):
+            try:
+                parsed = ShiftResponse(**raw)
+                shifts_by_id[parsed.id] = parsed
+            except Exception:
+                continue
         docs = await db.attendance_records.find(
             {
                 "user_id": user_id,
@@ -1856,7 +1900,15 @@ async def get_my_timesheet(
                 except Exception:
                     continue
         for d in docs:
-            rec_shift = shifts_by_id.get(d.get("shift_id")) or shift
+            rec_shift = resolve_shift_doc_for_date(
+                assignment,
+                str(d.get("date") or ""),
+                shifts_by_id,
+                stored_shift_id=d.get("shift_id"),
+                fallback=shift,
+            )
+            d["shift_id"] = _shift_id(rec_shift) or d.get("shift_id")
+            d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
             apply_daily_calc_fields(d, rec_shift)
             records.append(AttendanceRecordResponse.from_mongo(d))
 

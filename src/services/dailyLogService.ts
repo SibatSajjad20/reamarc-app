@@ -43,6 +43,27 @@ export const dailyLogService = {
     return apiClient.get<DailyLogEntry[]>(`/daily-log/entries${queryString}`);
   },
 
+  async getAllEntries(params?: GetDailyLogEntriesParams): Promise<DailyLogEntry[]> {
+    const pageSize = 2000;
+    const hardCap = 20000;
+    const all: DailyLogEntry[] = [];
+    let skip = 0;
+
+    while (all.length < hardCap) {
+      const page = await dailyLogService.getEntries({
+        ...params,
+        limit: pageSize,
+        skip,
+      });
+      if (!page || page.length === 0) break;
+      all.push(...page);
+      if (page.length < pageSize) break;
+      skip += pageSize;
+    }
+
+    return all;
+  },
+
   async createEntry(payload: CreateDailyLogEntryPayload): Promise<DailyLogEntry> {
     return apiClient.post<DailyLogEntry>('/daily-log/entries', payload);
   },

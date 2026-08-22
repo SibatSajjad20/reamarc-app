@@ -42,8 +42,9 @@ import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
-import { getDeptBadgeClass, getRoleBadgeClass, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
+import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
 import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
+import { exportDailyLogWorkbook } from '../../utils/dailyLogExcelExport';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
@@ -208,6 +209,7 @@ export const DailyLogView: React.FC = () => {
   const isOperations = user?.role === 'operations';
   const isLead = user?.role === 'team_lead';
   const canSubmitLogs = user?.role === 'team_member' || user?.role === 'team_lead' || user?.role === 'hr';
+  const canExportLogs = isAdmin || isHR || isOperations || isLead;
   const userDept = user?.department || '';
   const { departments } = useSystemConfig();
 
@@ -284,6 +286,7 @@ export const DailyLogView: React.FC = () => {
 
   const [isColumnModalOpen, setIsColumnModalOpen] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
+  const [isExporting, setIsExporting] = useState<boolean>(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
 
   // Per-Column Filters State
@@ -332,33 +335,39 @@ export const DailyLogView: React.FC = () => {
     return {};
   });
 
+  const buildFilterParams = useCallback((): GetDailyLogEntriesParams => {
+    const params: GetDailyLogEntriesParams = {};
+
+    if (selectedDept && selectedDept !== 'All') {
+      params.department = selectedDept;
+    }
+
+    if (datePreset === 'today') {
+      const t = getTodayIso();
+      params.start_date = t;
+      params.end_date = t;
+    } else if (datePreset === 'week') {
+      const bounds = getThisWeekBounds();
+      params.start_date = bounds.start;
+      params.end_date = bounds.end;
+    } else if (datePreset === 'month') {
+      params.month_sheet = activeSheet;
+    } else if (datePreset === 'custom') {
+      if (customStartDate && customEndDate) {
+        params.start_date = customStartDate;
+        params.end_date = customEndDate;
+      }
+    }
+
+    return params;
+  }, [activeSheet, selectedDept, datePreset, customStartDate, customEndDate]);
+
   // Fetch Sheets, Columns & Query Entries
   const fetchEntries = useCallback(async () => {
     setIsLoading(true);
     setOccConflictMessage(null);
     try {
-      const params: GetDailyLogEntriesParams = {};
-
-      if (selectedDept && selectedDept !== 'All') {
-        params.department = selectedDept;
-      }
-
-      if (datePreset === 'today') {
-        const t = getTodayIso();
-        params.start_date = t;
-        params.end_date = t;
-      } else if (datePreset === 'week') {
-        const bounds = getThisWeekBounds();
-        params.start_date = bounds.start;
-        params.end_date = bounds.end;
-      } else if (datePreset === 'month') {
-        params.month_sheet = activeSheet;
-      } else if (datePreset === 'custom') {
-        if (customStartDate && customEndDate) {
-          params.start_date = customStartDate;
-          params.end_date = customEndDate;
-        }
-      }
+      const params = buildFilterParams();
 
       const [sheets, cols, logs, activity] = await Promise.all([
         dailyLogService.getSheets(),
@@ -419,7 +428,7 @@ export const DailyLogView: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [activeSheet, selectedDept, datePreset, customStartDate, customEndDate]);
+  }, [buildFilterParams]);
 
   useEffect(() => {
     fetchEntries();
@@ -531,6 +540,46 @@ export const DailyLogView: React.FC = () => {
     const next = pool[(idx + 1) % pool.length];
     if (next?.date) openFollowUp(next.date);
   }, [followUps, openFollowUpDate, openFollowUp]);
+
+  const getExportPeriodMeta = () => {
+    if (datePreset === 'today') {
+      const t = getTodayIso();
+      return { periodLabel: 'Today', startDate: t, endDate: t };
+    }
+    if (datePreset === 'week') {
+      const bounds = getThisWeekBounds();
+      return { periodLabel: 'This Week (Mon – Sat)', startDate: bounds.start, endDate: bounds.end };
+    }
+    if (datePreset === 'month') {
+      return { periodLabel: `This Month (${activeSheet})` };
+    }
+    return { periodLabel: 'Custom Range', startDate: customStartDate, endDate: customEndDate };
+  };
+
+  const handleExportExcel = async () => {
+    if (!canExportLogs || isExporting) return;
+    setIsExporting(true);
+    try {
+      const exportEntries = await dailyLogService.getAllEntries(buildFilterParams());
+      if (!exportEntries.length) {
+        addToast('Nothing to export', 'No daily log entries match the current date and department filters.', 'warning');
+        return;
+      }
+      const period = getExportPeriodMeta();
+      const filename = exportDailyLogWorkbook(exportEntries, columns, {
+        ...period,
+        department: selectedDept || 'All',
+        exportedBy: user?.full_name || user?.name || user?.email || 'Unknown',
+        exportedByRole: getRoleLabel(user?.role),
+      });
+      addToast('Excel downloaded', `Saved ${filename} with ${exportEntries.length} log ${exportEntries.length === 1 ? 'entry' : 'entries'}.`, 'success');
+    } catch (err) {
+      console.error('Daily log Excel export failed:', err);
+      addToast('Export failed', 'Could not download the daily log Excel file. Please try again.', 'error');
+    } finally {
+      setIsExporting(false);
+    }
+  };
 
   const openAddTimeForDate = useCallback((date: string) => {
     setDatePreset('custom');
@@ -1025,8 +1074,25 @@ export const DailyLogView: React.FC = () => {
           )}
         </div>
 
-        {/* Right Tools: Customize, Summarize, Reset columns */}
+        {/* Right Tools: Export, Customize, Summarize, Reset columns */}
         <div className="flex items-center gap-2 flex-wrap ml-auto">
+          {canExportLogs && (
+            <button
+              type="button"
+              onClick={handleExportExcel}
+              disabled={isExporting || isLoading}
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-indigo-300 dark:hover:border-indigo-500/50 text-zinc-700 dark:text-zinc-200 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Download the current date and department filters as an Excel sheet"
+            >
+              {isExporting ? (
+                <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5 text-indigo-500" />
+              )}
+              <span>{isExporting ? 'Exporting…' : 'Export Excel'}</span>
+            </button>
+          )}
+
           {/* Manage Columns (Admin Only) */}
           {isAdmin && (
             <button
