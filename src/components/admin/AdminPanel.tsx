@@ -3,7 +3,6 @@ import { adminService } from '../../services/adminService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
-import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { AdminSidebarNav } from './AdminSidebarNav';
 import type { AdminSectionType } from './AdminSidebarNav';
 import { UserManagementSection } from './sections/UserManagementSection';
@@ -38,12 +37,12 @@ export const AdminPanel: React.FC = () => {
   const canManageAdAccounts = isAdmin;
 
   const [activeSection, setActiveSection] = useState<AdminSectionType>('directory');
+  const [policiesVisited, setPoliciesVisited] = useState(false);
 
   // Members & Activities
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [activities, setActivities] = useState<Record<string, MemberActivity>>({});
   const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(true);
-  useModuleLoadGate(isLoadingMembers);
   const [isSendingReminder, setIsSendingReminder] = useState<Record<string, boolean>>({});
 
   // Workspaces (from hook)
@@ -73,30 +72,39 @@ export const AdminPanel: React.FC = () => {
 
   const { addToast } = useToast();
 
-  const fetchMembers = async () => {
-    try {
-      setIsLoadingMembers(true);
-      const [membersRes, activitiesRes] = await Promise.allSettled([
-        adminService.getMembers(),
-        adminService.getMembersActivity(7),
-      ]);
+  const handleSelectSection = (section: AdminSectionType) => {
+    if (section === 'attendance_policies') setPoliciesVisited(true);
+    setActiveSection(section);
+  };
 
-      if (membersRes.status === 'fulfilled') {
-        setMembers(membersRes.value);
-      } else {
-        addToast('Error', 'Failed to load team members directory', 'warning');
+  const fetchMembers = async (showSpinner = false) => {
+    try {
+      if (showSpinner || members.length === 0) {
+        setIsLoadingMembers(true);
       }
 
-      if (activitiesRes.status === 'fulfilled') {
+      const membersPromise = adminService.getMembers().then((list) => {
+        setMembers(list);
+        setIsLoadingMembers(false);
+        return list;
+      }).catch((err) => {
+        addToast('Error', err?.message || 'Failed to load team members directory', 'warning');
+        setIsLoadingMembers(false);
+        throw err;
+      });
+
+      const activitiesPromise = adminService.getMembersActivity(7).then((list) => {
         const actMap: Record<string, MemberActivity> = {};
-        activitiesRes.value.forEach((a) => {
+        list.forEach((a) => {
           actMap[a.user_id] = a;
         });
         setActivities(actMap);
-      }
+        return list;
+      });
+
+      await Promise.allSettled([membersPromise, activitiesPromise]);
     } catch (err: any) {
       addToast('Error', err.message || 'Failed to load administrative data', 'warning');
-    } finally {
       setIsLoadingMembers(false);
     }
   };
@@ -111,7 +119,7 @@ export const AdminPanel: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    fetchMembers();
+    fetchMembers(true);
     fetchAdAccounts();
   }, [fetchAdAccounts]);
 
@@ -225,7 +233,7 @@ export const AdminPanel: React.FC = () => {
     <div className="flex flex-col h-full w-full bg-zinc-50 dark:bg-[#090a0f] overflow-hidden">
       <AdminSidebarNav
         activeSection={activeSection}
-        onSelectSection={setActiveSection}
+        onSelectSection={handleSelectSection}
         memberCount={members.length}
         workspaceCount={workspaces.length}
         adAccountCount={adAccounts.length}
@@ -292,8 +300,10 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'attendance_policies' && (
-        <AttendancePoliciesSection />
+      {policiesVisited && (
+        <div className={activeSection === 'attendance_policies' ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : 'hidden'}>
+          <AttendancePoliciesSection />
+        </div>
       )}
       </div>
 

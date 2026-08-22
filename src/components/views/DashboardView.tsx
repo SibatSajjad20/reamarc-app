@@ -80,29 +80,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const showDailyLogSection = !isOperations;
 
   const loadAttendance = useCallback(async () => {
-    try {
-      setIsLoadingAttendance(true);
-      const todayData = await attendanceService.getTodayStatus();
-      if (todayData) {
-        setTodayAttendance(todayData);
-      }
-    } catch (err) {
-      console.error('Failed to load dashboard attendance:', err);
-    } finally {
-      setIsLoadingAttendance(false);
-    }
+    setIsLoadingAttendance(true);
+    setIsLoadingTimesheet(true);
 
-    try {
-      setIsLoadingTimesheet(true);
-      const timesheetData = await attendanceService.getMyTimesheet(today.getFullYear(), today.getMonth() + 1);
-      if (timesheetData) {
-        setPersonalTimesheet(timesheetData);
-      }
-    } catch (err) {
-      console.error('Failed to load dashboard timesheet:', err);
-    } finally {
-      setIsLoadingTimesheet(false);
-    }
+    const todayPromise = attendanceService.getTodayStatus()
+      .then((todayData) => {
+        if (todayData) setTodayAttendance(todayData);
+      })
+      .catch((err) => {
+        console.error('Failed to load dashboard attendance:', err);
+      })
+      .finally(() => {
+        setIsLoadingAttendance(false);
+      });
+
+    const timesheetPromise = attendanceService.getMyTimesheet(today.getFullYear(), today.getMonth() + 1)
+      .then((timesheetData) => {
+        if (timesheetData) setPersonalTimesheet(timesheetData);
+      })
+      .catch((err) => {
+        console.error('Failed to load dashboard timesheet:', err);
+      })
+      .finally(() => {
+        setIsLoadingTimesheet(false);
+      });
+
+    await Promise.allSettled([todayPromise, timesheetPromise]);
   }, [today]);
 
   // Load Daily Log Data (Skipped for Operations)

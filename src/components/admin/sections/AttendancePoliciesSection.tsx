@@ -111,6 +111,7 @@ export const AttendancePoliciesSection: React.FC = () => {
     currentShiftName: string;
   } | null>(null);
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalance[]>([]);
+  const [isLoadingRoster, setIsLoadingRoster] = useState(true);
   const [isLoadingLeaveBalances, setIsLoadingLeaveBalances] = useState(true);
   const [leaveDrafts, setLeaveDrafts] = useState<
     Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }>
@@ -141,92 +142,85 @@ export const AttendancePoliciesSection: React.FC = () => {
   });
   const [newIpInput, setNewIpInput] = useState('');
 
-  // Initial Data Fetch
-  const fetchData = async () => {
+  const applyShifts = (fetchedShifts: PromiseSettledResult<ShiftTemplate[]>) => {
+    if (fetchedShifts.status === 'fulfilled' && fetchedShifts.value?.length) {
+      setShifts(fetchedShifts.value);
+      return;
+    }
+    setShifts([
+      {
+        id: 'standard_shift',
+        name: 'Standard Shift (General Team)',
+        code: 'STD',
+        start_time: '09:30',
+        end_time: '18:30',
+        grace_period_minutes: 30,
+        break_duration_minutes: 60,
+        break_start_time: '13:00',
+        break_end_time: '14:00',
+        late_threshold_time: '10:00',
+        is_cross_midnight: false,
+        expected_work_hours: 8.0,
+        expected_hours: 8.0,
+      },
+      {
+        id: 'hr_shift',
+        name: 'HR Department Shift',
+        code: 'HR',
+        start_time: '09:00',
+        end_time: '18:00',
+        grace_period_minutes: 30,
+        break_duration_minutes: 60,
+        break_start_time: '13:00',
+        break_end_time: '14:00',
+        late_threshold_time: '09:30',
+        is_cross_midnight: false,
+        expected_work_hours: 8.0,
+        expected_hours: 8.0,
+      },
+      {
+        id: 'afternoon_shift',
+        name: 'Afternoon Shift',
+        code: 'AFT',
+        start_time: '14:00',
+        end_time: '20:00',
+        grace_period_minutes: 30,
+        break_duration_minutes: 0,
+        late_threshold_time: '14:30',
+        is_cross_midnight: false,
+        expected_work_hours: 6.0,
+        expected_hours: 6.0,
+        break_start_time: null,
+        break_end_time: null,
+      },
+      {
+        id: 'night_shift',
+        name: 'Night Operations Shift',
+        code: 'NGT',
+        start_time: '22:00',
+        end_time: '06:00',
+        grace_period_minutes: 30,
+        break_duration_minutes: 60,
+        break_start_time: '01:00',
+        break_end_time: '02:00',
+        late_threshold_time: '22:30',
+        is_cross_midnight: true,
+        expected_work_hours: 7.0,
+        expected_hours: 7.0,
+      },
+    ]);
+  };
+
+  const fetchRoster = async (showSpinner = false) => {
+    if (showSpinner) setIsLoadingRoster(true);
     try {
-      const calNow = new Date();
-      const [fetchedShifts, fetchedSec, fetchedCal, fetchedMembers, fetchedAssignments] = await Promise.allSettled([
+      const [fetchedShifts, fetchedMembers, fetchedAssignments] = await Promise.allSettled([
         attendanceService.getShifts(),
-        attendanceService.getSecuritySettings(),
-        attendanceService.getCalendarMonth(calNow.getFullYear(), calNow.getMonth() + 1),
         adminService.getMembers(),
         attendanceService.getShiftAssignments(),
       ]);
 
-      if (fetchedShifts.status === 'fulfilled' && fetchedShifts.value?.length) {
-        setShifts(fetchedShifts.value);
-      } else {
-        setShifts([
-          {
-            id: 'standard_shift',
-            name: 'Standard Shift (General Team)',
-            code: 'STD',
-            start_time: '09:30',
-            end_time: '18:30',
-            grace_period_minutes: 30,
-            break_duration_minutes: 60,
-            break_start_time: '13:00',
-            break_end_time: '14:00',
-            late_threshold_time: '10:00',
-            is_cross_midnight: false,
-            expected_work_hours: 8.0,
-            expected_hours: 8.0,
-          },
-          {
-            id: 'hr_shift',
-            name: 'HR Department Shift',
-            code: 'HR',
-            start_time: '09:00',
-            end_time: '18:00',
-            grace_period_minutes: 30,
-            break_duration_minutes: 60,
-            break_start_time: '13:00',
-            break_end_time: '14:00',
-            late_threshold_time: '09:30',
-            is_cross_midnight: false,
-            expected_work_hours: 8.0,
-            expected_hours: 8.0,
-          },
-          {
-            id: 'afternoon_shift',
-            name: 'Afternoon Shift',
-            code: 'AFT',
-            start_time: '14:00',
-            end_time: '20:00',
-            grace_period_minutes: 30,
-            break_duration_minutes: 0,
-            late_threshold_time: '14:30',
-            is_cross_midnight: false,
-            expected_work_hours: 6.0,
-            expected_hours: 6.0,
-            break_start_time: null,
-            break_end_time: null,
-          },
-          {
-            id: 'night_shift',
-            name: 'Night Operations Shift',
-            code: 'NGT',
-            start_time: '22:00',
-            end_time: '06:00',
-            grace_period_minutes: 30,
-            break_duration_minutes: 60,
-            break_start_time: '01:00',
-            break_end_time: '02:00',
-            late_threshold_time: '22:30',
-            is_cross_midnight: true,
-            expected_work_hours: 7.0,
-            expected_hours: 7.0,
-          },
-        ]);
-      }
-
-      if (fetchedSec.status === 'fulfilled' && fetchedSec.value) {
-        setSecuritySettings(fetchedSec.value);
-      }
-
-      if (fetchedCal.status === 'fulfilled' && fetchedCal.value?.events) {
-        setCalendarEvents(fetchedCal.value.events);
-      }
+      applyShifts(fetchedShifts);
 
       if (fetchedMembers.status === 'fulfilled' && Array.isArray(fetchedMembers.value)) {
         setMembers(fetchedMembers.value.filter((m: AdminMember) => m.role !== 'client' && m.role !== 'admin'));
@@ -244,33 +238,54 @@ export const AttendancePoliciesSection: React.FC = () => {
         setShiftAssignments(map);
         setAssignmentDocs(docs);
       }
+    } finally {
+      setIsLoadingRoster(false);
+    }
+  };
 
-      try {
-        setIsLoadingLeaveBalances(true);
-        const balances = await attendanceService.getLeaveBalances();
-        setLeaveBalances(balances);
-        const drafts: Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }> = {};
-        balances.forEach((b) => {
-          drafts[b.user_id] = {
-            annual: String(b.annual_used_opening),
-            sick: String(b.sick_used_opening),
-            annualQuota: String(b.annual_entitled),
-            sickQuota: String(b.sick_entitled),
-          };
-        });
-        setLeaveDrafts(drafts);
-      } catch {
-        setLeaveBalances([]);
-      } finally {
-        setIsLoadingLeaveBalances(false);
-      }
+  const fetchSecondary = async () => {
+    const calNow = new Date();
+    const [fetchedSec, fetchedCal] = await Promise.allSettled([
+      attendanceService.getSecuritySettings(),
+      attendanceService.getCalendarMonth(calNow.getFullYear(), calNow.getMonth() + 1),
+    ]);
+
+    if (fetchedSec.status === 'fulfilled' && fetchedSec.value) {
+      setSecuritySettings(fetchedSec.value);
+    }
+
+    if (fetchedCal.status === 'fulfilled' && fetchedCal.value?.events) {
+      setCalendarEvents(fetchedCal.value.events);
+    }
+
+    try {
+      setIsLoadingLeaveBalances(true);
+      const balances = await attendanceService.getLeaveBalances();
+      setLeaveBalances(balances);
+      const drafts: Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }> = {};
+      balances.forEach((b) => {
+        drafts[b.user_id] = {
+          annual: String(b.annual_used_opening),
+          sick: String(b.sick_used_opening),
+          annualQuota: String(b.annual_entitled),
+          sickQuota: String(b.sick_entitled),
+        };
+      });
+      setLeaveDrafts(drafts);
     } catch {
+      setLeaveBalances([]);
+    } finally {
       setIsLoadingLeaveBalances(false);
     }
   };
 
+  const fetchData = async () => {
+    await Promise.all([fetchRoster(), fetchSecondary()]);
+  };
+
   useEffect(() => {
-    fetchData();
+    void fetchRoster(true);
+    void fetchSecondary();
   }, []);
 
   const handleSaveLeaveOpening = async (userId: string) => {
@@ -793,7 +808,14 @@ export const AttendancePoliciesSection: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
-                  {filteredMembers.length === 0 ? (
+                  {isLoadingRoster ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-zinc-400">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                        Loading team members…
+                      </td>
+                    </tr>
+                  ) : filteredMembers.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-8 text-center text-zinc-400">
                         No team members found.

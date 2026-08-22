@@ -682,14 +682,23 @@ def is_sunday_date(d: date) -> bool:
 # 1. SHIFT MANAGEMENT & SEEDING
 # ──────────────────────────────────────────────────────────
 
+_default_shifts_ensured = False
+
+
 async def ensure_default_shifts() -> List[dict]:
     """
     Ensures standard shift templates exist in the database.
     If the `shifts` collection is empty, seeds DEFAULT_SHIFTS.
+    Seed/backfill runs once per process so dashboard and admin reads stay cheap.
     """
+    global _default_shifts_ensured
     db = get_database()
     if db is None:
         return []
+
+    if _default_shifts_ensured:
+        cursor = db.shifts.find({"is_active": True})
+        return await cursor.to_list(100)
 
     count = await db.shifts.count_documents({})
     if count == 0:
@@ -708,11 +717,13 @@ async def ensure_default_shifts() -> List[dict]:
             seeded_docs.append(shift_dict)
         if seeded_docs:
             await db.shifts.insert_many(seeded_docs)
+        _default_shifts_ensured = True
         return seeded_docs
 
     await _ensure_wfh_shift_templates()
     await _backfill_shift_break_windows()
     await _reclassify_noncanonical_category_shifts()
+    _default_shifts_ensured = True
     cursor = db.shifts.find({"is_active": True})
     return await cursor.to_list(100)
 
@@ -841,7 +852,6 @@ async def get_shift_by_id(shift_id: str) -> Optional[ShiftResponse]:
     if db is None:
         return None
 
-    await ensure_default_shifts()
     doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
     if doc:
         return ShiftResponse(**doc)
@@ -948,16 +958,21 @@ async def assign_user_shift(assignment: ShiftAssignmentRequest) -> dict:
             if override.shift_id:
                 shift_ids.add(override.shift_id)
 
-    for sid in shift_ids:
-        if not await get_shift_by_id(sid):
-            raise HTTPException(status_code=404, detail=f"Shift '{sid}' does not exist")
+    found_shifts = await db.shifts.find(
+        {"id": {"$in": list(shift_ids)}},
+        {"_id": 0, "id": 1, "name": 1},
+    ).to_list(len(shift_ids) + 8)
+    found_by_id = {doc.get("id"): doc for doc in found_shifts if doc.get("id")}
+    missing = [sid for sid in shift_ids if sid not in found_by_id]
+    if missing:
+        raise HTTPException(status_code=404, detail=f"Shift '{missing[0]}' does not exist")
 
-    shift = await get_shift_by_id(assignment.shift_id)
+    shift = found_by_id.get(assignment.shift_id)
     now_iso = datetime.now(timezone.utc).isoformat()
     doc = {
         "user_id": assignment.user_id,
         "shift_id": assignment.shift_id,
-        "shift_name": shift.name if shift else assignment.shift_id,
+        "shift_name": (shift or {}).get("name") or assignment.shift_id,
         "effective_from": assignment.effective_from or get_current_date_str(),
         "updated_at": now_iso,
     }
@@ -2481,7 +2496,7 @@ async def get_monthly_punctuality_summary(
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
     all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
-    user_shift_map = {a["user_id"]: a["shift_id"] for a in all_assignments}
+    user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     # Batch-load all monthly records for all users in a single query
     from app.services.attendance_golive import get_effective_start_date
@@ -2509,7 +2524,8 @@ async def get_monthly_punctuality_summary(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department")
 
-        assigned_shift_id = user_shift_map.get(u_id)
+        assignment = user_assignment_map.get(u_id)
+        assigned_shift_id = (assignment or {}).get("shift_id")
         raw_shift = shifts_by_id.get(assigned_shift_id) if assigned_shift_id else None
         if not raw_shift:
             if str(u_dept).upper() == "HR":
@@ -2522,7 +2538,13 @@ async def get_monthly_punctuality_summary(
 
         daily_dicts = []
         for r in records:
-            rec_shift = shifts_by_id.get(r.get("shift_id")) if r.get("shift_id") else raw_shift
+            rec_shift = resolve_shift_doc_for_date(
+                assignment,
+                str(r.get("date") or ""),
+                shifts_by_id,
+                stored_shift_id=r.get("shift_id"),
+                fallback=raw_shift,
+            )
             apply_daily_calc_fields(r, rec_shift or raw_shift)
             daily_dicts.append({
                 "status": r.get("status", AttendanceStatus.PRESENT),

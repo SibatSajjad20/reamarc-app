@@ -20,7 +20,6 @@ import { CustomDatePicker } from '../../ui/CustomDatePicker';
 import { logExceptionService } from '../../../services/logExceptionService';
 import { formatHours, formatSignedHours } from '../../../utils/logTimeChecks';
 import { useAuth } from '../../../context/AuthContext';
-import { useModuleLoadGate } from '../../../context/ModuleLoadGate';
 import { useToast } from '../../../context/ToastContext';
 
 const todayIso = () => {
@@ -51,7 +50,6 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   const [pickedDate, setPickedDate] = useState(todayIso);
   const [snap, setSnap] = useState<OperatingSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(true);
-  useModuleLoadGate(snapLoading);
 
   const [customReminderUser, setCustomReminderUser] = useState<MemberActivity | null>(null);
   const [customMessage, setCustomMessage] = useState('');
