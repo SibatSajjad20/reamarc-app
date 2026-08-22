@@ -493,9 +493,9 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                                 {String((row.pending_overtime_minutes || 0) % 60).padStart(2, '0')}
                               </p>
                             )}
-                            {row.undertime_reason && (
-                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.undertime_reason}>
-                                {row.undertime_reason}
+                            {(row.overtime_reason || row.undertime_reason) && (
+                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.overtime_reason || row.undertime_reason}>
+                                {row.overtime_reason || row.undertime_reason}
                               </p>
                             )}
                           </div>

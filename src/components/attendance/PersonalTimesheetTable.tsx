@@ -469,6 +469,11 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                           title={record?.overtime_reason || undefined}
                         >
                           {otDisplay}
+                          {record?.overtime_reason ? (
+                            <span className="block text-[10px] font-normal text-zinc-400 truncate max-w-[140px]">
+                              {record.overtime_reason}
+                            </span>
+                          ) : null}
                         </span>
                       ) : (
                         <span className="text-zinc-400 font-normal">-</span>
@@ -483,7 +488,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                           title={record?.undertime_reason || undefined}
                         >
                           {utDisplay}
-                          {record?.undertime_reason ? (
+                          {record?.undertime_reason && !record?.overtime_reason ? (
                             <span className="block text-[10px] font-normal text-zinc-400 truncate max-w-[140px]">
                               {record.undertime_reason}
                             </span>

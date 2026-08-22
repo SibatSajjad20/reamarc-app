@@ -442,6 +442,82 @@ async def _upsert_overtime_request(
     return req_id
 
 
+def _checkout_reason_from_record(rec: Optional[Dict[str, Any]]) -> str:
+    if not rec:
+        return ""
+    for key in ("overtime_reason", "undertime_reason"):
+        val = str(rec.get(key) or "").strip()
+        if val:
+            return val
+    notes = str(rec.get("notes") or "")
+    for prefix in ("Overtime:", "Undertime:", "Check-out:"):
+        if prefix in notes:
+            return notes.split(prefix, 1)[1].strip().split("|")[0].strip()
+    return ""
+
+
+async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -> dict:
+    """
+    If this day is overtime against the date-resolved shift but checkout used the
+    stamped template, move the reason onto overtime and create the missing request.
+    """
+    db = get_database()
+    cin, cout = record_punch_times(rec)
+    if not cin or not cout or not rec.get("user_id") or not rec.get("date"):
+        apply_daily_calc_fields(rec, shift)
+        return rec
+
+    extra = {
+        "is_wfh": bool(rec.get("is_wfh")),
+        "is_short_leave": bool(rec.get("is_short_leave")),
+        "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+    }
+    _claimed, settled, gate, _ot_buf, _ut_buf, _start, shift_end = compute_settled_checkout(
+        cin,
+        cout,
+        shift,
+        extra=extra,
+        overtime_status=rec.get("overtime_status"),
+        auto_approve=str(rec.get("overtime_status") or "").lower() == "approved",
+    )
+    apply_daily_calc_fields(rec, shift)
+
+    resolved_id = _shift_id(shift)
+    reason = _checkout_reason_from_record(rec)
+    needs_request = gate == "overtime" and not rec.get("overtime_request_id")
+    needs_reason_move = gate == "overtime" and bool(rec.get("undertime_reason"))
+    needs_shift = bool(resolved_id and rec.get("shift_id") != resolved_id)
+    if db is None or not (needs_request or needs_reason_move or needs_shift):
+        return rec
+
+    updates: Dict[str, Any] = dict(settled_to_record_fields(settled))
+    if needs_shift:
+        updates["shift_id"] = resolved_id
+        updates["shift_name"] = _shift_label(shift, rec.get("shift_name") or "Standard Shift")
+    if gate == "overtime":
+        if needs_request:
+            updates["overtime_request_id"] = await _upsert_overtime_request(
+                user=user,
+                date_str=str(rec.get("date")),
+                reason=reason or "Stayed after shift end",
+                category=rec.get("variance_category"),
+                overtime_minutes=settled.claimed_overtime_minutes,
+                shift_end=shift_end,
+                check_out=cout,
+            )
+        if reason:
+            updates["overtime_reason"] = reason
+        updates["undertime_reason"] = None
+
+    updates["updated_at"] = datetime.now(timezone.utc).isoformat()
+    await db.attendance_records.update_one(
+        {"user_id": rec["user_id"], "date": rec["date"]},
+        {"$set": updates},
+    )
+    rec.update(updates)
+    return rec
+
+
 async def _close_pending_overtime_requests(
     user_id: str,
     date_str: str,
@@ -1532,11 +1608,8 @@ async def process_check_out(
             detail=f"Already checked out today at {cout}."
         )
 
-    # Fetch shift
-    shift_id = existing.get("shift_id")
-    shift = await get_shift_by_id(shift_id) if shift_id else None
-    if not shift:
-        shift = await get_shift_for_user(user_id, department, date_str)
+    # Use today's assigned shift (date override / weekday), not the template stamped at check-in.
+    shift = await get_shift_for_user(user_id, department, date_str)
 
     is_wfh = existing.get("is_wfh", False)
     is_short_leave = existing.get("is_short_leave", False)
@@ -1567,6 +1640,8 @@ async def process_check_out(
     now_iso = datetime.now(timezone.utc).isoformat()
     status_out = AttendanceStatus.WFH.value if is_wfh else claimed.status.value
     update_doc = {
+        "shift_id": shift.id,
+        "shift_name": shift.name,
         "check_out": time_str,
         "punch_out": time_str,
         "break_minutes": int(shift.break_duration_minutes or 0),
@@ -1799,6 +1874,13 @@ async def get_today_status(
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
     show_absent_record = record_status == AttendanceStatus.ABSENT.value and shift_ended
+    if record_doc and cin:
+        record_doc = await _heal_overtime_request_for_record(user, record_doc, shift)
+        cin = record_doc.get("check_in") or record_doc.get("punch_in")
+        cout = record_doc.get("check_out") or record_doc.get("punch_out")
+        check_out_time = cout
+        is_checked_in = bool(cin and not cout)
+        can_check_out = is_checked_in
     record_res = AttendanceRecordResponse.from_mongo(record_doc) if (record_doc and (cin or show_absent_record)) else None
 
     gate_payload = checkout_gate_payload("none", shift.end_time, *shift_buffers(shift), 0, 0)
@@ -1924,7 +2006,7 @@ async def get_my_timesheet(
             )
             d["shift_id"] = _shift_id(rec_shift) or d.get("shift_id")
             d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
-            apply_daily_calc_fields(d, rec_shift)
+            d = await _heal_overtime_request_for_record(user, d, rec_shift)
             records.append(AttendanceRecordResponse.from_mongo(d))
 
     # Calculate total working days in this month
@@ -2158,6 +2240,8 @@ async def get_daily_matrix(
         shift_timing = f"{shift_start} - {shift_end}"
 
         if rec:
+            if record_punch_times(rec)[0]:
+                rec = await _heal_overtime_request_for_record(u, rec, raw_shift)
             check_in, check_out = record_punch_times(rec)
             is_wfh_flag = bool(rec.get("is_wfh", False))
             is_short_leave_flag = bool(rec.get("is_short_leave", False))

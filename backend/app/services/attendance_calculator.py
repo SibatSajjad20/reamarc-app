@@ -235,7 +235,8 @@ def calculate_daily_attendance(
 
     Rules:
     1. Gross clocked time starts at max(check-in, shift start). Early arrivals do not count.
-       Time after shift end does count (overtime).
+       Time after shift end is overtime; leaving before shift end is undertime.
+       Late arrival is a late strike, not undertime.
     2. Unpaid break is deducted only for overlap with the shift's break window
        (standard lunch 13:00-14:00, or custom window / midpoint).
     3. Expected hours = shift span minus that shift's unpaid break duration.
@@ -349,19 +350,14 @@ def calculate_daily_attendance(
     work_hours = round(net_work_minutes / 60.0, 4)
     work_duration_formatted = format_minutes_to_hhmm(net_work_minutes, show_sign=False)
 
-    # Overtime & Undertime against this shift's net expected hours
-    if is_short_leave and short_leave_hours > 0:
-        short_leave_mins = int(round(short_leave_hours * 60))
-        net_work_minutes_for_variance = net_work_minutes + short_leave_mins
-    else:
-        net_work_minutes_for_variance = net_work_minutes
-
-    if net_work_minutes_for_variance > expected_work_minutes:
-        overtime_minutes = net_work_minutes_for_variance - expected_work_minutes
+    # Clocked OT / UT vs the assigned shift end. Late arrival stays on late_minutes.
+    minutes_past_end = check_out_adjusted - shift_end_adjusted
+    if minutes_past_end > 0:
+        overtime_minutes = minutes_past_end
         undertime_minutes = 0
-    elif net_work_minutes_for_variance < expected_work_minutes:
+    elif minutes_past_end < 0:
         overtime_minutes = 0
-        undertime_minutes = expected_work_minutes - net_work_minutes_for_variance
+        undertime_minutes = -minutes_past_end
     else:
         overtime_minutes = 0
         undertime_minutes = 0
