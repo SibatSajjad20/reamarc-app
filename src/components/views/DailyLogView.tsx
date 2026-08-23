@@ -450,7 +450,7 @@ export const DailyLogView: React.FC = () => {
     return getTodayIso();
   }, [datePreset, customStartDate, customEndDate]);
 
-  const { getOffDay, isOffDay } = useOffDays();
+  const { getOffDay } = useOffDays();
   const viewingSingleDay =
     datePreset === 'today' || (datePreset === 'custom' && customStartDate === customEndDate);
   const viewingOff = getOffDay(bannerDate);
