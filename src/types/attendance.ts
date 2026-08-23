@@ -303,6 +303,9 @@ export interface TodayAttendanceResponse {
   enforce_gps_geofence?: boolean;
   shift_ended?: boolean;
   checkout_gate?: CheckoutGate;
+  is_off_day?: boolean;
+  off_day_kind?: 'sunday' | 'first_saturday' | 'holiday' | string | null;
+  off_day_label?: string | null;
 }
 
 export interface CheckoutGate {

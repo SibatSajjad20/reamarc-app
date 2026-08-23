@@ -81,6 +81,25 @@ def is_workday(date_obj: datetime) -> bool:
     return True  # Monday - Friday
 
 
+async def _is_company_workday(date_obj: datetime) -> bool:
+    from app.services.workdays import is_company_workday
+    day = date_obj.date() if isinstance(date_obj, datetime) else date_obj
+    return await is_company_workday(day)
+
+
+async def _get_previous_workday(today_date: datetime) -> str:
+    """Previous company workday (YYYY-MM-DD), skipping Sundays, 1st Saturdays, and calendar holidays."""
+    from app.services.workdays import load_off_day_index
+    today = today_date.date() if isinstance(today_date, datetime) else today_date
+    idx = await load_off_day_index(today - timedelta(days=21), today)
+    check = today - timedelta(days=1)
+    for _ in range(21):
+        if idx.is_workday(check):
+            return check.isoformat()
+        check -= timedelta(days=1)
+    return check.isoformat()
+
+
 async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
     from app.services.log_compliance import batch_expected_targets, person_day_is_leave
 
@@ -101,14 +120,6 @@ async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
     return on_leave
 
 
-def _get_previous_workday(today_date: datetime) -> str:
-    """Returns the previous workday string (YYYY-MM-DD), skipping Sundays and the 1st Saturday of the month."""
-    check_date = today_date - timedelta(days=1)
-    while not is_workday(check_date):
-        check_date -= timedelta(days=1)
-    return check_date.strftime("%Y-%m-%d")
-
-
 async def run_evening_log_reminder_check():
     """Evening 8:00 PM Check: Dispatches reminder emails to members who haven't logged today."""
     db = get_database()
@@ -120,7 +131,7 @@ async def run_evening_log_reminder_check():
     today_str = now_pk.strftime("%Y-%m-%d")
 
     # Off-day check: Skip reminders on Sunday and 1st Saturday of the month
-    if not is_workday(now_pk):
+    if not await _is_company_workday(now_pk):
         logger.info(f"[Scheduler] Today ({today_str}) is an off day. Skipping automated daily log reminders.")
         return
 
@@ -181,11 +192,11 @@ async def run_morning_log_reminder_check():
     today_str = now_pk.strftime("%Y-%m-%d")
 
     # Off-day check: Skip morning reminders on Sunday and 1st Saturday of the month
-    if not is_workday(now_pk):
+    if not await _is_company_workday(now_pk):
         logger.info(f"[Scheduler] Today ({today_str}) is an off day. Skipping morning reminders.")
         return
 
-    prev_workday_str = _get_previous_workday(now_pk)
+    prev_workday_str = await _get_previous_workday(now_pk)
     if prev_workday_str < "2026-08-19":
         logger.info(f"[Scheduler] Previous workday ({prev_workday_str}) is before system start date 2026-08-19. Skipping morning reminders.")
         await _mark_run_today("morning", today_str)
@@ -247,7 +258,7 @@ async def start_automated_log_reminder_scheduler():
             hour = now_pk.hour
 
             # Working days check: Monday-Friday + 2nd, 3rd, 4th, 5th Saturday (1st Saturday & Sunday are OFF)
-            if is_workday(now_pk):
+            if await _is_company_workday(now_pk):
                 # 1. Morning Catch-up Window: Anytime from 10:00 AM until 7:59 PM
                 if 10 <= hour < 20:
                     already_ran_morning = await _has_run_today("morning", today_str)

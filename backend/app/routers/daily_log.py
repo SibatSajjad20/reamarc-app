@@ -115,20 +115,10 @@ def is_workday(date_obj) -> bool:
     return True  # Monday - Friday
 
 
-def _get_recent_workdays(days: int = 7) -> List[str]:
-    """Returns the last N workdays (Mon-Fri + working Saturdays, excluding 1st Sat & Sun) in ISO date format (YYYY-MM-DD), latest first, bounded by SYSTEM_START_DATE."""
-    workdays: List[str] = []
-    current = datetime.now(PKT_TIMEZONE).date()
-    try:
-        start_date_obj = datetime.strptime(SYSTEM_START_DATE, "%Y-%m-%d").date()
-    except Exception:
-        start_date_obj = current
-
-    while len(workdays) < days and current >= start_date_obj:
-        if is_workday(current):
-            workdays.append(current.isoformat())
-        current -= timedelta(days=1)
-    return workdays
+async def _get_recent_workdays(days: int = 7) -> List[str]:
+    """Last N company workdays (Mon-Fri + working Saturdays, excluding 1st Sat, Sunday, and calendar holidays)."""
+    from app.services.workdays import recent_company_workdays
+    return await recent_company_workdays(days, start_date=SYSTEM_START_DATE)
 
 
 @router.get("/my-activity", response_model=UserLogActivityResponse)
@@ -156,7 +146,7 @@ async def get_my_log_activity(
             "missing_dates": [],
         }
 
-    workdays = _get_recent_workdays(days)
+    workdays = await _get_recent_workdays(days)
     today_iso = datetime.now(PKT_TIMEZONE).date().isoformat()
     min_date = workdays[-1] if workdays else today_iso
 
@@ -288,7 +278,7 @@ async def get_day_target(
                 who = "HR"
             pending_message = f"{who} asked you to {pending_action} your log for {date_str}."
 
-        window = recent_workdays(7)
+        window = await _get_recent_workdays(7)
         waiting = await db.daily_log_day_scores.find(
             {
                 "user_id": uid,
@@ -655,6 +645,13 @@ async def create_entry(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily logs cannot be submitted for future dates (Today is {today_iso})."
             )
+        from app.services.workdays import classify_date
+        day_info = await classify_date(entry_in.date)
+        if day_info.is_off:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily logs cannot be submitted on {day_info.label} ({entry_in.date}).",
+            )
 
     # Calculate month sheet dynamically from entry date if available
     date_val = entry_in.date
@@ -781,6 +778,13 @@ async def update_entry(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily log date cannot be set to a future date (Today is {today_iso})."
+            )
+        from app.services.workdays import classify_date
+        day_info = await classify_date(dt_str)
+        if day_info.is_off:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Daily logs cannot be submitted on {day_info.label} ({dt_str}).",
             )
         try:
             dt = datetime.strptime(str(update_data["date"]), "%Y-%m-%d")

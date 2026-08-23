@@ -376,6 +376,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <CustomDatePicker
+                    offDayMode="mark"
                     label="Start Date"
                     minDate={minDate}
                     value={leaveStartDate}
@@ -384,6 +385,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 </div>
                 <div>
                   <CustomDatePicker
+                    offDayMode="mark"
                     label="End Date"
                     minDate={leaveStartDate || minDate}
                     value={leaveEndDate}
@@ -421,6 +423,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="grid grid-cols-3 gap-3 items-end">
                 <div>
                   <CustomDatePicker
+                    offDayMode="mark"
                     label="Date"
                     minDate={minDate}
                     value={shortLeaveDate}
@@ -481,6 +484,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <CustomDatePicker
+                    offDayMode="mark"
                     label="Start Date"
                     minDate={minDate}
                     value={wfhStartDate}
@@ -489,6 +493,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 </div>
                 <div>
                   <CustomDatePicker
+                    offDayMode="mark"
                     label="End Date"
                     minDate={wfhStartDate || minDate}
                     value={wfhEndDate}
@@ -525,6 +530,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
 
               <div>
                 <CustomDatePicker
+                  offDayMode="mark"
                   label="Date of Missed / Incorrect Punch"
                   minDate={minDate}
                   value={regularizeDate}

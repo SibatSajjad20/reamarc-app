@@ -24,6 +24,7 @@ import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { useOffDays } from '../../hooks/useOffDays';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
 import { findDuplicate } from '../../utils/logTimeChecks';
 
@@ -68,6 +69,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 }) => {
   const { workspaces } = useWorkspaces();
   const { addToast } = useToast();
+  const { isOffDay, lastWorkday, getOffDay } = useOffDays();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getTodayIso = () => {
@@ -194,7 +196,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
             : 'HR'
           : currentUser?.department || '';
 
-      setDate(prefilledDate || getTodayIso());
+      setDate(prefilledDate || lastWorkday(getTodayIso(), '2026-08-19'));
       setResourceName(currentUser?.full_name || currentUser?.name || 'User');
       setRole(formattedRole);
       setDepartment(resolvedDept);
@@ -315,6 +317,10 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     // Safety: ensure date is not in future
     if (date > getTodayIso()) {
       setErrorMessage('Future dates are not permitted. Please log for today or a missed date.');
+      return;
+    }
+    if (isOffDay(date)) {
+      setErrorMessage(`${getOffDay(date).label}. Daily logs cannot be submitted on rest days.`);
       return;
     }
 
@@ -494,10 +500,11 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
               </label>
               <CustomDatePicker
                 value={date}
-                onChange={(val) => setDate(val || getTodayIso())}
+                onChange={(val) => setDate(val || lastWorkday(getTodayIso(), '2026-08-19'))}
                 minDate="2026-08-19"
                 maxDate={getTodayIso()}
                 placeholder="Select log date..."
+                offDayMode="disable"
               />
             </div>
 

@@ -4,6 +4,7 @@ import {
   ChevronRight,
   Check,
 } from 'lucide-react';
+import { useOffDays } from '../../hooks/useOffDays';
 
 interface DateRangeCalendarPickerProps {
   initialStartDate?: string;
@@ -38,6 +39,7 @@ export const DateRangeCalendarPicker: React.FC<DateRangeCalendarPickerProps> = (
   onApply,
   onCancel,
 }) => {
+  const { getOffDay } = useOffDays();
   const [startDate, setStartDate] = useState<string>(initialStartDate || formatIso(new Date()));
   const [endDate, setEndDate] = useState<string>(initialEndDate || formatIso(new Date()));
   const [hoverDate, setHoverDate] = useState<string | null>(null);
@@ -252,6 +254,7 @@ export const DateRangeCalendarPicker: React.FC<DateRangeCalendarPickerProps> = (
             const isEnd = cd.iso === endDate;
             const isInRange = isSelectedRange(cd.iso);
             const isCurrent = cd.isCurrentMonth;
+            const off = getOffDay(cd.iso);
 
             return (
               <button
@@ -264,11 +267,14 @@ export const DateRangeCalendarPicker: React.FC<DateRangeCalendarPickerProps> = (
                   }
                 }}
                 onMouseLeave={() => setHoverDate(null)}
+                title={off.isOff ? off.label : undefined}
                 className={`h-8 w-8 mx-auto flex items-center justify-center rounded-xl text-xs font-semibold transition-all cursor-pointer select-none relative ${
                   isStart || isEnd
                     ? 'bg-indigo-600 text-white font-bold shadow-xs shadow-indigo-600/30 z-10'
                     : isInRange
                     ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
+                    : off.isOff
+                    ? 'text-sky-700 dark:text-sky-300 bg-sky-50 dark:bg-sky-950/40'
                     : isCurrent
                     ? 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
                     : 'text-zinc-300 dark:text-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-900'

@@ -18,6 +18,8 @@ import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { OffDayBanner } from '../ui/OffDayBanner';
+import { useOffDays } from '../../hooks/useOffDays';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
 import { getAttendanceMinDate } from '../../constants/attendance';
@@ -76,6 +78,8 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
   const START_DATE = minDate || getAttendanceMinDate();
   const isAtStartDate = selectedDate <= START_DATE;
+  const { getOffDay } = useOffDays();
+  const selectedOff = getOffDay(selectedDate);
 
   // Date Jump Handlers
   const handleJumpDate = (offsetDays: number) => {
@@ -289,6 +293,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               onChange={(d) => onDateChange(d < START_DATE ? START_DATE : d)}
               className="w-40"
               clearable={false}
+              offDayMode="mark"
             />
 
             <button
@@ -347,6 +352,10 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
           </div>
         </div>
       </div>
+
+      {selectedOff.isOff && (
+        <OffDayBanner info={selectedOff} date={selectedDate} compact />
+      )}
 
       {/* Main Register Table */}
       <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm overflow-hidden">

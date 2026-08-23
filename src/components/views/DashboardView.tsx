@@ -32,6 +32,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getDeptBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
+import { useOffDays } from '../../hooks/useOffDays';
+import { OffDayBanner } from '../ui/OffDayBanner';
 
 interface DashboardViewProps {
   onNavigateView: (view: ViewType) => void;
@@ -57,6 +59,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const d = String(yest.getDate()).padStart(2, '0');
     return `${y}-${m}-${d}`;
   }, [today]);
+
+  const { getOffDay } = useOffDays();
+  const todayOff = getOffDay(todayIso);
+  const yesterdayOff = getOffDay(yesterdayIso);
 
   // Loading States
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(true);
@@ -168,12 +174,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // Check if yesterday was a workday with missed log (exclude Sunday)
   const isYesterdayMissed = useMemo(() => {
-    const yestDate = new Date(today);
-    yestDate.setDate(yestDate.getDate() - 1);
-    const dayOfWeek = yestDate.getDay(); // 0 = Sunday
-    if (dayOfWeek === 0) return false; // Sunday off
+    if (yesterdayOff.isOff) return false;
     return yesterdayLogEntries.length === 0;
-  }, [today, yesterdayLogEntries]);
+  }, [yesterdayOff.isOff, yesterdayLogEntries]);
 
   // Timesheet Summary metrics
   const timesheetSummary = personalTimesheet?.summary;
@@ -296,7 +299,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
                 {/* Status Display */}
                 <div className="pt-5 space-y-4">
-                  {isTodayLogSubmitted ? (
+                  {todayOff.isOff ? (
+                    <OffDayBanner info={todayOff} date={todayIso} />
+                  ) : isTodayLogSubmitted ? (
                     <div className="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 flex items-start gap-3">
                       <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
                       <div className="flex-1">
@@ -371,7 +376,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   onClick={() => onNavigateView('daily-log')}
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 transition-colors cursor-pointer"
                 >
-                  <span>{isTodayLogSubmitted ? 'View & Edit Daily Log' : 'Open Daily Log Terminal'}</span>
+                  <span>{todayOff.isOff || isTodayLogSubmitted ? 'View Daily Log' : 'Open Daily Log Terminal'}</span>
                   <ArrowRight className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -178,6 +178,9 @@ class TodayAttendanceResponse(BaseModel):
     enforce_gps_geofence: bool = True
     shift_ended: bool = False
     checkout_gate: Optional[Dict[str, Any]] = None
+    is_off_day: bool = False
+    off_day_kind: Optional[str] = None
+    off_day_label: Optional[str] = None
 
 
 class DailyMatrixSummary(BaseModel):

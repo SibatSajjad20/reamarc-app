@@ -5,6 +5,7 @@ import {
   ChevronRight,
   X,
 } from 'lucide-react';
+import { useOffDays } from '../../hooks/useOffDays';
 
 interface CustomDatePickerProps {
   value?: string; // ISO date string 'YYYY-MM-DD'
@@ -17,6 +18,8 @@ interface CustomDatePickerProps {
   align?: 'left' | 'right';
   className?: string;
   clearable?: boolean;
+  /** disable = cannot pick off days (logging). mark = still selectable, styled as holiday (viewing / appeals). */
+  offDayMode?: 'none' | 'disable' | 'mark';
 }
 
 const MONTH_NAMES = [
@@ -65,7 +68,9 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   align = 'left',
   className = '',
   clearable = true,
+  offDayMode = 'none',
 }) => {
+  const { getOffDay } = useOffDays();
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
@@ -133,7 +138,17 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     const offset = firstDayIndex === 0 ? 6 : firstDayIndex - 1; // Convert so Mon=0, Sun=6
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-    const days: { dayNumber: number; iso: string; isCurrentMonth: boolean; isDisabled: boolean }[] = [];
+    const days: { dayNumber: number; iso: string; isCurrentMonth: boolean; isDisabled: boolean; offLabel?: string }[] = [];
+
+    const describe = (iso: string) => {
+      const off = offDayMode !== 'none' ? getOffDay(iso) : { isOff: false, label: '' };
+      const rangeBlocked = Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate));
+      const offBlocked = Boolean(offDayMode === 'disable' && off.isOff);
+      return {
+        isDisabled: rangeBlocked || offBlocked,
+        offLabel: off.isOff ? off.label : undefined,
+      };
+    };
 
     // Preceding month padding
     const prevMonthDays = new Date(viewYear, viewMonth, 0).getDate();
@@ -141,11 +156,12 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       const d = prevMonthDays - i;
       const prevDate = new Date(viewYear, viewMonth - 1, d);
       const iso = formatIso(prevDate);
+      const meta = describe(iso);
       days.push({
         dayNumber: d,
         iso,
         isCurrentMonth: false,
-        isDisabled: Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate)),
+        ...meta,
       });
     }
 
@@ -153,11 +169,12 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     for (let d = 1; d <= daysInMonth; d++) {
       const curDate = new Date(viewYear, viewMonth, d);
       const iso = formatIso(curDate);
+      const meta = describe(iso);
       days.push({
         dayNumber: d,
         iso,
         isCurrentMonth: true,
-        isDisabled: Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate)),
+        ...meta,
       });
     }
 
@@ -167,16 +184,17 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     for (let d = 1; d <= remaining; d++) {
       const nextDate = new Date(viewYear, viewMonth + 1, d);
       const iso = formatIso(nextDate);
+      const meta = describe(iso);
       days.push({
         dayNumber: d,
         iso,
         isCurrentMonth: false,
-        isDisabled: Boolean((minDate && iso < minDate) || (maxDate && iso > maxDate)),
+        ...meta,
       });
     }
 
     return days;
-  }, [viewYear, viewMonth, minDate, maxDate]);
+  }, [viewYear, viewMonth, minDate, maxDate, offDayMode, getOffDay]);
 
   const handlePrevMonth = () => {
     if (viewMonth === 0) {
@@ -208,6 +226,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   };
 
   const handleSelectToday = () => {
+    if (offDayMode === 'disable' && getOffDay(todayIso).isOff) return;
     onChange(todayIso);
     setIsOpen(false);
   };
@@ -302,6 +321,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
               const isSelected = day.iso === value;
               const isToday = day.iso === todayIso;
               const isSelectablePast = !day.isDisabled && !isToday && !isSelected && day.iso < todayIso;
+              const isOffMarked = Boolean(day.offLabel) && !day.isDisabled;
 
               return (
                 <button
@@ -310,7 +330,11 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                   disabled={day.isDisabled}
                   onClick={() => handleSelectDate(day.iso, day.isDisabled)}
                   title={
-                    day.isDisabled
+                    day.offLabel
+                      ? day.isDisabled
+                        ? `${day.offLabel} — logging is closed`
+                        : `${day.offLabel} — viewing only / requests still allowed`
+                      : day.isDisabled
                       ? day.iso > todayIso
                         ? 'Future dates cannot be logged'
                         : 'Date is before system start date'
@@ -323,6 +347,8 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                       ? 'opacity-25 cursor-not-allowed text-zinc-400 dark:text-zinc-600 select-none'
                       : isSelected
                       ? 'bg-indigo-600 text-white shadow-xs font-black ring-2 ring-indigo-600/30'
+                      : isOffMarked
+                      ? 'text-sky-800 dark:text-sky-200 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 cursor-pointer'
                       : isToday
                       ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-500 font-extrabold shadow-2xs'
                       : isSelectablePast

@@ -12,6 +12,7 @@ import {
   MapPin,
   Loader2,
   X,
+  CalendarOff,
 } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
@@ -132,12 +133,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   );
 
   useEffect(() => {
+    if (todayData?.is_off_day) return;
     if (isLikelyMobile()) {
       setGeoError('Tap Allow location so this phone can use GPS.');
       return;
     }
     captureGPS(false);
-  }, [captureGPS]);
+  }, [captureGPS, todayData?.is_off_day]);
 
   // Record & Shift details
   const record = todayData?.record;
@@ -168,6 +170,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const windowClosed = Boolean(todayData?.shift_ended) && !isCheckedIn;
   const isAbsentLocked = windowClosed && !isWfh;
   const checkInClosed = isAbsentLocked;
+  const isOffDay = Boolean(todayData?.is_off_day);
+  const offDayLabel = todayData?.off_day_label || 'Official rest day';
   const enforceIp = todayData?.enforce_ip_whitelist ?? true;
   const enforceGps = todayData?.enforce_gps_geofence ?? true;
 
@@ -183,6 +187,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   const handleCheckIn = async () => {
     try {
+      if (isOffDay) {
+        addToast('Rest day', `${offDayLabel}. Check-in is not required.`, 'info');
+        return;
+      }
       if (checkInClosed) {
         addToast(
           'Shift Closed',
@@ -531,7 +539,15 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         </div>
 
         <div className="md:col-span-5 flex flex-col justify-center">
-          {!coords && (
+          {isOffDay ? (
+            <div className="p-5 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-center space-y-2">
+              <CalendarOff className="w-8 h-8 text-sky-600 dark:text-sky-300 mx-auto" />
+              <p className="text-sm font-bold text-sky-900 dark:text-sky-100">{offDayLabel}</p>
+              <p className="text-xs text-sky-800/80 dark:text-sky-300/80">
+                Check-in and check-out are closed today. Leave, WFH, and punch corrections can still be submitted from the buttons above.
+              </p>
+            </div>
+          ) : !coords ? (
             <button
               type="button"
               onClick={() => captureGPS(true)}
@@ -551,7 +567,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               )}
             </button>
           )}
-          {!isCheckedIn ? (
+          {!isOffDay && (!isCheckedIn ? (
             checkInClosed ? (
               <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
                 <span className="inline-flex items-center gap-2">
@@ -653,6 +669,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 )}
               </button>
             </div>
+          )}
           )}
         </div>
       </div>

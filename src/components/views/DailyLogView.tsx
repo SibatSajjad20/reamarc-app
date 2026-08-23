@@ -42,6 +42,8 @@ import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
+import { OffDayBanner } from '../ui/OffDayBanner';
+import { useOffDays } from '../../hooks/useOffDays';
 import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
 import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
 import { exportDailyLogWorkbook } from '../../utils/dailyLogExcelExport';
@@ -448,6 +450,12 @@ export const DailyLogView: React.FC = () => {
     return getTodayIso();
   }, [datePreset, customStartDate, customEndDate]);
 
+  const { getOffDay, isOffDay } = useOffDays();
+  const viewingSingleDay =
+    datePreset === 'today' || (datePreset === 'custom' && customStartDate === customEndDate);
+  const viewingOff = getOffDay(bannerDate);
+  const hideLogCreate = viewingSingleDay && viewingOff.isOff;
+
   useEffect(() => {
     if (!canSubmitLogs) {
       setDayTarget(null);
@@ -646,6 +654,7 @@ export const DailyLogView: React.FC = () => {
 
   // Open Create Modal
   const handleOpenCreateModal = () => {
+    if (hideLogCreate) return;
     setPrefilledDate(undefined);
     setSelectedEntry(null);
     setEntryModalMode('create');
@@ -1061,8 +1070,8 @@ export const DailyLogView: React.FC = () => {
             </div>
           )}
 
-          {/* Add Entry Button (Hidden for Admin & Operations) */}
-          {!isAdmin && !isOperations && (
+          {/* Add Entry Button (Hidden for Admin & Operations, and when viewing a rest day) */}
+          {!isAdmin && !isOperations && !hideLogCreate && (
             <button
               type="button"
               onClick={handleOpenCreateModal}
@@ -1133,6 +1142,12 @@ export const DailyLogView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {hideLogCreate && (
+        <div className="px-6 py-3 shrink-0">
+          <OffDayBanner info={viewingOff} date={bannerDate} />
+        </div>
+      )}
 
       {canSubmitLogs && followUps.length > 0 && (
         <div className="px-5 py-2 border-b bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100 shrink-0">
@@ -1510,7 +1525,7 @@ export const DailyLogView: React.FC = () => {
                       <div className="flex flex-col items-center justify-center gap-2">
                         <Grid className="w-8 h-8 stroke-1 text-zinc-400" />
                         <span className="text-sm font-semibold">No daily logs recorded for this scope.</span>
-                        {!isAdmin && !isOperations && (
+                        {!isAdmin && !isOperations && !hideLogCreate && (
                           <button
                             type="button"
                             onClick={handleOpenCreateModal}

@@ -196,12 +196,8 @@ async def list_members_activity(
     except Exception:
         start_date_obj = now.date()
 
-    workdays = []
-    curr = now.date()
-    while len(workdays) < 7 and curr >= start_date_obj:
-        if is_workday(curr):
-            workdays.append(curr.strftime("%Y-%m-%d"))
-        curr -= timedelta(days=1)
+    from app.services.workdays import recent_company_workdays
+    workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
 
     user_ids = [u.get("id") or str(u.get("_id")) for u in users]
     att_by_key: dict = {}
@@ -306,12 +302,8 @@ async def remind_member_log(
     except Exception:
         start_date_obj = now.date()
 
-    workdays = []
-    curr = now.date()
-    while len(workdays) < 7 and curr >= start_date_obj:
-        if is_workday(curr):
-            workdays.append(curr.strftime("%Y-%m-%d"))
-        curr -= timedelta(days=1)
+    from app.services.workdays import recent_company_workdays
+    workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
 
     fname = member.get("full_name") or member.get("name", "Team Member")
     recent_entries = await db.daily_log_entries.find(

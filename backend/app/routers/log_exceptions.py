@@ -30,6 +30,7 @@ from app.services.log_compliance import (
     apply_accepted_gap_state,
 )
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
+from app.services.workdays import load_off_day_index, parse_iso_date, recent_company_workdays
 
 router = APIRouter(
     prefix="/log-exceptions",
@@ -95,7 +96,9 @@ async def list_exception_inbox(
     viewer_id = current_user.get("id")
     viewer_dept = (current_user.get("department") or "").strip()
     today = pkt_today()
-    window = [date] if date else recent_workdays(7)
+    window = [date] if date else await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
+    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
+    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
 
     user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
     if role == "team_lead":
@@ -169,9 +172,13 @@ async def list_exception_inbox(
             if day < SYSTEM_START_DATE:
                 continue
             try:
-                from datetime import datetime as dt
-                if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                    continue
+                if off_idx is not None:
+                    if not off_idx.is_workday_iso(day):
+                        continue
+                else:
+                    from datetime import datetime as dt
+                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
+                        continue
             except Exception:
                 continue
 
@@ -532,7 +539,9 @@ async def get_operating_snapshot(
     db = get_database()
     date_str = date or pkt_today()
     range_key = "week" if str(range).lower() == "week" else "today"
-    window = recent_workdays(7) if range_key == "week" else [date_str]
+    window = await recent_company_workdays(7, start_date=SYSTEM_START_DATE) if range_key == "week" else [date_str]
+    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
+    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
     empty = SnapshotResponse(date=date_str, range=range_key)
     if db is None:
         return empty
@@ -564,8 +573,7 @@ async def get_operating_snapshot(
             target = targets.get((uid, day)) or {}
             att = att_by_key.get((uid, day)) or {}
             try:
-                from datetime import datetime as dt
-                workday = is_workday(dt.strptime(day, "%Y-%m-%d"))
+                workday = off_idx.is_workday_iso(day) if off_idx is not None else True
             except Exception:
                 workday = True
             if workday and not person_day_is_leave(target, att):
@@ -679,9 +687,13 @@ async def get_operating_snapshot(
             if person_day_is_leave(target, att_by_key.get((uid, day))):
                 continue
             try:
-                from datetime import datetime as dt
-                if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                    continue
+                if off_idx is not None:
+                    if not off_idx.is_workday_iso(day):
+                        continue
+                else:
+                    from datetime import datetime as dt
+                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
+                        continue
             except Exception:
                 continue
             past_expected_ids.add(uid)
@@ -782,9 +794,13 @@ async def get_operating_snapshot(
             if person_day_is_leave(target, att_by_key.get((uid, day))):
                 continue
             try:
-                from datetime import datetime as dt
-                if not is_workday(dt.strptime(day, "%Y-%m-%d")):
-                    continue
+                if off_idx is not None:
+                    if not off_idx.is_workday_iso(day):
+                        continue
+                else:
+                    from datetime import datetime as dt
+                    if not is_workday(dt.strptime(day, "%Y-%m-%d")):
+                        continue
             except Exception:
                 continue
             if day not in logged_set:

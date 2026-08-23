@@ -17,6 +17,8 @@ import type { OperatingSnapshot } from '../../../types/dailyLog';
 import { DEPARTMENTS } from '../AddMemberModal';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { CustomDatePicker } from '../../ui/CustomDatePicker';
+import { OffDayBanner } from '../../ui/OffDayBanner';
+import { useOffDays } from '../../../hooks/useOffDays';
 import { logExceptionService } from '../../../services/logExceptionService';
 import { formatHours, formatSignedHours } from '../../../utils/logTimeChecks';
 import { useAuth } from '../../../context/AuthContext';
@@ -50,6 +52,8 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   const [pickedDate, setPickedDate] = useState(todayIso);
   const [snap, setSnap] = useState<OperatingSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(true);
+  const { getOffDay } = useOffDays();
+  const viewingOff = range === 'date' ? getOffDay(pickedDate) : range === 'today' ? getOffDay(todayIso()) : { isOff: false, label: 'Working day' as const };
 
   const [customReminderUser, setCustomReminderUser] = useState<MemberActivity | null>(null);
   const [customMessage, setCustomMessage] = useState('');
@@ -222,10 +226,16 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                 value={pickedDate}
                 onChange={(val) => setPickedDate(val || todayIso())}
                 maxDate={todayIso()}
+                offDayMode="mark"
               />
             </div>
           )}
-          {missingTodayCount > 0 && (
+          {viewingOff.isOff && (
+            <div className="w-full mt-2">
+              <OffDayBanner info={viewingOff} date={range === 'date' ? pickedDate : todayIso()} compact />
+            </div>
+          )}
+          {missingTodayCount > 0 && !viewingOff.isOff && (
             <button
               type="button"
               onClick={handleBatchReminder}

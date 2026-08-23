@@ -1429,6 +1429,14 @@ async def process_check_in(
     date_str = get_current_date_str()
     time_str = get_current_time_str()
 
+    from app.services.workdays import classify_date
+    day_info = await classify_date(date_str)
+    if day_info.is_off:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Check-in is not available. {day_info.label}.",
+        )
+
     # 1. Check duplicate check-in
     existing_record = await db.attendance_records.find_one(
         {"user_id": user_id, "date": date_str},
@@ -1817,8 +1825,12 @@ async def get_today_status(
     elif effective_ip:
         is_ip_verified = validate_client_ip(effective_ip, whitelist, ())
 
+    from app.services.workdays import classify_date, attendance_status_for_off_day
+
+    day_info = await classify_date(target_date)
+
     shift_ended = is_shift_window_closed(shift, now_pkt)
-    if shift_ended and not is_wfh:
+    if shift_ended and not is_wfh and not day_info.is_off:
         lock_date = closed_shift_attendance_date(shift, now_pkt)
         if lock_date == target_date:
             await persist_auto_absent(user, shift, target_date)
@@ -1861,6 +1873,11 @@ async def get_today_status(
             status_val = AttendanceStatus(record_status)
         except ValueError:
             status_val = AttendanceStatus.AWAITING_CHECKIN
+    elif day_info.is_off and not cin:
+        try:
+            status_val = AttendanceStatus(attendance_status_for_off_day(day_info.kind))
+        except ValueError:
+            status_val = AttendanceStatus.HOLIDAY
     elif shift_ended and not cin:
         status_val = AttendanceStatus.ABSENT
     else:
@@ -1869,7 +1886,7 @@ async def get_today_status(
     locked_no_punch = bool(shift_ended and not cin) or (
         record_status in LEAVE_LOCK_STATUSES and not cin
     )
-    can_check_in = (not bool(cin)) and (not locked_no_punch)
+    can_check_in = (not bool(cin)) and (not locked_no_punch) and (not day_info.is_off)
     can_check_out = is_checked_in
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 
@@ -1941,6 +1958,9 @@ async def get_today_status(
         enforce_gps_geofence=bool(sec_settings.enforce_gps_geofence),
         shift_ended=bool(shift_ended and not cin),
         checkout_gate=gate_payload,
+        is_off_day=day_info.is_off,
+        off_day_kind=day_info.kind if day_info.is_off else None,
+        off_day_label=day_info.label if day_info.is_off else None,
     )
 
 

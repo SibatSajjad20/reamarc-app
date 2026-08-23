@@ -17,6 +17,8 @@ import { logExceptionService } from '../../services/logExceptionService';
 import type { LogExceptionItem } from '../../types/dailyLog';
 import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { OffDayBanner } from '../ui/OffDayBanner';
+import { useOffDays } from '../../hooks/useOffDays';
 
 const todayIso = () => {
   const d = new Date();
@@ -48,6 +50,8 @@ export const ExceptionInboxView: React.FC<ExceptionInboxViewProps> = ({ onOpenDa
   const [range, setRange] = useState<'today' | 'week' | 'date'>('week');
   const [pickedDate, setPickedDate] = useState(todayIso());
   const [searchQuery, setSearchQuery] = useState('');
+  const { getOffDay } = useOffDays();
+  const viewingOff = range === 'date' ? getOffDay(pickedDate) : range === 'today' ? getOffDay(todayIso()) : { isOff: false, label: 'Working day' as const };
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -186,7 +190,7 @@ export const ExceptionInboxView: React.FC<ExceptionInboxViewProps> = ({ onOpenDa
           ))}
           {range === 'date' && (
             <div className="w-40">
-              <CustomDatePicker value={pickedDate} onChange={(val) => setPickedDate(val || todayIso())} maxDate={todayIso()} />
+              <CustomDatePicker value={pickedDate} onChange={(val) => setPickedDate(val || todayIso())} maxDate={todayIso()} offDayMode="mark" />
             </div>
           )}
           <div className="relative flex-1 min-w-[180px] max-w-xs ml-auto">
@@ -206,6 +210,10 @@ export const ExceptionInboxView: React.FC<ExceptionInboxViewProps> = ({ onOpenDa
         {isLoading ? (
           <div className="flex items-center justify-center py-20 text-zinc-400">
             <Loader2 className="w-5 h-5 animate-spin" />
+          </div>
+        ) : viewingOff.isOff ? (
+          <div className="max-w-lg mx-auto mt-10">
+            <OffDayBanner info={viewingOff} date={range === 'date' ? pickedDate : todayIso()} />
           </div>
         ) : filtered.length === 0 ? (
           <div className="max-w-md mx-auto mt-16 text-center space-y-2">
