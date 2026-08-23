@@ -547,129 +547,132 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 Check-in and check-out are closed today. Leave, WFH, and punch corrections can still be submitted from the buttons above.
               </p>
             </div>
-          ) : !coords ? (
-            <button
-              type="button"
-              onClick={() => captureGPS(true)}
-              disabled={isCapturingGps}
-              className="w-full mb-3 py-3 px-4 rounded-xl font-bold text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
-            >
-              {isCapturingGps ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Waiting for GPS — tap Allow on the phone prompt…</span>
-                </>
-              ) : (
-                <>
-                  <MapPin className="w-4 h-4" />
-                  <span>Allow location</span>
-                </>
-              )}
-            </button>
-          )}
-          {!isOffDay && (!isCheckedIn ? (
-            checkInClosed ? (
-              <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
-                <span className="inline-flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5" />
-                  {isAbsentLocked ? 'Shift ended — Absent' : 'Shift ended'}
-                </span>
-                <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
-                  Check-in closed after {shift?.end_time || 'shift end'}. Use Correction if this is a missed punch.
-                </span>
-              </div>
-            ) : (
-            <div className="space-y-2">
-            <button
-              type="button"
-              onClick={handleCheckIn}
-              disabled={isSubmitting || isLoading || securityBlocksCheckIn}
-              className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
-            >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>{verificationStep || 'Verifying Location & Wi-Fi...'}</span>
-                </>
-              ) : (
-                <>
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <LogIn className="w-5 h-5" />
-                  <span>Check In Now</span>
-                </>
-              )}
-            </button>
-            {shift?.start_time && shift?.end_time && (
-              <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
-                Shift starts at {shift.start_time}. Check-in stays open until {shift.end_time}.
-              </p>
-            )}
-            {securityBlocksCheckIn && (
-              <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
-                {gpsClearlyOutOfRange
-                  ? 'Check-in blocked: you are outside the office location radius.'
-                  : !wifiOk
-                  ? 'Check-in blocked: connect to office Wi-Fi, or allow location if you are at the office.'
-                  : `Check-in blocked: ${geoError || 'waiting for GPS location.'}`}
-              </p>
-            )}
-            {!securityBlocksCheckIn && !isWfh && wifiOk && (geoError || gpsCoarse) && (
-              <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
-                {gpsCoarse
-                  ? 'Browser location is too coarse to prove the office. Check-in will use office Wi-Fi instead.'
-                  : 'Tap Allow location so this phone can use GPS. Check-in can still use office Wi-Fi.'}
-              </p>
-            )}
-            </div>
-            )
-          ) : isCheckedOut ? (
-            <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex flex-col items-center justify-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
-              <span className="inline-flex items-center gap-2.5">
-                <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                <span>
-                  Today's Shift Finished (
-                  {record?.working_hours_minutes
-                    ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
-                        record.working_hours_minutes % 60
-                      ).padStart(2, '0')}m worked`
-                    : 'Completed'}
-                  )
-                </span>
-              </span>
-              {record?.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0 && (
-                <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
-                  +{String(Math.floor((record.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
-                  {String((record.pending_overtime_minutes || 0) % 60).padStart(2, '0')} overtime pending HR review
-                </span>
-              )}
-            </div>
           ) : (
-            <div className="space-y-2">
-              {(checkoutGate?.past_shift_end || gateType === 'overtime') && checkoutGate?.message && (
-                <p className="text-[11px] font-medium text-center text-amber-700 dark:text-amber-300 px-1">
-                  {checkoutGate.message}
-                </p>
+            <>
+              {!coords && (
+                <button
+                  type="button"
+                  onClick={() => captureGPS(true)}
+                  disabled={isCapturingGps}
+                  className="w-full mb-3 py-3 px-4 rounded-xl font-bold text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                >
+                  {isCapturingGps ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Waiting for GPS — tap Allow on the phone prompt…</span>
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="w-4 h-4" />
+                      <span>Allow location</span>
+                    </>
+                  )}
+                </button>
               )}
-              <button
-                type="button"
-                onClick={handleCheckOut}
-                disabled={isSubmitting}
-                className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>{verificationStep || 'Submitting Check-Out...'}</span>
-                  </>
+              {!isCheckedIn ? (
+                checkInClosed ? (
+                  <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
+                    <span className="inline-flex items-center gap-2">
+                      <CheckCircle2 className="w-5 h-5" />
+                      {isAbsentLocked ? 'Shift ended — Absent' : 'Shift ended'}
+                    </span>
+                    <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
+                      Check-in closed after {shift?.end_time || 'shift end'}. Use Correction if this is a missed punch.
+                    </span>
+                  </div>
                 ) : (
-                  <>
-                    <LogOut className="w-5 h-5" />
-                    <span>Check Out</span>
-                  </>
-                )}
-              </button>
-            </div>
-          )}
+                  <div className="space-y-2">
+                    <button
+                      type="button"
+                      onClick={handleCheckIn}
+                      disabled={isSubmitting || isLoading || securityBlocksCheckIn}
+                      className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                          <span>{verificationStep || 'Verifying Location & Wi-Fi...'}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                          <LogIn className="w-5 h-5" />
+                          <span>Check In Now</span>
+                        </>
+                      )}
+                    </button>
+                    {shift?.start_time && shift?.end_time && (
+                      <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                        Shift starts at {shift.start_time}. Check-in stays open until {shift.end_time}.
+                      </p>
+                    )}
+                    {securityBlocksCheckIn && (
+                      <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
+                        {gpsClearlyOutOfRange
+                          ? 'Check-in blocked: you are outside the office location radius.'
+                          : !wifiOk
+                          ? 'Check-in blocked: connect to office Wi-Fi, or allow location if you are at the office.'
+                          : `Check-in blocked: ${geoError || 'waiting for GPS location.'}`}
+                      </p>
+                    )}
+                    {!securityBlocksCheckIn && !isWfh && wifiOk && (geoError || gpsCoarse) && (
+                      <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                        {gpsCoarse
+                          ? 'Browser location is too coarse to prove the office. Check-in will use office Wi-Fi instead.'
+                          : 'Tap Allow location so this phone can use GPS. Check-in can still use office Wi-Fi.'}
+                      </p>
+                    )}
+                  </div>
+                )
+              ) : isCheckedOut ? (
+                <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex flex-col items-center justify-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
+                  <span className="inline-flex items-center gap-2.5">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                    <span>
+                      Today's Shift Finished (
+                      {record?.working_hours_minutes
+                        ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
+                            record.working_hours_minutes % 60
+                          ).padStart(2, '0')}m worked`
+                        : 'Completed'}
+                      )
+                    </span>
+                  </span>
+                  {record?.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0 && (
+                    <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                      +{String(Math.floor((record.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
+                      {String((record.pending_overtime_minutes || 0) % 60).padStart(2, '0')} overtime pending HR review
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(checkoutGate?.past_shift_end || gateType === 'overtime') && checkoutGate?.message && (
+                    <p className="text-[11px] font-medium text-center text-amber-700 dark:text-amber-300 px-1">
+                      {checkoutGate.message}
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCheckOut}
+                    disabled={isSubmitting}
+                    className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        <span>{verificationStep || 'Submitting Check-Out...'}</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogOut className="w-5 h-5" />
+                        <span>Check Out</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
