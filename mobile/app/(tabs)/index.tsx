@@ -414,39 +414,36 @@ export default function PunchScreen() {
           setReasonOpen(false);
         }}
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.modalKeyboardAvoid}
-        >
-          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.modalBg}>
-              <TouchableWithoutFeedback>
-                <View style={styles.modal}>
-                  <Text style={styles.cardTitle}>
-                    {today?.checkout_gate?.type === 'overtime' ? 'Overtime reason' : 'Leaving early'}
-                  </Text>
-                  <Text style={styles.shift}>
-                    {today?.checkout_gate?.message || `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`}
-                  </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Why are you overtime / leaving early?"
-                    placeholderTextColor={colors.muted}
-                    value={reason}
-                    onChangeText={setReason}
-                    multiline
-                  />
-                  <Pressable style={[styles.modalBtn, { backgroundColor: colors.emerald }]} onPress={submitReason} disabled={busy}>
-                    <Text style={styles.heroText}>Submit check-out</Text>
-                  </Pressable>
-                  <Pressable onPress={() => { Keyboard.dismiss(); setReasonOpen(false); }} style={{ marginTop: 12, paddingVertical: 6 }}>
-                    <Text style={[styles.footerLock, { textAlign: 'center' }]}>Cancel</Text>
-                  </Pressable>
-                </View>
-              </TouchableWithoutFeedback>
+        <View style={styles.modalBg}>
+          <Pressable style={styles.backdropPressable} onPress={Keyboard.dismiss} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={styles.modalContainer}
+          >
+            <View style={styles.modal}>
+              <Text style={styles.cardTitle}>
+                {today?.checkout_gate?.type === 'overtime' ? 'Overtime reason' : 'Leaving early'}
+              </Text>
+              <Text style={styles.shift}>
+                {today?.checkout_gate?.message || `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Why are you overtime / leaving early?"
+                placeholderTextColor={colors.muted}
+                value={reason}
+                onChangeText={setReason}
+                multiline
+              />
+              <Pressable style={[styles.modalBtn, { backgroundColor: colors.emerald }]} onPress={submitReason} disabled={busy}>
+                <Text style={styles.heroText}>Submit check-out</Text>
+              </Pressable>
+              <Pressable onPress={() => { Keyboard.dismiss(); setReasonOpen(false); }} style={{ marginTop: 12, paddingVertical: 6 }}>
+                <Text style={[styles.footerLock, { textAlign: 'center' }]}>Cancel</Text>
+              </Pressable>
             </View>
-          </TouchableWithoutFeedback>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -535,8 +532,9 @@ const styles = StyleSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5, marginBottom: 8 },
   stepLabel: { fontSize: 11, color: colors.muted, fontWeight: '700' },
   stepValue: { fontSize: 13, fontWeight: '800', color: colors.text, marginTop: 2 },
-  modalKeyboardAvoid: { flex: 1 },
-  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  backdropPressable: { ...StyleSheet.absoluteFillObject },
+  modalContainer: { width: '100%' },
   modal: {
     backgroundColor: colors.card,
     padding: 20,
