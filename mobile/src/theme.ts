@@ -46,10 +46,9 @@ function isRewritableApiHost(hostname: string): boolean {
 
 /** Physical phones cannot use localhost; keep the API host in sync with Expo Metro. */
 function resolveApiUrl(): string {
-  const fallback = (process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000/api/v1').replace(
-    /\/$/,
-    '',
-  );
+  const fallback = (
+    process.env.EXPO_PUBLIC_API_URL || 'https://reamarc-app.onrender.com/api/v1'
+  ).replace(/\/$/, '');
   if (fallback.startsWith('https://')) return fallback;
   const lan = expoLanHostname();
   if (!lan) return fallback;

@@ -64,17 +64,14 @@ export async function api<T>(
     if (token) headers.Authorization = `Bearer ${token}`;
   }
   const url = `${API_URL}${path}`;
-  const timeout = timeoutSignal(20000);
+  const timeout = timeoutSignal(35000);
   let res: Response;
   try {
     res = await fetch(url, { ...options, headers, signal: timeout.signal });
   } catch (err: any) {
     const name = String(err?.name || '');
     if (name === 'TimeoutError' || name === 'AbortError' || /network request timed out/i.test(String(err?.message))) {
-      throw new Error(
-        `Cannot reach ${API_URL}. Phone and PC must share the same Wi-Fi (not the 192.168.56.x VirtualBox adapter). ` +
-          'Reload Expo after the PC Wi-Fi IP changes. Backend: uvicorn --host 0.0.0.0 --port 8000.',
-      );
+      throw new Error(`Cannot reach ${API_URL}. Please check your internet connection or try again in a few seconds.`);
     }
     throw err;
   } finally {

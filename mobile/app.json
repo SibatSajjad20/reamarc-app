@@ -2,7 +2,9 @@
   "expo": {
     "name": "Reamarc",
     "slug": "reamarc-mobile",
+    "privacy": "unlisted",
     "version": "1.0.0",
+    "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -41,7 +43,20 @@
         "ACCESS_FINE_LOCATION",
         "USE_BIOMETRIC",
         "USE_FINGERPRINT",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ]
     },
     "plugins": [
@@ -70,8 +85,18 @@
       "expo-font",
       "@react-native-community/datetimepicker"
     ],
-    "web": {
-      "favicon": "./assets/favicon.png"
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "88e7fa1c-536f-4324-8b86-ddfe10e8e5e6"
+      }
+    },
+    "owner": "sibat22",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/88e7fa1c-536f-4324-8b86-ddfe10e8e5e6"
     }
   }
 }
