@@ -41,6 +41,9 @@ class MobileNotificationResponse(BaseModel):
     title: str
     body: str
     kind: str = "custom"
+    sender_id: Optional[str] = None
+    sender_name: Optional[str] = None
+    sender_role: Optional[str] = None
     created_at: Optional[str] = None
     read: bool = False
 
@@ -50,3 +53,31 @@ class PushDispatchResponse(BaseModel):
     skipped: int = 0
     in_app: int = 0
     message: str
+
+
+class LiveEmployeeStatus(BaseModel):
+    user_id: str
+    name: str
+    role: str
+    department: str
+    status: str
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    is_wfh: bool = False
+    is_late: bool = False
+    hours_worked: float = 0.0
+
+
+class AdminOverviewResponse(BaseModel):
+    date: str
+    total_employees: int = 0
+    present_count: int = 0
+    on_time_count: int = 0
+    late_count: int = 0
+    wfh_count: int = 0
+    leave_count: int = 0
+    absent_count: int = 0
+    pending_approvals_count: int = 0
+    departments: List[dict] = Field(default_factory=list)
+    employees: List[LiveEmployeeStatus] = Field(default_factory=list)
+

@@ -18,7 +18,15 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-async def store_notification(user_id: str, title: str, body: str, kind: str) -> None:
+async def store_notification(
+    user_id: str,
+    title: str,
+    body: str,
+    kind: str,
+    sender_id: Optional[str] = None,
+    sender_name: Optional[str] = None,
+    sender_role: Optional[str] = None,
+) -> None:
     db = get_database()
     if db is None:
         return
@@ -29,6 +37,9 @@ async def store_notification(user_id: str, title: str, body: str, kind: str) -> 
             "title": title,
             "body": body,
             "kind": kind,
+            "sender_id": sender_id,
+            "sender_name": sender_name,
+            "sender_role": sender_role,
             "read": False,
             "created_at": _now_iso(),
         }
@@ -44,6 +55,14 @@ async def mark_all_read(user_id: str) -> int:
         {"$set": {"read": True}},
     )
     return int(result.modified_count or 0)
+
+
+async def clear_all_notifications(user_id: str) -> int:
+    db = get_database()
+    if db is None:
+        return 0
+    result = await db.mobile_notifications.delete_many({"user_id": user_id})
+    return int(result.deleted_count or 0)
 
 
 async def list_notifications(user_id: str, limit: int = 50) -> list:
@@ -92,6 +111,9 @@ async def dispatch_to_users(
     title: str,
     body: str,
     kind: str = "custom",
+    sender_id: Optional[str] = None,
+    sender_name: Optional[str] = None,
+    sender_role: Optional[str] = None,
 ) -> dict:
     devices = await active_devices(user_ids)
     if not devices:
@@ -110,7 +132,15 @@ async def dispatch_to_users(
         if token:
             tokens.append(token)
         if uid and uid not in notified_users:
-            await store_notification(uid, title, body, kind)
+            await store_notification(
+                user_id=uid,
+                title=title,
+                body=body,
+                kind=kind,
+                sender_id=sender_id,
+                sender_name=sender_name,
+                sender_role=sender_role,
+            )
             notified_users.add(uid)
 
     sent = await send_expo_push(tokens, title, body)

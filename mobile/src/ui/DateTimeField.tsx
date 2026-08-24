@@ -6,18 +6,23 @@ import { colors } from '../theme';
 import { formatDisplayDate, formatTime } from './format';
 
 function parseDate(iso: string) {
-  const [y, m, d] = iso.split('-').map(Number);
-  const next = new Date();
-  if (y && m && d) next.setFullYear(y, m - 1, d);
-  next.setHours(12, 0, 0, 0);
-  return next;
+  if (!iso) return new Date();
+  const parts = iso.split('-').map(Number);
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+  }
+  return new Date();
 }
 
 function parseTime(hhmm: string) {
+  const d = new Date();
+  if (!hhmm) {
+    d.setHours(9, 30, 0, 0);
+    return d;
+  }
   const [h, m] = hhmm.split(':').map(Number);
-  const next = new Date();
-  next.setHours(h || 0, m || 0, 0, 0);
-  return next;
+  d.setHours(!isNaN(h) ? h : 9, !isNaN(m) ? m : 30, 0, 0);
+  return d;
 }
 
 function toIsoDate(d: Date) {
@@ -120,6 +125,7 @@ function PickerField({
             <View style={styles.sheetHead}>
               <Text style={styles.sheetTitle}>{label}</Text>
               <Pressable
+                style={styles.doneBtn}
                 onPress={() => {
                   onChange(draft);
                   setOpen(false);
@@ -128,14 +134,20 @@ function PickerField({
                 <Text style={styles.done}>Done</Text>
               </Pressable>
             </View>
-            <DateTimePicker
-              value={draft}
-              mode={mode}
-              display="spinner"
-              onChange={(_, selected) => {
-                if (selected) setDraft(selected);
-              }}
-            />
+            <View style={mode === 'date' ? styles.datePickerBox : styles.timePickerBox}>
+              <DateTimePicker
+                value={draft}
+                mode={mode}
+                display={mode === 'date' ? 'inline' : 'spinner'}
+                textColor="#0F172A"
+                themeVariant="light"
+                accentColor={colors.indigo}
+                style={mode === 'date' ? styles.inlineDatePicker : styles.spinnerTimePicker}
+                onChange={(_, selected) => {
+                  if (selected) setDraft(selected);
+                }}
+              />
+            </View>
           </View>
         </Modal>
       ) : null}
@@ -160,17 +172,54 @@ const styles = StyleSheet.create({
   value: { color: colors.text, fontWeight: '700', fontSize: 15 },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
   sheet: {
-    backgroundColor: colors.card,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingBottom: 24,
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingBottom: 32,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   sheetHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 14,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
   },
-  sheetTitle: { fontWeight: '800', color: colors.text },
-  done: { color: colors.indigo, fontWeight: '800' },
+  sheetTitle: { fontWeight: '800', color: colors.text, fontSize: 16 },
+  doneBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#EEF2FF',
+  },
+  done: { color: colors.indigo, fontWeight: '800', fontSize: 14 },
+  datePickerBox: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: '#FFFFFF',
+    minHeight: 320,
+    justifyContent: 'center',
+  },
+  inlineDatePicker: {
+    height: 320,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  timePickerBox: {
+    height: 216,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  spinnerTimePicker: {
+    height: 216,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+  },
 });

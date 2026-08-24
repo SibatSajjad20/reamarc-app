@@ -4,16 +4,25 @@ import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/theme';
 import { useInbox } from '../../src/context/InboxContext';
+import { useAuth } from '../../src/context/AuthContext';
 
-function iconName(route: string, focused: boolean): keyof typeof Ionicons.glyphMap {
-  if (route === 'index') return focused ? 'finger-print' : 'time-outline';
-  if (route === 'requests') return focused ? 'send' : 'document-text-outline';
-  if (route === 'alerts') return focused ? 'notifications' : 'notifications-outline';
+function iconName(route: string, focused: boolean, isAdmin: boolean): keyof typeof Ionicons.glyphMap {
+  if (route === 'index') {
+    return isAdmin ? (focused ? 'pie-chart' : 'pie-chart-outline') : focused ? 'finger-print' : 'time-outline';
+  }
+  if (route === 'requests') {
+    return isAdmin ? (focused ? 'shield-checkmark' : 'shield-checkmark-outline') : focused ? 'send' : 'document-text-outline';
+  }
+  if (route === 'alerts') {
+    return isAdmin ? (focused ? 'megaphone' : 'megaphone-outline') : focused ? 'notifications' : 'notifications-outline';
+  }
   return focused ? 'person-circle' : 'person-circle-outline';
 }
 
 export default function TabsLayout() {
   const { unreadCount } = useInbox();
+  const { user } = useAuth();
+  const isAdmin = String(user?.role || '').toLowerCase() === 'admin' || String(user?.role || '').toLowerCase() === 'super_admin';
 
   return (
     <Tabs
@@ -25,7 +34,7 @@ export default function TabsLayout() {
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
         tabBarIcon: ({ focused, color }) => (
           <View>
-            <Ionicons name={iconName(route.name, focused)} size={22} color={color} />
+            <Ionicons name={iconName(route.name, focused, isAdmin)} size={22} color={color} />
             {route.name === 'alerts' && unreadCount > 0 ? (
               <View style={styles.badge}>
                 <Text style={styles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -55,9 +64,9 @@ export default function TabsLayout() {
         },
       })}
     >
-      <Tabs.Screen name="index" options={{ title: 'Punch' }} />
-      <Tabs.Screen name="requests" options={{ title: 'Requests' }} />
-      <Tabs.Screen name="alerts" options={{ title: 'Notifications' }} />
+      <Tabs.Screen name="index" options={{ title: isAdmin ? 'Overview' : 'Punch' }} />
+      <Tabs.Screen name="requests" options={{ title: isAdmin ? 'Approvals' : 'Requests' }} />
+      <Tabs.Screen name="alerts" options={{ title: isAdmin ? 'Announce' : 'Notifications' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

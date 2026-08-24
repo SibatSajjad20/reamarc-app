@@ -5,7 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.core.security import require_hr_or_admin, require_internal_user
 from app.schemas.error import ErrorResponse
 from app.schemas.mobile import (
+    AdminOverviewResponse,
     BroadcastPushRequest,
+    LiveEmployeeStatus,
     MobileDeviceResponse,
     MobileNotificationResponse,
     PushDispatchResponse,
@@ -62,6 +64,12 @@ async def mark_notifications_read(current_user: dict = Depends(require_internal_
     return {"updated": updated}
 
 
+@router.delete("/notifications/clear-all")
+async def clear_notifications(current_user: dict = Depends(require_internal_user)):
+    deleted = await push_service.clear_all_notifications(current_user.get("id"))
+    return {"deleted": deleted, "message": "All notifications cleared"}
+
+
 @router.get("/devices", response_model=List[MobileDeviceResponse])
 async def list_devices(current_user: dict = Depends(require_hr_or_admin)):
     return await device_registry.list_active_devices()
@@ -86,6 +94,9 @@ async def broadcast_push(
         title=body.title.strip(),
         body=body.body.strip(),
         kind="custom",
+        sender_id=current_user.get("id"),
+        sender_name=current_user.get("name"),
+        sender_role=current_user.get("role"),
     )
     return result
 
@@ -101,6 +112,9 @@ async def push_test(
         title="Reamarc test",
         body="Push is working. You can punch from the mobile app.",
         kind="test",
+        sender_id=current_user.get("id"),
+        sender_name=current_user.get("name"),
+        sender_role=current_user.get("role"),
     )
     if result.get("in_app", 0) == 0 and result.get("sent", 0) == 0:
         raise HTTPException(
@@ -108,3 +122,74 @@ async def push_test(
             detail="No bound phone for that user. Open the mobile app while logged in first.",
         )
     return result
+
+
+@router.get("/admin-overview", response_model=AdminOverviewResponse)
+async def get_admin_overview(current_user: dict = Depends(require_hr_or_admin)):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from app.database import get_database
+    from app.services import attendance_service
+
+    PK_TZ = ZoneInfo("Asia/Karachi")
+    today = datetime.now(PK_TZ).strftime("%Y-%m-%d")
+
+    matrix = await attendance_service.get_daily_matrix(date_str=today)
+    db = get_database()
+    pending_count = 0
+    if db is not None:
+        pending_count = await db.leave_requests.count_documents({"status": "pending"})
+
+    employees: List[LiveEmployeeStatus] = []
+    dept_map: dict = {}
+    for r in matrix.rows:
+        dept = r.department or "General"
+        if dept not in dept_map:
+            dept_map[dept] = {"name": dept, "present": 0, "total": 0}
+        dept_map[dept]["total"] += 1
+
+        is_pres = bool(r.check_in or r.punch_in)
+        if is_pres:
+            dept_map[dept]["present"] += 1
+
+        is_wfh = bool(r.is_wfh or r.status_tag == "WFH")
+        is_late = bool(r.is_late or (r.check_in and r.check_in > "10:00"))
+
+        status_label = "Present" if is_pres else ("WFH" if is_wfh else ("Leave" if r.status_tag in ("Annual Leave", "Sick Leave", "Leave") else "Absent"))
+        if is_pres and is_late:
+            status_label = "Late"
+        if is_pres and (r.check_out or r.punch_out):
+            status_label = "Completed"
+
+        employees.append(
+            LiveEmployeeStatus(
+                user_id=r.user_id,
+                name=r.user_name or r.user_id,
+                role=r.role or "employee",
+                department=dept,
+                status=status_label,
+                check_in=r.check_in or r.punch_in,
+                check_out=r.check_out or r.punch_out,
+                is_wfh=is_wfh,
+                is_late=is_late,
+                hours_worked=float(getattr(r, "total_work_hours", 0.0) or 0.0),
+            )
+        )
+
+    status_order = {"Present": 0, "Late": 1, "Completed": 2, "WFH": 3, "Leave": 4, "Absent": 5}
+    employees.sort(key=lambda x: (status_order.get(x.status, 9), x.name.lower()))
+
+    return AdminOverviewResponse(
+        date=today,
+        total_employees=matrix.total_employees,
+        present_count=matrix.present_count,
+        on_time_count=max(0, matrix.present_count - matrix.late_count),
+        late_count=matrix.late_count,
+        wfh_count=matrix.wfh_count,
+        leave_count=matrix.leave_count,
+        absent_count=matrix.absent_count,
+        pending_approvals_count=pending_count,
+        departments=list(dept_map.values()),
+        employees=employees,
+    )
+

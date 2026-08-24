@@ -1470,9 +1470,8 @@ async def process_check_in(
             detail=f"Attendance already recorded for {date_str}. Check-in: {existing_record.get('check_in')}"
         )
 
-    # 2. Punch = office unless they have an approved WFH request.
-    # Auto WFH weekdays stay remote only when they do not punch.
-    is_wfh = await is_wfh_leave_approved_for_date(user_id, date_str)
+    # 2. Punch allows remote check-in for approved WFH requests and WFH shift schedules.
+    is_wfh = await is_wfh_approved_for_date(user_id, date_str)
 
     # 3. Shift window: nobody may punch in after their shift has ended
     shift = await get_shift_for_user(user_id, department, date_str)

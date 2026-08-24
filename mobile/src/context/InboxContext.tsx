@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { getClearedNotificationsCutoff } from '../lib/secure';
 import { useAuth } from './AuthContext';
 
 type InboxValue = {
@@ -20,8 +21,12 @@ export function InboxProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     try {
-      const rows = await api<{ id: string; read?: boolean }[]>('/mobile/notifications');
-      setUnreadCount((rows || []).filter((r) => !r.read).length);
+      const [rows, cutoff] = await Promise.all([
+        api<{ id: string; read?: boolean; created_at?: string }[]>('/mobile/notifications'),
+        getClearedNotificationsCutoff(),
+      ]);
+      const valid = (rows || []).filter((r) => !cutoff || !r.created_at || r.created_at > cutoff);
+      setUnreadCount(valid.filter((r) => !r.read).length);
     } catch {
       /* keep last count */
     }

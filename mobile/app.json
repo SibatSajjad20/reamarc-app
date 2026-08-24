@@ -12,7 +12,7 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#4F46E5"
+      "backgroundColor": "#FFFFFF"
     },
     "ios": {
       "supportsTablet": false,
@@ -29,7 +29,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#4F46E5",
+        "backgroundColor": "#FFFFFF",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -81,7 +81,8 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/88e7fa1c-536f-4324-8b86-ddfe10e8e5e6"
+      "url": "https://u.expo.dev/88e7fa1c-536f-4324-8b86-ddfe10e8e5e6",
+      "fallbackToCacheTimeout": 0
     }
   }
 }

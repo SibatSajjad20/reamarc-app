@@ -10,7 +10,7 @@ from app.services import attendance_service, push_service
 logger = logging.getLogger("app.mobile_push_scheduler")
 PK_TZ = ZoneInfo("Asia/Karachi")
 
-SKIP_ROLES = {"client", "CLIENT"}
+SKIP_ROLES = {"client", "CLIENT", "admin", "ADMIN", "super_admin", "SUPER_ADMIN"}
 
 
 def _parse_hhmm(value: str) -> dt_time:

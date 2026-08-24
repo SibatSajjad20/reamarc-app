@@ -30,3 +30,13 @@ export async function clearSession() {
   await SecureStore.deleteItemAsync(ACCESS_KEY);
   await SecureStore.deleteItemAsync(REFRESH_KEY);
 }
+
+const NOTIF_CLEARED_KEY = 'reamarc_notif_cleared_cutoff';
+
+export async function getClearedNotificationsCutoff(): Promise<string | null> {
+  return SecureStore.getItemAsync(NOTIF_CLEARED_KEY);
+}
+
+export async function setClearedNotificationsCutoff(isoString: string): Promise<void> {
+  await SecureStore.setItemAsync(NOTIF_CLEARED_KEY, isoString);
+}
