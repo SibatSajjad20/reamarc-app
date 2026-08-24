@@ -41,30 +41,33 @@ import asyncio
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
 
-    # Ensure all daily log records start cleanly from SYSTEM_START_DATE (2026-08-19)
-    try:
-        from app.database import get_database
-        db = get_database()
-        if db is not None:
-            await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
-            await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
-            from app.services.attendance_golive import purge_pre_go_live_attendance
-            await purge_pre_go_live_attendance()
-            # Ensure HR users have department "HR"
-            await db.users.update_many(
-                {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},
-                {"$set": {"department": "HR"}}
-            )
-            hr_users = await db.users.find({"role": {"$in": ["hr", "HR"]}}, {"id": 1, "full_name": 1, "name": 1}).to_list(100)
-            for h in hr_users:
-                h_name = h.get("full_name") or h.get("name")
-                if h_name:
-                    await db.daily_log_entries.update_many(
-                        {"$or": [{"user_id": h.get("id")}, {"resource_name": {"$regex": f"^{h_name}$", "$options": "i"}}], "department": {"$in": ["All", "", None]}},
-                        {"$set": {"department": "HR"}}
-                    )
-    except Exception as err:
-        logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
+    # Run data cleanups and checks in background so uvicorn binds to $PORT immediately
+    async def _run_startup_cleanup():
+        try:
+            from app.database import get_database
+            db = get_database()
+            if db is not None:
+                await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
+                await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
+                from app.services.attendance_golive import purge_pre_go_live_attendance
+                await purge_pre_go_live_attendance()
+                # Ensure HR users have department "HR"
+                await db.users.update_many(
+                    {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},
+                    {"$set": {"department": "HR"}}
+                )
+                hr_users = await db.users.find({"role": {"$in": ["hr", "HR"]}}, {"id": 1, "full_name": 1, "name": 1}).to_list(100)
+                for h in hr_users:
+                    h_name = h.get("full_name") or h.get("name")
+                    if h_name:
+                        await db.daily_log_entries.update_many(
+                            {"$or": [{"user_id": h.get("id")}, {"resource_name": {"$regex": f"^{h_name}$", "$options": "i"}}], "department": {"$in": ["All", "", None]}},
+                            {"$set": {"department": "HR"}}
+                        )
+        except Exception as err:
+            logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
+
+    cleanup_task = asyncio.create_task(_run_startup_cleanup())
 
     # Start 6-hour background sync task for performance marketing
     async def periodic_marketing_sync():
@@ -92,6 +95,7 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    cleanup_task.cancel()
     reminder_task.cancel()
     sync_task.cancel()
     shutdown_attendance_scheduler()
@@ -162,6 +166,7 @@ app.include_router(mobile.router, prefix=settings.API_V1_STR)
 
 
 
+@app.api_route("/", methods=["GET", "HEAD"])
 @app.api_route("/health", methods=["GET", "HEAD"])
 def health_check():
     return {"status": "healthy", "message": "Backend is online"}

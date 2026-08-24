@@ -423,7 +423,7 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         id="close_elapsed_shifts",
         name="Auto-close unpunched shifts after end time",
         replace_existing=True,
-        next_run_time=datetime.now(PK_TZ),
+        next_run_time=datetime.now(PK_TZ) + timedelta(seconds=15),
     )
 
     from app.services.mobile_push_scheduler import run_mobile_reminder_tick

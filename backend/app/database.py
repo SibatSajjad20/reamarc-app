@@ -1,3 +1,4 @@
+import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 from app.config import settings
 import logging
@@ -10,18 +11,11 @@ class Database:
 
 db_instance = Database()
 
-async def connect_to_mongo():
+async def _create_indexes_background():
+    """Builds MongoDB indexes asynchronously without blocking fast server startup."""
     try:
-        db_instance.client = AsyncIOMotorClient(
-            settings.MONGODB_URL,
-            maxPoolSize=50,
-            minPoolSize=5,
-            serverSelectionTimeoutMS=5000,
-        )
-        db_name = settings.MONGODB_DB_NAME
-        db_instance.db = db_instance.client[db_name]
-        logger.info(f"Connected to MongoDB successfully (db: {db_name})")
-        
+        if db_instance.db is None:
+            return
         # Drop legacy non-sparse index if present, then create sparse index
         try:
             await db_instance.db.posts.drop_index("uniq_campaign_target_date")
@@ -164,6 +158,23 @@ async def connect_to_mongo():
         except Exception:
             pass
 
+        logger.info("MongoDB background index initialization completed.")
+    except Exception as e:
+        logger.warning(f"Background index creation warning: {e}")
+
+async def connect_to_mongo():
+    try:
+        db_instance.client = AsyncIOMotorClient(
+            settings.MONGODB_URL,
+            maxPoolSize=50,
+            minPoolSize=5,
+            serverSelectionTimeoutMS=5000,
+        )
+        db_name = settings.MONGODB_DB_NAME
+        db_instance.db = db_instance.client[db_name]
+        logger.info(f"Connected to MongoDB successfully (db: {db_name})")
+        # Trigger index creation in the background so server binds to port immediately
+        asyncio.create_task(_create_indexes_background())
     except Exception as e:
         logger.warning(f"Could not connect to MongoDB: {e}. Running in degraded mode.")
 
