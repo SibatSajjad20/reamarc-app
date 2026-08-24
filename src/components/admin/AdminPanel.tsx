@@ -8,6 +8,7 @@ import type { AdminSectionType } from './AdminSidebarNav';
 import { UserManagementSection } from './sections/UserManagementSection';
 import { ComplianceRemindersSection } from './sections/ComplianceRemindersSection';
 import { AttendancePoliciesSection } from './sections/AttendancePoliciesSection';
+import { MobileOpsSection } from './sections/MobileOpsSection';
 import { WorkspacesSection } from './sections/WorkspacesSection';
 import { AdAccountsSection } from './sections/AdAccountsSection';
 import { AddMemberModal } from './AddMemberModal';
@@ -299,6 +300,8 @@ export const AdminPanel: React.FC = () => {
           canManageAdAccounts={canManageAdAccounts}
         />
       )}
+
+      {activeSection === 'mobile_ops' && <MobileOpsSection />}
 
       {policiesVisited && (
         <div className={activeSection === 'attendance_policies' ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : 'hidden'}>

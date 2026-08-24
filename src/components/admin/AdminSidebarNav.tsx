@@ -1,10 +1,11 @@
 import React from 'react';
-import { Users, Briefcase, BellRing, Shield, FolderKanban, Clock } from 'lucide-react';
+import { Users, Briefcase, BellRing, FolderKanban, Clock, Smartphone, Shield } from 'lucide-react';
 
 export type AdminSectionType =
   | 'directory'
   | 'compliance'
   | 'attendance_policies'
+  | 'mobile_ops'
   | 'workspaces'
   | 'ad_accounts';
 
@@ -56,6 +57,13 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
       id: 'attendance_policies' as AdminSectionType,
       label: 'Attendance Policies',
       icon: Clock,
+      count: null,
+      visible: true,
+    },
+    {
+      id: 'mobile_ops' as AdminSectionType,
+      label: 'Mobile & Alerts',
+      icon: Smartphone,
       count: null,
       visible: true,
     },

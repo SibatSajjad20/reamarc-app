@@ -98,4 +98,21 @@ export const adminService = {
   async updateUser(userId: string, payload: UpdateMemberPayload): Promise<AdminUser> {
     return this.updateMember(userId, payload);
   },
+
+  async listMobileDevices(): Promise<any[]> {
+    return apiClient.get('/mobile/devices');
+  },
+
+  async transferMobileDevice(userId: string): Promise<{ message: string; unbound: number }> {
+    return apiClient.post('/mobile/devices/transfer', { user_id: userId });
+  },
+
+  async broadcastMobilePush(payload: { title: string; body: string; user_ids?: string[] }): Promise<{
+    sent: number;
+    skipped: number;
+    in_app?: number;
+    message: string;
+  }> {
+    return apiClient.post('/mobile/broadcast', payload);
+  },
 };

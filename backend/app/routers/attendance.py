@@ -130,16 +130,19 @@ async def check_in(
 
 @router.post("/check-out", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
 async def check_out(
+    request: Request,
     check_out_req: CheckOutRequest,
     current_user: dict = Depends(require_internal_user),
 ):
     """
     Punch Out for the day.
-    Calculates net working hours, overtime, and undertime based on assigned shift.
+    Mobile app only. Calculates net working hours, overtime, and undertime.
     """
+    client_ip = extract_client_ip(request)
     return await attendance_service.process_check_out(
         user=current_user,
         check_out_req=check_out_req,
+        client_ip=client_ip,
     )
 
 

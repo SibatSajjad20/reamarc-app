@@ -32,6 +32,18 @@ class CheckInRequest(BaseModel):
         default=None,
         description="Browser-detected public IP, used only when the API request IP is loopback (local Vite proxy)",
     )
+    device_uuid: Optional[str] = Field(
+        default=None,
+        description="Mobile app device UUID. Desktop punch omits this; mobile sends it.",
+    )
+    biometric_verified: Optional[bool] = Field(
+        default=None,
+        description="True after Face ID / fingerprint / device PIN succeeded on the phone.",
+    )
+    is_mocked: Optional[bool] = Field(
+        default=None,
+        description="True when the OS reports a mock / fake GPS location.",
+    )
 
 
 class CheckOutRequest(BaseModel):
@@ -39,6 +51,11 @@ class CheckOutRequest(BaseModel):
 
     latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
     longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
+    accuracy_meters: Optional[float] = Field(default=None, ge=0)
+    gps_captured_at: Optional[str] = Field(default=None)
+    device_uuid: Optional[str] = Field(default=None, description="Mobile app device UUID. Desktop punch omits this.")
+    biometric_verified: Optional[bool] = Field(default=None)
+    is_mocked: Optional[bool] = Field(default=None)
     notes: Optional[str] = Field(default=None, description="Optional check-out notes / remarks")
     variance_reason: Optional[str] = Field(
         default=None,

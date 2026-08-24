@@ -426,8 +426,19 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         next_run_time=datetime.now(PK_TZ),
     )
 
+    from app.services.mobile_push_scheduler import run_mobile_reminder_tick
+
+    _attendance_scheduler.add_job(
+        run_mobile_reminder_tick,
+        IntervalTrigger(minutes=1, timezone=PK_TZ),
+        id="mobile_punch_reminders",
+        name="Shift-relative mobile punch reminders",
+        replace_existing=True,
+        next_run_time=datetime.now(PK_TZ) + timedelta(seconds=30),
+    )
+
     _attendance_scheduler.start()
-    logger.info("[Scheduler] Attendance scheduler started (midnight cron + 5-minute shift close).")
+    logger.info("[Scheduler] Attendance scheduler started (midnight, shift close, mobile reminders).")
     return _attendance_scheduler
 
 

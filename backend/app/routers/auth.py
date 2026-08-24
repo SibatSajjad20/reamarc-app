@@ -60,6 +60,7 @@ def _build_user_response(user_doc: dict) -> dict:
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "department": user_doc.get("department"),
+        "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
@@ -117,12 +118,18 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
     }
+    user_id = user_doc.get("id") or str(user_doc.get("_id"))
+    if user_in.device_uuid:
+        from app.services.device_registry import assert_device_login_allowed
+        await assert_device_login_allowed(user_id, user_in.device_uuid)
+
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
     _set_auth_cookies(response, access_token, refresh_token)
 
     return {
         "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
         "user": _build_user_response(user_doc),
     }
@@ -131,6 +138,13 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
+    if not token:
+        try:
+            payload_json = await request.json()
+            if isinstance(payload_json, dict):
+                token = (payload_json.get("refresh_token") or "").strip() or None
+        except Exception:
+            token = None
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token missing.")
 
@@ -163,6 +177,7 @@ async def refresh_token(request: Request, response: Response):
 
     return {
         "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "bearer",
         "user": _build_user_response(user_doc),
     }

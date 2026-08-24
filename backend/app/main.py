@@ -9,7 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.database import connect_to_mongo, close_mongo_connection
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -150,6 +150,7 @@ app.include_router(shifts.router, prefix=settings.API_V1_STR)
 app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(leaves.router, prefix=settings.API_V1_STR)
 app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
+app.include_router(mobile.router, prefix=settings.API_V1_STR)
 
 # Disabled Non-V1 Modules (Disabled for V1.0 Scope)
 # app.include_router(campaigns.router, prefix=settings.API_V1_STR)

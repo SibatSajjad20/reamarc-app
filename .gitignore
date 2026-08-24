@@ -26,6 +26,11 @@ build/
 .vscode/
 .idea/
 .DS_Store
+.agents/
+.claude/
+.cursor/
+.zcode/
+graphify-out/
 *.suo
 *.ntvs*
 *.njsproj
@@ -54,6 +59,7 @@ docs/google_ads_integration_guide.md
 # General Documentation, Markdown & Excel Files
 *.md
 !README.md
+!mobile/README.md
 docs/
 *.xlsx
 *.xls

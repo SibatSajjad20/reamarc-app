@@ -9,6 +9,10 @@ class UserRegister(BaseModel):
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
+    device_uuid: Optional[str] = Field(
+        default=None,
+        description="Mobile device UUID. When set, enforces 1:1 account-to-phone binding.",
+    )
 
 class UserResponse(BaseModel):
     id: str
@@ -24,6 +28,11 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    refresh_token: Optional[str] = None
+
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: Optional[str] = None
 
 
 class ForgotPasswordRequest(BaseModel):

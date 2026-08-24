@@ -1,0 +1,77 @@
+{
+  "expo": {
+    "name": "Reamarc",
+    "slug": "reamarc-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "scheme": "reamarc",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#4F46E5"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.reamarc.mobile",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Reamarc uses your location to confirm you are at the office when you check in or out.",
+        "NSFaceIDUsageDescription": "Reamarc uses Face ID to confirm it is you before check-in and check-out.",
+        "NSLocalNetworkUsageDescription": "Reamarc uses the local network to reach the office API on your computer during development.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSAllowsLocalNetworking": true
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#4F46E5",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.reamarc.mobile",
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "USE_BIOMETRIC",
+        "USE_FINGERPRINT",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Reamarc uses your location to confirm you are at the office when you check in or out."
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Reamarc uses Face ID to confirm it is you before check-in and check-out."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#4F46E5"
+        }
+      ],
+      "expo-splash-screen",
+      "expo-font",
+      "@react-native-community/datetimepicker"
+    ],
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

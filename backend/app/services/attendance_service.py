@@ -889,6 +889,20 @@ async def _backfill_shift_break_windows() -> None:
         }
         await db.shifts.update_one(query, {"$set": {**fields, "updated_at": now_iso}})
 
+    await db.shifts.update_many(
+        {"$or": [
+            {"id": "shift_afternoon"},
+            {"shift_type": "afternoon"},
+            {"name": {"$regex": "afternoon", "$options": "i"}},
+        ]},
+        {"$set": {
+            "break_duration_minutes": 0,
+            "break_start_time": None,
+            "break_end_time": None,
+            "updated_at": now_iso,
+        }},
+    )
+
     # Custom and edited templates: keep their times, sync net expected hours.
     all_shifts = await db.shifts.find({}, {"_id": 0}).to_list(200)
     for raw in all_shifts:
@@ -1425,6 +1439,14 @@ async def process_check_in(
     user_name = user.get("full_name") or user.get("name", "User")
     department = user.get("department")
 
+    from app.services.device_registry import enforce_mobile_punch
+    await enforce_mobile_punch(
+        user_id=user_id,
+        device_uuid=check_in_req.device_uuid,
+        biometric_verified=check_in_req.biometric_verified,
+        is_mocked=check_in_req.is_mocked,
+    )
+
     # Punch time is always server PKT. Client timestamps are ignored.
     date_str = get_current_date_str()
     time_str = get_current_time_str()
@@ -1466,7 +1488,7 @@ async def process_check_in(
                 ),
             )
 
-    # 4. Security verification — office IP or in-range GPS is enough when enabled
+    # 4. Security verification — office Wi-Fi OR in-range GPS (WFH bypasses)
     settings = await get_security_settings()
     ip_to_check = resolve_effective_client_ip(
         client_ip,
@@ -1545,6 +1567,7 @@ async def process_check_in(
             else None
         ),
         "notes": check_in_req.notes,
+        "device_uuid": check_in_req.device_uuid,
         "created_at": now_iso,
         "updated_at": now_iso,
     }
@@ -1582,6 +1605,7 @@ async def process_check_out(
     check_out_req: CheckOutRequest,
     custom_date: Optional[str] = None,
     custom_time: Optional[str] = None,
+    client_ip: Optional[str] = None,
 ) -> AttendanceRecordResponse:
     """
     Executes attendance check-out:
@@ -1597,6 +1621,14 @@ async def process_check_out(
     department = user.get("department")
     date_str = get_current_date_str()
     time_str = get_current_time_str()
+
+    from app.services.device_registry import enforce_mobile_punch
+    await enforce_mobile_punch(
+        user_id=user_id,
+        device_uuid=check_out_req.device_uuid,
+        biometric_verified=check_out_req.biometric_verified,
+        is_mocked=check_out_req.is_mocked,
+    )
 
     existing = await db.attendance_records.find_one(
         {"user_id": user_id, "date": date_str},
@@ -1624,6 +1656,23 @@ async def process_check_out(
     short_leave_hours = existing.get("short_leave_hours", 0.0)
     closed_break_minutes = accumulate_break_minutes(existing, time_str)
     _ = closed_break_minutes
+
+    settings = await get_security_settings()
+    ip_to_check = resolve_effective_client_ip(client_ip, None)
+    sec_result: PunchSecurityResult = validate_punch_security(
+        client_ip=ip_to_check,
+        user_lat=check_out_req.latitude,
+        user_lon=check_out_req.longitude,
+        is_wfh_approved=bool(is_wfh),
+        settings=settings,
+        accuracy_meters=check_out_req.accuracy_meters,
+        gps_captured_at=check_out_req.gps_captured_at,
+    )
+    if not sec_result.authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=sec_result.error or "Check-out rejected: location or Wi-Fi security check failed.",
+        )
 
     extra = {
         "is_wfh": is_wfh,
@@ -1662,6 +1711,7 @@ async def process_check_out(
         "status": status_out,
         "is_missed_punch": False,
         "variance_category": category,
+        "check_out_ip": ip_to_check,
         "updated_at": now_iso,
     }
     if gate == "overtime":

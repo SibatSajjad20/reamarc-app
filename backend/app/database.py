@@ -134,6 +134,27 @@ async def connect_to_mongo():
             logger.warning(f"Could not create unique shift id index: {e}")
         await db_instance.db.shifts.create_index([("is_active", 1)], name="idx_shift_active")
 
+        try:
+            await db_instance.db.mobile_devices.create_index(
+                [("device_uuid", 1), ("is_active", 1)],
+                name="idx_mobile_device_uuid",
+            )
+            await db_instance.db.mobile_devices.create_index(
+                [("user_id", 1), ("is_active", 1)],
+                name="idx_mobile_device_user",
+            )
+            await db_instance.db.mobile_push_receipts.create_index(
+                [("user_id", 1), ("date", 1), ("kind", 1)],
+                unique=True,
+                name="idx_push_receipt_unique",
+            )
+            await db_instance.db.mobile_notifications.create_index(
+                [("user_id", 1), ("created_at", -1)],
+                name="idx_mobile_notif_user",
+            )
+        except Exception as e:
+            logger.warning(f"Could not create mobile device indexes: {e}")
+
         # Legacy role cleanup only. Never rewrite live client accounts.
         try:
             await db_instance.db.users.update_many(
