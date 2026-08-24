@@ -3,12 +3,16 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -401,31 +405,48 @@ export default function PunchScreen() {
         </View>
       </ScrollView>
 
-      <Modal visible={reasonOpen} transparent animationType="slide">
-        <View style={styles.modalBg}>
-          <View style={styles.modal}>
-            <Text style={styles.cardTitle}>
-              {today?.checkout_gate?.type === 'overtime' ? 'Overtime reason' : 'Leaving early'}
-            </Text>
-            <Text style={styles.shift}>
-              {today?.checkout_gate?.message || `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`}
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Why are you overtime / leaving early?"
-              placeholderTextColor={colors.muted}
-              value={reason}
-              onChangeText={setReason}
-              multiline
-            />
-            <Pressable style={[styles.modalBtn, { backgroundColor: colors.emerald }]} onPress={submitReason} disabled={busy}>
-              <Text style={styles.heroText}>Submit check-out</Text>
-            </Pressable>
-            <Pressable onPress={() => setReasonOpen(false)}>
-              <Text style={[styles.footerLock, { textAlign: 'center' }]}>Cancel</Text>
-            </Pressable>
-          </View>
-        </View>
+      <Modal
+        visible={reasonOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          Keyboard.dismiss();
+          setReasonOpen(false);
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalKeyboardAvoid}
+        >
+          <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+            <View style={styles.modalBg}>
+              <TouchableWithoutFeedback>
+                <View style={styles.modal}>
+                  <Text style={styles.cardTitle}>
+                    {today?.checkout_gate?.type === 'overtime' ? 'Overtime reason' : 'Leaving early'}
+                  </Text>
+                  <Text style={styles.shift}>
+                    {today?.checkout_gate?.message || `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`}
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Why are you overtime / leaving early?"
+                    placeholderTextColor={colors.muted}
+                    value={reason}
+                    onChangeText={setReason}
+                    multiline
+                  />
+                  <Pressable style={[styles.modalBtn, { backgroundColor: colors.emerald }]} onPress={submitReason} disabled={busy}>
+                    <Text style={styles.heroText}>Submit check-out</Text>
+                  </Pressable>
+                  <Pressable onPress={() => { Keyboard.dismiss(); setReasonOpen(false); }} style={{ marginTop: 12, paddingVertical: 6 }}>
+                    <Text style={[styles.footerLock, { textAlign: 'center' }]}>Cancel</Text>
+                  </Pressable>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -514,15 +535,18 @@ const styles = StyleSheet.create({
   dot: { width: 10, height: 10, borderRadius: 5, marginBottom: 8 },
   stepLabel: { fontSize: 11, color: colors.muted, fontWeight: '700' },
   stepValue: { fontSize: 13, fontWeight: '800', color: colors.text, marginTop: 2 },
+  modalKeyboardAvoid: { flex: 1 },
   modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
   modal: {
     backgroundColor: colors.card,
     padding: 20,
+    paddingBottom: Platform.OS === 'ios' ? 36 : 24,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
   input: {
-    minHeight: 90,
+    minHeight: 85,
+    maxHeight: 130,
     borderWidth: 1,
     borderColor: colors.line,
     borderRadius: 12,
@@ -530,6 +554,7 @@ const styles = StyleSheet.create({
     marginVertical: 12,
     color: colors.text,
     textAlignVertical: 'top',
+    fontSize: 14,
   },
   modalBtn: { borderRadius: 14, paddingVertical: 14, alignItems: 'center' },
 });
