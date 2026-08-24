@@ -58,7 +58,6 @@ export default function LoginScreen() {
       <Pressable style={[styles.btn, busy && { opacity: 0.6 }]} onPress={onSubmit} disabled={busy}>
         <Text style={styles.btnText}>{busy ? 'Signing in…' : 'Sign in'}</Text>
       </Pressable>
-      <Text style={styles.hint}>You can log out and sign in as another account on this phone while testing.</Text>
       {__DEV__ ? <Text style={styles.hint}>API: {API_URL}</Text> : null}
     </KeyboardAvoidingView>
   );

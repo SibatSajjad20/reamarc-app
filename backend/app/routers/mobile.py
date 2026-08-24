@@ -83,6 +83,13 @@ async def transfer_device(
     return await device_registry.transfer_device(body.user_id)
 
 
+@router.delete("/devices/reset-all", response_model=dict)
+async def reset_all_devices(current_user: dict = Depends(require_hr_or_admin)):
+    count = await device_registry.reset_all_devices()
+    return {"message": f"Successfully reset {count} mobile device registrations. All devices can now cleanly re-bind."}
+
+
+
 @router.post("/broadcast", response_model=PushDispatchResponse)
 async def broadcast_push(
     body: BroadcastPushRequest,

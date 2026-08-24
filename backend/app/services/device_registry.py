@@ -7,8 +7,8 @@ from fastapi import HTTPException, status
 
 from app.database import get_database
 
-# Set True before production. False lets the same phone sign in as multiple accounts for testing.
-ENFORCE_ONE_DEVICE_ONE_ACCOUNT = False
+# Enforce 1:1 binding in production.
+ENFORCE_ONE_DEVICE_ONE_ACCOUNT = True
 
 # False until the Android APK is rolled out to everyone.
 # Desktop / laptop check-in stays available while this is False.
@@ -247,3 +247,13 @@ async def active_devices(user_ids: Optional[list] = None) -> list:
 async def devices_with_push_tokens(user_ids: Optional[list] = None) -> list:
     docs = await active_devices(user_ids)
     return [d for d in docs if d.get("push_token")]
+
+
+async def reset_all_devices() -> int:
+    """Purges all registered mobile device bindings for a clean slate."""
+    db = get_database()
+    if db is None:
+        return 0
+    result = await db.mobile_devices.delete_many({})
+    return result.deleted_count
+
