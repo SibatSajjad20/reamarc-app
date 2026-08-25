@@ -148,3 +148,9 @@ def assert_can_delete_leave_request(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Only the requester or an Admin can delete this request.",
     )
+
+
+# Aliases for backward/forward compatibility
+can_review_leave = can_review_leave_request
+assert_can_review_leave = assert_can_review_leave_request
+

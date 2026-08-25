@@ -2910,7 +2910,8 @@ async def _sync_attendance_record_for_request(
     if db is None:
         return
 
-    leave_type_val = req.get("leave_type")
+    leave_type_val = str(req.get("leave_type") or req.get("request_type") or "").strip().lower()
+    request_type_val = str(req.get("request_type") or "").strip().lower()
     target_user_id = req.get("user_id")
     user_dept = req.get("department")
     review_date = (
@@ -2922,20 +2923,20 @@ async def _sync_attendance_record_for_request(
 
     if new_status_str == LeaveStatus.APPROVED.value:
         # 1. Missed Punch Regularization Dynamic Recalculation
-        if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+        if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization") or request_type_val in ("regularization", "missed_punch_regularization"):
             reg_date = req.get("regularization_date") or req.get("start_date")
             existing_rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": reg_date})
             correction_target = (req.get("correction_target") or "time_in").strip().lower()
 
             if correction_target == "time_in":
-                reg_in = req.get("regularization_check_in") or shift.start_time
+                reg_in = req.get("regularization_check_in") or req.get("regularization_punch_in") or shift.start_time
                 reg_out = ((existing_rec.get("check_out") or existing_rec.get("punch_out")) if existing_rec else None)
             elif correction_target == "time_out":
                 reg_in = (existing_rec.get("check_in") or existing_rec.get("punch_in")) if existing_rec else shift.start_time
-                reg_out = req.get("regularization_check_out") or shift.end_time
+                reg_out = req.get("regularization_check_out") or req.get("regularization_punch_out") or shift.end_time
             else:  # both
-                reg_in = req.get("regularization_check_in") or shift.start_time
-                reg_out = req.get("regularization_check_out") or (existing_rec.get("check_out") if existing_rec else None)
+                reg_in = req.get("regularization_check_in") or req.get("regularization_punch_in") or shift.start_time
+                reg_out = req.get("regularization_check_out") or req.get("regularization_punch_out") or (existing_rec.get("check_out") if existing_rec else None)
 
             if reg_in and reg_out:
                 _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
@@ -3015,9 +3016,9 @@ async def _sync_attendance_record_for_request(
                     logger.exception("Failed to recompute daily log score after punch regularization")
 
         # 2. WFH Dynamic Synchronization
-        elif leave_type_val in (LeaveType.WFH.value, "wfh"):
+        elif leave_type_val in (LeaveType.WFH.value, "wfh") or request_type_val == "wfh":
             start_d = req.get("start_date")
-            end_d = req.get("end_date")
+            end_d = req.get("end_date") or start_d
             await db.attendance_records.update_many(
                 {
                     "user_id": target_user_id,
@@ -3027,14 +3028,16 @@ async def _sync_attendance_record_for_request(
             )
 
         # 3. Short Leave Dynamic Recalculation
-        elif leave_type_val in (LeaveType.SHORT_LEAVE.value, "short_leave"):
+        elif leave_type_val in (LeaveType.SHORT_LEAVE.value, "short_leave") or request_type_val == "short_leave":
             target_date = req.get("start_date")
             sl_hours = float(req.get("short_leave_hours") or 2.0)
             rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": target_date}, {"_id": 0})
-            if rec and rec.get("check_in"):
+            if rec and (rec.get("check_in") or rec.get("punch_in")):
+                cin = rec.get("check_in") or rec.get("punch_in")
+                cout = rec.get("check_out") or rec.get("punch_out")
                 calc_res = calculate_daily_attendance(
-                    check_in_time=rec.get("check_in"),
-                    check_out_time=rec.get("check_out"),
+                    check_in_time=cin,
+                    check_out_time=cout,
                     **shift_calc_kwargs(shift, {
                         "is_short_leave": True,
                         "short_leave_hours": sl_hours,
@@ -3068,7 +3071,8 @@ async def _sync_attendance_record_for_request(
             "casual",
             "annual",
             "unpaid",
-        ):
+            "leave",
+        ) or request_type_val == "leave":
             status_map = {
                 "sick": AttendanceStatus.SICK_LEAVE.value,
                 "casual": AttendanceStatus.CASUAL_LEAVE.value,
@@ -3098,7 +3102,7 @@ async def _sync_attendance_record_for_request(
                 )
 
         # 5. Overtime credit
-        elif leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
+        elif leave_type_val in (LeaveType.OVERTIME.value, "overtime") or request_type_val == "overtime":
             target_date = req.get("overtime_date") or req.get("start_date")
             rec = await db.attendance_records.find_one(
                 {"user_id": target_user_id, "date": target_date},
@@ -3125,9 +3129,210 @@ async def _sync_attendance_record_for_request(
                 )
 
     elif new_status_str in (LeaveStatus.REJECTED.value, LeaveStatus.CANCELLED.value):
-        # 1. Overtime reversal
-        if leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
-            target_date = existing.get("overtime_date") or existing.get("start_date")
+        # 1. Missed Punch Regularization Reversal
+        if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization") or request_type_val in ("regularization", "missed_punch_regularization"):
+            reg_date = req.get("regularization_date") or req.get("start_date")
+            existing_rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": reg_date})
+            correction_target = (req.get("correction_target") or "both").strip().lower()
+
+            orig_in = req.get("original_punch_in") or req.get("original_check_in")
+            orig_out = req.get("original_punch_out") or req.get("original_check_out")
+
+            if correction_target == "time_in":
+                restored_in = orig_in
+                restored_out = (existing_rec.get("check_out") or existing_rec.get("punch_out")) if existing_rec else orig_out
+            elif correction_target == "time_out":
+                restored_in = (existing_rec.get("check_in") or existing_rec.get("punch_in")) if existing_rec else orig_in
+                restored_out = orig_out
+            else:  # both
+                restored_in = orig_in
+                restored_out = orig_out
+
+            if restored_in and restored_out:
+                _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+                    restored_in,
+                    restored_out,
+                    shift,
+                    extra={
+                        "is_wfh": bool(existing_rec.get("is_wfh") if existing_rec else False),
+                        "is_short_leave": bool(existing_rec.get("is_short_leave") if existing_rec else False),
+                        "short_leave_hours": float(existing_rec.get("short_leave_hours") or 0.0) if existing_rec else 0.0,
+                    },
+                    overtime_status=existing_rec.get("overtime_status", "not_applicable") if existing_rec else "not_applicable",
+                )
+                hour_fields = settled_to_record_fields(settled)
+                calc_res = calculate_daily_attendance(
+                    check_in_time=restored_in,
+                    check_out_time=restored_out,
+                    **shift_calc_kwargs(shift),
+                )
+                is_missed = False
+                att_status = calc_res.status.value
+            elif restored_in:
+                calc_res = calculate_daily_attendance(
+                    check_in_time=restored_in,
+                    check_out_time=None,
+                    **shift_calc_kwargs(shift),
+                )
+                hour_fields = {
+                    "working_hours_minutes": calc_res.work_minutes,
+                    "work_hours": calc_res.work_hours,
+                    "work_duration_formatted": calc_res.work_duration_formatted,
+                    "overtime_minutes": 0,
+                    "overtime_hours": 0.0,
+                    "overtime_formatted": "0h 00m",
+                    "undertime_minutes": calc_res.undertime_minutes,
+                    "undertime_hours": calc_res.undertime_hours,
+                    "undertime_formatted": calc_res.undertime_formatted,
+                    "pending_overtime_minutes": 0,
+                    "claimed_overtime_minutes": 0,
+                    "overtime_status": "not_applicable",
+                }
+                is_missed = True
+                att_status = AttendanceStatus.MISSED_PUNCH.value
+            else:
+                calc_res = calculate_daily_attendance(
+                    check_in_time=None,
+                    check_out_time=None,
+                    **shift_calc_kwargs(shift),
+                )
+                hour_fields = {
+                    "working_hours_minutes": 0,
+                    "work_hours": 0.0,
+                    "work_duration_formatted": "0h 00m",
+                    "overtime_minutes": 0,
+                    "overtime_hours": 0.0,
+                    "overtime_formatted": "0h 00m",
+                    "undertime_minutes": calc_res.undertime_minutes,
+                    "undertime_hours": calc_res.undertime_hours,
+                    "undertime_formatted": calc_res.undertime_formatted,
+                    "pending_overtime_minutes": 0,
+                    "claimed_overtime_minutes": 0,
+                    "overtime_status": "not_applicable",
+                }
+                is_missed = True
+                att_status = AttendanceStatus.ABSENT.value
+
+            att_doc = {
+                "check_in": restored_in,
+                "check_out": restored_out,
+                "punch_in": restored_in,
+                "punch_out": restored_out,
+                "break_minutes": shift.break_duration_minutes if (restored_in and restored_out) else 0,
+                **hour_fields,
+                "late_minutes": calc_res.late_minutes,
+                "is_late": calc_res.is_late,
+                "late_strike": calc_res.late_strike,
+                "status": att_status,
+                "is_missed_punch": is_missed,
+                "notes": f"Correction request was {new_status_str} by {reviewer_name}: {review_comments or ''}".strip(),
+                "updated_at": now_iso,
+            }
+            await db.attendance_records.update_one(
+                {"user_id": target_user_id, "date": reg_date},
+                {"$set": att_doc},
+            )
+            if target_user_id and reg_date and restored_out:
+                try:
+                    from app.services.log_compliance import recompute_day_score
+                    await recompute_day_score(target_user_id, reg_date)
+                except Exception:
+                    pass
+
+        # 2. WFH Reversal
+        elif leave_type_val in (LeaveType.WFH.value, "wfh") or request_type_val == "wfh":
+            start_d = req.get("start_date")
+            end_d = req.get("end_date") or start_d
+            for day_str in iter_date_range(start_d, end_d):
+                day_shift = await get_shift_for_user(target_user_id, user_dept, day_str)
+                rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": day_str})
+                if rec and (rec.get("check_in") or rec.get("punch_in")):
+                    cin = rec.get("check_in") or rec.get("punch_in")
+                    cout = rec.get("check_out") or rec.get("punch_out")
+                    calc_res = calculate_daily_attendance(
+                        check_in_time=cin,
+                        check_out_time=cout,
+                        **shift_calc_kwargs(day_shift),
+                    )
+                    await db.attendance_records.update_one(
+                        {"user_id": target_user_id, "date": day_str},
+                        {"$set": {"is_wfh": False, "status": calc_res.status.value, "updated_at": now_iso}},
+                    )
+                else:
+                    await db.attendance_records.update_one(
+                        {"user_id": target_user_id, "date": day_str},
+                        {"$set": {"is_wfh": False, "status": AttendanceStatus.ABSENT.value, "updated_at": now_iso}},
+                    )
+
+        # 3. Short Leave Reversal
+        elif leave_type_val in (LeaveType.SHORT_LEAVE.value, "short_leave") or request_type_val == "short_leave":
+            target_date = req.get("start_date")
+            rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": target_date}, {"_id": 0})
+            if rec and (rec.get("check_in") or rec.get("punch_in")):
+                cin = rec.get("check_in") or rec.get("punch_in")
+                cout = rec.get("check_out") or rec.get("punch_out")
+                calc_res = calculate_daily_attendance(
+                    check_in_time=cin,
+                    check_out_time=cout,
+                    **shift_calc_kwargs(shift, {
+                        "is_short_leave": False,
+                        "short_leave_hours": 0.0,
+                    }),
+                )
+                await db.attendance_records.update_one(
+                    {"user_id": target_user_id, "date": target_date},
+                    {
+                        "$set": {
+                            "is_short_leave": False,
+                            "short_leave_hours": 0.0,
+                            "work_hours": calc_res.work_hours,
+                            "work_duration_formatted": calc_res.work_duration_formatted,
+                            "overtime_hours": calc_res.overtime_hours,
+                            "overtime_formatted": calc_res.overtime_formatted,
+                            "undertime_hours": calc_res.undertime_hours,
+                            "undertime_formatted": calc_res.undertime_formatted,
+                            "status": calc_res.status.value,
+                            "updated_at": now_iso,
+                        }
+                    },
+                )
+
+        # 4. Full-day Leave Reversal
+        elif leave_type_val in (
+            LeaveType.SICK.value,
+            LeaveType.CASUAL.value,
+            LeaveType.ANNUAL.value,
+            LeaveType.UNPAID.value,
+            "sick",
+            "casual",
+            "annual",
+            "unpaid",
+            "leave",
+        ) or request_type_val == "leave":
+            for day_str in iter_date_range(req.get("start_date"), req.get("end_date")):
+                day_shift = await get_shift_for_user(target_user_id, user_dept, day_str)
+                rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": day_str})
+                if rec and (rec.get("check_in") or rec.get("punch_in")):
+                    cin = rec.get("check_in") or rec.get("punch_in")
+                    cout = rec.get("check_out") or rec.get("punch_out")
+                    calc_res = calculate_daily_attendance(
+                        check_in_time=cin,
+                        check_out_time=cout,
+                        **shift_calc_kwargs(day_shift),
+                    )
+                    await db.attendance_records.update_one(
+                        {"user_id": target_user_id, "date": day_str},
+                        {"$set": {"status": calc_res.status.value, "updated_at": now_iso}},
+                    )
+                else:
+                    await db.attendance_records.update_one(
+                        {"user_id": target_user_id, "date": day_str},
+                        {"$set": {"status": AttendanceStatus.ABSENT.value, "updated_at": now_iso}},
+                    )
+
+        # 5. Overtime reversal
+        elif leave_type_val in (LeaveType.OVERTIME.value, "overtime") or request_type_val == "overtime":
+            target_date = req.get("overtime_date") or req.get("start_date")
             shift = await get_shift_for_user(target_user_id, user_dept, target_date)
             rec = await db.attendance_records.find_one(
                 {"user_id": target_user_id, "date": target_date},
@@ -3151,6 +3356,88 @@ async def _sync_attendance_record_for_request(
                     {"user_id": target_user_id, "date": target_date},
                     {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
                 )
+
+
+async def review_leave_request(
+    request_id: str,
+    reviewer_user: dict,
+    review_data: LeaveReviewRequest,
+) -> LeaveResponse:
+    """
+    Approve, reject, or request clarification on an attendance/leave request with audit trail
+    and dynamic timesheet recalculation.
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    existing = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
+
+    from app.services.leave_permissions import assert_can_review_leave
+
+    applicant_role = await _resolve_applicant_role(existing.get("user_id"), existing.get("user_role"))
+    assert_can_review_leave(reviewer_user, existing.get("user_id"), applicant_role)
+
+    reviewer_id = str(reviewer_user.get("id") or reviewer_user.get("_id") or "")
+    reviewer_name = reviewer_user.get("full_name") or reviewer_user.get("name", "Reviewer")
+    reviewer_role = reviewer_user.get("role", "reviewer")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    new_status = review_data.status
+    reason_text = (
+        review_data.review_comments
+        if new_status == LeaveStatus.APPROVED
+        else review_data.clarification_prompt
+        if new_status == LeaveStatus.NEEDS_INFO
+        else (review_data.rejection_reason or review_data.review_comments or "Rejected")
+    )
+
+    history_entry = {
+        "from_status": existing.get("status", LeaveStatus.PENDING.value),
+        "to_status": new_status.value,
+        "changed_by_id": reviewer_id,
+        "changed_by_name": reviewer_name,
+        "changed_by_role": reviewer_role,
+        "changed_at": now_iso,
+        "reason": reason_text,
+    }
+
+    update_fields: Dict[str, Any] = {
+        "status": new_status.value,
+        "reviewer_id": reviewer_id,
+        "reviewer_name": reviewer_name,
+        "reviewed_at": now_iso,
+        "updated_at": now_iso,
+    }
+    if review_data.review_comments is not None:
+        update_fields["review_comments"] = review_data.review_comments
+    if review_data.rejection_reason is not None:
+        update_fields["rejection_reason"] = review_data.rejection_reason
+    if review_data.clarification_prompt is not None:
+        update_fields["clarification_prompt"] = review_data.clarification_prompt
+        update_fields["clarification_requested_at"] = now_iso
+
+    result = await db.leave_requests.find_one_and_update(
+        {"id": request_id},
+        {
+            "$set": update_fields,
+            "$push": {"status_history": history_entry},
+        },
+        projection={"_id": 0},
+        return_document=True,
+    )
+    if not result:
+        raise HTTPException(status_code=500, detail="Failed to update leave request")
+
+    await _sync_attendance_record_for_request(
+        req=existing,
+        new_status_str=new_status.value,
+        reviewer_name=reviewer_name,
+        review_comments=review_data.review_comments,
+        now_iso=now_iso,
+    )
 
     return LeaveResponse(**result)
 
