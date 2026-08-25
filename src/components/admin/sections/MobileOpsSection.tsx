@@ -39,13 +39,13 @@ export const MobileOpsSection: React.FC = () => {
     load();
   }, [load]);
 
-  const handleTransfer = async (userId: string, name?: string) => {
-    if (!window.confirm(`Unbind ${name || 'this employee'}'s phone so they can log in on a new device?`)) {
+  const handleTransfer = async (deviceId: string, userId: string, name?: string) => {
+    if (!window.confirm(`Unbind ${name || 'this device'}'s phone record so they can log in on a new device?`)) {
       return;
     }
-    setTransferring(userId);
+    setTransferring(deviceId);
     try {
-      const res = await adminService.transferMobileDevice(userId);
+      const res = await adminService.transferMobileDevice(userId, deviceId);
       addToast('Device unbound', res.message, 'success');
       await load();
     } catch (err: any) {
@@ -143,8 +143,8 @@ export const MobileOpsSection: React.FC = () => {
               </div>
               <button
                 type="button"
-                onClick={() => handleTransfer(d.user_id, d.user_name)}
-                disabled={transferring === d.user_id}
+                onClick={() => handleTransfer(d.id, d.user_id, d.user_name || d.user_id)}
+                disabled={transferring === d.id}
                 className="inline-flex items-center gap-1.5 text-xs font-semibold text-rose-600 hover:underline"
               >
                 <Unlink className="w-3.5 h-3.5" />

@@ -207,28 +207,50 @@ async def list_active_devices() -> list:
     user_ids = [d.get("user_id") for d in docs if d.get("user_id")]
     users = {}
     if user_ids:
-        async for u in db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "name": 1}):
-            users[u.get("id")] = u
+        async for u in db.users.find(
+            {"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]},
+            {"_id": 1, "id": 1, "email": 1, "full_name": 1, "name": 1},
+        ):
+            uid = u.get("id") or str(u.get("_id"))
+            users[uid] = u
+            if u.get("id"):
+                users[u["id"]] = u
+            if "_id" in u:
+                users[str(u["_id"])] = u
     return [_format_device(d, users.get(d.get("user_id"))) for d in docs]
 
 
-async def transfer_device(user_id: str) -> dict:
+async def transfer_device(user_id: Optional[str] = None, device_id: Optional[str] = None) -> dict:
     """Unbind the employee's phone so the next mobile login can register a new one."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
-    user = await db.users.find_one({"id": user_id}, {"_id": 0})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+    if not user_id and not device_id:
+        raise HTTPException(status_code=400, detail="User ID or Device ID is required.")
+
+    query: dict = {"is_active": True}
+    if device_id:
+        query["id"] = device_id
+    elif user_id:
+        query["user_id"] = user_id
+
+    user_name = None
+    if user_id:
+        user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]}, {"_id": 0, "full_name": 1, "name": 1})
+        if user:
+            user_name = user.get("full_name") or user.get("name")
+
     result = await db.mobile_devices.update_many(
-        {"user_id": user_id, "is_active": True},
+        query,
         {"$set": {"is_active": False, "push_token": None, "last_seen": _now_iso()}},
     )
+    label = user_name or user_id or device_id or "device"
     return {
         "user_id": user_id,
+        "device_id": device_id,
         "unbound": result.modified_count,
         "message": (
-            f"Device unbound for {user.get('full_name') or user.get('name')}. "
+            f"Device unbound for {label} ({result.modified_count} device record(s) deactivated). "
             "They can log in on a new phone."
         ),
     }

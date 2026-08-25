@@ -80,7 +80,7 @@ async def transfer_device(
     body: TransferDeviceRequest,
     current_user: dict = Depends(require_hr_or_admin),
 ):
-    return await device_registry.transfer_device(body.user_id)
+    return await device_registry.transfer_device(user_id=body.user_id, device_id=body.device_id)
 
 
 @router.delete("/devices/reset-all", response_model=dict)

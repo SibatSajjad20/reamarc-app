@@ -24,7 +24,8 @@ class MobileDeviceResponse(BaseModel):
 
 
 class TransferDeviceRequest(BaseModel):
-    user_id: str = Field(..., min_length=1)
+    user_id: Optional[str] = Field(default=None)
+    device_id: Optional[str] = Field(default=None)
 
 
 class BroadcastPushRequest(BaseModel):

@@ -1,7 +1,7 @@
 """
 Pydantic schemas for Leaves, WFH, Short Leaves, and Regularization requests.
 """
-from typing import Optional, Any
+from typing import Optional, Any, List, Dict
 from pydantic import BaseModel, Field, model_validator
 from app.models.attendance import LeaveType, LeaveStatus
 
@@ -99,8 +99,23 @@ class LeaveBalanceResponse(BaseModel):
 
 
 class LeaveReviewRequest(BaseModel):
-    status: LeaveStatus = Field(..., description="Decision status: 'approved' or 'rejected'")
-    review_comments: Optional[str] = Field(default=None, description="Optional reviewer remarks or feedback")
+    status: LeaveStatus = Field(..., description="Decision status: 'approved', 'rejected', or 'needs_info'")
+    review_comments: Optional[str] = Field(default=None, description="Optional reviewer remarks or approval note")
+    rejection_reason: Optional[str] = Field(default=None, description="Mandatory reason if status is rejected")
+    clarification_prompt: Optional[str] = Field(default=None, description="Prompt when status is needs_info")
+
+
+class LeaveClarificationRequest(BaseModel):
+    clarification_response: str = Field(..., min_length=2, description="Employee response to clarification request")
+
+
+class LeaveAppealRequest(BaseModel):
+    appeal_reason: str = Field(..., min_length=3, description="Employee reason for appealing the rejection")
+
+
+class LeaveStatusEditRequest(BaseModel):
+    new_status: LeaveStatus = Field(..., description="New status to set ('approved', 'rejected', 'cancelled')")
+    reason: str = Field(..., min_length=3, description="Mandatory reason for modifying the status")
 
 
 class LeaveResponse(BaseModel):
@@ -138,6 +153,16 @@ class LeaveResponse(BaseModel):
     reviewed_by_name: Optional[str] = None
     review_comments: Optional[str] = None
     rejection_reason: Optional[str] = None
+    clarification_prompt: Optional[str] = None
+    clarification_response: Optional[str] = None
+    clarification_requested_at: Optional[str] = None
+    clarification_submitted_at: Optional[str] = None
+    has_appealed: Optional[bool] = False
+    appeal_reason: Optional[str] = None
+    appealed_at: Optional[str] = None
+    appeal_reviewed_by_name: Optional[str] = None
+    appeal_reviewed_at: Optional[str] = None
+    status_history: Optional[List[Dict[str, Any]]] = []
     reviewed_at: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

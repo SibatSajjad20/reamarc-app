@@ -2884,12 +2884,12 @@ async def get_all_leave_requests(
 
 
 async def get_pending_leave_requests(department: Optional[str] = None) -> List[LeaveResponse]:
-    """Retrieves all pending leave requests for HR / Lead approval inbox."""
+    """Retrieves all pending and appealed leave requests for HR / Lead / Admin approval inbox."""
     db = get_database()
     if db is None:
         return []
 
-    query: Dict[str, Any] = {"status": LeaveStatus.PENDING.value}
+    query: Dict[str, Any] = {"status": {"$in": [LeaveStatus.PENDING.value, LeaveStatus.APPEALED.value]}}
     if department and department.lower() != "all":
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
@@ -2899,90 +2899,43 @@ async def get_pending_leave_requests(department: Optional[str] = None) -> List[L
     return [LeaveResponse(**d) for d in docs]
 
 
-async def review_leave_request(
-    request_id: str,
-    reviewer_user: dict,
-    review_data: LeaveReviewRequest,
-) -> LeaveResponse:
-    """
-    Approves or rejects a leave request with reviewer notes and executes
-    DYNAMIC SYNCHRONIZATION:
-    - Missed Punch Regularization: immediately updates and recalculates that day's attendance record with the regularized times!
-    - WFH: marks the day's attendance as W.F.H and bypasses security.
-    - Short Leave: recalculates daily working hours with credit for short leave.
-    """
+async def _sync_attendance_record_for_request(
+    req: dict,
+    new_status_str: str,
+    reviewer_name: str,
+    review_comments: Optional[str],
+    now_iso: str,
+):
     db = get_database()
     if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable")
+        return
 
-    existing = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
-    if not existing:
-        raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
-
-    from app.services.leave_permissions import assert_can_review_leave_request
-
-    applicant_role = await _resolve_applicant_role(existing.get("user_id"), existing.get("user_role"))
-    assert_can_review_leave_request(reviewer_user, existing.get("user_id"), applicant_role)
-
-    reviewer_id = reviewer_user.get("id")
-    reviewer_name = reviewer_user.get("full_name") or reviewer_user.get("name", "Reviewer")
-    now_iso = datetime.now(timezone.utc).isoformat()
-    status_str = review_data.status.value if isinstance(review_data.status, LeaveStatus) else str(review_data.status)
-
-    if status_str == LeaveStatus.APPROVED.value:
-        leave_type_val = existing.get("leave_type")
-        if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
-            correction_target = (existing.get("correction_target") or "time_in").strip().lower()
-            if correction_target in ("time_out", "both"):
-                _assert_checkout_not_in_future(
-                    existing.get("regularization_date") or existing.get("start_date"),
-                    existing.get("regularization_check_out") or existing.get("regularization_punch_out"),
-                    for_reviewer=True,
-                )
-
-    update_fields = {
-        "status": status_str,
-        "reviewed_by_id": reviewer_id,
-        "reviewed_by_name": reviewer_name,
-        "review_comments": review_data.review_comments,
-        "reviewed_at": now_iso,
-        "updated_at": now_iso,
-    }
-
-    result = await db.leave_requests.find_one_and_update(
-        {"id": request_id},
-        {"$set": update_fields},
-        projection={"_id": 0},
-        return_document=True,
+    leave_type_val = req.get("leave_type")
+    target_user_id = req.get("user_id")
+    user_dept = req.get("department")
+    review_date = (
+        req.get("regularization_date")
+        or req.get("start_date")
+        or get_current_date_str()
     )
+    shift = await get_shift_for_user(target_user_id, user_dept, review_date)
 
-    # ── DYNAMIC SYNCHRONIZATION LOGIC ──
-    if status_str == LeaveStatus.APPROVED.value:
-        leave_type_val = existing.get("leave_type")
-        target_user_id = existing.get("user_id")
-        user_dept = existing.get("department")
-        review_date = (
-            existing.get("regularization_date")
-            or existing.get("start_date")
-            or get_current_date_str()
-        )
-        shift = await get_shift_for_user(target_user_id, user_dept, review_date)
-
+    if new_status_str == LeaveStatus.APPROVED.value:
         # 1. Missed Punch Regularization Dynamic Recalculation
         if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
-            reg_date = existing.get("regularization_date") or existing.get("start_date")
+            reg_date = req.get("regularization_date") or req.get("start_date")
             existing_rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": reg_date})
-            correction_target = (existing.get("correction_target") or "time_in").strip().lower()
+            correction_target = (req.get("correction_target") or "time_in").strip().lower()
 
             if correction_target == "time_in":
-                reg_in = existing.get("regularization_check_in") or shift.start_time
+                reg_in = req.get("regularization_check_in") or shift.start_time
                 reg_out = ((existing_rec.get("check_out") or existing_rec.get("punch_out")) if existing_rec else None)
             elif correction_target == "time_out":
                 reg_in = (existing_rec.get("check_in") or existing_rec.get("punch_in")) if existing_rec else shift.start_time
-                reg_out = existing.get("regularization_check_out") or shift.end_time
-            else: # both
-                reg_in = existing.get("regularization_check_in") or shift.start_time
-                reg_out = existing.get("regularization_check_out") or (existing_rec.get("check_out") if existing_rec else None)
+                reg_out = req.get("regularization_check_out") or shift.end_time
+            else:  # both
+                reg_in = req.get("regularization_check_in") or shift.start_time
+                reg_out = req.get("regularization_check_out") or (existing_rec.get("check_out") if existing_rec else None)
 
             if reg_in and reg_out:
                 _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
@@ -3013,6 +2966,7 @@ async def review_leave_request(
                     "overtime_status": "not_applicable",
                 }
                 settled = None
+
             if reg_out:
                 await _close_pending_overtime_requests(
                     target_user_id,
@@ -3028,7 +2982,7 @@ async def review_leave_request(
             att_doc = {
                 "id": f"att_{target_user_id}_{reg_date}",
                 "user_id": target_user_id,
-                "user_name": existing.get("user_name"),
+                "user_name": req.get("user_name"),
                 "department": user_dept,
                 "date": reg_date,
                 "shift_id": shift.id,
@@ -3045,13 +2999,13 @@ async def review_leave_request(
                 "status": preview.status.value,
                 "is_wfh": False,
                 "is_missed_punch": False,
-                "notes": f"Regularized punch ({correction_target.replace('_', ' ').title()}) approved by {reviewer_name}: {review_data.review_comments or ''}".strip(),
+                "notes": f"Regularized punch ({correction_target.replace('_', ' ').title()}) approved by {reviewer_name}: {review_comments or ''}".strip(),
                 "updated_at": now_iso,
             }
             await db.attendance_records.update_one(
                 {"user_id": target_user_id, "date": reg_date},
                 {"$set": att_doc, "$setOnInsert": {"created_at": now_iso}},
-                upsert=True
+                upsert=True,
             )
             if target_user_id and reg_date and reg_out:
                 try:
@@ -3062,21 +3016,20 @@ async def review_leave_request(
 
         # 2. WFH Dynamic Synchronization
         elif leave_type_val in (LeaveType.WFH.value, "wfh"):
-            start_d = existing.get("start_date")
-            end_d = existing.get("end_date")
-            # Update any existing record in the range to is_wfh=True and status=wfh
+            start_d = req.get("start_date")
+            end_d = req.get("end_date")
             await db.attendance_records.update_many(
                 {
                     "user_id": target_user_id,
                     "date": {"$gte": start_d, "$lte": end_d},
                 },
-                {"$set": {"is_wfh": True, "status": AttendanceStatus.WFH.value, "updated_at": now_iso}}
+                {"$set": {"is_wfh": True, "status": AttendanceStatus.WFH.value, "updated_at": now_iso}},
             )
 
         # 3. Short Leave Dynamic Recalculation
         elif leave_type_val in (LeaveType.SHORT_LEAVE.value, "short_leave"):
-            target_date = existing.get("start_date")
-            sl_hours = float(existing.get("short_leave_hours") or 2.0)
+            target_date = req.get("start_date")
+            sl_hours = float(req.get("short_leave_hours") or 2.0)
             rec = await db.attendance_records.find_one({"user_id": target_user_id, "date": target_date}, {"_id": 0})
             if rec and rec.get("check_in"):
                 calc_res = calculate_daily_attendance(
@@ -3102,10 +3055,10 @@ async def review_leave_request(
                             "status": AttendanceStatus.SHORT_LEAVE.value,
                             "updated_at": now_iso,
                         }
-                    }
+                    },
                 )
 
-        # 4. Full-day leave types write attendance rows so monthly leave counts stay accurate
+        # 4. Full-day leave types
         elif leave_type_val in (
             LeaveType.SICK.value,
             LeaveType.CASUAL.value,
@@ -3123,14 +3076,14 @@ async def review_leave_request(
                 "unpaid": AttendanceStatus.UNPAID_LEAVE.value,
             }
             att_status = status_map.get(str(leave_type_val), AttendanceStatus.ON_LEAVE.value)
-            for day_str in iter_date_range(existing.get("start_date"), existing.get("end_date")):
+            for day_str in iter_date_range(req.get("start_date"), req.get("end_date")):
                 await db.attendance_records.update_one(
                     {"user_id": target_user_id, "date": day_str},
                     {
                         "$set": {
                             "id": f"att_{target_user_id}_{day_str}",
                             "user_id": target_user_id,
-                            "user_name": existing.get("user_name"),
+                            "user_name": req.get("user_name"),
                             "department": user_dept,
                             "date": day_str,
                             "shift_id": shift.id,
@@ -3146,7 +3099,7 @@ async def review_leave_request(
 
         # 5. Overtime credit
         elif leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
-            target_date = existing.get("overtime_date") or existing.get("start_date")
+            target_date = req.get("overtime_date") or req.get("start_date")
             rec = await db.attendance_records.find_one(
                 {"user_id": target_user_id, "date": target_date},
                 {"_id": 0},
@@ -3171,11 +3124,9 @@ async def review_leave_request(
                     {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
                 )
 
-    elif status_str == LeaveStatus.REJECTED.value:
-        leave_type_val = existing.get("leave_type")
+    elif new_status_str in (LeaveStatus.REJECTED.value, LeaveStatus.CANCELLED.value):
+        # 1. Overtime reversal
         if leave_type_val in (LeaveType.OVERTIME.value, "overtime"):
-            target_user_id = existing.get("user_id")
-            user_dept = existing.get("department")
             target_date = existing.get("overtime_date") or existing.get("start_date")
             shift = await get_shift_for_user(target_user_id, user_dept, target_date)
             rec = await db.attendance_records.find_one(
@@ -3201,6 +3152,188 @@ async def review_leave_request(
                     {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
                 )
 
+    return LeaveResponse(**result)
+
+
+async def submit_leave_clarification(
+    request_id: str,
+    current_user: dict,
+    clarification_response: str,
+) -> LeaveResponse:
+    """
+    Submits clarification from the employee in response to HR/Admin request,
+    reopening the request back to 'pending'.
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    existing = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
+
+    user_id = str(current_user.get("id") or current_user.get("_id") or "")
+    if str(existing.get("user_id")) != user_id:
+        raise HTTPException(status_code=403, detail="You can only provide clarification for your own request.")
+
+    if existing.get("status") != LeaveStatus.NEEDS_INFO.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Clarification can only be submitted for requests with 'needs_info' status.",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    history_entry = {
+        "from_status": LeaveStatus.NEEDS_INFO.value,
+        "to_status": LeaveStatus.PENDING.value,
+        "changed_by_id": user_id,
+        "changed_by_name": current_user.get("full_name") or current_user.get("name", "Applicant"),
+        "changed_by_role": current_user.get("role", "employee"),
+        "changed_at": now_iso,
+        "reason": f"Clarification provided: {clarification_response}",
+    }
+
+    result = await db.leave_requests.find_one_and_update(
+        {"id": request_id},
+        {
+            "$set": {
+                "status": LeaveStatus.PENDING.value,
+                "clarification_response": clarification_response,
+                "clarification_submitted_at": now_iso,
+                "updated_at": now_iso,
+            },
+            "$push": {"status_history": history_entry},
+        },
+        projection={"_id": 0},
+        return_document=True,
+    )
+    return LeaveResponse(**result)
+
+
+async def submit_leave_appeal(
+    request_id: str,
+    current_user: dict,
+    appeal_reason: str,
+) -> LeaveResponse:
+    """
+    Submits a single-use appeal on a rejected request, setting status to 'appealed'.
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    existing = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
+
+    user_id = str(current_user.get("id") or current_user.get("_id") or "")
+    if str(existing.get("user_id")) != user_id:
+        raise HTTPException(status_code=403, detail="You can only appeal your own request.")
+
+    if existing.get("status") != LeaveStatus.REJECTED.value:
+        raise HTTPException(
+            status_code=400,
+            detail="Appeals can only be submitted for rejected requests.",
+        )
+
+    if existing.get("has_appealed"):
+        raise HTTPException(
+            status_code=400,
+            detail="You can only appeal a rejected request once.",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    history_entry = {
+        "from_status": LeaveStatus.REJECTED.value,
+        "to_status": LeaveStatus.APPEALED.value,
+        "changed_by_id": user_id,
+        "changed_by_name": current_user.get("full_name") or current_user.get("name", "Applicant"),
+        "changed_by_role": current_user.get("role", "employee"),
+        "changed_at": now_iso,
+        "reason": f"Appeal submitted: {appeal_reason}",
+    }
+
+    result = await db.leave_requests.find_one_and_update(
+        {"id": request_id},
+        {
+            "$set": {
+                "status": LeaveStatus.APPEALED.value,
+                "has_appealed": True,
+                "appeal_reason": appeal_reason,
+                "appealed_at": now_iso,
+                "updated_at": now_iso,
+            },
+            "$push": {"status_history": history_entry},
+        },
+        projection={"_id": 0},
+        return_document=True,
+    )
+    return LeaveResponse(**result)
+
+
+async def edit_leave_request_status(
+    request_id: str,
+    reviewer_user: dict,
+    new_status: LeaveStatus,
+    reason: str,
+) -> LeaveResponse:
+    """
+    Edits/reverses an already resolved leave/overtime request status with audit tracking
+    and dynamic recalculation.
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    existing = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"Leave request '{request_id}' not found")
+
+    from app.services.leave_permissions import assert_can_edit_leave_status
+
+    applicant_role = await _resolve_applicant_role(existing.get("user_id"), existing.get("user_role"))
+    assert_can_edit_leave_status(reviewer_user, existing.get("user_id"), applicant_role)
+
+    reviewer_id = reviewer_user.get("id")
+    reviewer_name = reviewer_user.get("full_name") or reviewer_user.get("name", "Reviewer")
+    reviewer_role = reviewer_user.get("role", "reviewer")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    status_str = new_status.value if isinstance(new_status, LeaveStatus) else str(new_status)
+
+    update_fields = {
+        "status": status_str,
+        "reviewed_by_id": reviewer_id,
+        "reviewed_by_name": reviewer_name,
+        "reviewed_at": now_iso,
+        "updated_at": now_iso,
+    }
+    if status_str == LeaveStatus.APPROVED.value:
+        update_fields["review_comments"] = f"Status modified to approved: {reason}"
+    elif status_str == LeaveStatus.REJECTED.value:
+        update_fields["rejection_reason"] = reason
+        update_fields["review_comments"] = f"Status modified to rejected: {reason}"
+
+    history_entry = {
+        "from_status": existing.get("status", "unknown"),
+        "to_status": status_str,
+        "changed_by_id": reviewer_id,
+        "changed_by_name": reviewer_name,
+        "changed_by_role": reviewer_role,
+        "changed_at": now_iso,
+        "reason": f"Status manually edited: {reason}",
+    }
+
+    result = await db.leave_requests.find_one_and_update(
+        {"id": request_id},
+        {
+            "$set": update_fields,
+            "$push": {"status_history": history_entry},
+        },
+        projection={"_id": 0},
+        return_document=True,
+    )
+
+    await _sync_attendance_record_for_request(existing, status_str, reviewer_name, reason, now_iso)
     return LeaveResponse(**result)
 
 

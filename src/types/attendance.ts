@@ -200,7 +200,17 @@ export interface PersonalTimesheetResponse {
 
 export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization' | 'overtime';
 export type LeaveCategory = 'sick' | 'casual' | 'annual' | 'unpaid';
-export type RequestStatus = 'pending' | 'approved' | 'rejected';
+export type RequestStatus = 'pending' | 'needs_info' | 'approved' | 'rejected' | 'appealed' | 'cancelled';
+
+export interface AttendanceRequestStatusHistory {
+  from_status: string;
+  to_status: string;
+  changed_by_id?: string;
+  changed_by_name: string;
+  changed_by_role?: string;
+  changed_at: string;
+  reason?: string;
+}
 
 export interface AttendanceRequest {
   id: string;
@@ -235,7 +245,18 @@ export interface AttendanceRequest {
   reviewed_at?: string;
   review_comments?: string;
   rejection_reason?: string;
+  clarification_prompt?: string;
+  clarification_response?: string;
+  clarification_requested_at?: string;
+  clarification_submitted_at?: string;
+  has_appealed?: boolean;
+  appeal_reason?: string;
+  appealed_at?: string;
+  appeal_reviewed_by_name?: string;
+  appeal_reviewed_at?: string;
+  status_history?: AttendanceRequestStatusHistory[];
   created_at: string;
+  updated_at?: string;
 }
 
 export interface LeaveBalance {
@@ -362,8 +383,23 @@ export interface CreateLeavePayload {
 }
 
 export interface ReviewLeavePayload {
-  status: 'approved' | 'rejected';
+  status: 'approved' | 'rejected' | 'needs_info';
   review_comments?: string;
+  rejection_reason?: string;
+  clarification_prompt?: string;
+}
+
+export interface ClarifyLeavePayload {
+  clarification_response: string;
+}
+
+export interface AppealLeavePayload {
+  appeal_reason: string;
+}
+
+export interface EditLeaveStatusPayload {
+  new_status: RequestStatus;
+  reason: string;
 }
 
 export interface OverrideAttendancePayload {

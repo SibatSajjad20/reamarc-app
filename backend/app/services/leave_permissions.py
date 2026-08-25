@@ -1,8 +1,8 @@
 """
-Who may approve, reject, or delete leave / WFH / punch-correction requests.
+Who may approve, reject, clarify, edit, or delete leave / WFH / punch-correction / overtime requests.
 
 HR: team members and team leads only.
-Operations: team members, team leads, and HR — not own, not Admin.
+Operations: team members and team leads only (HR requests go strictly to Admin).
 Admin: everyone except their own row.
 Nobody reviews their own request.
 Delete: the applicant (pending only) or Admin (pending only).
@@ -13,7 +13,7 @@ from fastapi import HTTPException, status
 
 STAFF_ROLES = {"team_member", "member", "team_lead"}
 HR_REVIEWABLE = STAFF_ROLES
-OPS_REVIEWABLE = STAFF_ROLES | {"hr"}
+OPS_REVIEWABLE = STAFF_ROLES
 ADMIN_REVIEWABLE = STAFF_ROLES | {"hr", "operations", "admin", "client"}
 
 REVIEWABLE_BY_ROLE = {
@@ -77,16 +77,58 @@ def assert_can_review_leave_request(
     if reviewer_role == "hr":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="HR can only approve team member and team lead requests. HR requests go to Admin or Operations.",
+            detail="HR can only review team member and team lead requests. HR requests go strictly to Admin.",
         )
     if reviewer_role == "operations":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Operations cannot review this request. Admin must review Operations and Admin requests.",
+            detail="Operations cannot review this request. Admin must review HR, Operations, and Admin requests.",
         )
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="You do not have permission to review this request.",
+    )
+
+
+def can_edit_leave_status(
+    actor: Mapping[str, Any],
+    applicant_id: Optional[str],
+    applicant_role: Optional[str],
+) -> bool:
+    """
+    Admin can edit any status (except own row).
+    HR can edit statuses of team members and team leads (except own row).
+    Operations can edit statuses of team members and team leads (except own row).
+    """
+    return can_review_leave_request(actor, applicant_id, applicant_role)
+
+
+def assert_can_edit_leave_status(
+    actor: Mapping[str, Any],
+    applicant_id: Optional[str],
+    applicant_role: Optional[str],
+) -> None:
+    if can_edit_leave_status(actor, applicant_id, applicant_role):
+        return
+    actor_role = normalize_role(actor.get("role"))
+    if actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot edit the status of your own request.",
+        )
+    if actor_role == "hr":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="HR can only edit statuses for team members and team leads. Admin must edit HR requests.",
+        )
+    if actor_role == "operations":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operations cannot edit this request status. Admin must edit HR and Operations requests.",
+        )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="You do not have permission to edit this request status.",
     )
 
 

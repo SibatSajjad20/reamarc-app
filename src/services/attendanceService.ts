@@ -12,6 +12,9 @@ import type {
   AttendanceRequest,
   CreateLeavePayload,
   ReviewLeavePayload,
+  ClarifyLeavePayload,
+  AppealLeavePayload,
+  EditLeaveStatusPayload,
   ShiftTemplate,
   SecuritySettings,
   CompanyCalendarEvent,
@@ -130,10 +133,31 @@ class AttendanceService {
   }
 
   /**
-   * Review (Approve / Reject) an attendance request with audit comment
+   * Review (Approve / Reject / Request Clarification) an attendance request with audit comment
    */
   public async reviewRequest(requestId: string, payload: ReviewLeavePayload): Promise<AttendanceRequest> {
     return apiClient.patch<AttendanceRequest>(`/leaves/requests/${requestId}/status`, payload);
+  }
+
+  /**
+   * Submit employee clarification for a request with 'needs_info' status
+   */
+  public async clarifyRequest(requestId: string, payload: ClarifyLeavePayload): Promise<AttendanceRequest> {
+    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/clarify`, payload);
+  }
+
+  /**
+   * Submit single-use appeal for a rejected request
+   */
+  public async appealRequest(requestId: string, payload: AppealLeavePayload): Promise<AttendanceRequest> {
+    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/appeal`, payload);
+  }
+
+  /**
+   * Edit or reverse the status of an already resolved request
+   */
+  public async editRequestStatus(requestId: string, payload: EditLeaveStatusPayload): Promise<AttendanceRequest> {
+    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/edit-status`, payload);
   }
 
   /**

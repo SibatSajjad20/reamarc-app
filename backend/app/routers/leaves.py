@@ -9,6 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from app.schemas.leave import (
     LeaveCreateRequest,
     LeaveReviewRequest,
+    LeaveClarificationRequest,
+    LeaveAppealRequest,
+    LeaveStatusEditRequest,
     LeaveResponse,
     LeaveBalanceResponse,
     LeaveBalanceUpdateRequest,
@@ -104,15 +107,68 @@ async def review_leave_request(
     current_user: dict = Depends(require_roles(["admin", "hr", "operations"])),
 ):
     """
-    Approve or reject a request with audit comments and trigger DYNAMIC SYNCHRONIZATION:
+    Approve, reject, or request clarification on a request with audit comments and trigger DYNAMIC SYNCHRONIZATION:
     - Missed punch regularization updates daily attendance record and recalculates work hours.
     - Approved WFH enables security bypass.
     - Approved short leaves credit work hours.
+    - Overtime approval/rejection dynamically settles daily hours.
     """
     return await attendance_service.review_leave_request(
         request_id=id,
         reviewer_user=current_user,
         review_data=review_in,
+    )
+
+
+@router.post("/requests/{id}/clarify", response_model=LeaveResponse)
+async def clarify_leave_request(
+    id: str,
+    clarify_in: LeaveClarificationRequest,
+    current_user: dict = Depends(require_internal_user),
+):
+    """
+    Applicant submits clarification in response to HR/Admin request,
+    reopening the request back to 'pending'.
+    """
+    return await attendance_service.submit_leave_clarification(
+        request_id=id,
+        current_user=current_user,
+        clarification_response=clarify_in.clarification_response,
+    )
+
+
+@router.post("/requests/{id}/appeal", response_model=LeaveResponse)
+async def appeal_leave_request(
+    id: str,
+    appeal_in: LeaveAppealRequest,
+    current_user: dict = Depends(require_internal_user),
+):
+    """
+    Applicant submits a single-use appeal against a rejected request,
+    setting status to 'appealed'.
+    """
+    return await attendance_service.submit_leave_appeal(
+        request_id=id,
+        current_user=current_user,
+        appeal_reason=appeal_in.appeal_reason,
+    )
+
+
+@router.post("/requests/{id}/edit-status", response_model=LeaveResponse)
+async def edit_leave_request_status(
+    id: str,
+    edit_in: LeaveStatusEditRequest,
+    current_user: dict = Depends(require_roles(["admin", "hr", "operations"])),
+):
+    """
+    Modify/reverse an already approved or rejected request status with mandatory audit reason
+    and dynamic timesheet recalculation.
+    """
+    return await attendance_service.edit_leave_request_status(
+        request_id=id,
+        reviewer_user=current_user,
+        new_status=edit_in.new_status,
+        reason=edit_in.reason,
     )
 
 

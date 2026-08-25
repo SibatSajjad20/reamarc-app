@@ -103,8 +103,8 @@ export const adminService = {
     return apiClient.get('/mobile/devices');
   },
 
-  async transferMobileDevice(userId: string): Promise<{ message: string; unbound: number }> {
-    return apiClient.post('/mobile/devices/transfer', { user_id: userId });
+  async transferMobileDevice(userId?: string, deviceId?: string): Promise<{ message: string; unbound: number }> {
+    return apiClient.post('/mobile/devices/transfer', { user_id: userId, device_id: deviceId });
   },
 
   async broadcastMobilePush(payload: { title: string; body: string; user_ids?: string[] }): Promise<{

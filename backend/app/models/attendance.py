@@ -37,8 +37,10 @@ class LeaveType(str, Enum):
 
 class LeaveStatus(str, Enum):
     PENDING = "pending"
+    NEEDS_INFO = "needs_info"
     APPROVED = "approved"
     REJECTED = "rejected"
+    APPEALED = "appealed"
     CANCELLED = "cancelled"
 
 

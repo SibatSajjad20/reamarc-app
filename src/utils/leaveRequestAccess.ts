@@ -5,7 +5,7 @@ const STAFF_ROLES = new Set(['team_member', 'member', 'team_lead']);
 
 const REVIEWABLE_BY_ROLE: Record<string, Set<string>> = {
   hr: new Set(STAFF_ROLES),
-  operations: new Set([...STAFF_ROLES, 'hr']),
+  operations: new Set(STAFF_ROLES),
   admin: new Set([...STAFF_ROLES, 'hr', 'operations', 'admin', 'client']),
 };
 
@@ -25,6 +25,14 @@ export function canReviewLeaveRequest(
   return allowed.has(normalizeRole(request.user_role));
 }
 
+export function canEditLeaveStatus(
+  actorId: string | undefined,
+  actorRole: UserRole | string | undefined,
+  request: Pick<AttendanceRequest, 'user_id' | 'user_role'>,
+): boolean {
+  return canReviewLeaveRequest(actorId, actorRole, request);
+}
+
 export function canDeleteLeaveRequest(
   actorId: string | undefined,
   actorRole: UserRole | string | undefined,
@@ -41,15 +49,15 @@ export function reviewScopeHint(
   request: Pick<AttendanceRequest, 'user_id' | 'user_role'>,
 ): string | null {
   if (reviewerId && request.user_id && reviewerId === request.user_id) {
-    return 'Your request — awaiting Admin or Operations';
+    return 'Your request — awaiting Admin / Reviewer';
   }
   const role = normalizeRole(reviewerRole);
   const applicant = normalizeRole(request.user_role);
   if (role === 'hr' && (applicant === 'hr' || applicant === 'operations' || applicant === 'admin')) {
-    return 'Needs Admin or Operations';
+    return 'Needs Admin review';
   }
-  if (role === 'operations' && (applicant === 'operations' || applicant === 'admin')) {
-    return 'Needs Admin';
+  if (role === 'operations' && (applicant === 'hr' || applicant === 'operations' || applicant === 'admin')) {
+    return 'Needs Admin review';
   }
   return null;
 }

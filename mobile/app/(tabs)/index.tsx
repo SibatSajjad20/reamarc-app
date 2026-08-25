@@ -616,10 +616,26 @@ function PunchScreen() {
               </Pressable>
             </View>
 
+            {today?.checkout_gate?.type === 'overtime' && (
+              <View style={{ backgroundColor: '#EEF2FF', borderRadius: 12, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#C7D2FE' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                  <Ionicons name="information-circle" size={14} color={colors.indigo} />
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.indigo }}>Detailed Work Summary</Text>
+                </View>
+                <Text style={{ fontSize: 11, color: '#3730A3', lineHeight: 15 }}>
+                  Please detail the specific tasks and deliverables completed during this overtime session.
+                </Text>
+              </View>
+            )}
+
             <View style={styles.inputWrap}>
               <TextInput
                 style={styles.centerInput}
-                placeholder="Why are you checking out at this time?"
+                placeholder={
+                  today?.checkout_gate?.type === 'overtime'
+                    ? 'Breakdown of overtime work (e.g., Fixed PR #104, tested edge cases, attended client sync)...'
+                    : 'Why are you checking out at this time?'
+                }
                 placeholderTextColor={colors.muted}
                 value={reason}
                 onChangeText={setReason}

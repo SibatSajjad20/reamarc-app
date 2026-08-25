@@ -13,6 +13,7 @@ import {
   Loader2,
   X,
   CalendarOff,
+  Clock,
 } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
@@ -731,15 +732,32 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                   )}
                 </select>
               </div>
+              {gateType === 'overtime' && (
+                <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">
+                  <p className="font-bold flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 text-[11px]">
+                    <Clock className="w-3.5 h-3.5" /> Overtime Work Summary
+                  </p>
+                  <p className="text-[11px] leading-relaxed text-indigo-800/80 dark:text-indigo-300/80">
+                    Please provide specific details about the work you did during this overtime (e.g., ticket IDs, features completed, bugs fixed, or client meetings).
+                  </p>
+                </div>
+              )}
               <div>
-                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Reason</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Reason / Task Summary</label>
+                  <span className="text-[10px] text-zinc-400 font-medium">{varianceReason.trim().length} chars</span>
+                </div>
                 <textarea
                   required
-                  minLength={3}
+                  minLength={5}
                   rows={3}
                   value={varianceReason}
                   onChange={(e) => setVarianceReason(e.target.value)}
-                  placeholder="Enter a short reason..."
+                  placeholder={
+                    gateType === 'overtime'
+                      ? 'Detailed breakdown of work accomplished during overtime (e.g., Fixed PR #104, deployed fix to production, attended client sync)...'
+                      : 'Enter a reason for early departure...'
+                  }
                   className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 />
               </div>
