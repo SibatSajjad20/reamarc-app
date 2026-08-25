@@ -103,10 +103,11 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
     uid = user["id"]
     name = user.get("full_name") or user.get("name") or "there"
     on_leave_today = await _on_approved_full_leave(db, uid, today)
+    is_workday_today = await is_workday_for_date(today)
     shift = await attendance_service.get_shift_for_user(uid, user.get("department"), today)
     start, end = shift_bounds(shift, now)
 
-    if not on_leave_today:
+    if not on_leave_today and is_workday_today:
         if _in_window(now, start - timedelta(minutes=10), before_minutes=1, after_minutes=1):
             if not await push_service.already_sent(uid, today, "pre_shift"):
                 if not await _has_check_in(db, uid, today):
