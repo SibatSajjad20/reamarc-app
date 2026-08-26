@@ -20,6 +20,8 @@ import {
   GEOFENCE_RADIUS_METERS,
   OFFICE_LATITUDE,
   OFFICE_LONGITUDE,
+  OFFICE_WIFI_IP,
+  HARDCODED_OFFICE_IPS,
 } from '../../constants/officeLocation';
 
 interface ShiftPolicySettingsModalProps {
@@ -156,6 +158,10 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
 
   // Remove IP from whitelist
   const handleRemoveIp = (ipToRemove: string) => {
+    if (HARDCODED_OFFICE_IPS.includes(ipToRemove) || ipToRemove === OFFICE_WIFI_IP) {
+      addToast('Permanent Office IP', 'The office Wi-Fi IP is hardcoded and cannot be removed.', 'warning');
+      return;
+    }
     const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
     const updated = currentIps.filter((ip) => ip !== ipToRemove);
     setSecuritySettings((prev) => ({
@@ -170,11 +176,13 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
     e.preventDefault();
     try {
       setIsSaving(true);
+      const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
+      const mergedIps = Array.from(new Set([...HARDCODED_OFFICE_IPS, ...currentIps]));
       const payload: SecuritySettings = {
-        office_public_ips: securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [],
+        office_public_ips: mergedIps,
         office_subnets: securitySettings.office_subnets || [],
-        office_latitude: Number(securitySettings.office_latitude) || OFFICE_LATITUDE,
-        office_longitude: Number(securitySettings.office_longitude) || OFFICE_LONGITUDE,
+        office_latitude: OFFICE_LATITUDE,
+        office_longitude: OFFICE_LONGITUDE,
         geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || GEOFENCE_RADIUS_METERS,
         enforce_ip_whitelist: Boolean(securitySettings.enforce_ip_whitelist),
         enforce_gps_geofence: Boolean(securitySettings.enforce_gps_geofence),
@@ -645,21 +653,35 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                 </div>
 
                 <div className="flex flex-wrap gap-2 pt-1">
-                  {(securitySettings.office_public_ips || securitySettings.office_ip_whitelist || []).map((ip) => (
-                    <span
-                      key={ip}
-                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-800 dark:text-zinc-200 font-semibold"
-                    >
-                      {ip}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveIp(ip)}
-                        className="text-zinc-400 hover:text-rose-500 p-0.5 rounded cursor-pointer"
+                  {(securitySettings.office_public_ips || securitySettings.office_ip_whitelist || []).map((ip) => {
+                    const isPermanent = HARDCODED_OFFICE_IPS.includes(ip) || ip === OFFICE_WIFI_IP;
+                    return (
+                      <span
+                        key={ip}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg border font-mono text-xs font-semibold ${
+                          isPermanent
+                            ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-300'
+                            : 'bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200'
+                        }`}
                       >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  ))}
+                        <span>{ip}</span>
+                        {isPermanent ? (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800/60 text-amber-800 dark:text-amber-200 font-sans font-bold">
+                            Office Wi-Fi (Locked)
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveIp(ip)}
+                            className="text-zinc-400 hover:text-rose-500 p-0.5 rounded cursor-pointer"
+                            title="Remove IP"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
 

@@ -323,6 +323,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   // Status Badge Info
   const statusBadge = useMemo(() => {
+    if (isOffDay && !isCheckedIn) {
+      return {
+        label: offDayLabel || 'Public Holiday',
+        color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
+        dot: 'bg-amber-500',
+      };
+    }
     if (isAbsentLocked && !isCheckedIn) {
       return {
         label: 'Shift Ended — Absent',
@@ -363,7 +370,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
       dot: 'bg-emerald-500 animate-pulse',
     };
-  }, [record, isCheckedIn, isCheckedOut, isWfh, isAbsentLocked]);
+  }, [record, isCheckedIn, isCheckedOut, isWfh, isAbsentLocked, isOffDay, offDayLabel]);
 
   const wifiOk = isWfh || !enforceIp || todayData?.is_ip_verified === true;
   const gpsQuality =

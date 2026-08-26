@@ -43,7 +43,12 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         samesite="none" if is_prod else "lax",
         secure=True if is_prod else settings.COOKIE_SECURE
     )
-    response.set_cookie(key="access_token", value=access_token, **cookie_opts)
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        **cookie_opts,
+    )
     response.set_cookie(
         key="refresh_token",
         value=refresh_token,

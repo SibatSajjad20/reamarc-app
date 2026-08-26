@@ -50,6 +50,12 @@ from app.schemas.attendance import (
     SecuritySettingsSchema,
     BreakActionRequest,
 )
+from app.constants.office_location import (
+    OFFICE_LATITUDE,
+    OFFICE_LONGITUDE,
+    OFFICE_WIFI_IP,
+    HARDCODED_OFFICE_IPS,
+)
 from app.schemas.leave import (
     LeaveCreateRequest,
     LeaveReviewRequest,
@@ -1315,11 +1321,21 @@ async def get_security_settings() -> SecuritySettingsSchema:
     """Retrieves system attendance security settings from system_config collection."""
     db = get_database()
     if db is None:
-        return SecuritySettingsSchema()
+        return SecuritySettingsSchema(
+            office_latitude=OFFICE_LATITUDE,
+            office_longitude=OFFICE_LONGITUDE,
+            office_public_ips=list(HARDCODED_OFFICE_IPS),
+            office_ip_whitelist=list(HARDCODED_OFFICE_IPS),
+        )
 
     doc = await db.system_config.find_one({"key": "attendance_security"}, {"_id": 0})
     if not doc:
-        default_settings = SecuritySettingsSchema()
+        default_settings = SecuritySettingsSchema(
+            office_latitude=OFFICE_LATITUDE,
+            office_longitude=OFFICE_LONGITUDE,
+            office_public_ips=list(HARDCODED_OFFICE_IPS),
+            office_ip_whitelist=list(HARDCODED_OFFICE_IPS),
+        )
         await db.system_config.update_one(
             {"key": "attendance_security"},
             {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
@@ -1338,7 +1354,7 @@ async def get_security_settings() -> SecuritySettingsSchema:
     ]
     merged_ips: List[str] = []
     seen = set()
-    for item in public_ips + extra_list:
+    for item in list(HARDCODED_OFFICE_IPS) + public_ips + extra_list:
         text = str(item or "").strip()
         if not text or text in seen:
             continue
@@ -1347,14 +1363,31 @@ async def get_security_settings() -> SecuritySettingsSchema:
     doc["office_public_ips"] = merged_ips
     doc["office_subnets"] = [str(s).strip() for s in subnets if str(s).strip()]
     doc["office_ip_whitelist"] = merged_ips
+    doc["office_latitude"] = OFFICE_LATITUDE
+    doc["office_longitude"] = OFFICE_LONGITUDE
     return SecuritySettingsSchema(**doc)
 
 
 async def update_security_settings(new_settings: SecuritySettingsSchema) -> SecuritySettingsSchema:
-    """Updates system attendance security settings."""
+    """Updates system attendance security settings while strictly maintaining hardcoded office pin & wifi IP."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
+
+    # Hardcode office coordinates
+    new_settings.office_latitude = OFFICE_LATITUDE
+    new_settings.office_longitude = OFFICE_LONGITUDE
+
+    # Ensure hardcoded office IPs are never removed
+    merged_ips = []
+    seen = set()
+    for ip in list(HARDCODED_OFFICE_IPS) + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
+        text = str(ip or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            merged_ips.append(text)
+    new_settings.office_public_ips = merged_ips
+    new_settings.office_ip_whitelist = merged_ips
 
     settings_dict = new_settings.model_dump()
     await db.system_config.update_one(
@@ -2065,18 +2098,78 @@ async def get_my_timesheet(
                     shifts_by_id[parsed.id] = parsed
                 except Exception:
                     continue
+        # Load calendar overrides for this month
+        from app.services.workdays import load_calendar_overrides
+        month_start_date = date(year, month, 1)
+        month_last_day = calendar.monthrange(year, month)[1]
+        month_end_date = date(year, month, month_last_day)
+        holidays_set, _working_sats, holiday_titles = await load_calendar_overrides(month_start_date, month_end_date)
+
+        seen_record_dates = set()
         for d in docs:
-            rec_shift = resolve_shift_doc_for_date(
-                assignment,
-                str(d.get("date") or ""),
-                shifts_by_id,
-                stored_shift_id=d.get("shift_id"),
-                fallback=shift,
-            )
-            d["shift_id"] = _shift_id(rec_shift) or d.get("shift_id")
-            d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
-            d = await _heal_overtime_request_for_record(user, d, rec_shift)
+            rec_date = str(d.get("date") or "")
+            seen_record_dates.add(rec_date)
+            cin = d.get("punch_in") or d.get("check_in")
+            cout = d.get("punch_out") or d.get("check_out")
+
+            if rec_date in holidays_set and not cin and not cout:
+                # Calendar holiday with no punches -> ensure status is HOLIDAY
+                h_title = holiday_titles.get(rec_date) or "Public Holiday"
+                d["status"] = AttendanceStatus.HOLIDAY.value
+                d["shift_name"] = h_title
+                d["notes"] = h_title
+                d["is_late"] = False
+                d["late_minutes"] = 0
+            else:
+                rec_shift = resolve_shift_doc_for_date(
+                    assignment,
+                    rec_date,
+                    shifts_by_id,
+                    stored_shift_id=d.get("shift_id"),
+                    fallback=shift,
+                )
+                d["shift_id"] = _shift_id(rec_shift) or d.get("shift_id")
+                d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
+                d = await _heal_overtime_request_for_record(user, d, rec_shift)
+
             records.append(AttendanceRecordResponse.from_mongo(d))
+
+        # Inject synthesized holiday records for holiday dates without punch docs
+        for h_date in sorted(holidays_set):
+            if h_date not in seen_record_dates and h_date >= min_date:
+                h_title = holiday_titles.get(h_date) or "Public Holiday"
+                records.append(AttendanceRecordResponse(
+                    id=f"cal_hol_{user_id}_{h_date}",
+                    user_id=user_id,
+                    employee_name=user_name,
+                    user_name=user_name,
+                    department=department,
+                    date=h_date,
+                    shift_id=None,
+                    shift_name=h_title,
+                    punch_in=None,
+                    punch_out=None,
+                    check_in=None,
+                    check_out=None,
+                    break_minutes=0,
+                    working_hours_minutes=0,
+                    work_hours=0.0,
+                    overtime_minutes=0,
+                    overtime_hours=0.0,
+                    undertime_minutes=0,
+                    undertime_hours=0.0,
+                    status=AttendanceStatus.HOLIDAY,
+                    is_late=False,
+                    late_minutes=0,
+                    ip_verified=False,
+                    gps_verified=False,
+                    is_wfh_approved=False,
+                    notes=h_title,
+                    created_at=f"{h_date}T00:00:00Z",
+                    updated_at=f"{h_date}T00:00:00Z",
+                ))
+
+        records.sort(key=lambda r: r.date)
 
     # Calculate total working days in this month
     total_working_days = await calculate_month_working_days(year, month)

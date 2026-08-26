@@ -337,12 +337,14 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
               {rows.map(({ date, dayNumber, dayOfWeek, isSunday, isFirstSaturday, record }) => {
-                const isOffDay = isSunday || isFirstSaturday || record?.status === 'sunday_off' || record?.status === 'first_saturday_off' || record?.status === 'holiday';
+                const isHoliday = record?.status === 'holiday';
+                const isOffDay = isSunday || isFirstSaturday || record?.status === 'sunday_off' || record?.status === 'first_saturday_off' || isHoliday;
                 const defaultShiftName = summary?.shift_name || 'Standard 09:30-18:30';
 
                 let defaultStatus = 'absent';
                 if (isSunday) defaultStatus = 'sunday_off';
                 else if (isFirstSaturday) defaultStatus = 'first_saturday_off';
+                else if (isHoliday) defaultStatus = 'holiday';
                 else defaultStatus = 'not_punched';
 
                 const punchIn = record?.punch_in || (record as any)?.check_in || null;
@@ -420,7 +422,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
                     {/* Shift */}
                     <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
-                      {record?.shift_name || (isSunday ? 'Sunday Rest' : isFirstSaturday ? '1st Sat Rest' : defaultShiftName)}
+                      {isHoliday
+                        ? record?.shift_name || record?.notes || 'Public Holiday'
+                        : record?.shift_name || (isSunday ? 'Sunday Rest' : isFirstSaturday ? '1st Sat Rest' : defaultShiftName)}
                     </td>
 
                     {/* Punch In */}

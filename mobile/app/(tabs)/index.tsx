@@ -149,8 +149,8 @@ function PunchScreen() {
     const lng = pos.coords.longitude;
     const accuracy = pos.coords.accuracy ?? 999;
     const mocked = Boolean((pos as { mocked?: boolean }).mocked || (pos.coords as { mocked?: boolean }).mocked);
-    const officeLat = payload?.office_latitude ?? payload?.office_latitude ?? 33.52049;
-    const officeLng = payload?.office_longitude ?? payload?.office_longitude ?? 73.09145;
+    const officeLat = payload?.office_latitude ?? 33.52062764084008;
+    const officeLng = payload?.office_longitude ?? 73.09183393441234;
     const radius = payload?.geofence_radius_meters ?? payload?.geofence_radius_meters ?? 500;
     const distance = haversineMeters(lat, lng, officeLat, officeLng);
     const quality = classifyGpsFix(distance, accuracy, radius);
