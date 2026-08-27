@@ -6,6 +6,7 @@ import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { InboxProvider } from '../src/context/InboxContext';
 import { InboxSync } from '../src/lib/inboxSync';
+import { TruckLoader } from '../src/ui/TruckLoader';
 import { colors } from '../src/theme';
 
 Notifications.setNotificationHandler({
@@ -32,7 +33,7 @@ function Gate({ children }: { children: React.ReactNode }) {
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
-        <ActivityIndicator color={colors.indigo} />
+        <TruckLoader label="Loading Reamarc..." size={1.05} />
       </View>
     );
   }

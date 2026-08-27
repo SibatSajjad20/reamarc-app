@@ -27,6 +27,7 @@ import { classifyGpsFix, haversineMeters } from '../../src/lib/geo';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
+import { TruckLoader } from '../../src/ui/TruckLoader';
 import { formatLongDate, formatTime, prettyRole } from '../../src/ui/format';
 
 type TodayPayload = {
@@ -391,9 +392,7 @@ function PunchScreen() {
     return (
       <SafeAreaView style={[styles.safe, styles.centerScreen]}>
         <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.indigo} />
-          <Text style={styles.loadingTitle}>Syncing Attendance</Text>
-          <Text style={styles.loadingSubtitle}>Fetching your shift schedule & status...</Text>
+          <TruckLoader label="Syncing shift schedule & status..." />
         </View>
       </SafeAreaView>
     );

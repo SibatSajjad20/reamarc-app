@@ -21,6 +21,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { DateField, TimeField } from '../../src/ui/DateTimeField';
 import { StatusBadge } from '../../src/ui/StatusBadge';
+import { TruckLoader } from '../../src/ui/TruckLoader';
 import { formatDisplayDate } from '../../src/ui/format';
 
 type RequestType = 'leave' | 'wfh' | 'short_leave' | 'regularization';
@@ -423,9 +424,7 @@ export default function RequestsScreen() {
     return (
       <SafeAreaView style={[styles.safe, styles.centerScreen]}>
         <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.indigo} />
-          <Text style={styles.loadingTitle}>Loading Requests</Text>
-          <Text style={styles.loadingSubtitle}>Fetching team and submitted requests...</Text>
+          <TruckLoader label="Loading Requests..." />
         </View>
       </SafeAreaView>
     );
