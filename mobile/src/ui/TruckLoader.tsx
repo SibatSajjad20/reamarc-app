@@ -1,6 +1,5 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
-import Svg, { Path, Rect, Circle } from 'react-native-svg';
 
 interface TruckLoaderProps {
   label?: string;
@@ -8,6 +7,12 @@ interface TruckLoaderProps {
   truckColor?: string; // cabin color, default #965cfd
 }
 
+/**
+ * Pure React Native TruckLoader:
+ * - Uses 100% pure React Native Views & Animated styles
+ * - Zero native binary dependencies (runs Over-The-Air on all existing APKs without reinstalling)
+ * - 60 FPS native driver animations
+ */
 export const TruckLoader: React.FC<TruckLoaderProps> = ({
   label = 'Loading...',
   size = 1,
@@ -23,7 +28,7 @@ export const TruckLoader: React.FC<TruckLoaderProps> = ({
     const bounceLoop = Animated.loop(
       Animated.sequence([
         Animated.timing(bounceAnim, {
-          toValue: 3,
+          toValue: 2.5,
           duration: 500,
           easing: Easing.linear,
           useNativeDriver: true,
@@ -84,17 +89,15 @@ export const TruckLoader: React.FC<TruckLoaderProps> = ({
             },
           ]}
         >
-          <Svg
-            width={75}
-            height={75}
-            viewBox="0 0 453.459 453.459"
-            fill="#282828"
-          >
-            <Path
-              d="M252.882,0c-37.781,0-68.686,29.953-70.245,67.358h-6.917v8.954c-26.109,2.163-45.463,10.011-45.463,19.366h9.993 c-1.65,5.146-2.507,10.54-2.507,16.017c0,28.956,23.558,52.514,52.514,52.514c28.956,0,52.514-23.558,52.514-52.514 c0-5.478-0.856-10.872-2.506-16.017h9.992c0-9.354-19.352-17.204-45.463-19.366v-8.954h-6.149C200.189,38.779,223.924,16,252.882,0 c29.952,0,54.32,24.368,54.32,54.32c0,28.774-11.078,37.009-25.105,47.437c-17.444,12.968-37.216,27.667-37.216,78.884v113.914 h-0.797c-5.068,0-9.174,4.108-9.174,9.177c0,2.844,1.293,5.383,3.321,7.066c-3.432,27.933-26.851,95.744-8.226,115.459v11.202h45.75 v-11.202c18.625-19.715-4.794-87.527-8.227-115.459c2.029-1.683,3.322-4.223,3.322-7.066c0-5.068-4.107-9.177-9.176-9.177h-0.795 V196.641c0-43.174,14.942-54.283,30.762-66.043c14.793-10.997,31.559-23.461,31.559-60.277C323.202,31.545,291.656,0,252.882,0z M232.77,111.694c0,23.442-19.071,42.514-42.514,42.514c-23.442,0-42.514-19.072-42.514-42.514c0-5.531,1.078-10.957,3.141-16.017 h78.747C231.693,100.736,232.77,106.162,232.77,111.694z"
-              fill="#282828"
-            />
-          </Svg>
+          {/* Curved Lamp Arm */}
+          <View style={styles.lampHeadWrapper}>
+            <View style={styles.lampArm} />
+            <View style={styles.lampHead} />
+          </View>
+          {/* Pole */}
+          <View style={styles.lampPole} />
+          {/* Base */}
+          <View style={styles.lampBase} />
         </Animated.View>
 
         {/* Animated Bouncing Truck Body */}
@@ -106,103 +109,38 @@ export const TruckLoader: React.FC<TruckLoaderProps> = ({
             },
           ]}
         >
-          <Svg width={130} height={61} viewBox="0 0 198 93">
-            {/* Truck Cabin */}
-            <Path
-              strokeWidth={3}
-              stroke="#282828"
-              fill={truckColor}
-              d="M135 22.5H177.264C178.295 22.5 179.22 23.133 179.594 24.0939L192.33 56.8443C192.442 57.1332 192.5 57.4404 192.5 57.7504V89C192.5 90.3807 191.381 91.5 190 91.5H135C133.619 91.5 132.5 90.3807 132.5 89V25C132.5 23.6193 133.619 22.5 135 22.5Z"
-            />
-            {/* Window */}
-            <Path
-              strokeWidth={3}
-              stroke="#282828"
-              fill="#7D7C7C"
-              d="M146 33.5H181.741C182.779 33.5 183.709 34.1415 184.078 35.112L190.538 52.112C191.16 53.748 189.951 55.5 188.201 55.5H146C144.619 55.5 143.5 54.3807 143.5 53V36C143.5 34.6193 144.619 33.5 146 33.5Z"
-            />
-            {/* Door Handle */}
-            <Path
-              strokeWidth={2}
-              stroke="#282828"
-              fill="#282828"
-              d="M150 65C150 65.39 149.763 65.8656 149.127 66.2893C148.499 66.7083 147.573 67 146.5 67C145.427 67 144.501 66.7083 143.873 66.2893C143.237 65.8656 143 65.39 143 65C143 64.61 143.237 64.1344 143.873 63.7107C144.501 63.2917 145.427 63 146.5 63C147.573 63 148.499 63.2917 149.127 63.7107C149.763 64.1344 150 64.61 150 65Z"
-            />
-            {/* Headlight */}
-            <Rect
-              strokeWidth={2}
-              stroke="#282828"
-              fill="#FFFCAB"
-              rx={1}
-              height={7}
-              width={5}
-              y={63}
-              x={187}
-            />
-            {/* Front Bumper */}
-            <Rect
-              strokeWidth={2}
-              stroke="#282828"
-              fill="#282828"
-              rx={1}
-              height={11}
-              width={4}
-              y={81}
-              x={193}
-            />
-            {/* Cargo Box */}
-            <Rect
-              strokeWidth={3}
-              stroke="#282828"
-              fill="#DFDFDF"
-              rx={2.5}
-              height={90}
-              width={121}
-              y={1.5}
-              x={6.5}
-            />
-            {/* Rear Step */}
-            <Rect
-              strokeWidth={2}
-              stroke="#282828"
-              fill="#DFDFDF"
-              rx={2}
-              height={4}
-              width={6}
-              y={84}
-              x={1}
-            />
-          </Svg>
+          <View style={styles.truckRow}>
+            {/* Cargo Box (Grey Container) */}
+            <View style={styles.cargoBox}>
+              <View style={styles.cargoLine} />
+              <View style={styles.cargoRearStep} />
+            </View>
+
+            {/* Cabin (Purple Head) */}
+            <View style={[styles.cabin, { backgroundColor: truckColor }]}>
+              {/* Windshield Window */}
+              <View style={styles.window} />
+              {/* Door Handle */}
+              <View style={styles.doorHandle} />
+              {/* Headlight */}
+              <View style={styles.headlight} />
+              {/* Front Bumper */}
+              <View style={styles.bumper} />
+            </View>
+          </View>
+
+          {/* Dual Wheels Attached to Truck */}
+          <View style={styles.wheelsRow}>
+            {/* Rear Wheel */}
+            <View style={styles.wheel}>
+              <View style={styles.wheelRim} />
+            </View>
+            {/* Front Wheel */}
+            <View style={styles.wheel}>
+              <View style={styles.wheelRim} />
+            </View>
+          </View>
         </Animated.View>
-
-        {/* Stationary Wheels at Bottom */}
-        <View style={styles.truckTires}>
-          {/* Rear Wheel */}
-          <Svg width={20} height={20} viewBox="0 0 30 30">
-            <Circle
-              strokeWidth={3}
-              stroke="#282828"
-              fill="#282828"
-              r={13.5}
-              cy={15}
-              cx={15}
-            />
-            <Circle fill="#DFDFDF" r={7} cy={15} cx={15} />
-          </Svg>
-
-          {/* Front Wheel */}
-          <Svg width={20} height={20} viewBox="0 0 30 30">
-            <Circle
-              strokeWidth={3}
-              stroke="#282828"
-              fill="#282828"
-              r={13.5}
-              cy={15}
-              cx={15}
-            />
-            <Circle fill="#DFDFDF" r={7} cy={15} cx={15} />
-          </Svg>
-        </View>
 
         {/* Road Base */}
         <View style={styles.road}>
@@ -244,19 +182,122 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   truckBody: {
-    width: 130,
-    marginBottom: 4,
-    zIndex: 2,
-  },
-  truckTires: {
-    width: 130,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    position: 'absolute',
-    bottom: 0,
+    position: 'relative',
+    marginBottom: 6,
     zIndex: 3,
+  },
+  truckRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  cargoBox: {
+    width: 78,
+    height: 52,
+    backgroundColor: '#DFDFDF',
+    borderWidth: 2.2,
+    borderColor: '#282828',
+    borderRadius: 3,
+    position: 'relative',
+  },
+  cargoLine: {
+    position: 'absolute',
+    left: 4,
+    top: 4,
+    right: 4,
+    bottom: 4,
+    borderWidth: 1,
+    borderColor: '#C4C4C4',
+    borderStyle: 'dashed',
+    borderRadius: 2,
+  },
+  cargoRearStep: {
+    position: 'absolute',
+    left: -4,
+    bottom: 4,
+    width: 4,
+    height: 3,
+    backgroundColor: '#DFDFDF',
+    borderWidth: 1.5,
+    borderColor: '#282828',
+    borderRadius: 1,
+  },
+  cabin: {
+    width: 44,
+    height: 38,
+    borderWidth: 2.2,
+    borderColor: '#282828',
+    borderTopRightRadius: 18,
+    borderBottomRightRadius: 4,
+    position: 'relative',
+    marginLeft: -1,
+  },
+  window: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 24,
+    height: 18,
+    backgroundColor: '#7D7C7C',
+    borderWidth: 1.8,
+    borderColor: '#282828',
+    borderTopRightRadius: 14,
+    borderBottomRightRadius: 2,
+  },
+  doorHandle: {
+    position: 'absolute',
+    top: 24,
+    left: 5,
+    width: 5,
+    height: 2.2,
+    backgroundColor: '#282828',
+    borderRadius: 1,
+  },
+  headlight: {
+    position: 'absolute',
+    bottom: 5,
+    right: -2,
+    width: 3.5,
+    height: 5,
+    backgroundColor: '#FFFCAB',
+    borderWidth: 1,
+    borderColor: '#282828',
+    borderRadius: 1,
+  },
+  bumper: {
+    position: 'absolute',
+    bottom: -1,
+    right: -4,
+    width: 4,
+    height: 7,
+    backgroundColor: '#282828',
+    borderRadius: 1,
+  },
+  wheelsRow: {
+    position: 'absolute',
+    bottom: -8,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingLeft: 14,
+    paddingRight: 8,
+    zIndex: 4,
+  },
+  wheel: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#282828',
+    borderWidth: 2,
+    borderColor: '#282828',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wheelRim: {
+    width: 7.5,
+    height: 7.5,
+    borderRadius: 3.75,
+    backgroundColor: '#DFDFDF',
   },
   road: {
     width: '100%',
@@ -285,7 +326,42 @@ const styles = StyleSheet.create({
   lampPost: {
     position: 'absolute',
     bottom: 2,
-    zIndex: 4,
+    zIndex: 2,
+    alignItems: 'center',
+  },
+  lampHeadWrapper: {
+    alignItems: 'flex-start',
+    width: 28,
+  },
+  lampArm: {
+    width: 22,
+    height: 14,
+    borderTopWidth: 2.8,
+    borderRightWidth: 2.8,
+    borderColor: '#282828',
+    borderTopRightRadius: 14,
+  },
+  lampHead: {
+    width: 12,
+    height: 6,
+    backgroundColor: '#282828',
+    borderBottomLeftRadius: 6,
+    borderBottomRightRadius: 6,
+    marginTop: -2,
+    marginLeft: 15,
+  },
+  lampPole: {
+    width: 2.8,
+    height: 52,
+    backgroundColor: '#282828',
+    borderRadius: 1.4,
+    marginTop: -1,
+  },
+  lampBase: {
+    width: 8,
+    height: 3,
+    backgroundColor: '#282828',
+    borderRadius: 1.5,
   },
   label: {
     marginTop: 14,
