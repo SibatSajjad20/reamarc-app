@@ -348,7 +348,7 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
                 shift = await attendance_service.get_shift_for_user(uid, dept, check_date)
                 is_auto_wfh = await attendance_service.is_auto_wfh_for_date(uid, check_date)
 
-                if not attendance_service.is_shift_window_closed(shift, now_pkt):
+                if not attendance_service.is_checkout_window_closed(shift, now_pkt):
                     continue
                 date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
                 if date_str != check_date:

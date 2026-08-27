@@ -33,6 +33,19 @@ async function registerPushToken(deviceUuid: string) {
     platform: Platform.OS === 'ios' ? 'ios' : 'android',
   };
   try {
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Default Notifications',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#965cfd',
+        sound: 'default',
+        enableLights: true,
+        enableVibrate: true,
+        showBadge: true,
+        lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      });
+    }
     await Notifications.requestPermissionsAsync();
     let pushToken: string | undefined;
     if (Device.isDevice) {
@@ -46,7 +59,7 @@ async function registerPushToken(deviceUuid: string) {
           pushToken = tokenResp.data;
         }
       } catch (err) {
-        console.warn('[push] Expo remote token unavailable in Expo Go; using Alerts inbox.', err);
+        console.warn('[push] Expo remote token unavailable; using Alerts inbox.', err);
       }
     }
     await api('/mobile/register-device', {

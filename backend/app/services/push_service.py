@@ -85,6 +85,8 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str) -> int:
             "title": title,
             "body": body,
             "priority": "high",
+            "channelId": "default",
+            "_displayInForeground": True,
         }
         for token in tokens
         if token and str(token).startswith("ExponentPushToken")
@@ -100,6 +102,16 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str) -> int:
                 if resp.status_code >= 400:
                     logger.warning("Expo push HTTP %s: %s", resp.status_code, resp.text[:300])
                     continue
+                try:
+                    res_json = resp.json()
+                    tickets = res_json.get("data") or []
+                    for t in tickets:
+                        if t.get("status") == "error":
+                            logger.warning(
+                                f"Expo push ticket error: {t.get('message')} (detail: {t.get('details')})"
+                            )
+                except Exception:
+                    pass
                 sent += len(chunk)
     except Exception as err:
         logger.error("Expo push failed: %s", err)

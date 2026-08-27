@@ -294,6 +294,48 @@ def is_shift_window_closed(shift: Any, now: Optional[datetime] = None) -> bool:
     return True
 
 
+CHECKOUT_GRACE_MINUTES = 240  # 4-hour post-shift checkout window across all shifts
+
+
+def is_checkout_window_closed(
+    shift: Any,
+    now: Optional[datetime] = None,
+    grace_minutes: int = CHECKOUT_GRACE_MINUTES,
+) -> bool:
+    """
+    True only after THIS employee's assigned shift end time PLUS the 4-hour checkout waiting window has passed.
+
+    Examples:
+    - Standard Shift (09:30 - 18:30): 18:30 + 4h = 22:30. Closed only after 22:30.
+    - HR Shift (09:30 - 18:00): 18:00 + 4h = 22:00. Closed only after 22:00.
+    - Afternoon Shift (14:00 - 20:00): 20:00 + 4h = 24:00 (Midnight).
+    - SEO Evening Shift (17:30 - 23:30): 23:30 + 4h = 03:30 AM next morning.
+    - WFH Night Shift (21:00 - 05:00): 05:00 AM + 4h = 09:00 AM next morning.
+    """
+    if shift is None:
+        return False
+    now = now or get_now_pkt()
+    now_m = now.hour * 60 + now.minute
+    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
+    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
+    night = is_night_shift_template(shift)
+
+    if not night:
+        cutoff_m = end_m + grace_minutes
+        if cutoff_m < 1440:
+            return now_m >= cutoff_m
+        else:
+            post_midnight_m = cutoff_m - 1440
+            if now_m >= start_m:
+                return False
+            return now_m >= post_midnight_m
+    else:
+        cutoff_m = end_m + grace_minutes
+        if now_m >= start_m or now_m < cutoff_m:
+            return False
+        return True
+
+
 def closed_shift_attendance_date(shift: Any, now: Optional[datetime] = None) -> str:
     """Calendar date to lock when the current shift window has already ended."""
     now = now or get_now_pkt()
@@ -2152,46 +2194,74 @@ async def get_my_timesheet(
                 d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
                 d = await _heal_overtime_request_for_record(user, d, rec_shift)
 
-                # Read-time healing for unclosed punches whose shift window has elapsed
+                # Read-time healing for unclosed punches with 4-hour waiting window
                 now_pkt = get_now_pkt()
                 today_str = now_pkt.strftime("%Y-%m-%d")
-                shift_window_passed = (rec_date < today_str) or is_shift_window_closed(rec_shift, now_pkt)
-                if cin and not cout and shift_window_passed and not d.get("is_missed_punch") and str(d.get("status")) != AttendanceStatus.MISSED_PUNCH.value:
-                    exp_h = float(shift_field(rec_shift, "expected_hours", 8.0) or 8.0)
-                    exp_m = int(round(exp_h * 60))
-                    existing_notes = d.get("notes") or ""
-                    updated_notes = f"{existing_notes} | Flagged as Missed Punch after shift window closed".strip(" | ")
-                    d["status"] = AttendanceStatus.MISSED_PUNCH.value
-                    d["is_missed_punch"] = True
-                    d["work_hours"] = 0.0
-                    d["working_hours_minutes"] = 0
-                    d["work_duration_formatted"] = "00:00"
-                    d["overtime_hours"] = 0.0
-                    d["overtime_minutes"] = 0
-                    d["overtime_formatted"] = "+00:00"
-                    d["undertime_hours"] = exp_h
-                    d["undertime_minutes"] = exp_m
-                    d["undertime_formatted"] = format_minutes_to_hhmm(-exp_m, show_sign=True)
-                    d["notes"] = updated_notes
-                    if db is not None:
-                        await db.attendance_records.update_one(
-                            {"user_id": user_id, "date": rec_date},
-                            {"$set": {
-                                "status": AttendanceStatus.MISSED_PUNCH.value,
-                                "is_missed_punch": True,
-                                "work_hours": 0.0,
-                                "working_hours_minutes": 0,
-                                "work_duration_formatted": "00:00",
-                                "overtime_hours": 0.0,
-                                "overtime_minutes": 0,
-                                "overtime_formatted": "+00:00",
-                                "undertime_hours": exp_h,
-                                "undertime_minutes": exp_m,
-                                "undertime_formatted": format_minutes_to_hhmm(-exp_m, show_sign=True),
-                                "notes": updated_notes,
-                                "updated_at": datetime.now(timezone.utc).isoformat(),
-                            }}
-                        )
+                checkout_closed = (rec_date < today_str) or is_checkout_window_closed(rec_shift, now_pkt)
+
+                if cin and not cout:
+                    if not checkout_closed:
+                        # Inside active shift / 4-hour post-shift waiting window: restore / keep as active
+                        is_late = bool(d.get("is_late"))
+                        is_wfh = bool(d.get("is_wfh") or str(d.get("status")) == "wfh")
+                        active_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if is_late else AttendanceStatus.PRESENT.value)
+
+                        if d.get("is_missed_punch") or str(d.get("status")) == AttendanceStatus.MISSED_PUNCH.value:
+                            d["status"] = active_status
+                            d["is_missed_punch"] = False
+                            d["undertime_hours"] = 0.0
+                            d["undertime_minutes"] = 0
+                            d["undertime_formatted"] = "00:00"
+                            if db is not None:
+                                await db.attendance_records.update_one(
+                                    {"user_id": user_id, "date": rec_date},
+                                    {"$set": {
+                                        "status": active_status,
+                                        "is_missed_punch": False,
+                                        "undertime_hours": 0.0,
+                                        "undertime_minutes": 0,
+                                        "undertime_formatted": "00:00",
+                                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                                    }}
+                                )
+                    else:
+                        # 4-hour checkout waiting window elapsed -> Flag as Missed Punch
+                        if not d.get("is_missed_punch") and str(d.get("status")) != AttendanceStatus.MISSED_PUNCH.value:
+                            exp_h = float(shift_field(rec_shift, "expected_hours", 8.0) or 8.0)
+                            exp_m = int(round(exp_h * 60))
+                            existing_notes = d.get("notes") or ""
+                            updated_notes = f"{existing_notes} | Flagged as Missed Punch after 4h waiting window closed".strip(" | ")
+                            d["status"] = AttendanceStatus.MISSED_PUNCH.value
+                            d["is_missed_punch"] = True
+                            d["work_hours"] = 0.0
+                            d["working_hours_minutes"] = 0
+                            d["work_duration_formatted"] = "00:00"
+                            d["overtime_hours"] = 0.0
+                            d["overtime_minutes"] = 0
+                            d["overtime_formatted"] = "+00:00"
+                            d["undertime_hours"] = exp_h
+                            d["undertime_minutes"] = exp_m
+                            d["undertime_formatted"] = format_minutes_to_hhmm(-exp_m, show_sign=True)
+                            d["notes"] = updated_notes
+                            if db is not None:
+                                await db.attendance_records.update_one(
+                                    {"user_id": user_id, "date": rec_date},
+                                    {"$set": {
+                                        "status": AttendanceStatus.MISSED_PUNCH.value,
+                                        "is_missed_punch": True,
+                                        "work_hours": 0.0,
+                                        "working_hours_minutes": 0,
+                                        "work_duration_formatted": "00:00",
+                                        "overtime_hours": 0.0,
+                                        "overtime_minutes": 0,
+                                        "overtime_formatted": "+00:00",
+                                        "undertime_hours": exp_h,
+                                        "undertime_minutes": exp_m,
+                                        "undertime_formatted": format_minutes_to_hhmm(-exp_m, show_sign=True),
+                                        "notes": updated_notes,
+                                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                                    }}
+                                )
 
             records.append(AttendanceRecordResponse.from_mongo(d))
 
@@ -2489,9 +2559,11 @@ async def get_daily_matrix(
 
                 now_pkt = get_now_pkt()
                 today_str = now_pkt.strftime("%Y-%m-%d")
-                shift_passed = (target_date < today_str) or is_shift_window_closed(raw_shift, now_pkt)
-                if not check_out and shift_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
+                checkout_passed = (target_date < today_str) or is_checkout_window_closed(raw_shift, now_pkt)
+                if not check_out and checkout_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
                     status_enum = AttendanceStatus.MISSED_PUNCH
+                elif not check_out and not checkout_passed and (rec.get("is_missed_punch") or raw_status == AttendanceStatus.MISSED_PUNCH.value):
+                    status_enum = AttendanceStatus.WFH if is_wfh_flag else (AttendanceStatus.LATE if calc_res.is_late else AttendanceStatus.PRESENT)
                 elif raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:

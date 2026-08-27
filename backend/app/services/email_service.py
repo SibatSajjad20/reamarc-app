@@ -197,7 +197,9 @@ async def _send_brevo_http(
     html_content: str,
 ) -> bool:
     """Dispatches email via Brevo HTTPS REST API."""
-    sender_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USER or "noreply@reamarc.com"
+    sender_email = settings.SMTP_USER or settings.SMTP_FROM_EMAIL or "sajjadsibat33@gmail.com"
+    if "@resend.dev" in sender_email and settings.SMTP_USER:
+        sender_email = settings.SMTP_USER
     payload = {
         "sender": {"name": settings.SMTP_FROM_NAME, "email": sender_email},
         "to": [{"email": recipient_email, "name": recipient_name}],
@@ -312,15 +314,7 @@ class EmailService:
             action_url=action_url,
         )
 
-        # Cascade through configured HTTP REST providers, then fallback to SMTP
-        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
-            try:
-                resend_ok = await _send_resend_http(target_email, subject, html)
-                if resend_ok:
-                    return True
-            except Exception as e:
-                logger.warning(f"Resend dispatch failed for {target_email}, attempting fallback: {e}")
-
+        # Cascade through configured HTTP REST providers (Brevo first, then Resend, then SendGrid, then SMTP)
         if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
             try:
                 brevo_ok = await _send_brevo_http(target_email, target_name, subject, html)
@@ -328,6 +322,14 @@ class EmailService:
                     return True
             except Exception as e:
                 logger.warning(f"Brevo dispatch failed for {target_email}, attempting fallback: {e}")
+
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            try:
+                resend_ok = await _send_resend_http(target_email, subject, html)
+                if resend_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Resend dispatch failed for {target_email}, attempting fallback: {e}")
 
         if settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
             try:
@@ -362,15 +364,7 @@ class EmailService:
             code=code,
         )
 
-        # Cascade through configured HTTP REST providers, then fallback to SMTP
-        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
-            try:
-                resend_ok = await _send_resend_http(recipient_email, subject, html)
-                if resend_ok:
-                    return True
-            except Exception as e:
-                logger.warning(f"Resend dispatch failed for {recipient_email}, attempting fallback: {e}")
-
+        # Cascade through configured HTTP REST providers
         if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
             try:
                 brevo_ok = await _send_brevo_http(recipient_email, target_name, subject, html)
@@ -378,6 +372,14 @@ class EmailService:
                     return True
             except Exception as e:
                 logger.warning(f"Brevo dispatch failed for {recipient_email}, attempting fallback: {e}")
+
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            try:
+                resend_ok = await _send_resend_http(recipient_email, subject, html)
+                if resend_ok:
+                    return True
+            except Exception as e:
+                logger.warning(f"Resend dispatch failed for {recipient_email}, attempting fallback: {e}")
 
         if settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
             try:
