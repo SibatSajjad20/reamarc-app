@@ -38,8 +38,8 @@ export function canDeleteLeaveRequest(
   actorRole: UserRole | string | undefined,
   request: Pick<AttendanceRequest, 'user_id' | 'status'>,
 ): boolean {
-  if ((request.status || '').toLowerCase() !== 'pending') return false;
-  if (normalizeRole(actorRole) === 'admin') return true;
+  const role = normalizeRole(actorRole);
+  if (role === 'admin' || role === 'hr' || role === 'operations') return true;
   return Boolean(actorId && request.user_id && actorId === request.user_id);
 }
 

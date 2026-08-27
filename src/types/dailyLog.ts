@@ -226,4 +226,18 @@ export interface OperatingSnapshot {
   open_request_user_ids?: string[];
 }
 
+export interface SubmissionWindowResponse {
+  is_valid: boolean;
+  is_open: boolean;
+  is_not_started?: boolean;
+  is_expired?: boolean;
+  is_off_day?: boolean;
+  off_day_label?: string;
+  window_start?: string;
+  window_end?: string;
+  window_end_formatted?: string;
+  error?: string | null;
+}
+
+
 

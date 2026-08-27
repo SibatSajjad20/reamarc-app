@@ -166,6 +166,11 @@ async def run_evening_log_reminder_check():
         # Check if member submitted an entry today
         has_logged = (uid in logged_user_ids) or (fname_lower in logged_names)
         if not has_logged:
+            from app.services.log_compliance import compute_log_submission_window
+            win = await compute_log_submission_window(uid, today_str, now_dt=now_pk, user_dept=m.get("department"))
+            if not win.get("is_open"):
+                continue
+
             try:
                 await EmailService.send_log_reminder(
                     recipient_email=m["email"],
@@ -232,6 +237,11 @@ async def run_morning_log_reminder_check():
 
         has_logged = (uid in logged_user_ids) or (fname_lower in logged_names)
         if not has_logged:
+            from app.services.log_compliance import compute_log_submission_window
+            win = await compute_log_submission_window(uid, prev_workday_str, now_dt=now_pk, user_dept=m.get("department"))
+            if not win.get("is_open"):
+                continue
+
             try:
                 await EmailService.send_log_reminder(
                     recipient_email=m["email"],

@@ -26,6 +26,7 @@ import type {
   AttendanceRequest,
   RequestType,
   AttendanceRecord,
+  MissedPunchInquiry,
 } from '../../types/attendance';
 import type { AdminMember } from '../../types/admin';
 
@@ -34,6 +35,7 @@ import { DailyAttendanceMatrix } from '../attendance/DailyAttendanceMatrix';
 import { MonthlyPunctualityCommandCenter } from '../attendance/MonthlyPunctualityCommandCenter';
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { ApprovalInboxSection } from '../attendance/ApprovalInboxSection';
+import { MissedCheckoutResponseModal } from '../attendance/MissedCheckoutResponseModal';
 type AdminAttendanceSubTab =
   | 'daily-matrix'
   | 'punctuality-hub'
@@ -100,9 +102,23 @@ export const AttendanceView: React.FC = () => {
   const [requestDefaultTab, setRequestDefaultTab] = useState<RequestType>('leave');
   const [initialRecordForReq, setInitialRecordForReq] = useState<AttendanceRecord | null>(null);
 
+  // Missed Punch Inquiries State (For Employee)
+  const [pendingInquiries, setPendingInquiries] = useState<MissedPunchInquiry[]>([]);
+  const [selectedInquiry, setSelectedInquiry] = useState<MissedPunchInquiry | null>(null);
+  const [isResponseModalOpen, setIsResponseModalOpen] = useState(false);
+
   // ==========================================
   // DATA FETCHING & ORCHESTRATION
   // ==========================================
+
+  const loadPendingInquiries = useCallback(async () => {
+    try {
+      const data = await attendanceService.getMyPendingMissedPunchInquiries();
+      setPendingInquiries(data || []);
+    } catch {
+      setPendingInquiries([]);
+    }
+  }, []);
 
   const loadTimesheet = useCallback(async (y: number, m: number) => {
     try {
@@ -200,11 +216,13 @@ export const AttendanceView: React.FC = () => {
           loadMonthlySummary(selectedYear, selectedMonth),
           loadRequests(),
           loadDirectoryMembers(),
+          loadPendingInquiries(),
         ]);
       } else {
         await Promise.allSettled([
           loadTimesheet(selectedYear, selectedMonth),
           loadRequests(),
+          loadPendingInquiries(),
         ]);
       }
     } finally {
@@ -217,6 +235,7 @@ export const AttendanceView: React.FC = () => {
     loadMonthlySummary,
     loadRequests,
     loadDirectoryMembers,
+    loadPendingInquiries,
     selectedYear,
     selectedMonth,
     matrixDate,
@@ -500,6 +519,39 @@ export const AttendanceView: React.FC = () => {
 
       {/* ── Scrollable Body ─────────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        {/* Actionable Missed Punch Inquiry Banner */}
+        {pendingInquiries.length > 0 && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                  Action Required: Missed Checkout Inquiry ({pendingInquiries.length})
+                </h4>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
+                  HR requested your check-out time for{' '}
+                  <strong className="text-amber-700 dark:text-amber-300 font-mono">
+                    {pendingInquiries.map((i) => i.date).join(', ')}
+                  </strong>
+                  . Submit your check-out time and reason to regularize the shift.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedInquiry(pendingInquiries[0]);
+                setIsResponseModalOpen(true);
+              }}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer"
+            >
+              Submit Checkout
+            </button>
+          </div>
+        )}
+
         {/* VIEW TYPE A: MANAGEMENT ROLE (Admin, HR, Operations) */}
         {isManagementRole ? (
           <>
@@ -595,6 +647,8 @@ export const AttendanceView: React.FC = () => {
                     isLoading={isLoadingTimesheet}
                     readOnly
                     allowHistoryMonths
+                    employeeId={selectedEmployeeId}
+                    canInquireMissedPunch={isAdmin || isHR || isOperations}
                     employeeName={
                       employeeTimesheet?.employee_name ||
                       directoryMembers.find((m) => m.id === selectedEmployeeId)?.full_name
@@ -661,6 +715,19 @@ export const AttendanceView: React.FC = () => {
         }}
         defaultTab={requestDefaultTab}
         initialRecord={initialRecordForReq}
+      />
+
+      <MissedCheckoutResponseModal
+        isOpen={isResponseModalOpen}
+        inquiry={selectedInquiry}
+        onClose={() => {
+          setIsResponseModalOpen(false);
+          setSelectedInquiry(null);
+        }}
+        onSuccess={() => {
+          loadPendingInquiries();
+          loadTimesheet(selectedYear, selectedMonth);
+        }}
       />
     </div>
   );

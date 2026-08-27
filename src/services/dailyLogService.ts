@@ -85,11 +85,16 @@ export const dailyLogService = {
     return apiClient.get<import('../types/dailyLog').DayTarget>(`/daily-log/day-target${q}`);
   },
 
+  async getSubmissionWindow(date: string): Promise<import('../types/dailyLog').SubmissionWindowResponse> {
+    return apiClient.get<import('../types/dailyLog').SubmissionWindowResponse>(`/daily-log/submission-window?date=${encodeURIComponent(date)}`);
+  },
+
   async uploadDeliverableFile(file: File): Promise<{ file_url: string; file_name: string; file_size: number }> {
     const formData = new FormData();
     formData.append('file', file);
     return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>('/daily-log/upload', formData);
   },
 };
+
 
 

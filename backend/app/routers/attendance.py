@@ -3,7 +3,7 @@ Attendance REST API Router.
 Provides endpoints for Check-In, Check-Out, Today's Punch Status, Personal Timesheets,
 HR Daily Attendance Matrix, Monthly Punctuality Command Center, and Security Settings.
 """
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
@@ -20,6 +20,9 @@ from app.schemas.attendance import (
     MonthlyTimesheetResponse,
     SecuritySettingsSchema,
     OverrideAttendanceRequest,
+    MissedPunchInquiryCreate,
+    MissedPunchInquiryRespond,
+    MissedPunchInquiryResponse,
 )
 from app.models.attendance import AttendanceStatus
 from app.schemas.error import ErrorResponse
@@ -363,3 +366,60 @@ async def override_attendance(
         override_data=override_payload.model_dump(),
         admin_user=current_user,
     )
+
+
+# ==============================================================================
+# Missed Punch Inquiries Endpoints
+# ==============================================================================
+
+@router.post("/missed-punch-inquiries", response_model=MissedPunchInquiryResponse)
+async def create_missed_punch_inquiry(
+    inquiry_in: MissedPunchInquiryCreate,
+    current_user: dict = Depends(require_management_role),
+):
+    """HR / Admin creates an inquiry asking an employee for their missed checkout time."""
+    return await attendance_service.create_missed_punch_inquiry(
+        user_id=inquiry_in.user_id,
+        date_str=inquiry_in.date,
+        actor=current_user,
+        note=inquiry_in.note,
+    )
+
+
+@router.get("/missed-punch-inquiries/pending", response_model=List[MissedPunchInquiryResponse])
+async def get_my_pending_inquiries(
+    current_user: dict = Depends(require_internal_user),
+):
+    """Retrieves active pending missed punch inquiries for the authenticated employee."""
+    return await attendance_service.get_pending_inquiries_for_user(current_user["id"])
+
+
+@router.get("/missed-punch-inquiries", response_model=List[MissedPunchInquiryResponse])
+async def get_all_missed_punch_inquiries(
+    user_id: Optional[str] = Query(None, description="Filter by employee user ID"),
+    date: Optional[str] = Query(None, description="Filter by target date (YYYY-MM-DD)"),
+    status: Optional[str] = Query(None, description="Filter by status (pending, resolved, cancelled)"),
+    current_user: dict = Depends(require_management_role),
+):
+    """HR / Admin queries all missed punch inquiries across employees."""
+    return await attendance_service.get_missed_punch_inquiries(
+        user_id=user_id,
+        date_str=date,
+        status_filter=status,
+    )
+
+
+@router.post("/missed-punch-inquiries/{inquiry_id}/respond")
+async def respond_to_missed_punch_inquiry(
+    inquiry_id: str,
+    payload: MissedPunchInquiryRespond,
+    current_user: dict = Depends(require_internal_user),
+):
+    """Employee provides their checkout time and explanation to resolve a missed punch."""
+    return await attendance_service.respond_to_missed_punch_inquiry(
+        inquiry_id=inquiry_id,
+        user_id=current_user["id"],
+        check_out=payload.check_out,
+        reason=payload.reason,
+    )
+

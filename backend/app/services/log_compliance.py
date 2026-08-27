@@ -815,3 +815,146 @@ def primary_exception(score: dict) -> Dict[str, Any]:
         "message": "Daily log not submitted",
         "required_action": "correct",
     }
+
+
+def calculate_48_working_hours_window(
+    target_date_str: str,
+    shift_start_time: str,
+    off_day_index: Any = None,
+    now_dt: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """
+    Computes the submission window for a given date and shift start time under the 48 working-hours rule:
+    1. Window Open = datetime(target_date, shift_start_time, tz=PKT).
+       Logs cannot be entered before Window Open.
+    2. Window Close = Advances 2 full working days (48 working hours) from target_date,
+       skipping Sundays, 1st Saturdays off, and registered Public Holidays.
+    """
+    from app.services.workdays import parse_iso_date, weekday_is_workday
+
+    now = now_dt or datetime.now(PKT)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=PKT)
+
+    target_d = parse_iso_date(target_date_str)
+    if target_d is None:
+        return {
+            "is_valid": False,
+            "is_open": False,
+            "is_expired": True,
+            "error": f"Invalid date: {target_date_str}",
+            "window_start": None,
+            "window_end": None,
+        }
+
+    # Parse shift start time (e.g., "09:30", "14:00", "21:00")
+    start_hour, start_min = 9, 30
+    if shift_start_time and ":" in str(shift_start_time):
+        parts = str(shift_start_time).strip().split(":")
+        try:
+            start_hour, start_min = int(parts[0]), int(parts[1])
+        except (ValueError, TypeError):
+            start_hour, start_min = 9, 30
+
+    window_start = datetime(
+        target_d.year, target_d.month, target_d.day,
+        start_hour, start_min, tzinfo=PKT
+    )
+
+    # Check if target date itself is an off-day (Sundays, 1st Sat, Holidays cannot have daily logs)
+    if off_day_index and not off_day_index.is_workday(target_d):
+        off_info = off_day_index.classify(target_d)
+        return {
+            "is_valid": False,
+            "is_open": False,
+            "is_expired": True,
+            "is_off_day": True,
+            "off_day_label": off_info.label,
+            "error": f"Daily logs cannot be submitted on {off_info.label} ({target_date_str}).",
+            "window_start": window_start.isoformat(),
+            "window_end": None,
+        }
+
+    # Advance 2 full working days (48 working hours):
+    working_days_counted = 0
+    curr_d = target_d + timedelta(days=1)
+    
+    # Step forward day by day until we count 2 working days
+    for _ in range(14):
+        is_work = off_day_index.is_workday(curr_d) if off_day_index else weekday_is_workday(curr_d)
+        if is_work:
+            working_days_counted += 1
+            if working_days_counted == 2:
+                break
+        curr_d += timedelta(days=1)
+
+    window_end = datetime(
+        curr_d.year, curr_d.month, curr_d.day,
+        start_hour, start_min, tzinfo=PKT
+    )
+
+    is_open = window_start <= now <= window_end
+    is_not_started = now < window_start
+    is_expired = now > window_end
+
+    error_msg = None
+    if is_not_started:
+        error_msg = (
+            f"Daily logs for {target_date_str} cannot be entered before your shift starts at "
+            f"{shift_start_time} PKT."
+        )
+    elif is_expired:
+        end_display = window_end.strftime("%A, %d %b at %I:%M %p")
+        error_msg = (
+            f"The 48 working-hour submission window for {target_date_str} expired on {end_display}."
+        )
+
+    return {
+        "is_valid": True,
+        "is_open": is_open,
+        "is_not_started": is_not_started,
+        "is_expired": is_expired,
+        "window_start": window_start.isoformat(),
+        "window_end": window_end.isoformat(),
+        "window_end_formatted": window_end.strftime("%A, %d %b at %I:%M %p"),
+        "error": error_msg,
+    }
+
+
+async def compute_log_submission_window(
+    user_id: str,
+    target_date_str: str,
+    now_dt: Optional[datetime] = None,
+    user_dept: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Resolves shift and calendar off-days for user on target_date_str,
+    returning the window open / close status.
+    """
+    from app.services import attendance_service
+    from app.services.workdays import load_off_day_index, parse_iso_date
+
+    target_d = parse_iso_date(target_date_str)
+    if not target_d:
+        return {
+            "is_valid": False,
+            "is_open": False,
+            "is_expired": True,
+            "error": f"Invalid date: {target_date_str}",
+        }
+
+    shift = await attendance_service.get_shift_for_user(user_id, user_dept, target_date_str)
+    shift_start_time = shift.start_time if shift else "09:30"
+
+    off_index = await load_off_day_index(
+        target_d - timedelta(days=7),
+        target_d + timedelta(days=21),
+    )
+
+    return calculate_48_working_hours_window(
+        target_date_str=target_date_str,
+        shift_start_time=shift_start_time,
+        off_day_index=off_index,
+        now_dt=now_dt,
+    )
+

@@ -68,10 +68,12 @@ async def get_all_or_user_requests(
         return await attendance_service.get_all_leave_requests(
             status_filter=status,
             department=department,
+            viewer_user=current_user,
         )
     return await attendance_service.get_all_leave_requests(
         status_filter=status,
         user_id=current_user.get("id"),
+        viewer_user=current_user,
     )
 
 
@@ -86,6 +88,7 @@ async def get_my_leave_requests(
     return await attendance_service.get_all_leave_requests(
         status_filter=status,
         user_id=current_user.get("id"),
+        viewer_user=current_user,
     )
 
 
@@ -97,7 +100,10 @@ async def get_pending_requests(
     """
     Get all pending leave requests for Admin, HR, and Operations review inbox.
     """
-    return await attendance_service.get_pending_leave_requests(department=department)
+    return await attendance_service.get_pending_leave_requests(
+        department=department,
+        viewer_user=current_user,
+    )
 
 
 @router.patch("/requests/{id}/status", response_model=LeaveResponse)

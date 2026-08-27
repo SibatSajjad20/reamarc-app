@@ -141,22 +141,17 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
     # STEP 1: MISSED PUNCH TRANSITION
     # ──────────────────────────────────────────────────────────
     # Find all records for target_date where check_in is set, check_out is None,
-    # and status is among active/unclosed states.
+    # and record has not yet been marked as missed_punch.
     unclosed_query = {
         "date": target_date,
-        "check_in": {"$ne": None},
+        "$or": [
+            {"check_in": {"$ne": None}},
+            {"punch_in": {"$ne": None}},
+        ],
         "check_out": None,
-        "status": {
-            "$in": [
-                "present",
-                "late",
-                "checked_in",
-                AttendanceStatus.PRESENT.value,
-                AttendanceStatus.LATE.value,
-                "PRESENT",
-                "LATE",
-            ]
-        },
+        "punch_out": None,
+        "is_missed_punch": {"$ne": True},
+        "status": {"$ne": AttendanceStatus.MISSED_PUNCH.value},
     }
 
     try:
@@ -325,15 +320,19 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
 
 async def close_elapsed_shifts_now() -> Dict[str, Any]:
     """
-    Marks employees absent as soon as their shift end time has passed without a check-in.
-    Runs throughout the day so check-in is closed immediately after shift end, not at midnight.
+    Auto-closes elapsed shifts throughout the day:
+    1. Flags unclosed sessions (check_in without check_out) as Missed Punch after shift window closes.
+    2. Marks unpunched employees as Absent after shift end.
+    Runs throughout the day so shift transitions occur promptly rather than only at midnight.
     """
     db = get_database()
     if db is None:
-        return {"success": False, "closed": 0, "error": "Database unavailable"}
+        return {"success": False, "closed": 0, "missed_flagged": 0, "error": "Database unavailable"}
 
     now_pkt = attendance_service.get_now_pkt()
+    now_iso = datetime.now(timezone.utc).isoformat()
     closed = 0
+    missed_flagged = 0
     skipped = 0
     try:
         users = await db.users.find(
@@ -347,9 +346,8 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
             dept = user.get("department")
             for check_date in (today_str, yesterday_str):
                 shift = await attendance_service.get_shift_for_user(uid, dept, check_date)
-                if await attendance_service.is_auto_wfh_for_date(uid, check_date):
-                    skipped += 1
-                    continue
+                is_auto_wfh = await attendance_service.is_auto_wfh_for_date(uid, check_date)
+
                 if not attendance_service.is_shift_window_closed(shift, now_pkt):
                     continue
                 date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
@@ -358,30 +356,69 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
                 if not await is_workday_for_date(date_str):
                     skipped += 1
                     continue
+
                 before = await db.attendance_records.find_one(
                     {"user_id": uid, "date": date_str},
-                    {"_id": 0, "check_in": 1, "punch_in": 1, "status": 1},
+                    {"_id": 0},
                 )
-                if before and (before.get("check_in") or before.get("punch_in")):
+                cin = before.get("check_in") or before.get("punch_in") if before else None
+                cout = before.get("check_out") or before.get("punch_out") if before else None
+
+                # Case 1: Punched in, but never punched out and shift is closed -> Transition to missed punch
+                if cin and not cout:
+                    if not before.get("is_missed_punch") and str(before.get("status")) != AttendanceStatus.MISSED_PUNCH.value:
+                        expected_hours = float(shift.expected_hours) if shift else 8.0
+                        expected_minutes = int(round(expected_hours * 60))
+                        existing_notes = before.get("notes") or ""
+                        updated_notes = (
+                            f"{existing_notes} | Flagged as Missed Punch after shift window closed".strip(" | ")
+                        )
+                        update_doc = {
+                            "status": AttendanceStatus.MISSED_PUNCH.value,
+                            "is_missed_punch": True,
+                            "work_hours": 0.0,
+                            "working_hours_minutes": 0,
+                            "work_duration_formatted": "00:00",
+                            "overtime_hours": 0.0,
+                            "overtime_minutes": 0,
+                            "overtime_formatted": "+00:00",
+                            "undertime_hours": expected_hours,
+                            "undertime_minutes": expected_minutes,
+                            "undertime_formatted": format_minutes_to_hhmm(-expected_minutes, show_sign=True),
+                            "notes": updated_notes,
+                            "updated_at": now_iso,
+                        }
+                        await db.attendance_records.update_one(
+                            {"user_id": uid, "date": date_str},
+                            {"$set": update_doc},
+                        )
+                        missed_flagged += 1
                     continue
-                doc = await attendance_service.persist_auto_absent(
-                    user,
-                    shift,
-                    date_str,
-                    notes="Auto-marked Absent after shift end without check-in",
-                )
-                if doc and str(doc.get("status")) == AttendanceStatus.ABSENT.value and not (
-                    doc.get("check_in") or doc.get("punch_in")
-                ):
-                    if not before or str(before.get("status")) != AttendanceStatus.ABSENT.value:
-                        closed += 1
+
+                # Case 2: Never punched in -> Mark absent (skip auto-WFH)
+                if is_auto_wfh:
+                    skipped += 1
+                    continue
+
+                if not cin and not cout:
+                    doc = await attendance_service.persist_auto_absent(
+                        user,
+                        shift,
+                        date_str,
+                        notes="Auto-marked Absent after shift end without check-in",
+                    )
+                    if doc and str(doc.get("status")) == AttendanceStatus.ABSENT.value and not (
+                        doc.get("check_in") or doc.get("punch_in")
+                    ):
+                        if not before or str(before.get("status")) != AttendanceStatus.ABSENT.value:
+                            closed += 1
     except Exception as e:
         logger.error(f"[Scheduler] Error closing elapsed shifts: {e}")
-        return {"success": False, "closed": closed, "error": str(e)}
+        return {"success": False, "closed": closed, "missed_flagged": missed_flagged, "error": str(e)}
 
-    if closed:
-        logger.info(f"[Scheduler] Closed {closed} elapsed shift(s) as absent.")
-    return {"success": True, "closed": closed, "skipped": skipped}
+    if closed or missed_flagged:
+        logger.info(f"[Scheduler] Closed {closed} elapsed shift(s) as absent, {missed_flagged} as missed punch.")
+    return {"success": True, "closed": closed, "missed_flagged": missed_flagged, "skipped": skipped}
 
 
 def start_attendance_scheduler() -> AsyncIOScheduler:

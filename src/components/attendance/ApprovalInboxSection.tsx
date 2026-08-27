@@ -1091,6 +1091,20 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       Appeal Rejection
                     </button>
                   )}
+
+                {/* Delete Request */}
+                {canDeleteLeaveRequest(user?.id, user?.role, selectedDetailItem) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeletingItem(selectedDetailItem);
+                    }}
+                    className="p-2 rounded-xl text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 dark:hover:text-rose-400 transition-colors cursor-pointer"
+                    title="Delete Request"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                )}
               </div>
             </div>
           </div>

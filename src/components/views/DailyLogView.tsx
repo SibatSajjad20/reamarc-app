@@ -45,7 +45,7 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
 import { useOffDays } from '../../hooks/useOffDays';
 import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
-import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
+import { formatHours, formatSignedHours, isLogDateExpired } from '../../utils/logTimeChecks';
 import { exportDailyLogWorkbook } from '../../utils/dailyLogExcelExport';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
@@ -450,7 +450,7 @@ export const DailyLogView: React.FC = () => {
     return getTodayIso();
   }, [datePreset, customStartDate, customEndDate]);
 
-  const { getOffDay } = useOffDays();
+  const { getOffDay, holidays, workingSaturdays } = useOffDays();
   const viewingSingleDay =
     datePreset === 'today' || (datePreset === 'custom' && customStartDate === customEndDate);
   const viewingOff = getOffDay(bannerDate);
@@ -662,14 +662,24 @@ export const DailyLogView: React.FC = () => {
   };
 
   // Permission check: only the author who logged the entry can edit or delete their own entry
+  // AND the entry must not have exceeded the 48 working-hours submission window
   const canEditEntry = useCallback((entry: DailyLogEntry) => {
     const currentUserId = user?.id;
     const currentUserName = (user?.full_name || user?.name || '').trim().toLowerCase();
     
-    if (entry.user_id && currentUserId && entry.user_id === currentUserId) return true;
-    if (entry.resource_name && currentUserName && entry.resource_name.trim().toLowerCase() === currentUserName) return true;
-    return false;
-  }, [user]);
+    const isAuthor = Boolean(
+      (entry.user_id && currentUserId && entry.user_id === currentUserId) ||
+      (entry.resource_name && currentUserName && entry.resource_name.trim().toLowerCase() === currentUserName)
+    );
+    if (!isAuthor) return false;
+
+    // 48 Working-Hours Expiration Check: hide edit/delete and double-click if expired
+    if (entry.date && isLogDateExpired(entry.date, holidays, workingSaturdays)) {
+      return false;
+    }
+
+    return true;
+  }, [user, holidays, workingSaturdays]);
 
   // Open Edit Modal
   const handleOpenEditModal = (entry: DailyLogEntry) => {

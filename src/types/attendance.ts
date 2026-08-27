@@ -69,6 +69,10 @@ export interface AttendanceRecord {
   distance_meters?: number;
   is_wfh_approved: boolean;
   is_wfh?: boolean;
+  is_missed_punch?: boolean;
+  undertime_formatted?: string;
+  overtime_formatted?: string;
+  work_duration_formatted?: string;
   check_in?: string | null;
   check_out?: string | null;
   is_on_break?: boolean;
@@ -440,3 +444,24 @@ export interface ShiftAssignment {
   weekday_rules?: Record<string, WeekdayShiftRule>;
   date_overrides?: DateShiftOverride[];
 }
+
+export interface MissedPunchInquiry {
+  id: string;
+  user_id: string;
+  employee_name?: string;
+  department?: string;
+  date: string;
+  shift_name?: string;
+  punch_in?: string | null;
+  status: 'pending' | 'resolved' | 'cancelled';
+  requested_by_id?: string;
+  requested_by_name?: string;
+  requested_at?: string;
+  note?: string | null;
+  response_check_out?: string | null;
+  response_reason?: string | null;
+  responded_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+}
+

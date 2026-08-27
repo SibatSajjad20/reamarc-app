@@ -51,12 +51,10 @@ def can_review_leave_request(
 def can_delete_leave_request(
     actor: Mapping[str, Any],
     applicant_id: Optional[str],
-    request_status: Optional[str],
+    request_status: Optional[str] = None,
 ) -> bool:
-    if str(request_status or "").strip().lower() != "pending":
-        return False
     actor_role = normalize_role(actor.get("role"))
-    if actor_role == "admin":
+    if actor_role in ("admin", "hr", "operations"):
         return True
     return bool(actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id))
 
@@ -135,18 +133,13 @@ def assert_can_edit_leave_status(
 def assert_can_delete_leave_request(
     actor: Mapping[str, Any],
     applicant_id: Optional[str],
-    request_status: Optional[str],
+    request_status: Optional[str] = None,
 ) -> None:
     if can_delete_leave_request(actor, applicant_id, request_status):
         return
-    if str(request_status or "").strip().lower() != "pending":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only pending requests can be deleted.",
-        )
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Only the requester or an Admin can delete this request.",
+        detail="You do not have permission to delete this request.",
     )
 
 

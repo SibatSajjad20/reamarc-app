@@ -137,3 +137,92 @@ export const VARIANCE_REASONS: VarianceReasonOption[] = [
   { value: 'other_approved', label: 'Other approved reason' },
   { value: 'unexplained', label: 'Unexplained' },
 ];
+
+export function isLogDateExpired(
+  targetDateStr: string,
+  holidays: Set<string> = new Set(),
+  workingSaturdays: Set<string> = new Set(),
+  shiftStartTime: string = '09:30',
+  now: Date = new Date(),
+): boolean {
+  if (!targetDateStr) return true;
+  const [y, m, d] = targetDateStr.split('-').map(Number);
+  if (!y || !m || !d) return true;
+
+  const [sh, sm] = (shiftStartTime || '09:30').split(':').map(Number);
+  const startHour = Number.isNaN(sh) ? 9 : sh;
+  const startMin = Number.isNaN(sm) ? 30 : sm;
+
+  // Count 2 full working days forward from target date
+  let workingDaysCounted = 0;
+  const checkDate = new Date(y, m - 1, d + 1);
+
+  for (let i = 0; i < 14; i++) {
+    const iso = `${checkDate.getFullYear()}-${String(checkDate.getMonth() + 1).padStart(2, '0')}-${String(checkDate.getDate()).padStart(2, '0')}`;
+    
+    // Check if checkDate is an off day
+    const weekday = checkDate.getDay(); // 0 is Sun, 6 is Sat
+    const isSunday = weekday === 0;
+    const isFirstSaturday = weekday === 6 && checkDate.getDate() <= 7 && !workingSaturdays.has(iso);
+    const isHoliday = holidays.has(iso);
+    const isOff = isSunday || isFirstSaturday || isHoliday;
+
+    if (!isOff) {
+      workingDaysCounted += 1;
+      if (workingDaysCounted === 2) {
+        break;
+      }
+    }
+    checkDate.setDate(checkDate.getDate() + 1);
+  }
+
+  const windowEndDate = new Date(
+    checkDate.getFullYear(),
+    checkDate.getMonth(),
+    checkDate.getDate(),
+    startHour,
+    startMin,
+    0,
+    0,
+  );
+
+  return now.getTime() > windowEndDate.getTime();
+}
+
+export function isLogDateNotStarted(
+  targetDateStr: string,
+  shiftStartTime: string = '09:30',
+  now: Date = new Date(),
+): boolean {
+  if (!targetDateStr) return false;
+  const [y, m, d] = targetDateStr.split('-').map(Number);
+  if (!y || !m || !d) return false;
+
+  const [sh, sm] = (shiftStartTime || '09:30').split(':').map(Number);
+  const startHour = Number.isNaN(sh) ? 9 : sh;
+  const startMin = Number.isNaN(sm) ? 30 : sm;
+
+  const windowStartDate = new Date(y, m - 1, d, startHour, startMin, 0, 0);
+  return now.getTime() < windowStartDate.getTime();
+}
+
+export function getOldestOpenLogDate(
+  holidays: Set<string> = new Set(),
+  workingSaturdays: Set<string> = new Set(),
+  shiftStartTime: string = '09:30',
+  now: Date = new Date(),
+): string {
+  let candidate = new Date(now);
+  let oldest = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  for (let i = 0; i < 14; i++) {
+    const iso = `${candidate.getFullYear()}-${String(candidate.getMonth() + 1).padStart(2, '0')}-${String(candidate.getDate()).padStart(2, '0')}`;
+    const expired = isLogDateExpired(iso, holidays, workingSaturdays, shiftStartTime, now);
+    if (!expired) {
+      oldest = iso;
+    }
+    candidate.setDate(candidate.getDate() - 1);
+  }
+  return oldest;
+}
+

@@ -347,3 +347,35 @@ class SecuritySettingsSchema(BaseModel):
         default=True,
         description="Allow approved WFH requests to bypass IP and GPS checks"
     )
+
+
+class MissedPunchInquiryCreate(BaseModel):
+    user_id: str = Field(..., description="Target employee user ID")
+    date: str = Field(..., description="Target date of missed punch (YYYY-MM-DD)")
+    note: Optional[str] = Field(default=None, description="Optional note from HR")
+
+
+class MissedPunchInquiryRespond(BaseModel):
+    check_out: str = Field(..., description="Employee's checkout time (HH:MM)")
+    reason: str = Field(..., min_length=3, description="Reason for missing checkout")
+
+
+class MissedPunchInquiryResponse(BaseModel):
+    id: str
+    user_id: str
+    employee_name: Optional[str] = None
+    department: Optional[str] = None
+    date: str
+    shift_name: Optional[str] = None
+    punch_in: Optional[str] = None
+    status: str = "pending"  # pending | resolved | cancelled
+    requested_by_id: Optional[str] = None
+    requested_by_name: Optional[str] = None
+    requested_at: Optional[str] = None
+    note: Optional[str] = None
+    response_check_out: Optional[str] = None
+    response_reason: Optional[str] = None
+    responded_at: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+

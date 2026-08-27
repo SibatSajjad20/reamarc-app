@@ -121,6 +121,23 @@ async def _get_recent_workdays(days: int = 7) -> List[str]:
     return await recent_company_workdays(days, start_date=SYSTEM_START_DATE)
 
 
+@router.get("/submission-window")
+async def get_submission_window(
+    date: str = Query(..., description="Target date to check (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Returns whether the current user can create or edit logs for a specific date
+    under the shift-start and 48 working-hours rule.
+    """
+    from app.services.log_compliance import compute_log_submission_window
+    return await compute_log_submission_window(
+        user_id=current_user["id"],
+        target_date_str=date,
+        user_dept=current_user.get("department"),
+    )
+
+
 @router.get("/my-activity", response_model=UserLogActivityResponse)
 async def get_my_log_activity(
     days: int = Query(7, ge=1, le=30, description="Past workdays window to check"),
@@ -168,6 +185,7 @@ async def get_my_log_activity(
         person_day_is_leave,
         person_day_is_due,
         pkt_today,
+        compute_log_submission_window,
     )
 
     leave_days = set()
@@ -188,10 +206,18 @@ async def get_my_log_activity(
             if day == today_pkt and not person_day_is_due(day, today_pkt, target, att):
                 not_due_today = True
 
-    missing = [
+    raw_missing = [
         w for w in workdays
         if w not in submitted_dates and w not in leave_days and not (w == today_iso and not_due_today)
     ]
+
+    # Only include missing dates whose 48 working-hour window is currently active/open
+    missing = []
+    for m_day in raw_missing:
+        win = await compute_log_submission_window(uid, m_day, user_dept=current_user.get("department"))
+        if win.get("is_open"):
+            missing.append(m_day)
+
     logged_today = today_iso in submitted_dates
 
     sorted_submitted = sorted(list(submitted_dates), reverse=True)
@@ -653,6 +679,18 @@ async def create_entry(
                 detail=f"Daily logs cannot be submitted on {day_info.label} ({entry_in.date}).",
             )
 
+        # 48 Working-Hours & Shift-Start Gate (Strict equality, zero exemptions)
+        from app.services.log_compliance import compute_log_submission_window
+        window_res = await compute_log_submission_window(
+            user_id=current_user["id"],
+            target_date_str=entry_in.date,
+            user_dept=current_user.get("department"),
+        )
+        if not window_res.get("is_valid") or not window_res.get("is_open"):
+            err_msg = window_res.get("error") or f"Submission window for {entry_in.date} is closed."
+            err_status = status.HTTP_400_BAD_REQUEST if (window_res.get("is_not_started") or window_res.get("is_off_day")) else status.HTTP_403_FORBIDDEN
+            raise HTTPException(status_code=err_status, detail=err_msg)
+
     # Calculate month sheet dynamically from entry date if available
     date_val = entry_in.date
     if date_val:
@@ -765,6 +803,34 @@ async def update_entry(
     update_data.pop("resource_name", None)
     update_data.pop("role", None)
     update_data.pop("department", None)
+
+    target_uid = existing_entry.get("user_id") or current_user["id"]
+    orig_date = existing_entry.get("date")
+    new_date = update_data.get("date")
+
+    # 48 Working-Hours Expiration Gate for editing (Strict equality, zero exemptions)
+    from app.services.log_compliance import compute_log_submission_window
+    if orig_date:
+        orig_win = await compute_log_submission_window(
+            user_id=target_uid,
+            target_date_str=orig_date,
+            user_dept=existing_entry.get("department") or current_user.get("department"),
+        )
+        if not orig_win.get("is_valid") or not orig_win.get("is_open"):
+            err_msg = orig_win.get("error") or f"The 48 working-hour window for editing {orig_date} has expired."
+            err_status = status.HTTP_400_BAD_REQUEST if (orig_win.get("is_not_started") or orig_win.get("is_off_day")) else status.HTTP_403_FORBIDDEN
+            raise HTTPException(status_code=err_status, detail=err_msg)
+
+    if new_date and new_date != orig_date:
+        new_win = await compute_log_submission_window(
+            user_id=target_uid,
+            target_date_str=new_date,
+            user_dept=existing_entry.get("department") or current_user.get("department"),
+        )
+        if not new_win.get("is_valid") or not new_win.get("is_open"):
+            err_msg = new_win.get("error") or f"The submission window for {new_date} is closed."
+            err_status = status.HTTP_400_BAD_REQUEST if (new_win.get("is_not_started") or new_win.get("is_off_day")) else status.HTTP_403_FORBIDDEN
+            raise HTTPException(status_code=err_status, detail=err_msg)
 
     if "date" in update_data and update_data["date"]:
         today_iso = datetime.now(PKT_TIMEZONE).strftime("%Y-%m-%d")
@@ -903,6 +969,19 @@ async def delete_entry(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
             )
+
+    # 48 Working-Hours Expiration Gate for deleting (Strict equality, zero exemptions)
+    if existing_entry.get("date"):
+        from app.services.log_compliance import compute_log_submission_window
+        win_del = await compute_log_submission_window(
+            user_id=entry_uid or current_user["id"],
+            target_date_str=existing_entry["date"],
+            user_dept=entry_dept or current_user.get("department"),
+        )
+        if not win_del.get("is_valid") or not win_del.get("is_open"):
+            err_msg = win_del.get("error") or f"The 48 working-hour window for {existing_entry['date']} has expired."
+            err_status = status.HTTP_400_BAD_REQUEST if (win_del.get("is_not_started") or win_del.get("is_off_day")) else status.HTTP_403_FORBIDDEN
+            raise HTTPException(status_code=err_status, detail=err_msg)
 
     res = await db.daily_log_entries.delete_one({"id": entry_id})
     if res.deleted_count == 0:

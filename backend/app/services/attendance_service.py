@@ -91,6 +91,7 @@ from app.services.overtime_gate import (
     shift_buffers,
     shift_times,
 )
+from app.services import push_service
 
 logger = logging.getLogger(__name__)
 
@@ -445,6 +446,25 @@ async def _upsert_overtime_request(
             "created_at": now_iso,
         }
     )
+
+    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    try:
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if notify_ids:
+            user_name = user.get("full_name") or user.get("name", "Employee")
+            await push_service.dispatch_to_users(
+                user_ids=notify_ids,
+                title="New Overtime Request 📥",
+                body=f"{user_name} claimed overtime (+{overtime_minutes}m) on {date_str}.",
+                kind="leave_submitted",
+                sender_id=user_id,
+                sender_name=user_name,
+                sender_role=user.get("role"),
+            )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for overtime request %s: %s", req_id, exc)
+
     return req_id
 
 
@@ -2132,6 +2152,47 @@ async def get_my_timesheet(
                 d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
                 d = await _heal_overtime_request_for_record(user, d, rec_shift)
 
+                # Read-time healing for unclosed punches whose shift window has elapsed
+                now_pkt = get_now_pkt()
+                today_str = now_pkt.strftime("%Y-%m-%d")
+                shift_window_passed = (rec_date < today_str) or is_shift_window_closed(rec_shift, now_pkt)
+                if cin and not cout and shift_window_passed and not d.get("is_missed_punch") and str(d.get("status")) != AttendanceStatus.MISSED_PUNCH.value:
+                    exp_h = float(shift_field(rec_shift, "expected_hours", 8.0) or 8.0)
+                    exp_m = int(round(exp_h * 60))
+                    existing_notes = d.get("notes") or ""
+                    updated_notes = f"{existing_notes} | Flagged as Missed Punch after shift window closed".strip(" | ")
+                    d["status"] = AttendanceStatus.MISSED_PUNCH.value
+                    d["is_missed_punch"] = True
+                    d["work_hours"] = 0.0
+                    d["working_hours_minutes"] = 0
+                    d["work_duration_formatted"] = "00:00"
+                    d["overtime_hours"] = 0.0
+                    d["overtime_minutes"] = 0
+                    d["overtime_formatted"] = "+00:00"
+                    d["undertime_hours"] = exp_h
+                    d["undertime_minutes"] = exp_m
+                    d["undertime_formatted"] = format_minutes_to_hhmm(-exp_m, show_sign=True)
+                    d["notes"] = updated_notes
+                    if db is not None:
+                        await db.attendance_records.update_one(
+                            {"user_id": user_id, "date": rec_date},
+                            {"$set": {
+                                "status": AttendanceStatus.MISSED_PUNCH.value,
+                                "is_missed_punch": True,
+                                "work_hours": 0.0,
+                                "working_hours_minutes": 0,
+                                "work_duration_formatted": "00:00",
+                                "overtime_hours": 0.0,
+                                "overtime_minutes": 0,
+                                "overtime_formatted": "+00:00",
+                                "undertime_hours": exp_h,
+                                "undertime_minutes": exp_m,
+                                "undertime_formatted": format_minutes_to_hhmm(-exp_m, show_sign=True),
+                                "notes": updated_notes,
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }}
+                        )
+
             records.append(AttendanceRecordResponse.from_mongo(d))
 
         # Inject synthesized holiday records for holiday dates without punch docs
@@ -2426,7 +2487,12 @@ async def get_daily_matrix(
                     }),
                 )
 
-                if raw_status in keep_status:
+                now_pkt = get_now_pkt()
+                today_str = now_pkt.strftime("%Y-%m-%d")
+                shift_passed = (target_date < today_str) or is_shift_window_closed(raw_shift, now_pkt)
+                if not check_out and shift_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
+                    status_enum = AttendanceStatus.MISSED_PUNCH
+                elif raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
                     status_enum = AttendanceStatus.WFH if is_wfh_flag else calc_res.status
@@ -2860,6 +2926,35 @@ async def get_monthly_punctuality_summary(
     )
 
 
+def _format_request_type_label(req_dict: dict) -> str:
+    lt = str(req_dict.get("leave_type") or req_dict.get("request_type") or "leave").lower()
+    if lt == "wfh":
+        return "WFH"
+    elif lt == "short_leave":
+        return "Short Leave"
+    elif lt in ("missed_punch_regularization", "regularization"):
+        return "Punch Correction"
+    elif lt == "overtime":
+        return "Overtime"
+    elif lt == "sick":
+        return "Sick Leave"
+    elif lt == "casual":
+        return "Casual Leave"
+    elif lt == "annual":
+        return "Annual Leave"
+    elif lt == "unpaid":
+        return "Unpaid Leave"
+    return lt.replace("_", " ").title()
+
+
+def _format_request_date_label(req_dict: dict) -> str:
+    start = req_dict.get("start_date") or req_dict.get("regularization_date") or ""
+    end = req_dict.get("end_date") or start
+    if start and end and start != end:
+        return f"{start} to {end}"
+    return start or "scheduled date"
+
+
 # ──────────────────────────────────────────────────────────
 # 7. LEAVE MANAGEMENT & DYNAMIC SYNCHRONIZATION
 # ──────────────────────────────────────────────────────────
@@ -2935,15 +3030,39 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
 
     await db.leave_requests.insert_one(req_dict)
     created_doc = await db.leave_requests.find_one({"id": req_dict["id"]}, {"_id": 0})
+
+    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    try:
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if notify_ids:
+            type_lbl = _format_request_type_label(req_dict)
+            date_lbl = _format_request_date_label(req_dict)
+            await push_service.dispatch_to_users(
+                user_ids=notify_ids,
+                title=f"New {type_lbl} Request 📥",
+                body=f"{user_name} submitted a {type_lbl.lower()} request for {date_lbl}.",
+                kind="leave_submitted",
+                sender_id=user_id,
+                sender_name=user_name,
+                sender_role=req_dict.get("user_role"),
+            )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for submitted request %s: %s", req_dict.get("id"), exc)
+
     return LeaveResponse(**created_doc)
 
 
-async def get_user_leave_requests(user_id: str) -> List[LeaveResponse]:
+async def get_user_leave_requests(user_id: str, viewer_user: Optional[dict] = None) -> List[LeaveResponse]:
     """Retrieves all leave requests submitted by a specific user."""
     db = get_database()
     if db is None:
         return []
-    docs = await db.leave_requests.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    query: Dict[str, Any] = {"user_id": user_id}
+    viewer_id = str(viewer_user.get("id") or viewer_user.get("_id") or "") if viewer_user else user_id
+    if viewer_id:
+        query["hidden_from_user_ids"] = {"$ne": viewer_id}
+    docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
@@ -2953,10 +3072,11 @@ async def get_all_leave_requests(
     status_filter: Optional[str] = None,
     department: Optional[str] = None,
     user_id: Optional[str] = None,
+    viewer_user: Optional[dict] = None,
 ) -> List[LeaveResponse]:
     """
     Retrieves leave requests across all statuses (pending, approved, rejected).
-    Supports filtering by status, department, or user_id.
+    Supports filtering by status, department, user_id, and viewer scope.
     """
     db = get_database()
     if db is None:
@@ -2970,13 +3090,38 @@ async def get_all_leave_requests(
     if department and department.lower() not in ("all", ""):
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}
 
+    # Scoped visibility / view clearing
+    if viewer_user:
+        viewer_id = str(viewer_user.get("id") or viewer_user.get("_id") or "")
+        viewer_role = str(viewer_user.get("role") or "team_member").lower()
+
+        if viewer_role == "admin":
+            # Admin sees all requests unless Admin explicitly deleted it
+            query["hidden_from_admin"] = {"$ne": True}
+        elif viewer_role in ("hr", "operations"):
+            # When viewing organization-wide inbox (no specific user_id query)
+            if not user_id:
+                query["hidden_from_hr"] = {"$ne": True}
+            elif user_id == viewer_id:
+                # HR viewing their own personal requests tab
+                query["hidden_from_user_ids"] = {"$ne": viewer_id}
+            else:
+                query["hidden_from_hr"] = {"$ne": True}
+        else:
+            # Regular employee viewing their personal requests
+            if viewer_id:
+                query["hidden_from_user_ids"] = {"$ne": viewer_id}
+
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(300)
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
 
 
-async def get_pending_leave_requests(department: Optional[str] = None) -> List[LeaveResponse]:
+async def get_pending_leave_requests(
+    department: Optional[str] = None,
+    viewer_user: Optional[dict] = None,
+) -> List[LeaveResponse]:
     """Retrieves all pending and appealed leave requests for HR / Lead / Admin approval inbox."""
     db = get_database()
     if db is None:
@@ -2985,6 +3130,13 @@ async def get_pending_leave_requests(department: Optional[str] = None) -> List[L
     query: Dict[str, Any] = {"status": {"$in": [LeaveStatus.PENDING.value, LeaveStatus.APPEALED.value]}}
     if department and department.lower() != "all":
         query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+
+    if viewer_user:
+        viewer_role = str(viewer_user.get("role") or "team_member").lower()
+        if viewer_role == "admin":
+            query["hidden_from_admin"] = {"$ne": True}
+        elif viewer_role in ("hr", "operations"):
+            query["hidden_from_hr"] = {"$ne": True}
 
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
     await _attach_original_punches(docs)
@@ -3532,6 +3684,47 @@ async def review_leave_request(
         now_iso=now_iso,
     )
 
+    # Dispatch mobile push notification to the applicant
+    try:
+        applicant_id = existing.get("user_id")
+        if applicant_id:
+            type_lbl = _format_request_type_label(existing)
+            date_lbl = _format_request_date_label(existing)
+
+            if new_status == LeaveStatus.APPROVED:
+                title = f"{type_lbl} Approved ✅"
+                body = f"Your {type_lbl.lower()} request for {date_lbl} has been approved by {reviewer_name}."
+                if review_data.review_comments:
+                    body += f" Note: {review_data.review_comments}"
+                kind = "leave_approved"
+            elif new_status == LeaveStatus.REJECTED:
+                title = f"{type_lbl} Rejected ❌"
+                body = f"Your {type_lbl.lower()} request for {date_lbl} was rejected by {reviewer_name}."
+                if review_data.rejection_reason:
+                    body += f" Reason: {review_data.rejection_reason}"
+                kind = "leave_rejected"
+            elif new_status == LeaveStatus.NEEDS_INFO:
+                title = f"Info Requested on {type_lbl} ℹ️"
+                prompt_text = review_data.clarification_prompt or "Please provide more details."
+                body = f"{reviewer_name} requested information for your {type_lbl.lower()} request on {date_lbl}: {prompt_text}"
+                kind = "leave_needs_info"
+            else:
+                title = f"{type_lbl} Status Updated"
+                body = f"Your {type_lbl.lower()} request status was set to {new_status.value}."
+                kind = "leave_status_update"
+
+            await push_service.dispatch_to_users(
+                user_ids=[applicant_id],
+                title=title,
+                body=body,
+                kind=kind,
+                sender_id=reviewer_id,
+                sender_name=reviewer_name,
+                sender_role=reviewer_role,
+            )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for reviewed request %s: %s", request_id, exc)
+
     return LeaveResponse(**result)
 
 
@@ -3587,6 +3780,27 @@ async def submit_leave_clarification(
         projection={"_id": 0},
         return_document=True,
     )
+
+    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    try:
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if notify_ids:
+            type_lbl = _format_request_type_label(existing)
+            date_lbl = _format_request_date_label(existing)
+            applicant_name = current_user.get("full_name") or current_user.get("name", "Employee")
+            await push_service.dispatch_to_users(
+                user_ids=notify_ids,
+                title=f"{type_lbl} Clarification Submitted 💬",
+                body=f"{applicant_name} replied to clarification for {type_lbl.lower()} request on {date_lbl}: {clarification_response}",
+                kind="leave_clarified",
+                sender_id=user_id,
+                sender_name=applicant_name,
+                sender_role=current_user.get("role"),
+            )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for clarification %s: %s", request_id, exc)
+
     return LeaveResponse(**result)
 
 
@@ -3648,6 +3862,27 @@ async def submit_leave_appeal(
         projection={"_id": 0},
         return_document=True,
     )
+
+    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    try:
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if notify_ids:
+            type_lbl = _format_request_type_label(existing)
+            date_lbl = _format_request_date_label(existing)
+            applicant_name = current_user.get("full_name") or current_user.get("name", "Employee")
+            await push_service.dispatch_to_users(
+                user_ids=notify_ids,
+                title=f"{type_lbl} Appeal Submitted ⚖️",
+                body=f"{applicant_name} appealed the decision on their {type_lbl.lower()} request for {date_lbl}: {appeal_reason}",
+                kind="leave_appealed",
+                sender_id=user_id,
+                sender_name=applicant_name,
+                sender_role=current_user.get("role"),
+            )
+    except Exception as exc:
+        logger.warning("Failed to dispatch push notification for appeal %s: %s", request_id, exc)
+
     return LeaveResponse(**result)
 
 
@@ -3719,10 +3954,16 @@ async def edit_leave_request_status(
 
 async def delete_leave_request(request_id: str, current_user: dict) -> bool:
     """
-    Deletes a pending leave, WFH, short leave, or regularization request.
-    Allowed for the applicant withdrawing their own request, or Admin.
-    HR and Operations cannot delete someone else's request.
-    Idempotent: returns True if request was already deleted.
+    Deletes or hides a leave/WFH/regularization/overtime request:
+    1. Pending / In-Flight requests ('pending', 'appealed', 'needs_info'):
+       - Completely hard deleted from the database so it is cancelled and removed
+         from ALL views (Applicant, HR, Operations, Admin).
+    2. Resolved requests ('approved', 'rejected', 'cancelled'):
+       - If deleted by Applicant / Employee: Hidden ONLY from that applicant's view (added to `hidden_from_user_ids`).
+         HR, Operations, and Admin STILL SEE IT in their approvals/audit log.
+       - If deleted by HR / Operations: Hidden from HR/Operations view (`hidden_from_hr: True`).
+         Admin STILL SEES IT (Admin retains master audit visibility).
+       - If deleted by Admin: Hidden from Admin view (`hidden_from_admin: True`).
     """
     db = get_database()
     if db is None:
@@ -3740,7 +3981,54 @@ async def delete_leave_request(request_id: str, current_user: dict) -> bool:
         existing.get("status"),
     )
 
-    await db.leave_requests.delete_one({"id": request_id})
+    req_status = str(existing.get("status") or "").lower()
+    actor_role = str(current_user.get("role") or "team_member").lower()
+    actor_id_str = str(current_user.get("id") or current_user.get("_id") or "")
+    applicant_id_str = str(existing.get("user_id") or "")
+
+    is_in_flight = req_status in (
+        LeaveStatus.PENDING.value,
+        LeaveStatus.APPEALED.value,
+        LeaveStatus.NEEDS_INFO.value,
+        "pending",
+        "appealed",
+        "needs_info",
+    )
+
+    if is_in_flight:
+        # In-flight request withdrawn/cancelled before completion: hard delete from everyone's view
+        await db.leave_requests.delete_one({"id": request_id})
+        return True
+
+    # Resolved requests: Role-scoped view clearing
+    if actor_role == "admin":
+        await db.leave_requests.update_one(
+            {"id": request_id},
+            {"$set": {"hidden_from_admin": True}},
+        )
+    elif actor_role in ("hr", "operations"):
+        # If HR is deleting their own submitted request from My Requests
+        if actor_id_str == applicant_id_str:
+            await db.leave_requests.update_one(
+                {"id": request_id},
+                {
+                    "$addToSet": {"hidden_from_user_ids": actor_id_str},
+                    "$set": {"hidden_from_hr": True},
+                },
+            )
+        else:
+            # HR deleting someone else's request from HR Approvals view
+            await db.leave_requests.update_one(
+                {"id": request_id},
+                {"$set": {"hidden_from_hr": True}},
+            )
+    else:
+        # Regular employee deleting from My Requests tab
+        await db.leave_requests.update_one(
+            {"id": request_id},
+            {"$addToSet": {"hidden_from_user_ids": actor_id_str}},
+        )
+
     return True
 
 
@@ -4045,3 +4333,270 @@ async def delete_calendar_event(event_id: str) -> dict:
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail=f"Calendar event '{event_id}' not found")
     return {"message": f"Calendar event '{event_id}' deleted successfully", "id": event_id}
+
+
+# ==============================================================================
+# Missed Punch Inquiries (HR Ask Checkout & Employee Response)
+# ==============================================================================
+
+async def create_missed_punch_inquiry(
+    user_id: str,
+    date_str: str,
+    actor: dict,
+    note: Optional[str] = None,
+) -> dict:
+    """HR dispatches an inquiry to an employee who missed punch out on date_str."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not user_doc:
+        raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    employee_name = user_doc.get("full_name") or user_doc.get("name", "Employee")
+    department = user_doc.get("department", "")
+
+    att_rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str}, {"_id": 0})
+    shift = await get_shift_for_user(user_id, department, date_str)
+
+    punch_in = None
+    shift_name = shift.name if shift else "Standard Shift"
+    if att_rec:
+        punch_in = att_rec.get("punch_in") or att_rec.get("check_in")
+        shift_name = att_rec.get("shift_name") or shift_name
+
+    today_pkt = get_now_pkt().strftime("%Y-%m-%d")
+    is_missed = False
+    if att_rec:
+        is_missed = bool(att_rec.get("is_missed_punch") or att_rec.get("status") == "missed_punch")
+        if not is_missed and date_str < today_pkt and (att_rec.get("punch_in") or att_rec.get("check_in")) and not (att_rec.get("punch_out") or att_rec.get("check_out")):
+            is_missed = True
+
+    if not is_missed and date_str >= today_pkt:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot request checkout for today's ongoing shift.",
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    existing = await db.missed_punch_inquiries.find_one(
+        {"user_id": user_id, "date": date_str, "status": "pending"},
+        {"_id": 0},
+    )
+    if existing:
+        return existing
+
+    inq_doc = {
+        "id": f"inq_{uuid.uuid4().hex[:12]}",
+        "user_id": user_id,
+        "employee_name": employee_name,
+        "department": department,
+        "date": date_str,
+        "shift_name": shift_name,
+        "punch_in": punch_in,
+        "status": "pending",
+        "requested_by_id": actor.get("id"),
+        "requested_by_name": actor.get("full_name") or actor.get("name", "HR"),
+        "requested_at": now_iso,
+        "note": note,
+        "response_check_out": None,
+        "response_reason": None,
+        "responded_at": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+
+    await db.missed_punch_inquiries.insert_one(inq_doc)
+
+    try:
+        from app.services.email_service import EmailService
+        if user_doc.get("email"):
+            msg = (
+                f"HR ({inq_doc['requested_by_name']}) has requested your check-out time and reason "
+                f"for {date_str} ({shift_name}, punch in: {punch_in or 'N/A'}). "
+                f"Please open your attendance dashboard to submit your check-out."
+            )
+            await EmailService.send_log_reminder(
+                recipient_email=user_doc["email"],
+                recipient_name=employee_name,
+                missing_dates=[date_str],
+                custom_message=msg,
+            )
+    except Exception as e:
+        logger.warning(f"Failed to send email notification for inquiry {inq_doc['id']}: {e}")
+
+    # Dispatch mobile push notification to the employee's phone
+    try:
+        hr_name = inq_doc.get("requested_by_name") or "HR"
+        body_text = f"{hr_name} requested your check-out time and explanation for missed punch on {date_str} ({shift_name})."
+        if note:
+            body_text += f" Note: {note}"
+        await push_service.dispatch_to_users(
+            user_ids=[user_id],
+            title="Missed Checkout Inquiry ⚠️",
+            body=body_text,
+            kind="missed_punch_inquiry",
+            sender_id=actor.get("id"),
+            sender_name=hr_name,
+            sender_role=actor.get("role"),
+        )
+    except Exception as e:
+        logger.warning(f"Failed to send mobile push notification for inquiry {inq_doc['id']}: {e}")
+
+    return inq_doc
+
+
+async def get_pending_inquiries_for_user(user_id: str) -> List[dict]:
+    """Returns active pending missed punch inquiries for the authenticated employee."""
+    db = get_database()
+    if db is None:
+        return []
+    cursor = db.missed_punch_inquiries.find({"user_id": user_id, "status": "pending"}, {"_id": 0}).sort("date", -1)
+    return await cursor.to_list(length=100)
+
+
+async def get_missed_punch_inquiries(
+    user_id: Optional[str] = None,
+    date_str: Optional[str] = None,
+    status_filter: Optional[str] = None,
+) -> List[dict]:
+    """HR query for missed punch inquiries."""
+    db = get_database()
+    if db is None:
+        return []
+    query: Dict[str, Any] = {}
+    if user_id:
+        query["user_id"] = user_id
+    if date_str:
+        query["date"] = date_str
+    if status_filter:
+        query["status"] = status_filter
+    cursor = db.missed_punch_inquiries.find(query, {"_id": 0}).sort("date", -1)
+    return await cursor.to_list(length=200)
+
+
+async def respond_to_missed_punch_inquiry(
+    inquiry_id: str,
+    user_id: str,
+    check_out: str,
+    reason: str,
+) -> dict:
+    """Employee provides their missing checkout time and explanation."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    inq = await db.missed_punch_inquiries.find_one({"id": inquiry_id}, {"_id": 0})
+    if not inq:
+        raise HTTPException(status_code=404, detail=f"Inquiry '{inquiry_id}' not found")
+
+    if inq.get("user_id") != user_id:
+        raise HTTPException(status_code=403, detail="You are not authorized to respond to this inquiry")
+
+    if inq.get("status") != "pending":
+        raise HTTPException(status_code=400, detail=f"This inquiry is already {inq.get('status')}")
+
+    target_date = inq.get("date")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
+    dept = (user_doc or {}).get("department", "")
+    shift = await get_shift_for_user(user_id, dept, target_date)
+    existing_rec = await db.attendance_records.find_one({"user_id": user_id, "date": target_date}, {"_id": 0})
+
+    punch_in = (existing_rec.get("punch_in") or existing_rec.get("check_in")) if existing_rec else shift.start_time
+    punch_out = check_out.strip()
+
+    _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+        punch_in,
+        punch_out,
+        shift,
+        auto_approve=True,
+    )
+    hour_fields = settled_to_record_fields(settled)
+    preview = calculate_daily_attendance(
+        check_in_time=punch_in,
+        check_out_time=punch_out,
+        **shift_calc_kwargs(shift),
+    )
+
+    is_wfh = bool((existing_rec or {}).get("is_wfh") or (existing_rec or {}).get("status") == "wfh")
+    final_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if preview.is_late else AttendanceStatus.PRESENT.value)
+
+    att_doc = {
+        "id": (existing_rec or {}).get("id") or f"att_{user_id}_{target_date}",
+        "user_id": user_id,
+        "user_name": (user_doc or {}).get("full_name") or (user_doc or {}).get("name", "Employee"),
+        "employee_name": (user_doc or {}).get("full_name") or (user_doc or {}).get("name", "Employee"),
+        "department": dept,
+        "date": target_date,
+        "shift_id": shift.id,
+        "shift_name": shift.name,
+        "check_in": punch_in,
+        "check_out": punch_out,
+        "punch_in": punch_in,
+        "punch_out": punch_out,
+        "break_minutes": shift.break_duration_minutes,
+        **hour_fields,
+        "late_minutes": preview.late_minutes,
+        "is_late": preview.is_late,
+        "late_strike": preview.late_strike,
+        "status": final_status,
+        "is_wfh": is_wfh,
+        "is_missed_punch": False,
+        "notes": f"Checkout provided upon HR inquiry: {reason}",
+        "undertime_reason": reason if hour_fields.get("undertime_minutes", 0) > 0 else None,
+        "created_at": (existing_rec or {}).get("created_at") or now_iso,
+        "updated_at": now_iso,
+    }
+
+    await db.attendance_records.update_one(
+        {"user_id": user_id, "date": target_date},
+        {"$set": att_doc},
+        upsert=True,
+    )
+
+    await db.missed_punch_inquiries.update_one(
+        {"id": inquiry_id},
+        {
+            "$set": {
+                "status": "resolved",
+                "response_check_out": punch_out,
+                "response_reason": reason,
+                "responded_at": now_iso,
+                "updated_at": now_iso,
+            }
+        },
+    )
+
+    try:
+        from app.services.log_compliance import recompute_day_score
+        await recompute_day_score(user_id, target_date, actor=user_doc)
+    except Exception as err:
+        logger.warning(f"Failed to recompute daily log score after inquiry response: {err}")
+
+    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    try:
+        hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
+        notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
+        if notify_ids:
+            applicant_name = (user_doc or {}).get("full_name") or (user_doc or {}).get("name", "Employee")
+            await push_service.dispatch_to_users(
+                user_ids=notify_ids,
+                title="Missed Checkout Regularized ✅",
+                body=f"{applicant_name} provided check-out time ({punch_out}) and reason for {target_date}: {reason}",
+                kind="missed_punch_resolved",
+                sender_id=user_id,
+                sender_name=applicant_name,
+                sender_role=(user_doc or {}).get("role"),
+            )
+    except Exception as e:
+        logger.warning(f"Failed to dispatch push notification for resolved inquiry {inquiry_id}: {e}")
+
+    return {
+        "message": "Checkout time submitted and attendance successfully regularized.",
+        "attendance_record": att_doc,
+    }
+

@@ -186,3 +186,17 @@ async def mark_sent(user_id: str, date_str: str, kind: str) -> None:
         },
         upsert=True,
     )
+
+
+async def get_hr_and_ops_user_ids() -> List[str]:
+    """Fetch user IDs of active HR and Operations users (strictly excluding admin)."""
+    db = get_database()
+    if db is None:
+        return []
+    cursor = db.users.find(
+        {"role": {"$in": ["hr", "operations"]}, "is_active": {"$ne": False}},
+        {"id": 1, "_id": 0},
+    )
+    docs = await cursor.to_list(100)
+    return [d["id"] for d in docs if d.get("id")]
+

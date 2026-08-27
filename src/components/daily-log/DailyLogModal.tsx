@@ -26,7 +26,7 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
-import { findDuplicate } from '../../utils/logTimeChecks';
+import { findDuplicate, isLogDateExpired, isLogDateNotStarted, getOldestOpenLogDate } from '../../utils/logTimeChecks';
 
 interface DailyLogModalProps {
   isOpen: boolean;
@@ -69,7 +69,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 }) => {
   const { workspaces } = useWorkspaces();
   const { addToast } = useToast();
-  const { isOffDay, lastWorkday, getOffDay } = useOffDays();
+  const { isOffDay, lastWorkday, getOffDay, holidays, workingSaturdays } = useOffDays();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const getTodayIso = () => {
@@ -80,7 +80,22 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     return `${year}-${month}-${day}`;
   };
 
+  const minOpenDate = useMemo(() => {
+    return getOldestOpenLogDate(holidays, workingSaturdays);
+  }, [holidays, workingSaturdays]);
+
   const [date, setDate] = useState<string>(getTodayIso());
+
+  const isCurrentDateExpired = useMemo(() => {
+    return isLogDateExpired(date, holidays, workingSaturdays);
+  }, [date, holidays, workingSaturdays]);
+
+  const isCurrentDateNotStarted = useMemo(() => {
+    return isLogDateNotStarted(date);
+  }, [date]);
+
+  const isDateInvalid = isCurrentDateExpired || isCurrentDateNotStarted;
+
   const [resourceName, setResourceName] = useState<string>('');
   const [role, setRole] = useState<string>('');
   const [department, setDepartment] = useState<string>('');
@@ -324,6 +339,15 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       return;
     }
 
+    if (isDateInvalid) {
+      if (isCurrentDateExpired) {
+        setErrorMessage(`The 48 working-hour submission window for ${date} has expired.`);
+      } else {
+        setErrorMessage(`Daily logs for ${date} cannot be entered before your shift starts.`);
+      }
+      return;
+    }
+
     if (!taskDescription.trim()) {
       setErrorMessage('Task description is required.');
       return;
@@ -486,6 +510,20 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
             </div>
           )}
 
+          {/* 48 Working Hours Expiry / Shift Start Warning Banners */}
+          {isCurrentDateExpired && (
+            <div className="mb-4 p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>The 48 working-hour submission window for {date} has expired. Logs for this date are locked.</span>
+            </div>
+          )}
+          {isCurrentDateNotStarted && (
+            <div className="mb-4 p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-xl text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-amber-500" />
+              <span>Daily logs for {date} cannot be entered before your shift starts.</span>
+            </div>
+          )}
+
           {/* Row 1: Date (Selectable Past & Today) & Resource Name & Role */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div>
@@ -500,8 +538,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
               </label>
               <CustomDatePicker
                 value={date}
-                onChange={(val) => setDate(val || lastWorkday(getTodayIso(), '2026-08-19'))}
-                minDate="2026-08-19"
+                onChange={(val) => setDate(val || lastWorkday(getTodayIso(), minOpenDate))}
+                minDate={minOpenDate}
                 maxDate={getTodayIso()}
                 placeholder="Select log date..."
                 offDayMode="disable"
@@ -886,7 +924,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isDateInvalid}
             className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer disabled:cursor-not-allowed select-none"
           >
             {isSubmitting ? (

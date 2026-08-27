@@ -299,6 +299,54 @@ class AttendanceService {
   ): Promise<LeaveBalance> {
     return apiClient.put<LeaveBalance>(`/leaves/balances/${encodeURIComponent(userId)}`, payload);
   }
+
+  /**
+   * HR dispatches an inquiry asking an employee for their missed checkout time
+   */
+  public async createMissedPunchInquiry(payload: {
+    user_id: string;
+    date: string;
+    note?: string;
+  }): Promise<import('../types/attendance').MissedPunchInquiry> {
+    return apiClient.post<import('../types/attendance').MissedPunchInquiry>('/attendance/missed-punch-inquiries', payload);
+  }
+
+  /**
+   * Retrieves pending missed punch inquiries for current user
+   */
+  public async getMyPendingMissedPunchInquiries(): Promise<import('../types/attendance').MissedPunchInquiry[]> {
+    return apiClient.get<import('../types/attendance').MissedPunchInquiry[]>('/attendance/missed-punch-inquiries/pending');
+  }
+
+  /**
+   * HR queries all missed punch inquiries
+   */
+  public async getMissedPunchInquiries(params?: {
+    user_id?: string;
+    date?: string;
+    status?: string;
+  }): Promise<import('../types/attendance').MissedPunchInquiry[]> {
+    const query = new URLSearchParams();
+    if (params?.user_id) query.append('user_id', params.user_id);
+    if (params?.date) query.append('date', params.date);
+    if (params?.status) query.append('status', params.status);
+    const qs = query.toString() ? `?${query.toString()}` : '';
+    return apiClient.get<import('../types/attendance').MissedPunchInquiry[]>(`/attendance/missed-punch-inquiries${qs}`);
+  }
+
+  /**
+   * Employee responds to missed punch inquiry with checkout time and explanation
+   */
+  public async respondToMissedPunchInquiry(
+    inquiryId: string,
+    payload: { check_out: string; reason: string }
+  ): Promise<{ message: string; attendance_record: AttendanceRecord }> {
+    return apiClient.post<{ message: string; attendance_record: AttendanceRecord }>(
+      `/attendance/missed-punch-inquiries/${inquiryId}/respond`,
+      payload
+    );
+  }
 }
 
 export const attendanceService = new AttendanceService();
+

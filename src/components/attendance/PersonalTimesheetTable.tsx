@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   Loader2,
+  Send,
+  Clock,
 } from 'lucide-react';
 import type {
   AttendanceRecord,
@@ -13,6 +15,8 @@ import type {
   AttendanceStatus,
 } from '../../types/attendance';
 import { getAugust2026StartDay } from '../../constants/attendance';
+import { attendanceService } from '../../services/attendanceService';
+import { useToast } from '../../context/ToastContext';
 
 interface PersonalTimesheetTableProps {
   records: AttendanceRecord[];
@@ -22,6 +26,8 @@ interface PersonalTimesheetTableProps {
   onYearMonthChange: (year: number, month: number) => void;
   isLoading?: boolean;
   employeeName?: string;
+  employeeId?: string;
+  canInquireMissedPunch?: boolean;
   readOnly?: boolean;
   onOpenRegularizationModal?: (record?: AttendanceRecord) => void;
   allowHistoryMonths?: boolean;
@@ -50,10 +56,53 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
   onYearMonthChange,
   isLoading = false,
   employeeName,
+  employeeId,
+  canInquireMissedPunch = false,
   readOnly = false,
   onOpenRegularizationModal,
   allowHistoryMonths = false,
 }) => {
+  const { addToast } = useToast();
+  const [inquiredDates, setInquiredDates] = useState<Set<string>>(new Set());
+  const [inquiryLoadingDate, setInquiryLoadingDate] = useState<string | null>(null);
+
+  // Fetch active inquiries for this employee if HR/Admin
+  useEffect(() => {
+    if (!employeeId || !canInquireMissedPunch) return;
+    attendanceService
+      .getMissedPunchInquiries({ user_id: employeeId, status: 'pending' })
+      .then((inquiries) => {
+        const dates = new Set(inquiries.map((i) => i.date));
+        setInquiredDates(dates);
+      })
+      .catch(() => {});
+  }, [employeeId, canInquireMissedPunch, selectedYear, selectedMonth]);
+
+  const handleInquireMissedCheckout = async (targetDate: string, _record?: AttendanceRecord) => {
+    if (!employeeId || inquiryLoadingDate) return;
+    setInquiryLoadingDate(targetDate);
+    try {
+      await attendanceService.createMissedPunchInquiry({
+        user_id: employeeId,
+        date: targetDate,
+        note: 'Requested by HR via Monthly Timesheet',
+      });
+      setInquiredDates((prev) => new Set([...prev, targetDate]));
+      addToast(
+        'Inquiry Dispatched',
+        `Prompted ${employeeName || 'employee'} to provide checkout time and reason for ${targetDate}.`,
+        'success'
+      );
+    } catch (err: any) {
+      addToast(
+        'Failed to Send Inquiry',
+        err.response?.data?.detail || err.message || 'Could not dispatch inquiry.',
+        'error'
+      );
+    } finally {
+      setInquiryLoadingDate(null);
+    }
+  };
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -154,6 +203,12 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
             <AlertTriangle className="w-3 h-3" /> Late (+{lateMin}m)
+          </span>
+        );
+      case 'missed_punch':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+            <AlertTriangle className="w-3 h-3" /> Missed Punch
           </span>
         );
       case 'wfh':
@@ -332,7 +387,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 <th className="py-3 px-4">Overtime</th>
                 <th className="py-3 px-4">Undertime</th>
                 <th className="py-3 px-4">Status Tag</th>
-                {!readOnly && <th className="py-3 px-4 text-right">Action</th>}
+                {(!readOnly || (canInquireMissedPunch && employeeId)) && (
+                  <th className="py-3 px-4 text-right">Action</th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
@@ -352,9 +409,12 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 const breakMin = record?.break_minutes ?? (record as any)?.break_duration_minutes ?? null;
                 const isLate = record?.is_late || false;
                 const lateMin = record?.late_minutes || 0;
+                const isMissedPunch = Boolean(record?.is_missed_punch || record?.status === 'missed_punch');
 
                 let status = record?.status || defaultStatus;
-                if (punchIn && (status === 'absent' || status === 'not_punched')) {
+                if (isMissedPunch) {
+                  status = 'missed_punch';
+                } else if (punchIn && (status === 'absent' || status === 'not_punched')) {
                   status = isLate ? 'late' : 'present';
                 } else if (!punchIn && status === 'absent' && !isOffDay) {
                   status = 'not_punched';
@@ -364,7 +424,10 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 let otDisplay = '-';
                 let utDisplay = '-';
 
-                if (!isOffDay && record && punchIn && punchOut) {
+                if (!isOffDay && record && isMissedPunch) {
+                  otDisplay = '+00:00';
+                  utDisplay = record.undertime_formatted || '-08:00';
+                } else if (!isOffDay && record && punchIn && punchOut) {
                   if (record.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0) {
                     const otH = Math.floor((record.pending_overtime_minutes || 0) / 60);
                     const otM = (record.pending_overtime_minutes || 0) % 60;
@@ -392,7 +455,9 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 // Effective hours
                 let effHours = '-';
                 if (record && punchIn) {
-                  if (!punchOut) {
+                  if (isMissedPunch) {
+                    effHours = '0h 00m';
+                  } else if (!punchOut) {
                     effHours = 'In Progress';
                   } else {
                     const totalMins = record.working_hours_minutes || ((record as any).work_hours ? Math.round((record as any).work_hours * 60) : 0);
@@ -442,6 +507,8 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     <td className="py-3 px-4 whitespace-nowrap">
                       {punchOut ? (
                         <span className="font-mono text-zinc-800 dark:text-zinc-200">{punchOut}</span>
+                      ) : isMissedPunch ? (
+                        <span className="text-rose-600 dark:text-rose-400 font-medium">Missed</span>
                       ) : punchIn ? (
                         <span className="text-emerald-600 dark:text-emerald-400 font-semibold animate-pulse">● Active</span>
                       ) : (
@@ -508,29 +575,58 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                       {renderStatusBadge(status, lateMin)}
                     </td>
 
-                    {/* Regularization Action */}
-                    {!readOnly && (
-                    <td className="py-3 px-4 text-right whitespace-nowrap">
-                      {isOffDay ? (
-                        <span className="text-zinc-400">-</span>
-                      ) : status === 'missed_punch' || (record?.punch_in && !record?.punch_out) ? (
-                        <button
-                          type="button"
-                          onClick={() => onOpenRegularizationModal?.(record)}
-                          className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
-                        >
-                          Correction
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          onClick={() => onOpenRegularizationModal?.(record || ({ date } as any))}
-                          className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                        >
-                          Correct
-                        </button>
-                      )}
-                    </td>
+                    {/* Regularization Action (Employee) or Ask Checkout (HR) */}
+                    {(!readOnly || (canInquireMissedPunch && employeeId)) && (
+                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                        {!readOnly ? (
+                          isOffDay ? (
+                            <span className="text-zinc-400">-</span>
+                          ) : isMissedPunch ? (
+                            <button
+                              type="button"
+                              onClick={() => onOpenRegularizationModal?.(record)}
+                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
+                            >
+                              Correction
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => onOpenRegularizationModal?.(record || ({ date } as any))}
+                              className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                            >
+                              Correct
+                            </button>
+                          )
+                        ) : (
+                          // HR / Admin Viewing Employee Timesheet (Only show Ask Checkout for true missed punch days)
+                          isMissedPunch ? (
+                            inquiredDates.has(date) ? (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80">
+                                <Clock className="w-3 h-3 text-indigo-500 animate-pulse" />
+                                <span>Inquired</span>
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleInquireMissedCheckout(date, record)}
+                                disabled={inquiryLoadingDate === date}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                                title={`Ask ${employeeName || 'employee'} to provide checkout time and explanation`}
+                              >
+                                {inquiryLoadingDate === date ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : (
+                                  <Send className="w-3 h-3" />
+                                )}
+                                <span>Ask Checkout</span>
+                              </button>
+                            )
+                          ) : (
+                            <span className="text-zinc-400">-</span>
+                          )
+                        )}
+                      </td>
                     )}
                   </tr>
                 );
