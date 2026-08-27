@@ -53,10 +53,15 @@ async function registerPushToken(deviceUuid: string) {
         const projectId =
           process.env.EXPO_PUBLIC_PROJECT_ID ||
           Constants.expoConfig?.extra?.eas?.projectId ||
-          (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId;
-        if (projectId) {
+          (Constants as { easConfig?: { projectId?: string } }).easConfig?.projectId ||
+          '88e7fa1c-536f-4324-8b86-ddfe10e8e5e6';
+        try {
           const tokenResp = await Notifications.getExpoPushTokenAsync({ projectId });
-          pushToken = tokenResp.data;
+          pushToken = tokenResp?.data;
+        } catch (e1) {
+          console.warn('[push] Error with projectId, trying without:', e1);
+          const tokenResp = await Notifications.getExpoPushTokenAsync();
+          pushToken = tokenResp?.data;
         }
       } catch (err) {
         console.warn('[push] Expo remote token unavailable; using Alerts inbox.', err);
