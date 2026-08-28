@@ -350,17 +350,23 @@ def calculate_daily_attendance(
     work_hours = round(net_work_minutes / 60.0, 4)
     work_duration_formatted = format_minutes_to_hhmm(net_work_minutes, show_sign=False)
 
-    # Clocked OT / UT vs the assigned shift end. Late arrival stays on late_minutes.
+    short_leave_mins = int(round(float(short_leave_hours or 0.0) * 60)) if is_short_leave else 0
+    effective_expected_work_minutes = max(0, expected_work_minutes - short_leave_mins)
+
+    # Clocked OT / UT vs the assigned shift end and net effective hours.
+    # Time worked past shift end first covers any late-arrival deficit.
+    work_variance = net_work_minutes - effective_expected_work_minutes
     minutes_past_end = check_out_adjusted - shift_end_adjusted
+
     if minutes_past_end > 0:
-        overtime_minutes = minutes_past_end
-        undertime_minutes = 0
+        overtime_minutes = max(0, min(minutes_past_end, work_variance))
+        undertime_minutes = max(0, effective_expected_work_minutes - net_work_minutes)
     elif minutes_past_end < 0:
         overtime_minutes = 0
-        undertime_minutes = -minutes_past_end
+        undertime_minutes = max(0, effective_expected_work_minutes - net_work_minutes)
     else:
         overtime_minutes = 0
-        undertime_minutes = 0
+        undertime_minutes = max(0, effective_expected_work_minutes - net_work_minutes)
 
     overtime_hours = round(overtime_minutes / 60.0, 4)
     overtime_formatted = format_minutes_to_hhmm(overtime_minutes, show_sign=True)

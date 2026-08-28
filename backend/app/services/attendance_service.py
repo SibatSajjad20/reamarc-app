@@ -233,6 +233,110 @@ async def _attach_applicant_roles(docs: List[dict]) -> None:
         doc["user_role"] = role_map.get(uid) or str(doc.get("user_role") or "team_member").lower()
 
 
+async def _heal_overtime_requests(docs: List[dict], active_only_pending: bool = False) -> List[dict]:
+    """
+    Dynamically recalculates true overtime for overtime requests:
+    - If true overtime is 0 (employee only compensated for late arrival), cancels/clears the request.
+    - If true overtime > 0, updates overtime_minutes in document and MongoDB.
+    """
+    db = get_database()
+    if db is None or not docs:
+        return docs
+
+    ot_docs = [
+        d for d in docs
+        if str(d.get("leave_type") or "").lower() in (LeaveType.OVERTIME.value, "overtime")
+    ]
+    if not ot_docs:
+        return docs
+
+    keys = []
+    user_ids = set()
+    for d in ot_docs:
+        uid = d.get("user_id")
+        dt = d.get("overtime_date") or d.get("start_date")
+        if uid and dt:
+            keys.append({"user_id": uid, "date": dt})
+            user_ids.add(uid)
+
+    if not keys:
+        return docs
+
+    recs = await db.attendance_records.find(
+        {"$or": keys},
+        {"_id": 0}
+    ).to_list(len(keys) + 10)
+    rec_lookup = {(r.get("user_id"), r.get("date")): r for r in recs}
+
+    user_docs = await db.users.find(
+        {"id": {"$in": list(user_ids)}},
+        {"_id": 0, "id": 1, "department": 1}
+    ).to_list(len(user_ids) + 10)
+    dept_map = {u["id"]: u.get("department") for u in user_docs}
+
+    filtered_docs = []
+    for doc in docs:
+        lt = str(doc.get("leave_type") or "").lower()
+        if lt not in (LeaveType.OVERTIME.value, "overtime"):
+            filtered_docs.append(doc)
+            continue
+
+        uid = doc.get("user_id")
+        dt = doc.get("overtime_date") or doc.get("start_date")
+        rec = rec_lookup.get((uid, dt))
+        if not rec:
+            filtered_docs.append(doc)
+            continue
+
+        cin = rec.get("check_in") or rec.get("punch_in")
+        cout = rec.get("check_out") or rec.get("punch_out")
+        if not cin or not cout:
+            filtered_docs.append(doc)
+            continue
+
+        shift = await get_shift_for_user(uid, dept_map.get(uid), dt)
+        extra = {
+            "is_wfh": bool(rec.get("is_wfh")),
+            "is_short_leave": bool(rec.get("is_short_leave")),
+            "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+        }
+        claimed, settled, gate, ot_buf, ut_buf, start, end = compute_settled_checkout(
+            cin,
+            cout,
+            shift,
+            extra=extra,
+            overtime_status=rec.get("overtime_status"),
+            auto_approve=str(rec.get("overtime_status") or "").lower() == "approved",
+        )
+
+        true_ot_minutes = int(settled.claimed_overtime_minutes or 0)
+        req_status = str(doc.get("status") or "").lower()
+
+        if true_ot_minutes == 0:
+            if req_status == LeaveStatus.PENDING.value:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.leave_requests.update_one(
+                    {"id": doc.get("id")},
+                    {"$set": {"status": LeaveStatus.CANCELLED.value, "overtime_minutes": 0, "updated_at": now_iso}}
+                )
+                doc["status"] = LeaveStatus.CANCELLED.value
+                doc["overtime_minutes"] = 0
+                if active_only_pending:
+                    continue
+            filtered_docs.append(doc)
+        else:
+            if int(doc.get("overtime_minutes") or 0) != true_ot_minutes:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await db.leave_requests.update_one(
+                    {"id": doc.get("id")},
+                    {"$set": {"overtime_minutes": true_ot_minutes, "updated_at": now_iso}}
+                )
+                doc["overtime_minutes"] = true_ot_minutes
+            filtered_docs.append(doc)
+
+    return filtered_docs
+
+
 async def _resolve_applicant_role(user_id: Optional[str], stored_role: Optional[str] = None) -> str:
     db = get_database()
     if db is not None and user_id:
@@ -585,8 +689,9 @@ async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -
     reason = _checkout_reason_from_record(rec)
     needs_request = gate == "overtime" and not rec.get("overtime_request_id")
     needs_reason_move = gate == "overtime" and bool(rec.get("undertime_reason"))
+    needs_cleanup = gate != "overtime" and bool(rec.get("overtime_request_id"))
     needs_shift = bool(resolved_id and rec.get("shift_id") != resolved_id)
-    if db is None or not (needs_request or needs_reason_move or needs_shift):
+    if db is None or not (needs_request or needs_reason_move or needs_cleanup or needs_shift):
         return rec
 
     updates: Dict[str, Any] = dict(settled_to_record_fields(settled))
@@ -607,6 +712,14 @@ async def _heal_overtime_request_for_record(user: dict, rec: dict, shift: Any) -
         if reason:
             updates["overtime_reason"] = reason
         updates["undertime_reason"] = None
+    elif needs_cleanup:
+        await _close_pending_overtime_requests(
+            rec["user_id"],
+            str(rec.get("date")),
+            LeaveStatus.CANCELLED.value,
+        )
+        updates["overtime_request_id"] = None
+        updates["overtime_reason"] = None
 
     updates["updated_at"] = datetime.now(timezone.utc).isoformat()
     await db.attendance_records.update_one(
@@ -3255,6 +3368,7 @@ async def get_user_leave_requests(user_id: str, viewer_user: Optional[dict] = No
     if viewer_id:
         query["hidden_from_user_ids"] = {"$ne": viewer_id}
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    docs = await _heal_overtime_requests(docs, active_only_pending=False)
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
@@ -3305,6 +3419,7 @@ async def get_all_leave_requests(
                 query["hidden_from_user_ids"] = {"$ne": viewer_id}
 
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(300)
+    docs = await _heal_overtime_requests(docs, active_only_pending=(status_filter == "pending"))
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
@@ -3331,6 +3446,7 @@ async def get_pending_leave_requests(
             query["hidden_from_hr"] = {"$ne": True}
 
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(200)
+    docs = await _heal_overtime_requests(docs, active_only_pending=True)
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
     return [LeaveResponse(**d) for d in docs]
@@ -3564,6 +3680,12 @@ async def _sync_attendance_record_for_request(
                     {"user_id": target_user_id, "date": target_date},
                     {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
                 )
+                if target_user_id and target_date:
+                    try:
+                        from app.services.log_compliance import recompute_day_score
+                        await recompute_day_score(target_user_id, target_date)
+                    except Exception:
+                        pass
 
     elif new_status_str in (LeaveStatus.REJECTED.value, LeaveStatus.CANCELLED.value):
         # 1. Missed Punch Regularization Reversal
@@ -3793,6 +3915,12 @@ async def _sync_attendance_record_for_request(
                     {"user_id": target_user_id, "date": target_date},
                     {"$set": {**settled_to_record_fields(settled), "updated_at": now_iso}},
                 )
+                if target_user_id and target_date:
+                    try:
+                        from app.services.log_compliance import recompute_day_score
+                        await recompute_day_score(target_user_id, target_date)
+                    except Exception:
+                        pass
 
 
 async def review_leave_request(

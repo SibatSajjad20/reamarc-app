@@ -202,17 +202,33 @@ def settle_checkout_hours(
         resolved: OvertimeStatus = "approved" if claimed_ot > 0 else "not_applicable"
         pending = 0
     elif status == "rejected":
-        hours = _from_calc(shift_end_calc)
-        hours["overtime_minutes"] = 0
-        hours["overtime_hours"] = 0.0
-        hours["overtime_formatted"] = "+00:00"
+        base_mins = max(0, claimed.work_minutes - claimed_ot)
+        hours = {
+            "work_minutes": base_mins,
+            "work_hours": round(base_mins / 60.0, 4),
+            "work_duration_formatted": format_minutes_to_hhmm(base_mins, show_sign=False),
+            "overtime_minutes": 0,
+            "overtime_hours": 0.0,
+            "overtime_formatted": "+00:00",
+            "undertime_minutes": claimed.undertime_minutes,
+            "undertime_hours": claimed.undertime_hours,
+            "undertime_formatted": claimed.undertime_formatted,
+        }
         resolved = "rejected"
         pending = 0
     elif gate == "overtime":
-        hours = _from_calc(shift_end_calc)
-        hours["overtime_minutes"] = 0
-        hours["overtime_hours"] = 0.0
-        hours["overtime_formatted"] = "+00:00"
+        base_mins = max(0, claimed.work_minutes - claimed_ot)
+        hours = {
+            "work_minutes": base_mins,
+            "work_hours": round(base_mins / 60.0, 4),
+            "work_duration_formatted": format_minutes_to_hhmm(base_mins, show_sign=False),
+            "overtime_minutes": 0,
+            "overtime_hours": 0.0,
+            "overtime_formatted": "+00:00",
+            "undertime_minutes": claimed.undertime_minutes,
+            "undertime_hours": claimed.undertime_hours,
+            "undertime_formatted": claimed.undertime_formatted,
+        }
         resolved = "pending"
         pending = claimed_ot
     elif gate == "undertime":
@@ -277,11 +293,6 @@ def checkout_gate_payload(
         message = (
             f"You are leaving before {shift_end}. Enter the reason, "
             "then the shift will close."
-        )
-    elif minutes_past_end > 0:
-        message = (
-            f"Shift ended at {shift_end}. Overtime will need a reason "
-            "and HR approval when you check out."
         )
     else:
         message = None
