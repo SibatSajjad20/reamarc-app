@@ -101,8 +101,12 @@ async def _create_indexes_background():
             )
         except Exception as e:
             logger.warning(f"Could not create unique attendance user/date index: {e}")
-        await db_instance.db.attendance_records.create_index([("date", 1)], name="idx_att_date")
+        await db_instance.db.attendance_records.create_index([("date", -1)], name="idx_att_date_desc")
         await db_instance.db.attendance_records.create_index([("date", 1), ("status", 1)], name="idx_att_date_status")
+        await db_instance.db.leave_requests.create_index([("created_at", -1)], name="idx_leave_created_at")
+        await db_instance.db.leave_requests.create_index([("status", 1), ("created_at", -1)], name="idx_leave_status_created")
+        await db_instance.db.leave_requests.create_index([("user_id", 1), ("created_at", -1)], name="idx_leave_user_created")
+        await db_instance.db.leave_requests.create_index([("department", 1), ("created_at", -1)], name="idx_leave_dept_created")
         await db_instance.db.leave_requests.create_index([("user_id", 1), ("status", 1)], name="idx_leave_user_status")
         await db_instance.db.leave_requests.create_index([("status", 1)], name="idx_leave_status")
         await db_instance.db.leave_requests.create_index([("start_date", 1), ("end_date", 1)], name="idx_leave_dates")
