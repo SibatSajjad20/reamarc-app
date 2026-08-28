@@ -303,11 +303,6 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
       return;
     }
 
-    if (!proposalUrl.trim()) {
-      setErrorMessage('Client proposal document is required. Please upload a proposal attachment.');
-      return;
-    }
-
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
@@ -674,19 +669,11 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 4: Proposal Document Upload */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <div className="flex items-center gap-2">
-                <Paperclip className="w-4 h-4 text-indigo-500" />
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                  4. Client Proposal / Agreement (Attachment)
-                </span>
-                <span className="text-rose-500 font-bold">*</span>
-              </div>
-              {!proposalUrl && (
-                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
-                  Mandatory
-                </span>
-              )}
+            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
+              <Paperclip className="w-4 h-4 text-indigo-500" />
+              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                4. Client Proposal / Agreement (Attachment)
+              </span>
             </div>
 
             {uploadError && (
@@ -757,7 +744,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                     <>
                       <UploadCloud className="w-5 h-5 text-indigo-500" />
                       <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                        Click to upload Client Proposal (Required)
+                        Click to upload Client Proposal (PDF, Word, Excel, Zip)
                       </span>
                       <span className="text-[10px] text-zinc-400">Up to 25MB supported</span>
                     </>
