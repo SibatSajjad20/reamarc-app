@@ -25,6 +25,7 @@ from app.models.attendance import (
     BonusRecommendation,
     CalendarEventType,
 )
+from app.schemas.shift import ShiftResponse
 from app.services.attendance_calculator import (
     calculate_daily_attendance,
     calculate_monthly_aggregation,
@@ -193,19 +194,20 @@ async def generate_multi_tab_attendance_workbook(
             records_by_user[u_id].append(r)
             records_by_user_date[u_id][r.get("date")] = r
 
+    start_of_month = f"{month_prefix}-01"
+    end_of_month = f"{month_prefix}-{num_days:02d}"
+
     leaves_by_user = defaultdict(list)
     leaves_by_user_date = defaultdict(dict)
     if db is not None:
         all_leaves = await db.leave_requests.find(
             {
                 "status": LeaveStatus.APPROVED.value,
-                "$or": [
-                    {"start_date": {"$regex": f"^{month_prefix}-"}},
-                    {"end_date": {"$regex": f"^{month_prefix}-"}},
-                ]
+                "start_date": {"$lte": end_of_month},
+                "end_date": {"$gte": start_of_month},
             },
             {"_id": 0}
-        ).to_list(1000)
+        ).to_list(2000)
         for l in all_leaves:
             u_id = l.get("user_id")
             leaves_by_user[u_id].append(l)
@@ -222,6 +224,33 @@ async def generate_multi_tab_attendance_workbook(
                     cur_dt += timedelta(days=1)
             except Exception:
                 pass
+
+    # 5. Pre-fetch shifts and user assignments in batch for instant in-memory lookup
+    all_shifts_raw = []
+    assignments_by_user = {}
+    if db is not None:
+        all_shifts_raw = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
+        raw_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(2000)
+        for a in raw_assignments:
+            if a.get("user_id"):
+                assignments_by_user[a["user_id"]] = a
+
+    shifts_by_id = {s["id"]: ShiftResponse(**s) for s in all_shifts_raw if s.get("id")}
+    std_shift_raw, hr_shift_raw = attendance_service.resolve_fallback_shifts(all_shifts_raw)
+    default_std_shift = ShiftResponse(**std_shift_raw) if std_shift_raw else ShiftResponse(id="shift_std", name="Standard Shift", start_time="09:30", end_time="18:30", expected_hours=8.0)
+    default_hr_shift = ShiftResponse(**hr_shift_raw) if hr_shift_raw else default_std_shift
+
+    def resolve_user_shift_fast(u_id: str, u_dept: Optional[str] = None, d_str: Optional[str] = None) -> ShiftResponse:
+        t_date = d_str or f"{year}-{month:02d}-01"
+        assignment = assignments_by_user.get(u_id)
+        if assignment:
+            resolved = attendance_service.resolve_shift_assignment_for_date(assignment, t_date)
+            shift_id = resolved.get("shift_id")
+            if shift_id and shift_id in shifts_by_id:
+                return shifts_by_id[shift_id]
+        if u_dept and str(u_dept).upper() == "HR":
+            return default_hr_shift
+        return default_std_shift
 
     # Create Workbook
     wb = openpyxl.Workbook()
@@ -307,7 +336,7 @@ async def generate_multi_tab_attendance_workbook(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
 
-        shift = await attendance_service.get_shift_for_user(u_id, u_dept)
+        shift = resolve_user_shift_fast(u_id, u_dept)
         u_records = records_by_user.get(u_id, [])
         shift_by_date: Dict[str, Any] = {}
 
@@ -318,11 +347,10 @@ async def generate_multi_tab_attendance_workbook(
             rec_shift = shift
             if rec_date:
                 if rec_date not in shift_by_date:
-                    shift_by_date[rec_date] = await attendance_service.get_shift_for_user(
-                        u_id, u_dept, rec_date
-                    )
+                    shift_by_date[rec_date] = resolve_user_shift_fast(u_id, u_dept, rec_date)
                 rec_shift = shift_by_date[rec_date]
-            attendance_service.apply_daily_calc_fields(r, rec_shift)
+            if not r.get("work_duration_formatted") or r.get("work_duration_formatted") == "00:00":
+                attendance_service.apply_daily_calc_fields(r, rec_shift)
             st = r.get("status", AttendanceStatus.PRESENT)
             is_missed = r.get("is_missed_punch", False) or (st in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
             if is_missed:
@@ -341,6 +369,7 @@ async def generate_multi_tab_attendance_workbook(
         employee_aggregates[u_id] = {
             "agg": agg,
             "shift": shift,
+            "shift_by_date": shift_by_date,
             "missed_punches": missed_punches_count,
         }
 
@@ -460,7 +489,8 @@ async def generate_multi_tab_attendance_workbook(
 
         emp_data = employee_aggregates.get(u_id, {})
         agg = emp_data.get("agg")
-        shift = emp_data.get("shift") or await attendance_service.get_shift_for_user(u_id, u_dept)
+        shift = emp_data.get("shift") or resolve_user_shift_fast(u_id, u_dept)
+        emp_shift_by_date = emp_data.get("shift_by_date", {})
 
         sheet_title = sanitize_sheet_title(u_name, used_sheet_titles)
         ws_emp = wb.create_sheet(title=sheet_title)
@@ -516,6 +546,8 @@ async def generate_multi_tab_attendance_workbook(
         u_date_leaves = leaves_by_user_date.get(u_id, {})
 
         emp_row = 6
+        today_pkt = datetime.now(PK_TZ).date()
+
         for day_num in range(1, num_days + 1):
             cur_date = date(year, month, day_num)
             cur_date_str = cur_date.strftime("%Y-%m-%d")
@@ -523,6 +555,7 @@ async def generate_multi_tab_attendance_workbook(
 
             rec = u_date_records.get(cur_date_str)
             leave = u_date_leaves.get(cur_date_str)
+            rec_shift = emp_shift_by_date.get(cur_date_str) or resolve_user_shift_fast(u_id, u_dept, cur_date_str)
 
             is_holiday = cur_date_str in holidays_set
             is_working_sat = cur_date_str in working_saturdays_set
@@ -544,21 +577,32 @@ async def generate_multi_tab_attendance_workbook(
             ot_mins = 0
             ut_mins = 0
 
-            if rec and rec.get("check_in"):
-                attendance_service.apply_daily_calc_fields(rec, shift)
-                punch_in = rec.get("check_in") or "-"
-                punch_out = rec.get("check_out") or "-"
-                break_str = f"{int(shift.break_duration_minutes or 0)}m"
-                work_duration = rec.get("work_duration_formatted", "00:00")
-                ot_str = rec.get("overtime_formatted", "+00:00")
-                ut_str = rec.get("undertime_formatted", "-00:00")
+            cin = rec.get("check_in") or rec.get("punch_in") if rec else None
+            cout = rec.get("check_out") or rec.get("punch_out") if rec else None
+
+            if rec and cin:
+                work_duration = rec.get("work_duration_formatted") or "00:00"
+                ot_str = rec.get("overtime_formatted") or "+00:00"
+                ut_str = rec.get("undertime_formatted") or "-00:00"
                 ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
                 ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
 
-                st_val = rec.get("status")
-                is_wfh_val = rec.get("is_wfh", False) or (st_val in (AttendanceStatus.WFH.value, "wfh"))
-                is_missed_val = rec.get("is_missed_punch", False) or (st_val in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
-                is_short_val = rec.get("is_short_leave", False) or (st_val in (AttendanceStatus.SHORT_LEAVE.value, "short_leave"))
+                if (not rec.get("work_duration_formatted") or rec.get("work_duration_formatted") == "00:00") and cout:
+                    attendance_service.apply_daily_calc_fields(rec, rec_shift)
+                    work_duration = rec.get("work_duration_formatted", "00:00")
+                    ot_str = rec.get("overtime_formatted", "+00:00")
+                    ut_str = rec.get("undertime_formatted", "-00:00")
+                    ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
+                    ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
+
+                punch_in = cin
+                punch_out = cout or "-"
+                break_str = f"{int(rec_shift.break_duration_minutes or 0)}m"
+
+                st_val = str(rec.get("status") or "")
+                is_wfh_val = bool(rec.get("is_wfh") or st_val == AttendanceStatus.WFH.value or st_val == "wfh")
+                is_missed_val = bool(rec.get("is_missed_punch") or st_val == AttendanceStatus.MISSED_PUNCH.value or (cin and not cout and cur_date < today_pkt))
+                is_short_val = bool(rec.get("is_short_leave") or st_val == AttendanceStatus.SHORT_LEAVE.value or st_val == "short_leave")
                 is_late = bool(rec.get("is_late") or (rec.get("late_minutes", 0) > 0 and rec.get("late_strike", 0) > 0))
 
                 if is_wfh_val:
@@ -603,19 +647,30 @@ async def generate_multi_tab_attendance_workbook(
                 status_badge = "1st Sat Off"
                 row_fill = FILL_WEEKEND
 
+            elif cur_date > today_pkt and cur_date.year == today_pkt.year and cur_date.month == today_pkt.month:
+                status_badge = "-"
+                ut_str = "-00:00"
+                ut_mins = 0
+
             else:
                 # Scheduled workday without punch or approved leave
                 status_badge = "Absent"
-                expected_mins = int(round(float(shift.expected_hours) * 60))
+                expected_mins = int(round(float(rec_shift.expected_hours) * 60))
                 ut_str = format_minutes_to_hhmm(-expected_mins, show_sign=True)
                 ut_mins = expected_mins
 
             ws_emp.row_dimensions[emp_row].height = 20
 
+            shift_display_name = (
+                "Weekly Rest" if is_sun
+                else "Monthly Rest" if is_first_sat
+                else (rec.get("shift_name") or rec_shift.name if (rec and cin) else rec_shift.name)
+            )
+
             row_cells_spec = [
                 (cur_date_str, ALIGN_CENTER, FONT_DATA_REGULAR),
                 (day_name, ALIGN_LEFT, FONT_DATA_REGULAR),
-                (shift.name, ALIGN_LEFT, FONT_DATA_REGULAR),
+                (shift_display_name, ALIGN_LEFT, FONT_DATA_REGULAR),
                 (punch_in, ALIGN_CENTER, FONT_DATA_REGULAR),
                 (punch_out, ALIGN_CENTER, FONT_DATA_REGULAR),
                 (break_str, ALIGN_CENTER, FONT_DATA_MUTED),

@@ -207,7 +207,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         setHealth('Good');
         setContractStartDate('');
         setContractEndDate('');
-        setSelectedServices(['Website Dev', 'Performance Marketing']);
+        setSelectedServices([]);
         setPocName('');
         setPocEmail('');
         setPocPhone('');
@@ -225,6 +225,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     setSelectedServices((prev) =>
       prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
     );
+    setErrorMessage(null);
   };
 
   // Handle Proposal File Upload
@@ -238,6 +239,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     }
 
     setUploadError(null);
+    setErrorMessage(null);
     setIsUploadingProposal(true);
 
     try {
@@ -245,6 +247,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
       setProposalUrl(res.file_url);
       setProposalName(res.file_name || file.name);
       setProposalSize(res.file_size || file.size);
+      setErrorMessage(null);
     } catch (err: any) {
       console.error('Proposal upload error:', err);
       setUploadError(err.message || 'Failed to upload proposal attachment.');
@@ -272,6 +275,36 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     e.preventDefault();
     if (!name.trim()) {
       setErrorMessage('Client / Brand name is required.');
+      return;
+    }
+
+    if (!contractStartDate.trim()) {
+      setErrorMessage('Contract start date is required.');
+      return;
+    }
+
+    if (!contractEndDate.trim()) {
+      setErrorMessage('Contract end date is required.');
+      return;
+    }
+
+    if (contractEndDate.trim() < contractStartDate.trim()) {
+      setErrorMessage('Contract end date cannot be earlier than contract start date.');
+      return;
+    }
+
+    if (!selectedServices || selectedServices.length === 0) {
+      setErrorMessage('Please select at least one service.');
+      return;
+    }
+
+    if (isUploadingProposal) {
+      setErrorMessage('Please wait for the proposal file to finish uploading.');
+      return;
+    }
+
+    if (!proposalUrl.trim()) {
+      setErrorMessage('Client proposal document is required. Please upload a proposal attachment.');
       return;
     }
 
@@ -564,10 +597,14 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-indigo-500" />
                   <span>Contract Start Date</span>
+                  <span className="text-rose-500 font-bold">*</span>
                 </label>
                 <CustomDatePicker
                   value={contractStartDate}
-                  onChange={setContractStartDate}
+                  onChange={(val) => {
+                    setContractStartDate(val);
+                    setErrorMessage(null);
+                  }}
                   placeholder="Select start date..."
                 />
               </div>
@@ -576,10 +613,14 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                 <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
                   <Calendar className="w-3.5 h-3.5 text-indigo-500" />
                   <span>Contract End Date</span>
+                  <span className="text-rose-500 font-bold">*</span>
                 </label>
                 <CustomDatePicker
                   value={contractEndDate}
-                  onChange={setContractEndDate}
+                  onChange={(val) => {
+                    setContractEndDate(val);
+                    setErrorMessage(null);
+                  }}
                   minDate={contractStartDate}
                   placeholder="Select end date..."
                 />
@@ -595,10 +636,18 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                 <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
                   3. Services Provided
                 </span>
+                <span className="text-rose-500 font-bold">*</span>
               </div>
-              <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full">
-                {selectedServices.length} selected
-              </span>
+              <div className="flex items-center gap-2">
+                {selectedServices.length === 0 && (
+                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                    At least 1 required
+                  </span>
+                )}
+                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full">
+                  {selectedServices.length} selected
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-wrap gap-2 pt-1">
@@ -625,11 +674,19 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 4: Proposal Document Upload */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <Paperclip className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                4. Client Proposal / Agreement (Attachment)
-              </span>
+            <div className="flex items-center justify-between pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
+              <div className="flex items-center gap-2">
+                <Paperclip className="w-4 h-4 text-indigo-500" />
+                <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                  4. Client Proposal / Agreement (Attachment)
+                </span>
+                <span className="text-rose-500 font-bold">*</span>
+              </div>
+              {!proposalUrl && (
+                <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                  Mandatory
+                </span>
+              )}
             </div>
 
             {uploadError && (
@@ -700,7 +757,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                     <>
                       <UploadCloud className="w-5 h-5 text-indigo-500" />
                       <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                        Click to upload Client Proposal (PDF, Word, Excel, Zip)
+                        Click to upload Client Proposal (Required)
                       </span>
                       <span className="text-[10px] text-zinc-400">Up to 25MB supported</span>
                     </>

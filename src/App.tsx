@@ -9,6 +9,7 @@ import { ExceptionInboxView } from './components/views/ExceptionInboxView';
 import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ProfileSettingsView } from './components/views/ProfileSettingsView';
+import { ActiveClientsView } from './components/views/ActiveClientsView';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
@@ -28,6 +29,7 @@ function AppInner() {
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
+  const isLead = user?.role === 'team_lead';
 
   const canSeeMarketing =
     isAdmin ||
@@ -36,8 +38,9 @@ function AppInner() {
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = user?.role === 'team_lead' || isHR;
+  const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
 
-  const v1Views: ViewType[] = ['dashboard', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions'];
+  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions'];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'marketing';
@@ -109,6 +112,16 @@ function AppInner() {
           setCurrentView('daily-log');
           localStorage.setItem('reamarc_active_view', 'daily-log');
         }
+      } else if (currentPath === 'active-clients' || currentPath === 'active_clients' || currentPath === 'clients') {
+        if (canSeeActiveClients) {
+          setCurrentView('active-clients');
+          localStorage.setItem('reamarc_active_view', 'active-clients');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'exceptions') {
         if (canSeeExceptions) {
           setCurrentView('exceptions');
@@ -145,6 +158,11 @@ function AppInner() {
           window.history.replaceState(null, '', '/dashboard');
           setCurrentView('dashboard');
           localStorage.setItem('reamarc_active_view', 'dashboard');
+        } else if (currentSaved === 'active-clients' && !canSeeActiveClients) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'marketing' && !canSeeMarketing) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -172,13 +190,14 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
     if (!isAdmin && !isClient) {
       allowedViews.push('dashboard');
     }
+    if (canSeeActiveClients) allowedViews.push('active-clients');
     if (!isClient) {
       allowedViews.push('attendance');
       allowedViews.push('daily-log');
@@ -311,6 +330,12 @@ function AppInner() {
         {currentView === 'dashboard' && !isAdmin && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <DashboardView onNavigateView={handleSelectView} />
+          </div>
+        )}
+
+        {currentView === 'active-clients' && canSeeActiveClients && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <ActiveClientsView workspaces={workspaces} adAccounts={adAccounts} />
           </div>
         )}
 

@@ -16,7 +16,6 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
 import { adminService } from '../../services/adminService';
-import { exportMonthlyAttendanceWorkbook } from '../../utils/excelExport';
 import { getAttendanceMinDate } from '../../constants/attendance';
 
 import type {
@@ -311,28 +310,23 @@ export const AttendanceView: React.FC = () => {
   const handleExportExcel = async () => {
     try {
       setIsExporting(true);
-      addToast('Generating Excel Workbook 📊', 'Building multi-tab workbook with company summary & employee sheets...', 'info');
+      addToast('Generating Excel Workbook 📊', 'Building multi-tab workbook with company summary & employee timesheets...', 'info');
 
-      let summaryRows = monthlySummaryData?.rows || [];
-      let summaryStats = monthlySummaryData?.summary;
+      const blob = await attendanceService.exportAttendanceExcel(
+        selectedYear,
+        selectedMonth,
+        selectedDepartment !== 'All' ? selectedDepartment : undefined
+      );
 
-      if (!summaryStats) {
-        summaryStats = {
-          average_punctuality_percent: 100,
-          total_overtime_formatted: '+00:00',
-          total_undertime_formatted: '-00:00',
-          total_late_strikes: 0,
-          bonus_eligible_count: 0,
-          total_employees: summaryRows.length,
-        };
-      }
-
-      await exportMonthlyAttendanceWorkbook({
-        year: selectedYear,
-        month: selectedMonth,
-        summaryRows,
-        summaryStats,
-      });
+      const filename = `Reamarc_Attendance_Summary_${selectedYear}_${String(selectedMonth).padStart(2, '0')}.xlsx`;
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
 
       addToast('Export Completed 🎉', 'Excel workbook downloaded successfully.', 'success');
     } catch (err: any) {

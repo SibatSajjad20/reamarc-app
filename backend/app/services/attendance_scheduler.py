@@ -155,6 +155,7 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
     }
 
     try:
+        now_pkt = attendance_service.get_now_pkt()
         unclosed_records = await db.attendance_records.find(unclosed_query, {"_id": 0}).to_list(1000)
         for rec in unclosed_records:
             u_id = rec.get("user_id")
@@ -165,6 +166,14 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             shift = await attendance_service.get_shift_by_id(shift_id) if shift_id else None
             if not shift:
                 shift = await attendance_service.get_shift_for_user(u_id, u_dept, target_date)
+
+            # CRITICAL: Do NOT mark as missed punch if shift checkout window is still open!
+            # E.g. Evening shifts (18:00-00:00) or Night shifts (21:00-05:00) have checkout open until 04:00 AM / 09:00 AM.
+            if not attendance_service.is_checkout_window_closed(shift, now_pkt, shift_date=target_date):
+                logger.info(
+                    f"[Scheduler] Skipping unclosed record for user {u_id} on {target_date}: shift checkout window is still open."
+                )
+                continue
 
             expected_hours = float(shift.expected_hours) if shift else 8.0
             expected_minutes = int(round(expected_hours * 60))
@@ -248,6 +257,8 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
                 u_dept = u.get("department")
 
                 shift = await attendance_service.get_shift_for_user(u_id, u_dept, target_date)
+                if not attendance_service.is_shift_window_closed(shift, now_pkt, shift_date=target_date):
+                    continue
                 expected_hours = float(shift.expected_hours) if shift else 8.0
                 expected_minutes = int(round(expected_hours * 60))
                 auto_wfh = await attendance_service.is_auto_wfh_for_date(u_id, target_date)
@@ -344,19 +355,17 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
         for user in users:
             uid = user.get("id")
             dept = user.get("department")
-            for check_date in (today_str, yesterday_str):
+            for check_date in (yesterday_str, today_str):
                 shift = await attendance_service.get_shift_for_user(uid, dept, check_date)
                 is_auto_wfh = await attendance_service.is_auto_wfh_for_date(uid, check_date)
 
-                if not attendance_service.is_checkout_window_closed(shift, now_pkt):
+                if not attendance_service.is_checkout_window_closed(shift, now_pkt, shift_date=check_date):
                     continue
-                date_str = attendance_service.closed_shift_attendance_date(shift, now_pkt)
-                if date_str != check_date:
-                    continue
-                if not await is_workday_for_date(date_str):
+                if not await is_workday_for_date(check_date):
                     skipped += 1
                     continue
 
+                date_str = check_date
                 before = await db.attendance_records.find_one(
                     {"user_id": uid, "date": date_str},
                     {"_id": 0},

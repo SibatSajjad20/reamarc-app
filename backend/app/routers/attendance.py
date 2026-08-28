@@ -285,6 +285,7 @@ async def get_monthly_punctuality_summary(
     )
 
 
+@router.get("/export")
 @router.get("/export/excel")
 async def export_attendance_excel(
     year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),

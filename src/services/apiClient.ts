@@ -273,6 +273,67 @@ class ApiClient {
     }
     return data as T;
   }
+
+  public async getBlob(endpoint: string, options: RequestOptions = {}): Promise<Blob> {
+    const { timeout = 120000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
+
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      try {
+        controller.abort();
+      } catch (_) {}
+    }, timeout);
+
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        controller.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
+      }
+    }
+
+    const currentToken = this.getToken();
+    const headers: Record<string, string> = {
+      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
+      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
+      ...(customHeaders as Record<string, string>),
+    };
+
+    const config: RequestInit = {
+      ...fetchOptions,
+      headers,
+      credentials: 'include',
+      signal: controller.signal,
+    };
+
+    try {
+      const response = await fetch(`${this.baseUrl}${endpoint}`, config);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        if (response.status === 401 && this.onUnauthorizedCallback) {
+          this.onUnauthorizedCallback();
+        }
+        let errorMsg = `Download failed with status ${response.status}`;
+        try {
+          const errJson = await response.json();
+          errorMsg = errJson.detail || errJson.message || errorMsg;
+        } catch (_) {}
+        throw new ApiError(errorMsg, response.status);
+      }
+
+      return await response.blob();
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      if (err instanceof ApiError) throw err;
+      if (timedOut || err.name === 'AbortError') {
+        throw new ApiError('File export request timed out. Please try again.', 408);
+      }
+      throw new ApiError(err.message || 'File download failed.', 500);
+    }
+  }
 }
 
 export const apiClient = new ApiClient();

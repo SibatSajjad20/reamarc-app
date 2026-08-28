@@ -164,6 +164,16 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     return `${String(thH).padStart(2, '0')}:${String(thM).padStart(2, '0')}`;
   }, [shift]);
 
+  const isCrossMidnightShift = useMemo(() => {
+    if (!shift?.start_time || !shift?.end_time) return Boolean(shift?.is_cross_midnight || shift?.is_night_shift);
+    if (shift.is_cross_midnight || shift.is_night_shift) return true;
+    const [sH, sM] = shift.start_time.split(':').map((v) => parseInt(v, 10) || 0);
+    const [eH, eM] = shift.end_time.split(':').map((v) => parseInt(v, 10) || 0);
+    const startMins = sH * 60 + sM;
+    const endMins = eH * 60 + eM;
+    return endMins <= startMins;
+  }, [shift]);
+
   const punchIn = record?.punch_in || (record as any)?.check_in || todayData?.punch_status?.check_in_time || null;
   const punchOut = record?.punch_out || (record as any)?.check_out || todayData?.punch_status?.check_out_time || null;
   const isCheckedIn = Boolean(punchIn || todayData?.punch_status?.is_checked_in);
@@ -508,7 +518,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               <div>
                 <span className="text-[11px] font-semibold text-zinc-400">Night Shift:</span>
                 <p className="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
-                  {shift?.is_cross_midnight || shift?.is_night_shift ? 'Yes (Cross Midnight)' : 'Standard Day'}
+                  {isCrossMidnightShift ? 'Yes (Cross Midnight)' : 'Standard Day'}
                 </p>
               </div>
             </div>

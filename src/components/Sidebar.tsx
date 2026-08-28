@@ -17,6 +17,7 @@ import {
   Settings,
   LayoutDashboard,
   Inbox,
+  Building2,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -67,6 +68,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isClient = user?.role === 'client';
   const isLead = user?.role === 'team_lead';
   const canSeeExceptions = isLead || isHR;
+  const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -85,6 +87,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'dashboard' as ViewType,
             label: 'Dashboard',
             icon: LayoutDashboard,
+          },
+        ]
+      : []),
+    ...(canSeeActiveClients
+      ? [
+          {
+            id: 'active-clients' as ViewType,
+            label: 'Active Clients',
+            icon: Building2,
           },
         ]
       : []),

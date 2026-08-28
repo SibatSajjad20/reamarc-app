@@ -346,6 +346,18 @@ class AttendanceService {
       payload
     );
   }
+
+  /**
+   * Download official multi-tab Excel (.xlsx) workbook from backend
+   */
+  public async exportAttendanceExcel(
+    year: number,
+    month: number,
+    department?: string
+  ): Promise<Blob> {
+    const deptQuery = department && department !== 'All' ? `&department=${encodeURIComponent(department)}` : '';
+    return apiClient.getBlob(`/attendance/export/excel?year=${year}&month=${month}${deptQuery}`);
+  }
 }
 
 export const attendanceService = new AttendanceService();

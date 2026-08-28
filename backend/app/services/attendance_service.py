@@ -11,7 +11,7 @@ Handles business logic and database persistence for MongoDB collections:
 import uuid
 import calendar
 from datetime import datetime, timezone, date, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any, Tuple, Union
 from fastapi import HTTPException, status
 import logging
 from pymongo.errors import DuplicateKeyError
@@ -259,39 +259,88 @@ def shift_field(shift: Any, key: str, default: Any = None) -> Any:
 def is_night_shift_template(shift: Any) -> bool:
     if shift is None:
         return False
-    if bool(shift_field(shift, "is_night_shift", False)):
+    if bool(shift_field(shift, "is_night_shift", False)) or bool(shift_field(shift, "is_cross_midnight", False)):
         return True
     start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
     end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
     return end_m <= start_m
 
 
-def is_shift_window_closed(shift: Any, now: Optional[datetime] = None) -> bool:
+def get_shift_datetimes(
+    shift: Any,
+    shift_date_str: Optional[Union[str, date]] = None,
+    now: Optional[datetime] = None,
+) -> Tuple[datetime, datetime, datetime]:
+    """
+    Returns (shift_start_dt, shift_end_dt, checkout_cutoff_dt) for a shift on a specific shift_date.
+    If shift_date_str is omitted, infers shift_date based on current PKT time and shift type.
+    """
+    from datetime import time as dt_time
+    now = now or get_now_pkt()
+    night = is_night_shift_template(shift)
+
+    if shift_date_str:
+        if isinstance(shift_date_str, date):
+            s_date = shift_date_str
+        else:
+            s_date = datetime.strptime(str(shift_date_str), "%Y-%m-%d").date()
+    else:
+        if night and now.hour < 12:
+            s_date = now.date() - timedelta(days=1)
+        elif not night and now.hour < 6:
+            s_date = now.date() - timedelta(days=1)
+        else:
+            s_date = now.date()
+
+    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
+    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
+
+    start_dt = datetime.combine(
+        s_date,
+        dt_time(start_m // 60, start_m % 60),
+        tzinfo=PKT_TIMEZONE,
+    )
+
+    if night:
+        if end_m == 0:
+            end_dt = datetime.combine(
+                s_date + timedelta(days=1),
+                dt_time(0, 0),
+                tzinfo=PKT_TIMEZONE,
+            )
+        else:
+            end_dt = datetime.combine(
+                s_date + timedelta(days=1),
+                dt_time(end_m // 60, end_m % 60),
+                tzinfo=PKT_TIMEZONE,
+            )
+    else:
+        end_dt = datetime.combine(
+            s_date,
+            dt_time(end_m // 60, end_m % 60),
+            tzinfo=PKT_TIMEZONE,
+        )
+
+    checkout_cutoff_dt = end_dt + timedelta(minutes=CHECKOUT_GRACE_MINUTES)
+    return start_dt, end_dt, checkout_cutoff_dt
+
+
+def is_shift_window_closed(
+    shift: Any,
+    now: Optional[datetime] = None,
+    shift_date: Optional[Union[str, date]] = None,
+) -> bool:
     """
     True once THIS employee's assigned shift end time has passed.
 
     Uses the template on `shift` (Standard, HR, Afternoon, Night, or any custom
-    11:30–18:30 / overnight window). Times are never hardcoded.
-
-    Same-calendar-day shifts stay open from midnight until that template's end_time.
-    Overnight templates (is_night_shift or end <= start) stay open through midnight
-    and lock after end_time the following morning, with a 2-hour early-arrival window.
+    window). Times are never hardcoded.
     """
     if shift is None:
         return False
     now = now or get_now_pkt()
-    now_m = now.hour * 60 + now.minute
-    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
-    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
-    night = is_night_shift_template(shift)
-    if not night:
-        return now_m >= end_m
-    if now_m >= start_m or now_m < end_m:
-        return False
-    early_m = (start_m - 120) % 1440
-    if early_m < start_m and early_m <= now_m < start_m:
-        return False
-    return True
+    _, end_dt, _ = get_shift_datetimes(shift, shift_date, now)
+    return now >= end_dt
 
 
 CHECKOUT_GRACE_MINUTES = 240  # 4-hour post-shift checkout window across all shifts
@@ -301,48 +350,30 @@ def is_checkout_window_closed(
     shift: Any,
     now: Optional[datetime] = None,
     grace_minutes: int = CHECKOUT_GRACE_MINUTES,
+    shift_date: Optional[Union[str, date]] = None,
 ) -> bool:
     """
-    True only after THIS employee's assigned shift end time PLUS the 4-hour checkout waiting window has passed.
+    True only after THIS employee's assigned shift end time PLUS the checkout waiting window has passed.
 
     Examples:
     - Standard Shift (09:30 - 18:30): 18:30 + 4h = 22:30. Closed only after 22:30.
     - HR Shift (09:30 - 18:00): 18:00 + 4h = 22:00. Closed only after 22:00.
     - Afternoon Shift (14:00 - 20:00): 20:00 + 4h = 24:00 (Midnight).
-    - SEO Evening Shift (17:30 - 23:30): 23:30 + 4h = 03:30 AM next morning.
+    - SEO Evening Shift (18:00 - 00:00): 00:00 + 4h = 04:00 AM next morning.
     - WFH Night Shift (21:00 - 05:00): 05:00 AM + 4h = 09:00 AM next morning.
     """
     if shift is None:
         return False
     now = now or get_now_pkt()
-    now_m = now.hour * 60 + now.minute
-    start_m = parse_time_to_minutes(shift_field(shift, "start_time") or "09:30")
-    end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "18:30")
-    night = is_night_shift_template(shift)
-
-    if not night:
-        cutoff_m = end_m + grace_minutes
-        if cutoff_m < 1440:
-            return now_m >= cutoff_m
-        else:
-            post_midnight_m = cutoff_m - 1440
-            if now_m >= start_m:
-                return False
-            return now_m >= post_midnight_m
-    else:
-        cutoff_m = end_m + grace_minutes
-        if now_m >= start_m or now_m < cutoff_m:
-            return False
-        return True
+    _, _, cutoff_dt = get_shift_datetimes(shift, shift_date, now)
+    return now >= cutoff_dt
 
 
 def closed_shift_attendance_date(shift: Any, now: Optional[datetime] = None) -> str:
     """Calendar date to lock when the current shift window has already ended."""
     now = now or get_now_pkt()
     if is_night_shift_template(shift):
-        end_m = parse_time_to_minutes(shift_field(shift, "end_time") or "05:00")
-        now_m = now.hour * 60 + now.minute
-        if now_m >= end_m:
+        if now.hour < 12:
             return (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
     return now.strftime("%Y-%m-%d")
 
@@ -1507,6 +1538,55 @@ async def get_approved_leave_for_date(user_id: str, date_str: str) -> Optional[d
     }, {"_id": 0})
 
 
+async def get_active_attendance_record(user_id: str) -> Optional[dict]:
+    """
+    Finds currently active/in-progress punch-in for user.
+    An active record has check_in/punch_in set, check_out/punch_out NOT set,
+    and is not marked as missed_punch or absent.
+    Searches today and yesterday (to seamlessly handle evening/night shifts crossing midnight).
+    """
+    db = get_database()
+    if db is None or not user_id:
+        return None
+    now_pkt = get_now_pkt()
+    today_str = now_pkt.strftime("%Y-%m-%d")
+    yesterday_str = (now_pkt.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # 1. Check today first
+    rec_today = await db.attendance_records.find_one(
+        {
+            "user_id": user_id,
+            "date": today_str,
+            "$or": [{"check_in": {"$ne": None}}, {"punch_in": {"$ne": None}}],
+            "check_out": None,
+            "punch_out": None,
+            "is_missed_punch": {"$ne": True},
+            "status": {"$nin": [AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value]},
+        },
+        {"_id": 0},
+    )
+    if rec_today and (rec_today.get("check_in") or rec_today.get("punch_in")):
+        return rec_today
+
+    # 2. Check yesterday (for evening / night shifts crossing midnight or recent open punches)
+    rec_yesterday = await db.attendance_records.find_one(
+        {
+            "user_id": user_id,
+            "date": yesterday_str,
+            "$or": [{"check_in": {"$ne": None}}, {"punch_in": {"$ne": None}}],
+            "check_out": None,
+            "punch_out": None,
+            "is_missed_punch": {"$ne": True},
+            "status": {"$nin": [AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value]},
+        },
+        {"_id": 0},
+    )
+    if rec_yesterday and (rec_yesterday.get("check_in") or rec_yesterday.get("punch_in")):
+        return rec_yesterday
+
+    return None
+
+
 # ──────────────────────────────────────────────────────────
 # 4. CHECK-IN & CHECK-OUT FLOWS
 # ──────────────────────────────────────────────────────────
@@ -1541,6 +1621,16 @@ async def process_check_in(
         biometric_verified=check_in_req.biometric_verified,
         is_mocked=check_in_req.is_mocked,
     )
+
+    # Prevent check-in if user already has an active, open punch session
+    active_existing = await get_active_attendance_record(user_id)
+    if active_existing:
+        cin_prev = active_existing.get("check_in") or active_existing.get("punch_in")
+        prev_date = active_existing.get("date")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"You are currently checked in (since {prev_date} {cin_prev}). Please check out before checking in again.",
+        )
 
     # Punch time is always server PKT. Client timestamps are ignored.
     date_str = get_current_date_str()
@@ -1713,8 +1803,7 @@ async def process_check_out(
 
     user_id = user.get("id")
     department = user.get("department")
-    date_str = get_current_date_str()
-    time_str = get_current_time_str()
+    time_str = custom_time or get_current_time_str()
 
     from app.services.device_registry import enforce_mobile_punch
     await enforce_mobile_punch(
@@ -1724,25 +1813,38 @@ async def process_check_out(
         is_mocked=check_out_req.is_mocked,
     )
 
-    existing = await db.attendance_records.find_one(
-        {"user_id": user_id, "date": date_str},
-        {"_id": 0}
-    )
+    if custom_date:
+        date_str = custom_date
+        existing = await db.attendance_records.find_one(
+            {"user_id": user_id, "date": date_str},
+            {"_id": 0}
+        )
+    else:
+        existing = await get_active_attendance_record(user_id)
+        if not existing:
+            date_str = get_current_date_str()
+            existing = await db.attendance_records.find_one(
+                {"user_id": user_id, "date": date_str},
+                {"_id": 0}
+            )
+        else:
+            date_str = existing.get("date") or get_current_date_str()
+
     cin = existing.get("check_in") or existing.get("punch_in") if existing else None
     if not existing or not cin:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot check out without an active check-in for today."
+            detail="Cannot check out without an active check-in."
         )
 
     cout = existing.get("check_out") or existing.get("punch_out")
     if cout:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Already checked out today at {cout}."
+            detail=f"Already checked out at {cout}."
         )
 
-    # Use today's assigned shift (date override / weekday), not the template stamped at check-in.
+    # Use assigned shift for the record's date (date override / weekday), not the template stamped at check-in.
     shift = await get_shift_for_user(user_id, department, date_str)
 
     is_wfh = existing.get("is_wfh", False)
@@ -1872,14 +1974,19 @@ async def process_break_toggle(
         raise HTTPException(status_code=500, detail="Database unavailable")
 
     user_id = user.get("id")
-    date_str = get_current_date_str()
     time_str = get_current_time_str()
     action = (break_req.action or "").strip().lower()
 
-    existing = await db.attendance_records.find_one(
-        {"user_id": user_id, "date": date_str},
-        {"_id": 0},
-    )
+    existing = await get_active_attendance_record(user_id)
+    if not existing:
+        date_str = get_current_date_str()
+        existing = await db.attendance_records.find_one(
+            {"user_id": user_id, "date": date_str},
+            {"_id": 0},
+        )
+    else:
+        date_str = existing.get("date") or get_current_date_str()
+
     cin = (existing.get("check_in") or existing.get("punch_in")) if existing else None
     cout = (existing.get("check_out") or existing.get("punch_out")) if existing else None
     if not existing or not cin:
@@ -1955,7 +2062,22 @@ async def get_today_status(
     user_id = user.get("id")
     department = user.get("department")
     now_pkt = get_now_pkt()
-    target_date = date_str or now_pkt.strftime("%Y-%m-%d")
+
+    active_rec = None
+    if not date_str:
+        active_rec = await get_active_attendance_record(user_id)
+
+    if active_rec:
+        target_date = active_rec.get("date") or now_pkt.strftime("%Y-%m-%d")
+        record_doc = active_rec
+    else:
+        target_date = date_str or now_pkt.strftime("%Y-%m-%d")
+        record_doc = None
+        if db is not None:
+            record_doc = await db.attendance_records.find_one(
+                {"user_id": user_id, "date": target_date},
+                {"_id": 0}
+            )
 
     shift = await get_shift_for_user(user_id, department, target_date)
     is_wfh = await is_wfh_approved_for_date(user_id, target_date)
@@ -1973,21 +2095,14 @@ async def get_today_status(
 
     day_info = await classify_date(target_date)
 
-    shift_ended = is_shift_window_closed(shift, now_pkt)
-    if shift_ended and not is_wfh and not day_info.is_off:
+    cin = (record_doc.get("punch_in") or record_doc.get("check_in")) if record_doc else None
+    cout = (record_doc.get("punch_out") or record_doc.get("check_out")) if record_doc else None
+
+    shift_ended = is_shift_window_closed(shift, now_pkt) if not active_rec else False
+    if shift_ended and not is_wfh and not day_info.is_off and not cin:
         lock_date = closed_shift_attendance_date(shift, now_pkt)
         if lock_date == target_date:
             await persist_auto_absent(user, shift, target_date)
-
-    record_doc = None
-    if db is not None:
-        record_doc = await db.attendance_records.find_one(
-            {"user_id": user_id, "date": target_date},
-            {"_id": 0}
-        )
-
-    cin = (record_doc.get("punch_in") or record_doc.get("check_in")) if record_doc else None
-    cout = (record_doc.get("punch_out") or record_doc.get("check_out")) if record_doc else None
 
     is_checked_in = bool(record_doc and cin and not cout)
     check_in_time = cin
@@ -1996,10 +2111,15 @@ async def get_today_status(
     # Calculate active duration in seconds if currently punched in
     active_duration_seconds = 0
     if is_checked_in and check_in_time:
-        now_mins = parse_time_to_minutes(get_current_time_str())
-        in_mins = parse_time_to_minutes(check_in_time)
-        diff_mins = max(0, now_mins - in_mins)
-        active_duration_seconds = diff_mins * 60
+        try:
+            rec_date_str = (record_doc or {}).get("date") or target_date
+            in_dt = datetime.strptime(f"{rec_date_str} {check_in_time}", "%Y-%m-%d %H:%M").replace(tzinfo=PKT_TIMEZONE)
+            active_duration_seconds = max(0, int((now_pkt - in_dt).total_seconds()))
+        except Exception:
+            now_mins = parse_time_to_minutes(get_current_time_str())
+            in_mins = parse_time_to_minutes(check_in_time)
+            diff_mins = max(0, now_mins - in_mins)
+            active_duration_seconds = diff_mins * 60
 
     record_status = str(record_doc.get("status") or "") if record_doc else ""
     if record_doc and cin:

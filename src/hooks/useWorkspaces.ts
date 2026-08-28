@@ -44,6 +44,20 @@ export function useWorkspaces(enabled: boolean = true) {
 
   useEffect(() => {
     fetchWorkspaces();
+
+    const handleGlobalWorkspaceUpdate = () => {
+      fetchWorkspaces();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('reamarc_workspaces_updated', handleGlobalWorkspaceUpdate);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('reamarc_workspaces_updated', handleGlobalWorkspaceUpdate);
+      }
+    };
   }, [fetchWorkspaces]);
 
   const saveWorkspace = async (
@@ -60,6 +74,9 @@ export function useWorkspaces(enabled: boolean = true) {
       if (selectedWorkspace?.id === updated.id) {
         setSelectedWorkspace(updated);
       }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('reamarc_workspaces_updated'));
+      }
       return { workspace: updated, isNew: false };
     } else {
       const created = await workspaceService.createWorkspace(data as WorkspaceCreatePayload);
@@ -67,6 +84,9 @@ export function useWorkspaces(enabled: boolean = true) {
         [...prev, created].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
       );
       setSelectedWorkspace(created);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('reamarc_workspaces_updated'));
+      }
       return { workspace: created, isNew: true };
     }
   };
@@ -81,6 +101,9 @@ export function useWorkspaces(enabled: boolean = true) {
 
     try {
       await workspaceService.deleteWorkspace(workspaceId);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('reamarc_workspaces_updated'));
+      }
     } catch (err) {
       // Rollback on failure
       setWorkspaces(previousWorkspaces);

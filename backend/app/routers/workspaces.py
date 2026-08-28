@@ -1,6 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
+from fastapi.responses import FileResponse
 from typing import List, Optional
 import uuid
+import os
+import re
 from datetime import datetime, timezone
 
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
@@ -186,3 +189,30 @@ async def delete_workspace(
         status_code=status.HTTP_403_FORBIDDEN,
         detail="Workspace deletion is disabled. Workspaces can only be marked as Inactive.",
     )
+
+
+@router.get("/download-proposal")
+async def download_proposal(
+    file_path: str = Query(..., description="File path under /uploads"),
+    current_user: dict = Depends(require_member_or_admin),
+):
+    """Download a workspace proposal file. Requires an authenticated internal member/lead/ops/admin."""
+    clean_relative = file_path.replace("/uploads/", "").lstrip("/").lstrip("\\")
+    base_uploads = os.path.abspath(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "uploads"
+    ))
+    full_path = os.path.abspath(os.path.normpath(os.path.join(base_uploads, clean_relative)))
+
+    if not full_path.startswith(base_uploads) or not os.path.isfile(full_path):
+        raise HTTPException(status_code=404, detail="Requested proposal file not found.")
+
+    raw_filename = os.path.basename(full_path)
+    clean_display_name = re.sub(r"^[a-f0-9]{10}_", "", raw_filename)
+
+    return FileResponse(
+        path=full_path,
+        filename=clean_display_name,
+        media_type="application/octet-stream"
+    )
+
