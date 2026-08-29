@@ -2802,15 +2802,15 @@ async def get_daily_matrix(
             elif is_wfh_flag or status_enum == AttendanceStatus.WFH:
                 status_badge = "W.F.H"
                 wfh_count += 1
-            elif status_enum == AttendanceStatus.LATE or (status_enum != AttendanceStatus.PRESENT and is_late_flag):
-                status_badge = "Late"
-                late_count += 1
+            elif status_enum == AttendanceStatus.MISSED_PUNCH:
+                status_badge = "Missed Punch"
                 present_count += 1
             elif status_enum == AttendanceStatus.SHORT_LEAVE:
                 status_badge = "Short Leave"
                 present_count += 1
-            elif status_enum == AttendanceStatus.MISSED_PUNCH:
-                status_badge = "Missed Punch"
+            elif status_enum == AttendanceStatus.LATE or (status_enum == AttendanceStatus.PRESENT and is_late_flag):
+                status_badge = "Late"
+                late_count += 1
                 present_count += 1
             elif status_enum in (AttendanceStatus.SICK_LEAVE, AttendanceStatus.CASUAL_LEAVE, AttendanceStatus.ANNUAL_LEAVE, AttendanceStatus.UNPAID_LEAVE, AttendanceStatus.ON_LEAVE):
                 status_badge = "Leave"

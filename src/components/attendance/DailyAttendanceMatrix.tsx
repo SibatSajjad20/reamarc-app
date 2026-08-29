@@ -456,7 +456,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                           {row.punch_in ? (
                             <span
                               className={
-                                row.status === 'late' || (row.status !== 'present' && row.status !== 'wfh' && (row.is_late || row.is_late_alert))
+                                row.is_late || row.is_late_alert || row.status === 'late'
                                   ? 'text-rose-600 dark:text-rose-400'
                                   : 'text-emerald-600 dark:text-emerald-400'
                               }
@@ -486,7 +486,9 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         <td className="py-3 px-4 font-mono font-bold text-zinc-800 dark:text-zinc-200">
                           <div>
                             {row.punch_in || row.check_in ? (
-                              row.effective_hours_minutes > 0 ? (
+                              row.status === 'missed_punch' ? (
+                                <span className="text-zinc-400 font-normal">0h 0m</span>
+                              ) : row.effective_hours_minutes > 0 ? (
                                 `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
                               ) : row.punch_out || row.check_out ? (
                                 '0h 0m'
@@ -512,11 +514,21 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
                         {/* Register Status */}
                         <td className="py-3 px-4 whitespace-nowrap">
-                          {row.status === 'present' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                              Present
+                          {row.status === 'missed_punch' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-300">
+                              ⚠️ Missed Punch
                             </span>
-                          ) : row.status === 'late' || (row.status !== 'wfh' && row.is_late) ? (
+                          ) : row.status === 'present' ? (
+                            row.is_late ? (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                                Late Arrival
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                                Present
+                              </span>
+                            )
+                          ) : row.status === 'late' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
                               Late Arrival
                             </span>
@@ -531,10 +543,6 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                           ) : row.status === 'short_leave' ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200">
                               Short Leave
-                            </span>
-                          ) : row.status === 'missed_punch' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-300">
-                              ⚠️ Missed Punch
                             </span>
                           ) : row.status === 'sunday_off' ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
