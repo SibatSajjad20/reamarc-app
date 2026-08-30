@@ -31,11 +31,12 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
   userRole = 'admin',
 }) => {
   const isHR = userRole === 'hr';
+  const isOperations = userRole === 'operations';
 
   const headerTitle = isAdmin
     ? 'Admin Operations'
     : isHR
-    ? 'HR Operations Hub'
+    ? 'HR Panel'
     : 'Operations Command';
 
   const tabs = [
@@ -51,35 +52,35 @@ export const AdminSidebarNav: React.FC<AdminSidebarNavProps> = ({
       label: 'Log Compliance',
       icon: BellRing,
       count: missingLogsCount > 0 ? String(missingLogsCount) : null,
-      visible: true,
+      visible: isAdmin,
     },
     {
       id: 'attendance_policies' as AdminSectionType,
       label: 'Attendance Policies',
       icon: Clock,
       count: null,
-      visible: true,
+      visible: isAdmin || isHR,
     },
     {
       id: 'mobile_ops' as AdminSectionType,
       label: 'Mobile & Alerts',
       icon: Smartphone,
       count: null,
-      visible: true,
+      visible: isAdmin || isHR,
     },
     {
       id: 'workspaces' as AdminSectionType,
       label: 'Workspaces',
       icon: FolderKanban,
       count: workspaceCount > 0 ? String(workspaceCount) : null,
-      visible: true,
+      visible: isAdmin || isOperations,
     },
     {
       id: 'ad_accounts' as AdminSectionType,
       label: 'Ad Accounts',
       icon: Briefcase,
       count: adAccountCount > 0 ? String(adAccountCount) : null,
-      visible: true,
+      visible: isAdmin,
     },
   ].filter((tab) => tab.visible);
 

@@ -40,6 +40,19 @@ router = APIRouter(
 require_lead_or_hr = require_roles(["team_lead", "hr"])
 
 
+def _clean_reopen_note(note: Optional[str], previously_accepted: Optional[float]) -> Optional[str]:
+    if not note:
+        return None
+    raw = str(note).strip()
+    if not raw:
+        return None
+    if "+0:00" in raw or "-0:00" in raw or "+0h" in raw or "-0h" in raw or "previous +0" in raw or "previous -0" in raw:
+        return None
+    if previously_accepted is None or abs(float(previously_accepted)) <= 0.05:
+        return None
+    return raw
+
+
 def _to_item(score: dict, *, is_missing: bool = False) -> dict:
     primary = primary_exception(score)
     worked = float(score.get("worked_hours") or 0)
@@ -49,6 +62,7 @@ def _to_item(score: dict, *, is_missing: bool = False) -> dict:
     if signed is None:
         signed = signed_hours_gap(logged, worked) if compare_ready else 0.0
     gap = float(score.get("gap_hours") if score.get("gap_hours") is not None else abs(signed))
+    prev_accepted = score.get("previously_accepted_signed_gap_hours")
     return {
         "id": score.get("id") or f"missing:{score.get('user_id')}:{score.get('date')}",
         "user_id": score.get("user_id"),
@@ -78,8 +92,8 @@ def _to_item(score: dict, *, is_missing: bool = False) -> dict:
         "escalated": bool(score.get("escalated")),
         "employee_notified": bool(score.get("employee_notified")) or (score.get("action_status") in ("waiting_on_employee", "waiting_on_reviewer")),
         "member_reason": score.get("member_reason") or None,
-        "previously_accepted_signed_gap_hours": score.get("previously_accepted_signed_gap_hours"),
-        "reopen_note": score.get("reopen_note") or None,
+        "previously_accepted_signed_gap_hours": prev_accepted if (prev_accepted is not None and abs(float(prev_accepted)) > 0.05) else None,
+        "reopen_note": _clean_reopen_note(score.get("reopen_note"), prev_accepted),
     }
 
 
@@ -209,9 +223,20 @@ async def list_exception_inbox(
             else:
                 compare_ready = False
 
-            due = person_day_is_due(day, today, target, {**att, "has_checkout": has_checkout, "work_hours": worked})
+            due = person_day_is_due(
+                day,
+                today,
+                target,
+                {
+                    **att,
+                    "has_checkout": has_checkout,
+                    "has_checkin": has_checkin,
+                    "work_hours": worked,
+                    "is_wfh": is_wfh,
+                },
+            )
             open_case = action_status in ("waiting_on_employee", "waiting_on_reviewer", "escalated") or bool(stored.get("escalated"))
-            if not due and not open_case:
+            if not due and not open_case and not (has_log and logged > 0):
                 continue
 
             status, exceptions = classify_day_status(
@@ -224,7 +249,7 @@ async def list_exception_inbox(
                 is_wfh=is_wfh,
                 compare_ready=compare_ready,
             )
-            is_missing = due and not has_log
+            is_missing = due and not has_log and (has_checkin or has_checkout or worked > 0 or is_wfh)
             if is_missing:
                 status = "red"
                 exceptions = [{
@@ -270,6 +295,31 @@ async def list_exception_inbox(
                         },
                     )
 
+            # Auto-repair legacy false +0:00 reopen notes from DB
+            existing_reopen = str(stored.get("reopen_note") or "")
+            prev_gap_val = stored.get("previously_accepted_signed_gap_hours")
+            if existing_reopen and (
+                "+0:00" in existing_reopen
+                or "-0:00" in existing_reopen
+                or "+0h" in existing_reopen
+                or "-0h" in existing_reopen
+                or (prev_gap_val is not None and abs(float(prev_gap_val)) <= 0.05)
+            ):
+                stored["reopen_note"] = ""
+                stored["previously_accepted_signed_gap_hours"] = None
+                stored["gap_reopened_at"] = None
+                if stored.get("user_id") and stored.get("date"):
+                    await db.daily_log_day_scores.update_one(
+                        {"user_id": stored["user_id"], "date": stored["date"]},
+                        {
+                            "$set": {
+                                "reopen_note": "",
+                                "previously_accepted_signed_gap_hours": None,
+                                "gap_reopened_at": None,
+                            }
+                        },
+                    )
+
             row = {
                 "id": stored.get("id") or (f"missing:{uid}:{day}" if is_missing else f"gap:{uid}:{day}"),
                 "user_id": uid,
@@ -296,7 +346,10 @@ async def list_exception_inbox(
                 "employee_notified": bool(stored.get("employee_notified")),
                 "member_reason": stored.get("member_reason") or "",
                 "previously_accepted_signed_gap_hours": stored.get("previously_accepted_signed_gap_hours"),
-                "reopen_note": stored.get("reopen_note") or "",
+                "reopen_note": _clean_reopen_note(
+                    stored.get("reopen_note"),
+                    stored.get("previously_accepted_signed_gap_hours"),
+                ),
             }
             items.append(_to_item(row, is_missing=is_missing))
 

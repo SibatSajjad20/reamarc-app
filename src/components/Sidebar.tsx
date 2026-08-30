@@ -78,7 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
-  const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Operations Hub' : 'Operations Panel';
+  const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Panel' : 'Operations Panel';
 
   const navItems = [
     ...(!isAdmin && !isClient

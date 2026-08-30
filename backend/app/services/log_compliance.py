@@ -55,20 +55,33 @@ def person_day_is_due(
     target: Optional[Dict[str, Any]],
     att: Optional[Dict[str, Any]],
 ) -> bool:
-    """A log is required only after the workday is real — not on leave, not before check-out."""
+    """A log is required only after the workday is real — not on leave, not absent without punches."""
     if person_day_is_leave(target, att):
         return False
     rec = att or {}
     has_checkout = rec.get("has_checkout")
     if has_checkout is None:
         has_checkout = bool(rec.get("check_out") or rec.get("punch_out"))
+    has_checkin = rec.get("has_checkin")
+    if has_checkin is None:
+        has_checkin = bool(rec.get("check_in") or rec.get("punch_in"))
     try:
         worked = float(rec.get("work_hours") or 0)
     except (TypeError, ValueError):
         worked = 0.0
-    if has_checkout or worked > 0:
+
+    # If the employee checked in, checked out, or had worked hours recorded
+    if has_checkin or has_checkout or worked > 0:
         return True
-    return bool(date_str) and date_str < today
+
+    # If the employee is on an approved WFH day, a log is due
+    is_wfh = bool((target or {}).get("is_wfh") or rec.get("is_wfh"))
+    if is_wfh and bool(date_str) and date_str <= today:
+        return True
+
+    # If the user was completely absent (no punches, 0h worked, not WFH),
+    # they are absent and not expected to submit daily task logs.
+    return False
 
 
 def signed_hours_gap(logged_hours: float, worked_hours: float) -> float:
@@ -89,12 +102,13 @@ def should_reopen_reviewed_gap(
     tolerance_hours: float = SMALL_GAP_HOURS,
 ) -> bool:
     """True when a later edit made the hours gap worse than what HR/lead accepted."""
-    if not has_exception:
+    if not has_exception or accepted_signed_gap_hours is None:
         return False
-    if accepted_signed_gap_hours is None:
+    accepted = float(accepted_signed_gap_hours)
+    # A negligible or 0:00 gap was not a prior gap acceptance
+    if abs(accepted) <= float(tolerance_hours):
         return False
     current = float(current_signed_gap_hours or 0)
-    accepted = float(accepted_signed_gap_hours)
     same_direction = (accepted >= 0 and current >= 0) or (accepted < 0 and current < 0)
     if same_direction:
         return abs(current) > abs(accepted) + float(tolerance_hours)
@@ -116,26 +130,47 @@ def apply_accepted_gap_state(
             score["action_status"] = "cleared"
         return score
 
-    accepted = score.get("accepted_signed_gap_hours")
-    if action in ("reviewed", "cleared") and accepted is None:
-        # Lock the gap from before this edit, not the newly computed one.
-        fallback = previous_signed_gap if previous_signed_gap is not None else signed_gap
-        score["accepted_signed_gap_hours"] = round(float(fallback or 0), 2)
-        accepted = score["accepted_signed_gap_hours"]
-
-    if action in ("reviewed", "cleared") and should_reopen_reviewed_gap(
-        accepted,
-        signed_gap,
-        bool(exceptions),
-    ):
-        score["previously_accepted_signed_gap_hours"] = accepted
-        score["accepted_signed_gap_hours"] = None
+    # If the day was only automatically cleared (clean green day previously),
+    # revert cleanly to open when an exception occurs without creating a false reopen note.
+    if action == "cleared":
         score["action_status"] = "open"
-        score["employee_notified"] = False
-        score["escalated"] = False
-        score["gap_reopened_at"] = datetime.now(timezone.utc).isoformat()
-        prior = format_signed_gap_label(float(accepted or 0))
-        score["reopen_note"] = f"Gap grew after a previous {prior} acceptance"
+        score["accepted_signed_gap_hours"] = None
+        score["previously_accepted_signed_gap_hours"] = None
+        score["reopen_note"] = ""
+        score["gap_reopened_at"] = None
+        return score
+
+    accepted = score.get("accepted_signed_gap_hours")
+    if action == "reviewed":
+        if accepted is None:
+            fallback = previous_signed_gap if previous_signed_gap is not None else signed_gap
+            if fallback is not None and abs(float(fallback)) > SMALL_GAP_HOURS:
+                score["accepted_signed_gap_hours"] = round(float(fallback), 2)
+                accepted = score["accepted_signed_gap_hours"]
+            else:
+                score["accepted_signed_gap_hours"] = None
+                accepted = None
+
+        if accepted is not None and abs(float(accepted)) > SMALL_GAP_HOURS and should_reopen_reviewed_gap(
+            accepted,
+            signed_gap,
+            bool(exceptions),
+        ):
+            score["previously_accepted_signed_gap_hours"] = accepted
+            score["accepted_signed_gap_hours"] = None
+            score["action_status"] = "open"
+            score["employee_notified"] = False
+            score["escalated"] = False
+            score["gap_reopened_at"] = datetime.now(timezone.utc).isoformat()
+            prior = format_signed_gap_label(float(accepted))
+            score["reopen_note"] = f"Gap grew after a previous {prior} acceptance"
+        elif bool(exceptions) and (accepted is None or abs(float(accepted or 0)) <= SMALL_GAP_HOURS):
+            score["action_status"] = "open"
+            score["accepted_signed_gap_hours"] = None
+            score["previously_accepted_signed_gap_hours"] = None
+            score["reopen_note"] = ""
+            score["gap_reopened_at"] = None
+
     return score
 
 

@@ -40,6 +40,14 @@ export const AdminPanel: React.FC = () => {
   const [activeSection, setActiveSection] = useState<AdminSectionType>('directory');
   const [policiesVisited, setPoliciesVisited] = useState(false);
 
+  useEffect(() => {
+    if (isHR && (activeSection === 'compliance' || activeSection === 'workspaces' || activeSection === 'ad_accounts')) {
+      setActiveSection('directory');
+    } else if (isOperations && (activeSection === 'compliance' || activeSection === 'attendance_policies' || activeSection === 'mobile_ops' || activeSection === 'ad_accounts')) {
+      setActiveSection('directory');
+    }
+  }, [user?.role, activeSection, isHR, isOperations]);
+
   // Members & Activities
   const [members, setMembers] = useState<AdminMember[]>([]);
   const [activities, setActivities] = useState<Record<string, MemberActivity>>({});
@@ -258,7 +266,7 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'compliance' && (
+      {activeSection === 'compliance' && isAdmin && (
         <ComplianceRemindersSection
           activities={activities}
           isLoading={isLoadingMembers}
@@ -267,7 +275,7 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'workspaces' && (
+      {activeSection === 'workspaces' && (isAdmin || isOperations) && (
         <WorkspacesSection
           workspaces={workspaces}
           adAccounts={adAccounts}
@@ -284,7 +292,7 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'ad_accounts' && (
+      {activeSection === 'ad_accounts' && isAdmin && (
         <AdAccountsSection
           adAccounts={adAccounts}
           workspaces={workspaces}
@@ -301,9 +309,9 @@ export const AdminPanel: React.FC = () => {
         />
       )}
 
-      {activeSection === 'mobile_ops' && <MobileOpsSection />}
+      {activeSection === 'mobile_ops' && (isAdmin || isHR) && <MobileOpsSection />}
 
-      {policiesVisited && (
+      {policiesVisited && (isAdmin || isHR) && (
         <div className={activeSection === 'attendance_policies' ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : 'hidden'}>
           <AttendancePoliciesSection />
         </div>

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   Inbox,
   CheckCircle2,
@@ -17,6 +17,9 @@ import {
   CornerUpLeft,
   HelpCircle,
   Eye,
+  MoreVertical,
+  Copy,
+  Check,
 } from 'lucide-react';
 import type { AttendanceRequest, RequestStatus } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
@@ -80,6 +83,16 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
   const [clarifyingItem, setClarifyingItem] = useState<AttendanceRequest | null>(null);
   const [appealingItem, setAppealingItem] = useState<AttendanceRequest | null>(null);
   const [deletingItem, setDeletingItem] = useState<AttendanceRequest | null>(null);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    if (!openDropdownId) return;
+    const handleDocClick = () => setOpenDropdownId(null);
+    document.addEventListener('click', handleDocClick);
+    return () => document.removeEventListener('click', handleDocClick);
+  }, [openDropdownId]);
 
   // Form Inputs
   const [reviewComment, setReviewComment] = useState('');
@@ -537,15 +550,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 <th className="py-3 px-4">Request Type</th>
                 <th className="py-3 px-4">Applicable Dates / Time</th>
                 <th className="py-3 px-4 max-w-sm">Reason / Work Details</th>
-                <th className="py-3 px-4">Submitted At</th>
                 <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4 text-right w-16">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
               {filteredRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-16">
+                  <td colSpan={6} className="py-16">
                     <div className="flex flex-col items-center justify-center gap-2 text-zinc-400 dark:text-zinc-500">
                       <Inbox className="w-8 h-8 text-zinc-300 dark:text-zinc-600" />
                       <p className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">No requests found</p>
@@ -576,7 +588,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   return (
                     <tr
                       key={req.id}
-                      className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors"
+                      onClick={() => setSelectedDetailItem(req)}
+                      className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors cursor-pointer group"
                     >
                       {/* Applicant */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
@@ -585,7 +598,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                             {req.user_name.substring(0, 2).toUpperCase()}
                           </div>
                           <div>
-                            <p className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                            <p className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
                               {req.user_name}
                             </p>
                             <p className="text-[10px] text-zinc-400">
@@ -639,13 +652,10 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         )}
                       </td>
 
-                      {/* Reason Column: 2-line clamped preview + Click to view full thread */}
-                      <td
-                        className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 max-w-xs cursor-pointer group"
-                        onClick={() => setSelectedDetailItem(req)}
-                      >
+                      {/* Reason Column: Clean clamped preview without clutter link */}
+                      <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 max-w-xs">
                         <div className="space-y-1">
-                          <p className="line-clamp-2 text-zinc-800 dark:text-zinc-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                          <p className="line-clamp-2 text-zinc-800 dark:text-zinc-200">
                             {req.reason}
                           </p>
 
@@ -669,125 +679,173 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                               Note: {req.rejection_reason || req.review_comments}
                             </p>
                           )}
-
-                          <span className="inline-block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold group-hover:underline">
-                            View full thread & history →
-                          </span>
                         </div>
-                      </td>
-
-                      {/* Submitted At */}
-                      <td className="py-3.5 px-4 text-zinc-400 whitespace-nowrap text-[11px]">
-                        {req.created_at ? req.created_at.substring(0, 10) : 'Recent'}
                       </td>
 
                       {/* Status */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
-                        {renderStatusBadge(req.status)}
+                        <div className="space-y-0.5">
+                          {renderStatusBadge(req.status)}
+                          {isPendingOrAppealed && !canReviewThis && scopeHint && (
+                            <p className="text-[10px] text-zinc-400 max-w-[10rem] truncate" title={scopeHint}>
+                              {scopeHint}
+                            </p>
+                          )}
+                          {!canReview && !isPendingOrAppealed && req.reviewed_by_name && (
+                            <p className="text-[10px] text-zinc-400">
+                              By {req.reviewed_by_name}
+                            </p>
+                          )}
+                        </div>
                       </td>
 
-                      {/* Actions */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {/* View details button */}
+                      {/* Actions Dropdown */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <div className="relative inline-block text-left">
                           <button
                             type="button"
-                            onClick={() => setSelectedDetailItem(req)}
-                            className="p-1.5 rounded-lg text-zinc-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 dark:hover:text-indigo-400 transition-colors cursor-pointer"
-                            title="View Full Details & Audit Timeline"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenDropdownId(openDropdownId === req.id ? null : req.id);
+                            }}
+                            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                            title="Actions"
                           >
-                            <Eye className="w-4 h-4" />
+                            <MoreVertical className="w-4 h-4" />
                           </button>
 
-                          {/* Reviewer actions on pending/appealed requests */}
-                          {canReviewThis && (
-                            <>
+                          {openDropdownId === req.id && (
+                            <div
+                              className="absolute right-0 top-full mt-1 w-52 bg-white dark:bg-[#161822] rounded-xl border border-zinc-200 dark:border-zinc-800 shadow-xl py-1 z-30 text-xs text-left animate-in fade-in zoom-in-95 duration-100"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {/* 1. View Full Details */}
                               <button
                                 type="button"
-                                onClick={() => handleOpenReview(req, 'approved')}
-                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-800 transition-colors cursor-pointer"
+                                onClick={() => {
+                                  setOpenDropdownId(null);
+                                  setSelectedDetailItem(req);
+                                }}
+                                className="w-full px-3 py-2 text-left text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2 font-medium cursor-pointer transition-colors"
                               >
-                                Approve
+                                <Eye className="w-3.5 h-3.5 text-zinc-400" />
+                                <span>View Full Details</span>
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReview(req, 'needs_info')}
-                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer"
-                                title="Ask employee for more details"
-                              >
-                                Ask Info
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOpenReview(req, 'rejected')}
-                                className="px-2.5 py-1 rounded-lg text-xs font-bold text-rose-700 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:hover:bg-rose-900 border border-rose-200 dark:border-rose-800 transition-colors cursor-pointer"
-                              >
-                                Reject
-                              </button>
-                            </>
-                          )}
 
-                          {/* Reviewer Edit Status on already resolved requests */}
-                          {canEditThis && (
-                            <button
-                              type="button"
-                              onClick={() => handleOpenEditStatus(req)}
-                              className="px-2 py-1 rounded-lg text-xs font-bold text-zinc-700 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 border border-zinc-300 dark:border-zinc-700 transition-colors cursor-pointer flex items-center gap-1"
-                              title="Edit / Undo Decision"
-                            >
-                              <Edit3 className="w-3 h-3" /> Edit
-                            </button>
-                          )}
+                              {/* Reviewer actions on pending/appealed requests */}
+                              {canReviewThis && (
+                                <>
+                                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      handleOpenReview(req, 'approved');
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                    <span>Approve Request</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      handleOpenReview(req, 'needs_info');
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <HelpCircle className="w-3.5 h-3.5 text-blue-600" />
+                                    <span>Ask for Info</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      handleOpenReview(req, 'rejected');
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-rose-700 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Reject Request</span>
+                                  </button>
+                                </>
+                              )}
 
-                          {/* Employee action: Reply to clarification */}
-                          {isNeedsInfo && isMyRequest && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setClarifyingItem(req);
-                                setClarifyResponseText('');
-                              }}
-                              className="px-2.5 py-1 rounded-lg text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/60 dark:text-blue-300 dark:hover:bg-blue-900 border border-blue-200 dark:border-blue-800 transition-colors cursor-pointer"
-                            >
-                              Reply
-                            </button>
-                          )}
+                              {/* Reviewer Edit Status on already resolved requests */}
+                              {canEditThis && (
+                                <>
+                                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      handleOpenEditStatus(req);
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>Edit Decision</span>
+                                  </button>
+                                </>
+                              )}
 
-                          {/* Employee action: Single-use Appeal */}
-                          {req.status === 'rejected' && isMyRequest && !req.has_appealed && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setAppealingItem(req);
-                                setAppealReasonText('');
-                              }}
-                              className="px-2.5 py-1 rounded-lg text-xs font-bold text-purple-700 bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:text-purple-300 dark:hover:bg-purple-900 border border-purple-200 dark:border-purple-800 transition-colors cursor-pointer"
-                            >
-                              Appeal
-                            </button>
-                          )}
+                              {/* Employee action: Reply to clarification */}
+                              {isNeedsInfo && isMyRequest && (
+                                <>
+                                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      setClarifyingItem(req);
+                                      setClarifyResponseText('');
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <MessageSquare className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>Reply to HR</span>
+                                  </button>
+                                </>
+                              )}
 
-                          {isPendingOrAppealed && !canReviewThis && scopeHint && (
-                            <span className="text-[11px] text-zinc-400 mr-1 max-w-[11rem] truncate" title={scopeHint}>
-                              {scopeHint}
-                            </span>
-                          )}
+                              {/* Employee action: Single-use Appeal */}
+                              {req.status === 'rejected' && isMyRequest && !req.has_appealed && (
+                                <>
+                                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      setAppealingItem(req);
+                                      setAppealReasonText('');
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <CornerUpLeft className="w-3.5 h-3.5 text-blue-500" />
+                                    <span>Appeal Rejection</span>
+                                  </button>
+                                </>
+                              )}
 
-                          {!canReview && !isPendingOrAppealed && req.reviewed_by_name && (
-                            <span className="text-[11px] text-zinc-400 mr-1">
-                              By {req.reviewed_by_name}
-                            </span>
-                          )}
-
-                          {canDeleteThis && (
-                            <button
-                              type="button"
-                              onClick={() => setDeletingItem(req)}
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/50 dark:hover:text-rose-400 transition-colors cursor-pointer"
-                              title="Delete / Cancel Request"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                              {/* Delete Request */}
+                              {canDeleteThis && (
+                                <>
+                                  <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenDropdownId(null);
+                                      setDeletingItem(req);
+                                    }}
+                                    className="w-full px-3 py-2 text-left text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                    <span>Delete Request</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
                       </td>
@@ -813,7 +871,21 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   <FileText className="w-4 h-4 text-indigo-600" />
                   Request Details & Audit History
                 </h3>
-                <p className="text-[11px] text-zinc-500">ID: {selectedDetailItem.id}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <span className="text-[11px] text-zinc-500 font-mono">ID: {selectedDetailItem.id}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(selectedDetailItem.id);
+                      setCopiedId(true);
+                      setTimeout(() => setCopiedId(false), 2000);
+                    }}
+                    className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 p-0.5 rounded cursor-pointer transition-colors"
+                    title="Copy Request ID"
+                  >
+                    {copiedId ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                  </button>
+                </div>
               </div>
               <button
                 type="button"
@@ -845,7 +917,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   <div>{renderStatusBadge(selectedDetailItem.status)}</div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800/80 text-[11px]">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2.5 border-t border-zinc-200 dark:border-zinc-800/80 text-[11px]">
                   <div>
                     <span className="text-zinc-400 block font-semibold">Request Type</span>
                     <div className="mt-0.5">{renderTypeBadge(selectedDetailItem)}</div>
@@ -857,6 +929,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       {selectedDetailItem.end_date !== selectedDetailItem.start_date
                         ? `to ${selectedDetailItem.end_date}`
                         : ''}
+                    </p>
+                  </div>
+                  <div>
+                    <span className="text-zinc-400 block font-semibold">Submitted At</span>
+                    <p className="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                      {selectedDetailItem.created_at
+                        ? selectedDetailItem.created_at.substring(0, 16).replace('T', ' ')
+                        : 'Recent'}
                     </p>
                   </div>
                 </div>
@@ -975,36 +1055,53 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   <History className="w-3.5 h-3.5 text-zinc-500" />
                   Status & Review Audit Timeline
                 </h4>
-                {selectedDetailItem.status_history && selectedDetailItem.status_history.length > 0 ? (
-                  <div className="space-y-2 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-zinc-200 dark:before:bg-zinc-800">
-                    {selectedDetailItem.status_history.map((hist, idx) => (
-                      <div key={idx} className="flex items-start gap-3 relative pl-6">
-                        <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 absolute left-2 top-1.5 ring-4 ring-white dark:ring-[#11131a]" />
-                        <div className="flex-1 p-2.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800 text-[11px] space-y-0.5">
-                          <div className="flex items-center justify-between">
-                            <span className="font-bold text-zinc-900 dark:text-zinc-100 capitalize">
-                              {hist.from_status} → {hist.to_status}
-                            </span>
-                            <span className="text-[10px] text-zinc-400">
-                              {hist.changed_at ? hist.changed_at.substring(0, 16).replace('T', ' ') : ''}
-                            </span>
-                          </div>
-                          <p className="text-zinc-500">
-                            By <strong className="text-zinc-700 dark:text-zinc-300">{hist.changed_by_name}</strong>{' '}
-                            {hist.changed_by_role ? `(${hist.changed_by_role})` : ''}
-                          </p>
-                          {hist.reason && (
-                            <p className="text-zinc-600 dark:text-zinc-400 italic mt-0.5">
-                              "{hist.reason}"
-                            </p>
-                          )}
-                        </div>
+                <div className="space-y-2 relative before:absolute before:left-3 before:top-2 before:bottom-2 before:w-0.5 before:bg-zinc-200 dark:before:bg-zinc-800">
+                  {/* Initial Submission */}
+                  <div className="flex items-start gap-3 relative pl-6">
+                    <div className="w-2.5 h-2.5 rounded-full bg-zinc-400 dark:bg-zinc-600 absolute left-2 top-1.5 ring-4 ring-white dark:ring-[#11131a]" />
+                    <div className="flex-1 p-2.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800 text-[11px] space-y-0.5">
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold text-zinc-900 dark:text-zinc-100">
+                          Request Submitted
+                        </span>
+                        <span className="text-[10px] text-zinc-400">
+                          {selectedDetailItem.created_at
+                            ? selectedDetailItem.created_at.substring(0, 16).replace('T', ' ')
+                            : 'Initial'}
+                        </span>
                       </div>
-                    ))}
+                      <p className="text-zinc-500">
+                        By <strong className="text-zinc-700 dark:text-zinc-300">{selectedDetailItem.user_name}</strong> ({selectedDetailItem.user_role || 'Staff'})
+                      </p>
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-zinc-400 text-xs italic">No prior status changes recorded.</p>
-                )}
+
+                  {/* Status History Transitions */}
+                  {selectedDetailItem.status_history && selectedDetailItem.status_history.map((hist, idx) => (
+                    <div key={idx} className="flex items-start gap-3 relative pl-6">
+                      <div className="w-2.5 h-2.5 rounded-full bg-indigo-600 absolute left-2 top-1.5 ring-4 ring-white dark:ring-[#11131a]" />
+                      <div className="flex-1 p-2.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800 text-[11px] space-y-0.5">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-zinc-900 dark:text-zinc-100 capitalize">
+                            {hist.from_status} → {hist.to_status}
+                          </span>
+                          <span className="text-[10px] text-zinc-400">
+                            {hist.changed_at ? hist.changed_at.substring(0, 16).replace('T', ' ') : ''}
+                          </span>
+                        </div>
+                        <p className="text-zinc-500">
+                          By <strong className="text-zinc-700 dark:text-zinc-300">{hist.changed_by_name}</strong>{' '}
+                          {hist.changed_by_role ? `(${hist.changed_by_role})` : ''}
+                        </p>
+                        {hist.reason && (
+                          <p className="text-zinc-600 dark:text-zinc-400 italic mt-0.5">
+                            "{hist.reason}"
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -1053,7 +1150,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                     <button
                       type="button"
                       onClick={() => handleOpenEditStatus(selectedDetailItem)}
-                      className="px-3 py-2 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 cursor-pointer flex items-center gap-1.5"
+                      className="px-3 py-2 rounded-xl text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/60 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 cursor-pointer flex items-center gap-1.5"
                     >
                       <Edit3 className="w-3.5 h-3.5" /> Edit Status
                     </button>
@@ -1086,7 +1183,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         setAppealingItem(selectedDetailItem);
                         setAppealReasonText('');
                       }}
-                      className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-purple-600 hover:bg-purple-500 shadow-sm cursor-pointer"
+                      className="px-3 py-2 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 shadow-sm cursor-pointer"
                     >
                       Appeal Rejection
                     </button>
@@ -1225,7 +1322,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-indigo-600" />
+                <Edit3 className="w-4 h-4 text-blue-600" />
                 <span>Edit / Reverse Request Status</span>
               </h3>
               <button
@@ -1251,15 +1348,15 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
                   New Status
                 </label>
-                <select
+                <CustomSelect
                   value={editStatusValue}
-                  onChange={(e) => setEditStatusValue(e.target.value as RequestStatus)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
-                >
-                  <option value="approved">Approved</option>
-                  <option value="rejected">Rejected</option>
-                  <option value="cancelled">Cancelled</option>
-                </select>
+                  onChange={(val) => setEditStatusValue(val as RequestStatus)}
+                  options={[
+                    { value: 'approved', label: 'Approved', icon: CheckCircle2 },
+                    { value: 'rejected', label: 'Rejected', icon: XCircle },
+                    { value: 'cancelled', label: 'Cancelled', icon: Trash2 },
+                  ]}
+                />
               </div>
 
               <div>
@@ -1272,7 +1369,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   placeholder="Explain why this decision is being modified (e.g. Discovered error in checkout time / verified overtime proof)..."
                   value={editStatusReason}
                   onChange={(e) => setEditStatusReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -1286,8 +1383,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessing || !editStatusReason.trim()}
-                  className="px-4 py-2 rounded-xl text-white font-bold bg-indigo-600 hover:bg-indigo-500 shadow-md shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
+                  disabled={isProcessing}
+                  className="px-4 py-2 rounded-xl text-white font-bold bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer disabled:opacity-50"
                 >
                   {isProcessing ? 'Saving...' : 'Update Status & Recalculate'}
                 </button>
@@ -1349,7 +1446,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessing || !clarifyResponseText.trim()}
+                  disabled={isProcessing}
                   className="px-4 py-2 rounded-xl text-white font-bold bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer disabled:opacity-50"
                 >
                   {isProcessing ? 'Submitting...' : 'Submit Clarification'}
@@ -1368,7 +1465,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <CornerUpLeft className="w-4 h-4 text-purple-600" />
+                <CornerUpLeft className="w-4 h-4 text-blue-600" />
                 <span>Appeal Rejected Request</span>
               </h3>
               <button
@@ -1380,9 +1477,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               </button>
             </div>
 
-            <div className="p-3 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800 text-xs text-purple-900 dark:text-purple-200 space-y-1">
+            <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-900 dark:text-blue-200 space-y-1">
               <p className="font-bold text-[11px] flex items-center gap-1">
-                <AlertTriangle className="w-3.5 h-3.5 text-purple-600" /> Single-Use Appeal
+                <AlertTriangle className="w-3.5 h-3.5 text-blue-600" /> Single-Use Appeal
               </p>
               <p className="leading-relaxed">
                 You can only submit an appeal once for this request. Please provide a clear, comprehensive justification.
@@ -1405,7 +1502,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   placeholder="Explain why this request should be reconsidered..."
                   value={appealReasonText}
                   onChange={(e) => setAppealReasonText(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
 
@@ -1419,8 +1516,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isProcessing || !appealReasonText.trim()}
-                  className="px-4 py-2 rounded-xl text-white font-bold bg-purple-600 hover:bg-purple-500 shadow-md shadow-purple-600/20 cursor-pointer disabled:opacity-50"
+                  disabled={isProcessing}
+                  className="px-4 py-2 rounded-xl text-white font-bold bg-blue-600 hover:bg-blue-500 shadow-md shadow-blue-600/20 cursor-pointer disabled:opacity-50"
                 >
                   {isProcessing ? 'Submitting...' : 'Submit Appeal'}
                 </button>

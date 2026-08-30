@@ -101,7 +101,7 @@ async def _get_previous_workday(today_date: datetime) -> str:
 
 
 async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
-    from app.services.log_compliance import batch_expected_targets, person_day_is_leave
+    from app.services.log_compliance import batch_expected_targets, person_day_is_leave, person_day_is_due
 
     db = get_database()
     ids = {m.get("id") for m in members if m.get("id")}
@@ -110,12 +110,15 @@ async def _user_ids_on_leave(members: List[dict], date_str: str) -> set:
     targets = await batch_expected_targets(members, [date_str])
     att_docs = await db.attendance_records.find(
         {"user_id": {"$in": list(ids)}, "date": date_str},
-        {"_id": 0, "user_id": 1, "status": 1},
+        {"_id": 0, "user_id": 1, "status": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "is_wfh": 1},
     ).to_list(500)
     att_by_user = {d.get("user_id"): d for d in att_docs if d.get("user_id")}
     on_leave = set()
+    today_str = datetime.now(PK_TZ).strftime("%Y-%m-%d")
     for uid in ids:
-        if person_day_is_leave(targets.get((uid, date_str)) or {}, att_by_user.get(uid)):
+        target = targets.get((uid, date_str)) or {}
+        att = att_by_user.get(uid) or {}
+        if person_day_is_leave(target, att) or not person_day_is_due(date_str, today_str, target, att):
             on_leave.add(uid)
     return on_leave
 

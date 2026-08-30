@@ -235,7 +235,7 @@ async def list_members_activity(
             target = targets.get((uid, d)) or {}
             if person_day_is_leave(target, att):
                 continue
-            if d == today_str and not person_day_is_due(d, today_str, target, att):
+            if not person_day_is_due(d, today_str, target, att):
                 continue
             missing.append(d)
 
@@ -329,7 +329,7 @@ async def remind_member_log(
         target = targets.get((user_id, d)) or {}
         if person_day_is_leave(target, att):
             continue
-        if d == today_str and not person_day_is_due(d, today_str, target, att):
+        if not person_day_is_due(d, today_str, target, att):
             continue
         missing_dates.append(d)
     if not missing_dates:

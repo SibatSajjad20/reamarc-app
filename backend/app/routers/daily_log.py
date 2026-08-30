@@ -196,21 +196,19 @@ async def get_my_log_activity(
         targets = await batch_expected_targets([current_user], workdays)
         att_docs = await db.attendance_records.find(
             {"user_id": uid, "date": {"$in": workdays}},
-            {"_id": 0, "date": 1, "status": 1, "check_out": 1, "punch_out": 1, "work_hours": 1},
+            {"_id": 0, "date": 1, "status": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "is_wfh": 1},
         ).to_list(40)
         att_by_day = {d.get("date"): d for d in att_docs if d.get("date")}
         today_pkt = pkt_today()
         for day in workdays:
             att = att_by_day.get(day) or {}
             target = targets.get((uid, day)) or {}
-            if person_day_is_leave(target, att):
+            if person_day_is_leave(target, att) or not person_day_is_due(day, today_pkt, target, att):
                 leave_days.add(day)
-            if day == today_pkt and not person_day_is_due(day, today_pkt, target, att):
-                not_due_today = True
 
     raw_missing = [
         w for w in workdays
-        if w not in submitted_dates and w not in leave_days and not (w == today_iso and not_due_today)
+        if w not in submitted_dates and w not in leave_days
     ]
 
     # Only include missing dates whose 48 working-hour window is currently active/open
