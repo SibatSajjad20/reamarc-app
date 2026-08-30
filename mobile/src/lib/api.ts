@@ -28,7 +28,7 @@ async function tryRefresh(): Promise<boolean> {
   if (!refresh) return false;
   const res = await fetch(`${API_URL}/auth/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Client': 'mobile', Accept: 'application/json' },
     body: JSON.stringify({ refresh_token: refresh }),
   });
   if (!res.ok) {
@@ -56,6 +56,7 @@ export async function api<T>(
 ): Promise<T> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
+    'X-Client': 'mobile',
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string> | undefined),
   };

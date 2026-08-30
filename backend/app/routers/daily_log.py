@@ -7,6 +7,8 @@ import re
 import os
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
+from app.core.mongo_filters import exact_ci, contains_ci
+from app.core.uploads import resolve_upload_file, uploads_root
 from app.schemas.daily_log import (
     DailyLogEntryCreate,
     DailyLogEntryUpdate,
@@ -469,15 +471,15 @@ async def get_entries(
     if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.OPERATIONS.value, "operations"):
         # Admin, HR & Operations have global visibility across all departments and members
         if department and department.lower() != "all":
-            query_filter["department"] = {"$regex": f"^{department.strip()}$", "$options": "i"}
+            query_filter["department"] = exact_ci(department)
         if user_id:
             query_filter["user_id"] = user_id
         if resource_name:
-            query_filter["resource_name"] = {"$regex": resource_name, "$options": "i"}
+            query_filter["resource_name"] = contains_ci(resource_name)
     elif user_role in (UserRole.TEAM_LEAD.value, "team_lead"):
         # Team Lead can see all logs in their assigned department + their own logs
         if current_dept:
-            dept_regex = {"$regex": f"^{current_dept.strip()}$", "$options": "i"}
+            dept_regex = exact_ci(current_dept)
             if user_id:
                 query_filter["$and"] = [
                     {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
@@ -486,7 +488,7 @@ async def get_entries(
             elif resource_name:
                 query_filter["$and"] = [
                     {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
-                    {"resource_name": {"$regex": resource_name, "$options": "i"}},
+                    {"resource_name": contains_ci(resource_name)},
                 ]
             else:
                 query_filter["$or"] = [
@@ -518,7 +520,7 @@ async def get_entries(
         query_filter["month_sheet"] = _get_current_month_sheet()
 
     if client_project:
-        query_filter["client_project"] = {"$regex": client_project, "$options": "i"}
+        query_filter["client_project"] = contains_ci(client_project)
     if task_status:
         query_filter["task_status"] = task_status
     if task_type:
@@ -554,9 +556,9 @@ async def get_entries(
     return result
 
 
-# Allowed file extensions for deliverables
+# Allowed file extensions for deliverables (no SVG — XSS when opened in browser)
 ALLOWED_EXTENSIONS = {
-    ".pdf", ".png", ".jpg", ".jpeg", ".svg", ".docx", ".doc", ".txt", ".zip", ".xlsx", ".csv"
+    ".pdf", ".png", ".jpg", ".jpeg", ".docx", ".doc", ".txt", ".zip", ".xlsx", ".csv"
 }
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
@@ -574,7 +576,7 @@ async def upload_deliverable(
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
-            detail=f"Unsupported file format '{ext}'. Allowed types: PDF, PNG, JPG, JPEG, SVG, DOCX, DOC, TXT, ZIP, XLSX, CSV."
+            detail=f"Unsupported file format '{ext}'. Allowed types: PDF, PNG, JPG, JPEG, DOCX, DOC, TXT, ZIP, XLSX, CSV."
         )
 
     content = await file.read()
@@ -584,13 +586,9 @@ async def upload_deliverable(
     clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
     safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"
 
-    upload_dir = os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "uploads",
-        "deliverables"
-    )
-    os.makedirs(upload_dir, exist_ok=True)
-    file_path = os.path.join(upload_dir, safe_name)
+    upload_dir = uploads_root() / "deliverables"
+    upload_dir.mkdir(parents=True, exist_ok=True)
+    file_path = upload_dir / safe_name
 
     with open(file_path, "wb") as f:
         f.write(content)
@@ -616,23 +614,16 @@ async def download_file(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Client accounts do not have access to internal daily logs.",
         )
-    clean_relative = file_path.replace("/uploads/", "").lstrip("/").lstrip("\\")
-    base_uploads = os.path.abspath(os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "uploads"
-    ))
-    full_path = os.path.abspath(os.path.normpath(os.path.join(base_uploads, clean_relative)))
+    full_path = resolve_upload_file(file_path)
 
-    if not full_path.startswith(base_uploads) or not os.path.isfile(full_path):
-        raise HTTPException(status_code=404, detail="Requested file not found.")
-
-    raw_filename = os.path.basename(full_path)
+    raw_filename = full_path.name
     clean_display_name = re.sub(r"^[a-f0-9]{10}_", "", raw_filename)
 
     return FileResponse(
-        path=full_path,
+        path=str(full_path),
         filename=clean_display_name,
-        media_type="application/octet-stream"
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{clean_display_name}"'},
     )
 
 

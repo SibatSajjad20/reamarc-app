@@ -80,9 +80,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (payload: LoginPayload) => {
     const res = await authService.login(payload);
-    if (res.access_token) {
-      apiClient.setToken(res.access_token);
-    }
+    // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
+    apiClient.setToken(null);
     const role = res.user?.role;
     let initialView = 'dashboard';
     if (role === 'client') {
@@ -103,9 +102,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (payload: RegisterPayload) => {
     const res = await authService.register(payload);
-    if (res.access_token) {
-      apiClient.setToken(res.access_token);
-    }
+    apiClient.setToken(null);
     const role = res.user?.role;
     let initialView = 'dashboard';
     if (role === 'client') {

@@ -130,9 +130,9 @@ export const AttendancePoliciesSection: React.FC = () => {
 
   // Security Settings State
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-    office_public_ips: ['127.0.0.1', '::1', '154.192.130.18', '154.57.199.55'],
-    office_subnets: ['192.168.1.0/24', '10.0.0.0/8'],
-    office_ip_whitelist: ['127.0.0.1', '::1', '192.168.1.0/24', '154.192.130.18', '154.57.199.55'],
+    office_public_ips: [],
+    office_subnets: [],
+    office_ip_whitelist: [],
     office_latitude: OFFICE_LATITUDE,
     office_longitude: OFFICE_LONGITUDE,
     geofence_radius_meters: GEOFENCE_RADIUS_METERS,

@@ -10,14 +10,17 @@ interface HasPermissionProps {
 }
 
 export const HasPermission: React.FC<HasPermissionProps> = ({
-  allowedRoles = ['admin', 'member'],
+  allowedRoles = ['admin', 'team_member'],
   children,
   fallback = null,
   disableOnly = false,
 }) => {
   const { role } = useAuth();
 
-  const isAuthorized = allowedRoles.includes(role);
+  const normalize = (r: UserRole | string) => (r === 'member' ? 'team_member' : r);
+  const userRole = normalize(role);
+  const allowed = allowedRoles.map(normalize);
+  const isAuthorized = allowed.includes(userRole);
 
   if (isAuthorized) {
     return <>{children}</>;

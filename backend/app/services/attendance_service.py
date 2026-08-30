@@ -18,6 +18,7 @@ from pymongo.errors import DuplicateKeyError
 from pymongo import ReturnDocument
 
 from app.database import get_database
+from app.core.mongo_filters import exact_ci
 from app.models.attendance import (
     AttendanceStatus,
     LeaveType,
@@ -2659,7 +2660,7 @@ async def get_daily_matrix(
     # 1. Fetch active employees (excluding clients and administrators who do not clock in/out)
     user_query: Dict[str, Any] = {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
     if department and department.lower() != "all":
-        user_query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        user_query["department"] = exact_ci(department)
 
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
 
@@ -3061,7 +3062,7 @@ async def get_monthly_punctuality_summary(
 
     user_query: Dict[str, Any] = {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}}
     if department and department.lower() != "all":
-        user_query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        user_query["department"] = exact_ci(department)
 
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
     month_prefix = f"{year:04d}-{month:02d}"
@@ -3356,7 +3357,7 @@ async def get_all_leave_requests(
     if status_filter and status_filter.lower() not in ("all", ""):
         query["status"] = status_filter.lower()
     if department and department.lower() not in ("all", ""):
-        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        query["department"] = exact_ci(department)
 
     # Scoped visibility / view clearing
     if viewer_user:
@@ -3398,7 +3399,7 @@ async def get_pending_leave_requests(
 
     query: Dict[str, Any] = {"status": {"$in": [LeaveStatus.PENDING.value, LeaveStatus.APPEALED.value]}}
     if department and department.lower() != "all":
-        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        query["department"] = exact_ci(department)
 
     if viewer_user:
         viewer_role = str(viewer_user.get("role") or "team_member").lower()

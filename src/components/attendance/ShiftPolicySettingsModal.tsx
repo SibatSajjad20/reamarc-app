@@ -45,9 +45,9 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
 
   // Security Settings State
   const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-    office_public_ips: ['127.0.0.1', '::1', '110.39.1.50'],
-    office_subnets: ['192.168.1.0/24', '10.0.0.0/8', '110.39.1.0/24'],
-    office_ip_whitelist: ['127.0.0.1', '::1', '192.168.1.0/24', '110.39.1.0/24'],
+    office_public_ips: [],
+    office_subnets: [],
+    office_ip_whitelist: [],
     office_latitude: OFFICE_LATITUDE,
     office_longitude: OFFICE_LONGITUDE,
     geofence_radius_meters: GEOFENCE_RADIUS_METERS,

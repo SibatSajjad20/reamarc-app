@@ -1,5 +1,15 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
+import '@fontsource/plus-jakarta-sans/400.css'
+import '@fontsource/plus-jakarta-sans/500.css'
+import '@fontsource/plus-jakarta-sans/600.css'
+import '@fontsource/plus-jakarta-sans/700.css'
+import '@fontsource/jetbrains-mono/400.css'
+import '@fontsource/jetbrains-mono/500.css'
 import './index.css'
 import App from './App.tsx'
 
@@ -10,8 +20,8 @@ const envApiUrl =
   (import.meta as any).env?.VITE_API_URL;
 
 if (!envApiUrl && !(import.meta as any).env?.DEV) {
-  console.warn(
-    '⚠️ [Reamarc AI] NEXT_PUBLIC_API_URL is not defined in environment variables. Defaulting to http://localhost:8000/api/v1'
+  throw new Error(
+    '[Reamarc AI] VITE_API_URL / NEXT_PUBLIC_API_URL is required in production. Refusing to start with a localhost API fallback.'
   );
 }
 

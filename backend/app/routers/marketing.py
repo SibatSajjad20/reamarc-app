@@ -12,7 +12,7 @@ from typing import Optional, List, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Request, Response
 from pydantic import BaseModel
 
-from app.core.security import get_current_user, require_editor_or_admin
+from app.core.security import get_current_user, require_editor_or_admin, workspace_mongo_filter, assert_workspace_access
 from app.core.encryption import encrypt_string, decrypt_string
 from app.database import get_database
 from app.schemas.marketing import (
@@ -53,8 +53,7 @@ async def _fetch_daily_matrix_rows_for_response(
     include_inactive: bool = False,
 ) -> Tuple[List[DailyMatrixRowResponse], int]:
     campaign_filter = {}
-    if workspace_id and workspace_id not in ("ALL", "all", "global"):
-        campaign_filter["workspace_id"] = workspace_id
+    campaign_filter.update(workspace_mongo_filter(current_user, workspace_id))
 
     campaigns_cursor = db.marketing_campaigns.find(campaign_filter, {"_id": 0})
     campaigns = await campaigns_cursor.to_list(length=None)
@@ -185,6 +184,8 @@ async def create_marketing_campaign(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="workspace_id is required to create a marketing campaign."
         )
+
+    assert_workspace_access(current_user, payload.workspace_id)
 
     now_str = datetime.now(timezone.utc).isoformat()
     campaign_doc = {
@@ -400,7 +401,18 @@ async def sync_now(
     if not target_date:
         target_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    ws_sync_param = target_ws if target_ws and target_ws != "ALL" else None
+    resolved = assert_workspace_access(current_user, target_ws or "ALL")
+    if resolved == "__scoped__":
+        # Sync for first assigned workspace when non-mgmt lacks a specific id
+        allowed = list(current_user.get("workspace_ids") or [])
+        ws_sync_param = allowed[0] if len(allowed) == 1 else None
+        if ws_sync_param is None and allowed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Specify X-Workspace-ID for sync when you have multiple workspaces.",
+            )
+    else:
+        ws_sync_param = resolved
     job_key = f"sync_{ws_sync_param or 'global'}"
 
     db = get_database()
@@ -456,6 +468,7 @@ async def get_sync_status(
     """
     db = get_database()
     target_ws = workspace_id or request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id")
+    assert_workspace_access(current_user, target_ws or "ALL")
     ws_param = target_ws if target_ws and target_ws != "ALL" else None
     job_key = f"sync_{ws_param or 'global'}"
 
@@ -622,6 +635,9 @@ async def save_ad_account_credential(
     target_ws_name = (payload.workspace_name or "").strip()
     norm_platform = "Google" if payload.platform.lower().startswith("google") else "Meta"
 
+    if target_ws_id:
+        assert_workspace_access(current_user, target_ws_id)
+
     # Step 1: Live API Verification against Meta or Google Ads
     if norm_platform == "Meta":
         await verify_meta_credentials(payload.account_id, payload.access_token or "")
@@ -718,10 +734,11 @@ async def save_ad_account_credential(
 
     resp_doc = dict(cred_doc)
     resp_doc["workspace_name"] = target_ws_name
-    resp_doc["access_token"] = decrypt_string(resp_doc["access_token"])
-    resp_doc["refresh_token"] = decrypt_string(resp_doc["refresh_token"])
-    resp_doc["developer_token"] = decrypt_string(resp_doc["developer_token"])
-    resp_doc["client_secret"] = decrypt_string(resp_doc["client_secret"])
+    # Never return raw secrets to the browser after save — confirm with masked placeholders
+    resp_doc["access_token"] = "***" if resp_doc.get("access_token") else ""
+    resp_doc["refresh_token"] = "***" if resp_doc.get("refresh_token") else ""
+    resp_doc["developer_token"] = "***" if resp_doc.get("developer_token") else ""
+    resp_doc["client_secret"] = "***" if resp_doc.get("client_secret") else ""
 
     return AdAccountCredentialResponse(**resp_doc)
 
@@ -738,9 +755,7 @@ async def list_ad_account_credentials(
         raise HTTPException(status_code=503, detail="Database unavailable.")
 
     target_ws = workspace_id or request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id")
-    query = {}
-    if target_ws and target_ws != "ALL":
-        query["workspace_id"] = target_ws
+    query = dict(workspace_mongo_filter(current_user, target_ws))
 
     creds = await db.ad_account_credentials.find(query, {"_id": 0}).to_list(length=None)
 
@@ -752,10 +767,11 @@ async def list_ad_account_credentials(
     for c in creds:
         c_copy = dict(c)
         c_copy["workspace_name"] = ws_name_map.get(c_copy.get("workspace_id", ""), "")
-        c_copy["access_token"] = decrypt_string(c_copy.get("access_token", ""))
-        c_copy["refresh_token"] = decrypt_string(c_copy.get("refresh_token", ""))
-        c_copy["developer_token"] = decrypt_string(c_copy.get("developer_token", ""))
-        c_copy["client_secret"] = decrypt_string(c_copy.get("client_secret", ""))
+        # Mask secrets — clients only need to know a credential exists
+        c_copy["access_token"] = "***" if c_copy.get("access_token") else ""
+        c_copy["refresh_token"] = "***" if c_copy.get("refresh_token") else ""
+        c_copy["developer_token"] = "***" if c_copy.get("developer_token") else ""
+        c_copy["client_secret"] = "***" if c_copy.get("client_secret") else ""
         res_list.append(AdAccountCredentialResponse(**c_copy))
 
     return res_list

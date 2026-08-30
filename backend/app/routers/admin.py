@@ -14,6 +14,7 @@ from app.schemas.user import (
     ReminderResponse,
 )
 from app.models.user import UserRole
+from app.core.mongo_filters import exact_ci, contains_ci
 from app.schemas.admin import (
     WorkspaceCreate,
     WorkspaceUpdate,
@@ -146,14 +147,14 @@ async def list_members(
 
     query = {}
     if department:
-        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        query["department"] = exact_ci(department)
     if role:
         query["role"] = role.lower()
     if search:
         query["$or"] = [
-            {"full_name": {"$regex": search, "$options": "i"}},
-            {"name": {"$regex": search, "$options": "i"}},
-            {"email": {"$regex": search, "$options": "i"}},
+            {"full_name": contains_ci(search)},
+            {"name": contains_ci(search)},
+            {"email": contains_ci(search)},
         ]
 
     cursor = db.users.find(query).sort("created_at", -1)
@@ -183,7 +184,7 @@ async def list_members_activity(
         }
     }
     if department:
-        query["department"] = {"$regex": f"^{department}$", "$options": "i"}
+        query["department"] = exact_ci(department)
 
     cursor = db.users.find(query).sort("full_name", 1)
     users = await cursor.to_list(200)

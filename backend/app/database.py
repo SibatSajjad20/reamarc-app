@@ -60,6 +60,8 @@ async def _create_indexes_background():
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("user_id", 1), ("date", -1)])
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("month_sheet", 1)])
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("resource_name", 1), ("date", -1)])
+        await db_instance.db.daily_log_entries.create_index([("user_id", 1), ("date", -1)], name="idx_dailylog_user_date")
+        await db_instance.db.daily_log_entries.create_index([("department", 1), ("date", -1)], name="idx_dailylog_dept_date")
         await db_instance.db.daily_log_entries.create_index([("id", 1), ("workspace_id", 1)], unique=True)
         await db_instance.db.daily_log_columns.create_index([("workspace_id", 1)], unique=True)
         try:

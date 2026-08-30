@@ -71,6 +71,42 @@ class LeaveCreateRequest(BaseModel):
 
         return data
 
+    @model_validator(mode="after")
+    def validate_dates_and_times(self) -> "LeaveCreateRequest":
+        from app.services.workdays import parse_iso_date
+        import re as _re
+
+        def _iso(field: str, value: Optional[str], required: bool = False) -> Optional[str]:
+            if value is None or value == "":
+                if required:
+                    raise ValueError(f"{field} is required and must be YYYY-MM-DD")
+                return None
+            parsed = parse_iso_date(value)
+            if parsed is None:
+                raise ValueError(f"{field} must be a valid date in YYYY-MM-DD format")
+            return parsed.isoformat()
+
+        def _hhmm(field: str, value: Optional[str]) -> Optional[str]:
+            if value is None or value == "":
+                return None
+            if not _re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(value).strip()):
+                raise ValueError(f"{field} must be HH:MM (24-hour)")
+            return str(value).strip()
+
+        self.start_date = _iso("start_date", self.start_date, required=True) or self.start_date
+        self.end_date = _iso("end_date", self.end_date, required=True) or self.end_date
+        self.regularization_date = _iso("regularization_date", self.regularization_date)
+        self.overtime_date = _iso("overtime_date", self.overtime_date)
+        self.short_leave_start_time = _hhmm("short_leave_start_time", self.short_leave_start_time)
+        self.short_leave_end_time = _hhmm("short_leave_end_time", self.short_leave_end_time)
+        self.regularization_check_in = _hhmm("regularization_check_in", self.regularization_check_in)
+        self.regularization_check_out = _hhmm("regularization_check_out", self.regularization_check_out)
+        self.original_check_in = _hhmm("original_check_in", self.original_check_in)
+        self.original_check_out = _hhmm("original_check_out", self.original_check_out)
+        self.shift_end = _hhmm("shift_end", self.shift_end)
+        self.check_out = _hhmm("check_out", self.check_out)
+        return self
+
 
 class LeaveBalanceUpdateRequest(BaseModel):
     year: Optional[int] = Field(default=None, description="Leave year (defaults to current calendar year)")

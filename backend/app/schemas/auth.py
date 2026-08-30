@@ -25,7 +25,7 @@ class UserResponse(BaseModel):
     workspace_ids: List[str] = []
 
 class TokenResponse(BaseModel):
-    access_token: str
+    access_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
     refresh_token: Optional[str] = None
@@ -68,7 +68,7 @@ class VerifyResetCodeRequest(BaseModel):
 class ResetPasswordRequest(BaseModel):
     email: EmailStr
     code: str = Field(..., pattern=r"^\d{6}$", description="6-digit numeric OTP code")
-    new_password: str = Field(..., min_length=6, description="New password (minimum 6 characters)")
+    new_password: str = Field(..., min_length=8, description="New password (minimum 8 characters)")
 
     @field_validator("email", mode="before")
     @classmethod

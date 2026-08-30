@@ -100,31 +100,91 @@ async def get_current_user(
     # Fetch live user record for up-to-date role / is_active / department / designation
     from app.database import get_database
     db = get_database()
-    user_doc = None
-    if db is not None:
-        user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable. Authentication cannot be verified.",
+        )
 
-    if user_doc and not user_doc.get("is_active", True):
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    if not user_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account not found.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user_doc.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
-    effective_role = _normalize_role(
-        user_doc.get("role") if user_doc else payload.get("role")
-    )
+    effective_role = _normalize_role(user_doc.get("role"))
 
     return {
         "id": user_id,
-        "email": email,
-        "name": payload.get("name", user_doc.get("full_name", "User") if user_doc else "User"),
-        "full_name": user_doc.get("full_name", payload.get("name", "User")) if user_doc else "User",
+        "email": user_doc.get("email") or email,
+        "name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
+        "full_name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "role": effective_role,
-        "department": user_doc.get("department") if user_doc else None,
-        "designation": user_doc.get("designation") if user_doc else None,
-        "is_active": user_doc.get("is_active", True) if user_doc else True,
-        "workspace_ids": user_doc.get("workspace_ids", []) if user_doc else payload.get("workspace_ids", []),
+        "department": user_doc.get("department"),
+        "designation": user_doc.get("designation"),
+        "is_active": user_doc.get("is_active", True),
+        "workspace_ids": user_doc.get("workspace_ids", []),
     }
+
+
+_MANAGEMENT_ROLES = {
+    UserRole.ADMIN.value,
+    UserRole.HR.value,
+    UserRole.OPERATIONS.value,
+    "admin",
+    "hr",
+    "operations",
+}
+
+
+def assert_workspace_access(current_user: dict, workspace_id: Optional[str]) -> Optional[str]:
+    """
+    Enforce workspace membership for X-Workspace-ID / query workspace_id.
+    Returns a concrete workspace id to filter on, or None when management may see all.
+    Raises 403 when the caller may not access the requested workspace.
+    """
+    role = current_user.get("role")
+    allowed = list(current_user.get("workspace_ids") or [])
+    is_mgmt = role in _MANAGEMENT_ROLES
+
+    if not workspace_id or str(workspace_id).lower() in ("all", "global"):
+        if is_mgmt:
+            return None
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No workspace access assigned to this account.",
+            )
+        # Non-management "ALL" collapses to their assigned set; caller must use $in.
+        return "__scoped__"
+
+    if is_mgmt:
+        return workspace_id
+
+    if workspace_id not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized for this workspace.",
+        )
+    return workspace_id
+
+
+def workspace_mongo_filter(current_user: dict, workspace_id: Optional[str], field: str = "workspace_id") -> dict:
+    """Build a Mongo filter fragment for workspace scoping."""
+    resolved = assert_workspace_access(current_user, workspace_id)
+    if resolved is None:
+        return {}
+    if resolved == "__scoped__":
+        return {field: {"$in": list(current_user.get("workspace_ids") or [])}}
+    return {field: resolved}
 
 
 def require_roles(allowed_roles: List[str]):
@@ -204,14 +264,19 @@ async def get_workspace_context(
     request: Request,
     current_user: dict = Depends(get_current_user)
 ) -> Optional[str]:
-    """Extracts optional X-Workspace-ID / X-Account-ID header or returns None."""
+    """Extracts X-Workspace-ID and enforces membership."""
     workspace_id = (
         request.headers.get("X-Workspace-ID")
         or request.headers.get("x-workspace-id")
         or request.headers.get("X-Account-ID")
         or request.headers.get("x-account-id")
     )
-    return workspace_id or "global"
+    if not workspace_id:
+        return None
+    resolved = assert_workspace_access(current_user, workspace_id)
+    if resolved == "__scoped__":
+        return None
+    return resolved
 
 
 require_editor_or_admin = require_roles(["admin", "hr", "team_lead", "team_member"])

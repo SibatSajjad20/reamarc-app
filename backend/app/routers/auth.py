@@ -1,6 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
-from slowapi import Limiter
-from slowapi.util import get_remote_address
 from datetime import datetime, timedelta, timezone
 import uuid
 import re
@@ -20,6 +18,7 @@ from app.core.security import (
     decode_refresh_token, get_current_user,
     _normalize_role,
 )
+from app.core.limiter import limiter
 from app.services.email_service import EmailService
 from app.database import get_database
 from app.config import settings
@@ -34,7 +33,12 @@ router = APIRouter(
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     }
 )
-limiter = Limiter(key_func=get_remote_address)
+
+
+def _wants_json_tokens(request: Request) -> bool:
+    """Mobile clients need JWTs in the body; browsers use HttpOnly cookies only."""
+    return (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile"
+
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     is_prod = settings.IS_PRODUCTION
@@ -55,6 +59,20 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         **cookie_opts,
     )
+
+
+def _token_payload(access_token: str, refresh_token: str, user_doc: dict, include_tokens: bool) -> dict:
+    body = {
+        "token_type": "bearer",
+        "user": _build_user_response(user_doc),
+    }
+    if include_tokens:
+        body["access_token"] = access_token
+        body["refresh_token"] = refresh_token
+    else:
+        body["access_token"] = None
+        body["refresh_token"] = None
+    return body
 
 
 def _build_user_response(user_doc: dict) -> dict:
@@ -132,15 +150,11 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     refresh_token = create_refresh_token(claims)
     _set_auth_cookies(response, access_token, refresh_token)
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": _build_user_response(user_doc),
-    }
+    return _token_payload(access_token, refresh_token, user_doc, _wants_json_tokens(request))
 
 
 @router.post("/refresh", response_model=TokenResponse)
+@limiter.limit("30/minute")
 async def refresh_token(request: Request, response: Response):
     token = request.cookies.get("refresh_token")
     if not token:
@@ -180,12 +194,7 @@ async def refresh_token(request: Request, response: Response):
     new_refresh_token = create_refresh_token(claims)
     _set_auth_cookies(response, new_access_token, new_refresh_token)
 
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "bearer",
-        "user": _build_user_response(user_doc),
-    }
+    return _token_payload(new_access_token, new_refresh_token, user_doc, _wants_json_tokens(request))
 
 
 from app.schemas.user import UserProfileUpdate
@@ -230,8 +239,8 @@ async def update_my_profile(
         update_fields["phone_number"] = profile_in.phone.strip()
 
     if profile_in.new_password:
-        if len(profile_in.new_password) < 6:
-            raise HTTPException(status_code=400, detail="New password must be at least 6 characters.")
+        if len(profile_in.new_password) < 8:
+            raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
 
         current_hash = user_doc.get("hashed_password")
         if current_hash:

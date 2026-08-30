@@ -1,7 +1,7 @@
 /**
  * Production-Grade API Client for Reamarc AI
- * Handles authentication headers, HttpOnly cookies, request timeouts,
- * and standardized error parsing.
+ * Session auth via HttpOnly cookies (credentials: include).
+ * No JWT in localStorage — XSS cannot steal the session that way.
  */
 
 export class ApiError extends Error {
@@ -18,6 +18,7 @@ export class ApiError extends Error {
 
 interface RequestOptions extends RequestInit {
   timeout?: number;
+  _retried?: boolean;
 }
 
 const getBaseUrl = (): string => {
@@ -34,6 +35,12 @@ const getBaseUrl = (): string => {
     return '/api/v1';
   }
 
+  if (!envUrl && !(import.meta as any).env?.DEV) {
+    throw new Error(
+      'VITE_API_URL (or NEXT_PUBLIC_API_URL) must be set for production builds. Refusing to default to localhost.'
+    );
+  }
+
   let cleaned = (envUrl || 'http://localhost:8000/api/v1').replace(/\/$/, '');
   if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
     cleaned = `${cleaned}/api/v1`;
@@ -48,28 +55,25 @@ class ApiClient {
   private baseUrl: string;
   private onUnauthorizedCallback?: () => void;
   private activeWorkspaceId: string | null = null;
-  private token: string | null = typeof window !== 'undefined' ? localStorage.getItem('reamarc_token') : null;
+  private refreshPromise: Promise<boolean> | null = null;
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
   }
 
-  public setToken(token: string | null) {
-    this.token = token;
+  /** @deprecated Cookie sessions — no-op kept for call-site compatibility during migration */
+  public setToken(_token: string | null) {
     if (typeof window !== 'undefined') {
-      if (token) {
-        localStorage.setItem('reamarc_token', token);
-      } else {
-        localStorage.removeItem('reamarc_token');
-      }
+      localStorage.removeItem('reamarc_token');
     }
   }
 
+  /** @deprecated Cookie sessions — always null */
   public getToken(): string | null {
-    if (!this.token && typeof window !== 'undefined') {
-      this.token = localStorage.getItem('reamarc_token');
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('reamarc_token');
     }
-    return this.token;
+    return null;
   }
 
   public setOnUnauthorized(callback: () => void) {
@@ -80,8 +84,38 @@ class ApiClient {
     this.activeWorkspaceId = workspaceId;
   }
 
+  private async tryRefreshSession(): Promise<boolean> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = (async () => {
+      try {
+        const res = await fetch(`${this.baseUrl}/auth/refresh`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: '{}',
+        });
+        return res.ok;
+      } catch {
+        return false;
+      } finally {
+        this.refreshPromise = null;
+      }
+    })();
+    return this.refreshPromise;
+  }
+
+  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false): Record<string, string> {
+    const headers: Record<string, string> = {
+      Accept: 'application/json',
+      ...(skipContentType ? {} : { 'Content-Type': 'application/json' }),
+      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
+      ...(customHeaders as Record<string, string>),
+    };
+    return headers;
+  }
+
   public async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
-    const { timeout = 15000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
+    const { timeout = 15000, headers: customHeaders, signal: externalSignal, _retried, ...fetchOptions } = options;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -94,19 +128,10 @@ class ApiClient {
       }
     }
 
-    const currentToken = this.getToken();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
-      ...(customHeaders as Record<string, string>),
-    };
-
     const config: RequestInit = {
       ...fetchOptions,
-      headers,
-      credentials: 'include', // Send HttpOnly cookies automatically
+      headers: this.buildHeaders(customHeaders),
+      credentials: 'include',
       signal: controller.signal,
     };
 
@@ -114,7 +139,6 @@ class ApiClient {
       const response = await fetch(`${this.baseUrl}${endpoint}`, config);
       clearTimeout(timeoutId);
 
-      // Parse JSON response body if present
       let data: any = null;
       const contentType = response.headers.get('content-type');
       if (contentType && contentType.includes('application/json')) {
@@ -122,7 +146,20 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        if (response.status === 401 && this.onUnauthorizedCallback) {
+        if (
+          response.status === 401 &&
+          !_retried &&
+          !endpoint.includes('/auth/login') &&
+          !endpoint.includes('/auth/refresh')
+        ) {
+          const refreshed = await this.tryRefreshSession();
+          if (refreshed) {
+            return this.request<T>(endpoint, { ...options, _retried: true });
+          }
+          if (this.onUnauthorizedCallback) {
+            this.onUnauthorizedCallback();
+          }
+        } else if (response.status === 401 && this.onUnauthorizedCallback) {
           this.onUnauthorizedCallback();
         }
 
@@ -152,7 +189,7 @@ class ApiClient {
   }
 
   public async requestWithHeaders<T>(endpoint: string, options: RequestOptions = {}): Promise<{ data: T; headers: Headers }> {
-    const { timeout = 15000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
+    const { timeout = 15000, headers: customHeaders, signal: externalSignal, _retried, ...fetchOptions } = options;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeout);
@@ -165,18 +202,9 @@ class ApiClient {
       }
     }
 
-    const currentToken = this.getToken();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
-      ...(customHeaders as Record<string, string>),
-    };
-
     const config: RequestInit = {
       ...fetchOptions,
-      headers,
+      headers: this.buildHeaders(customHeaders),
       credentials: 'include',
       signal: controller.signal,
     };
@@ -192,7 +220,20 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        if (response.status === 401 && this.onUnauthorizedCallback) {
+        if (
+          response.status === 401 &&
+          !_retried &&
+          !endpoint.includes('/auth/login') &&
+          !endpoint.includes('/auth/refresh')
+        ) {
+          const refreshed = await this.tryRefreshSession();
+          if (refreshed) {
+            return this.requestWithHeaders<T>(endpoint, { ...options, _retried: true });
+          }
+          if (this.onUnauthorizedCallback) {
+            this.onUnauthorizedCallback();
+          }
+        } else if (response.status === 401 && this.onUnauthorizedCallback) {
           this.onUnauthorizedCallback();
         }
 
@@ -254,28 +295,29 @@ class ApiClient {
   }
 
   public async upload<T>(endpoint: string, formData: FormData): Promise<T> {
-    const currentToken = this.getToken();
-    const headers: Record<string, string> = {
-      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
-    };
-
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
-      headers,
+      headers: this.buildHeaders(undefined, true),
       body: formData,
       credentials: 'include',
     });
 
     const data = await response.json();
     if (!response.ok) {
+      if (response.status === 401) {
+        const refreshed = await this.tryRefreshSession();
+        if (refreshed) {
+          return this.upload<T>(endpoint, formData);
+        }
+        if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
+      }
       throw new ApiError(data?.detail || data?.message || 'File upload failed.', response.status, data);
     }
     return data as T;
   }
 
   public async getBlob(endpoint: string, options: RequestOptions = {}): Promise<Blob> {
-    const { timeout = 120000, headers: customHeaders, signal: externalSignal, ...fetchOptions } = options;
+    const { timeout = 120000, headers: customHeaders, signal: externalSignal, _retried, ...fetchOptions } = options;
 
     const controller = new AbortController();
     let timedOut = false;
@@ -294,16 +336,9 @@ class ApiClient {
       }
     }
 
-    const currentToken = this.getToken();
-    const headers: Record<string, string> = {
-      ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}),
-      ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
-      ...(customHeaders as Record<string, string>),
-    };
-
     const config: RequestInit = {
       ...fetchOptions,
-      headers,
+      headers: this.buildHeaders(customHeaders, true),
       credentials: 'include',
       signal: controller.signal,
     };
@@ -313,8 +348,12 @@ class ApiClient {
       clearTimeout(timeoutId);
 
       if (!response.ok) {
-        if (response.status === 401 && this.onUnauthorizedCallback) {
-          this.onUnauthorizedCallback();
+        if (response.status === 401 && !_retried) {
+          const refreshed = await this.tryRefreshSession();
+          if (refreshed) {
+            return this.getBlob(endpoint, { ...options, _retried: true });
+          }
+          if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
         }
         let errorMsg = `Download failed with status ${response.status}`;
         try {
