@@ -4534,25 +4534,36 @@ async def override_attendance_record(
 # 9. COMPANY CALENDAR & HOLIDAYS
 # ──────────────────────────────────────────────────────────
 
-async def get_calendar_events(year: int, month: int) -> CalendarMonthResponse:
-    """Retrieves all calendar events, holidays, and working Saturdays for a month."""
+async def get_calendar_events(year: Optional[int] = None, month: Optional[int] = None) -> CalendarMonthResponse:
+    """Retrieves all calendar events, holidays, and working Saturdays for a month or active period."""
     db = get_database()
+    target_year = year or 2026
+    target_month = month or 8
     if db is None:
-        return CalendarMonthResponse(year=year, month=month, events=[], holidays=[], working_saturdays=[])
+        return CalendarMonthResponse(year=target_year, month=target_month, events=[], holidays=[], working_saturdays=[])
 
-    month_prefix = f"{year:04d}-{month:02d}"
-    docs = await db.company_calendar.find(
-        {"date": {"$regex": f"^{month_prefix}-"}},
-        {"_id": 0}
-    ).sort("date", 1).to_list(100)
+    query = {}
+    if year is not None and month is not None:
+        month_prefix = f"{year:04d}-{month:02d}"
+        query = {"date": {"$regex": f"^{month_prefix}-"}}
+    elif year is not None:
+        query = {"date": {"$regex": f"^{year:04d}-"}}
+
+    docs = await db.company_calendar.find(query, {"_id": 0}).sort("date", 1).to_list(500)
 
     events = [CalendarEventResponse(**d) for d in docs]
-    holidays = [e.date for e in events if e.event_type == CalendarEventType.HOLIDAY]
-    working_saturdays = [e.date for e in events if e.is_workday_override or e.event_type == CalendarEventType.WORKING_SATURDAY]
+    holidays = [
+        e.date for e in events
+        if e.is_off_day or str(getattr(e.event_type, "value", e.event_type) or "").lower() in ("holiday", "calendar_event_type.holiday")
+    ]
+    working_saturdays = [
+        e.date for e in events
+        if e.is_workday_override or str(getattr(e.event_type, "value", e.event_type) or "").lower() in ("working_saturday", "calendar_event_type.working_saturday")
+    ]
 
     return CalendarMonthResponse(
-        year=year,
-        month=month,
+        year=target_year,
+        month=target_month,
         events=events,
         holidays=holidays,
         working_saturdays=working_saturdays,
@@ -4560,7 +4571,7 @@ async def get_calendar_events(year: int, month: int) -> CalendarMonthResponse:
 
 
 async def create_calendar_event(event_in: CalendarEventCreate) -> CalendarEventResponse:
-    """Creates a new company calendar event / holiday / working Saturday override."""
+    """Creates a new company calendar event / holiday / working Saturday override and auto-syncs attendance."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
@@ -4575,6 +4586,27 @@ async def create_calendar_event(event_in: CalendarEventCreate) -> CalendarEventR
 
     await db.company_calendar.insert_one(event_dict)
     created_doc = await db.company_calendar.find_one({"id": event_dict["id"]}, {"_id": 0})
+
+    # If this is a holiday, auto-convert unpunched absent attendance records on this date to holiday
+    is_holiday = event_dict.get("is_off_day") is True or str(event_dict.get("event_type") or "").lower() in ("holiday", "calendar_event_type.holiday")
+    if is_holiday and event_dict.get("date"):
+        h_title = event_dict.get("title") or "Public Holiday"
+        try:
+            await db.attendance_records.update_many(
+                {"date": event_dict["date"], "punch_in": None, "check_in": None},
+                {"$set": {
+                    "status": AttendanceStatus.HOLIDAY.value,
+                    "shift_name": h_title,
+                    "notes": f"{h_title} (Public Holiday)",
+                    "is_late": False,
+                    "late_minutes": 0,
+                    "is_absent": False,
+                    "updated_at": now_iso,
+                }}
+            )
+        except Exception as e:
+            logger.warning(f"Failed to auto-sync attendance records for holiday {event_dict['date']}: {e}")
+
     return CalendarEventResponse(**created_doc)
 
 
@@ -4612,9 +4644,25 @@ async def delete_calendar_event(event_id: str) -> dict:
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
 
+    existing = await db.company_calendar.find_one({"id": event_id})
     result = await db.company_calendar.delete_one({"id": event_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail=f"Calendar event '{event_id}' not found")
+
+    if existing and existing.get("date") and (existing.get("is_off_day") or existing.get("event_type") == "holiday"):
+        now_iso = datetime.now(timezone.utc).isoformat()
+        try:
+            await db.attendance_records.update_many(
+                {"date": existing["date"], "punch_in": None, "check_in": None, "status": AttendanceStatus.HOLIDAY.value},
+                {"$set": {
+                    "status": AttendanceStatus.ABSENT.value,
+                    "notes": "Unpunched workday (Auto Absent)",
+                    "updated_at": now_iso,
+                }}
+            )
+        except Exception:
+            pass
+
     return {"message": f"Calendar event '{event_id}' deleted successfully", "id": event_id}
 
 

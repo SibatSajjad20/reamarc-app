@@ -246,10 +246,11 @@ export const AttendancePoliciesSection: React.FC = () => {
   };
 
   const fetchSecondary = async () => {
-    const calNow = new Date();
+    const targetYear = 2026;
+    const targetMonth = 8;
     const [fetchedSec, fetchedCal] = await Promise.allSettled([
       attendanceService.getSecuritySettings(),
-      attendanceService.getCalendarMonth(calNow.getFullYear(), calNow.getMonth() + 1),
+      attendanceService.getCalendarMonth(targetYear, targetMonth),
     ]);
 
     if (fetchedSec.status === 'fulfilled' && fetchedSec.value) {
