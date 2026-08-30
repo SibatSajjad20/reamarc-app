@@ -239,8 +239,11 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   // Filtered rows
   const normalizeDept = (d?: string) => (d || '').toLowerCase().replace(/[\s_-]+/g, '');
 
+  const isDateMatching = Boolean(matrixData && matrixData.date === selectedDate);
+  const isWaitingForNewDate = isLoading || !isDateMatching;
+
   const filteredRows = useMemo(() => {
-    if (!matrixData?.rows) return [];
+    if (!matrixData?.rows || !isDateMatching) return [];
     return matrixData.rows.filter((row) => {
       const matchesDept =
         selectedDepartment === 'All' ||
@@ -267,7 +270,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
       return matchesDept && matchesSearch && matchesStatus;
     });
-  }, [matrixData, selectedDepartment, searchTerm, statusFilter]);
+  }, [matrixData, selectedDepartment, searchTerm, statusFilter, isDateMatching]);
 
   return (
     <div className="space-y-4">
@@ -347,7 +350,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               placeholder="Search employee..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-10 pl-8 pr-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              className="w-full h-10 pl-8 pr-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
         </div>
@@ -361,18 +364,22 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
       <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
           <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+            <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
             Live Daily Attendance Register ({selectedDate})
-            {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
+            {isWaitingForNewDate && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />}
           </h3>
           <span className="text-xs font-semibold text-zinc-500">
-            Showing {filteredRows.length} of {matrixData?.rows.length || 0} employees
+            {isWaitingForNewDate
+              ? 'Loading...'
+              : `Showing ${filteredRows.length} of ${matrixData?.rows.length || 0} employees`}
           </span>
         </div>
-        {isLoading && !matrixData ? (
+        {isWaitingForNewDate ? (
           <div className="py-24 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading live daily attendance register...</span>
+            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+              Loading daily attendance register ({selectedDate})...
+            </span>
           </div>
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
@@ -418,13 +425,13 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* Employee Info */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold text-[11px] flex items-center justify-center">
+                            <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[11px] flex items-center justify-center">
                               {initials}
                             </div>
                             <span
                               className={`font-bold text-zinc-900 dark:text-zinc-100 leading-tight ${
                                 onSelectEmployee
-                                  ? 'hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline cursor-pointer'
+                                  ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
                                   : ''
                               }`}
                               onClick={() => onSelectEmployee?.(row.user_id)}
@@ -493,7 +500,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               ) : row.punch_out || row.check_out ? (
                                 '0h 0m'
                               ) : (
-                                <span className="text-indigo-600 dark:text-indigo-400 font-semibold">In Progress</span>
+                                <span className="text-blue-600 dark:text-blue-400 font-semibold">In Progress</span>
                               )
                             ) : (
                               <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
@@ -533,7 +540,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               Late Arrival
                             </span>
                           ) : row.status === 'wfh' || row.is_wfh_approved ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                               W.F.H
                             </span>
                           ) : ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'on_leave'].includes(row.status) ? (
@@ -541,7 +548,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               {row.status.replace('_', ' ')}
                             </span>
                           ) : row.status === 'short_leave' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200">
                               Short Leave
                             </span>
                           ) : row.status === 'sunday_off' ? (
@@ -573,7 +580,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                             <button
                               type="button"
                               onClick={() => handleOpenOverride(row)}
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
                               title="HR Manual Override"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -596,13 +603,13 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
           <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
               <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <Edit3 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                 HR Attendance Override
               </h3>
               <button
                 type="button"
                 onClick={() => setEditingRow(null)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg"
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -695,7 +702,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 <button
                   type="submit"
                   disabled={isSavingOverride}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer disabled:opacity-50"
                 >
                   {isSavingOverride ? 'Saving...' : 'Apply Override'}
                 </button>

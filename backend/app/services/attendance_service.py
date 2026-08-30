@@ -3248,6 +3248,58 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
             detail=f"Attendance and leave tracking starts on {min_date}.",
         )
 
+    from app.services.workdays import load_off_day_index, parse_iso_date
+    start_d_obj = parse_iso_date(req.start_date)
+    end_d_obj = parse_iso_date(req.end_date or req.start_date)
+    if start_d_obj and end_d_obj:
+        off_index = await load_off_day_index(start_d_obj, end_d_obj)
+
+        lt = req.leave_type.value if isinstance(req.leave_type, LeaveType) else str(req.leave_type)
+        if lt in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
+            reg_date_str = req.regularization_date or req.start_date
+            reg_cls = off_index.classify_iso(reg_date_str)
+            if reg_cls.is_off:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot submit punch correction for a non-working day ({reg_cls.label}).",
+                )
+
+        elif lt in (LeaveType.SHORT_LEAVE.value, "short_leave"):
+            sl_cls = off_index.classify_iso(req.start_date)
+            if sl_cls.is_off:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Cannot request short leave on a non-working day ({sl_cls.label}).",
+                )
+
+        elif lt in (LeaveType.WFH.value, "wfh"):
+            workdays_in_range = sum(
+                1 for d in iter_date_range(req.start_date, req.end_date or req.start_date)
+                if off_index.is_workday_iso(d)
+            )
+            if workdays_in_range == 0:
+                single_cls = off_index.classify_iso(req.start_date)
+                msg = (
+                    f"Cannot request WFH on a non-working day ({single_cls.label})."
+                    if req.start_date == (req.end_date or req.start_date)
+                    else "Selected WFH date range contains no working days."
+                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
+        elif lt not in (LeaveType.OVERTIME.value, "overtime"):
+            workdays_in_range = sum(
+                1 for d in iter_date_range(req.start_date, req.end_date or req.start_date)
+                if off_index.is_workday_iso(d)
+            )
+            if workdays_in_range == 0:
+                single_cls = off_index.classify_iso(req.start_date)
+                msg = (
+                    f"Cannot request leave on a non-working day ({single_cls.label})."
+                    if req.start_date == (req.end_date or req.start_date)
+                    else "Selected leave date range contains no working days."
+                )
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
+
     from app.services.leave_balance import assert_leave_quota
     lt = req.leave_type.value if isinstance(req.leave_type, LeaveType) else str(req.leave_type)
     if lt in (LeaveType.OVERTIME.value, "overtime"):
@@ -3535,13 +3587,32 @@ async def _sync_attendance_record_for_request(
         elif leave_type_val in (LeaveType.WFH.value, "wfh") or request_type_val == "wfh":
             start_d = req.get("start_date")
             end_d = req.get("end_date") or start_d
-            await db.attendance_records.update_many(
-                {
-                    "user_id": target_user_id,
-                    "date": {"$gte": start_d, "$lte": end_d},
-                },
-                {"$set": {"is_wfh": True, "status": AttendanceStatus.WFH.value, "updated_at": now_iso}},
-            )
+            start_date_obj = parse_iso_date(start_d)
+            end_date_obj = parse_iso_date(end_d)
+            off_index = await load_off_day_index(start_date_obj, end_date_obj) if (start_date_obj and end_date_obj) else None
+
+            for day_str in iter_date_range(start_d, end_d):
+                if off_index and off_index.is_off_iso(day_str):
+                    continue
+                await db.attendance_records.update_one(
+                    {"user_id": target_user_id, "date": day_str},
+                    {
+                        "$set": {
+                            "id": f"att_{target_user_id}_{day_str}",
+                            "user_id": target_user_id,
+                            "user_name": req.get("user_name"),
+                            "department": user_dept,
+                            "date": day_str,
+                            "shift_id": shift.id,
+                            "shift_name": shift.name,
+                            "is_wfh": True,
+                            "status": AttendanceStatus.WFH.value,
+                            "updated_at": now_iso,
+                        },
+                        "$setOnInsert": {"created_at": now_iso},
+                    },
+                    upsert=True,
+                )
 
         # 3. Short Leave Dynamic Recalculation
         elif leave_type_val in (LeaveType.SHORT_LEAVE.value, "short_leave") or request_type_val == "short_leave":
@@ -3596,7 +3667,15 @@ async def _sync_attendance_record_for_request(
                 "unpaid": AttendanceStatus.UNPAID_LEAVE.value,
             }
             att_status = status_map.get(str(leave_type_val), AttendanceStatus.ON_LEAVE.value)
-            for day_str in iter_date_range(req.get("start_date"), req.get("end_date")):
+            start_iso = req.get("start_date")
+            end_iso = req.get("end_date") or start_iso
+            start_d = parse_iso_date(start_iso)
+            end_d = parse_iso_date(end_iso)
+            off_index = await load_off_day_index(start_d, end_d) if (start_d and end_d) else None
+
+            for day_str in iter_date_range(start_iso, end_iso):
+                if off_index and off_index.is_off_iso(day_str):
+                    continue
                 await db.attendance_records.update_one(
                     {"user_id": target_user_id, "date": day_str},
                     {

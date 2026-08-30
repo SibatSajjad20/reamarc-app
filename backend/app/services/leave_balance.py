@@ -55,17 +55,27 @@ def short_leave_annual_days(hours: Optional[float]) -> float:
     return 0.5 if h >= HALF_DAY_SHORT_LEAVE_HOURS else 0.0
 
 
-def leave_days_in_range(start_date: str, end_date: Optional[str]) -> float:
-    return float(len(_iter_dates(start_date, end_date or start_date)))
+def leave_days_in_range(
+    start_date: str,
+    end_date: Optional[str],
+    off_index: Optional[Any] = None,
+) -> float:
+    dates = _iter_dates(start_date, end_date or start_date)
+    if off_index is not None:
+        return float(sum(1 for d in dates if off_index.is_workday_iso(d)))
+    return float(len(dates))
 
 
-def _usage_from_request(doc: Dict[str, Any]) -> tuple[float, float]:
+def _usage_from_request(
+    doc: Dict[str, Any],
+    off_index: Optional[Any] = None,
+) -> tuple[float, float]:
     """Returns (annual_days, sick_days) deducted by one request."""
     lt = str(doc.get("leave_type") or doc.get("leave_category") or "").lower()
     if lt in (LeaveType.ANNUAL.value, LeaveType.CASUAL.value, "annual_leave", "casual_leave"):
-        return leave_days_in_range(doc.get("start_date") or "", doc.get("end_date")), 0.0
+        return leave_days_in_range(doc.get("start_date") or "", doc.get("end_date"), off_index), 0.0
     if lt in (LeaveType.SICK.value, "sick_leave"):
-        return 0.0, leave_days_in_range(doc.get("start_date") or "", doc.get("end_date"))
+        return 0.0, leave_days_in_range(doc.get("start_date") or "", doc.get("end_date"), off_index)
     if lt in (LeaveType.SHORT_LEAVE.value, "short_leave"):
         return short_leave_annual_days(doc.get("short_leave_hours") or doc.get("short_leave_duration_hours")), 0.0
     return 0.0, 0.0
@@ -110,6 +120,11 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
     if db is None:
         return 0.0, 0.0, 0.0, 0.0
 
+    from app.services.workdays import load_off_day_index
+    start_d = datetime(year, 1, 1).date()
+    end_d = datetime(year, 12, 31).date()
+    off_index = await load_off_day_index(start_d, end_d)
+
     start = max(f"{year:04d}-01-01", get_effective_start_date())
     end = f"{year:04d}-12-31"
     cursor = db.leave_requests.find(
@@ -126,7 +141,7 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
 
     annual_approved = sick_approved = annual_pending = sick_pending = 0.0
     for doc in docs:
-        annual_d, sick_d = _usage_from_request(doc)
+        annual_d, sick_d = _usage_from_request(doc, off_index)
         st = str(doc.get("status") or "").lower()
         if st == LeaveStatus.PENDING.value:
             annual_pending += annual_d
@@ -219,15 +234,20 @@ async def update_opening_balance(user_id: str, payload: LeaveBalanceUpdateReques
 
 async def assert_leave_quota(user: Dict[str, Any], leave_type: str, start_date: str, end_date: Optional[str], short_leave_hours: Optional[float] = None) -> None:
     """Reject a new request that would exceed remaining annual or sick quota."""
-    dummy = {"leave_type": leave_type, "start_date": start_date, "end_date": end_date or start_date, "short_leave_hours": short_leave_hours}
-    need_annual, need_sick = _usage_from_request(dummy)
-    if need_annual <= 0 and need_sick <= 0:
-        return
-
     try:
         year = int((start_date or "")[:4])
     except (TypeError, ValueError):
         year = _current_year()
+
+    from app.services.workdays import load_off_day_index, parse_iso_date
+    start_d = parse_iso_date(start_date) or datetime(year, 1, 1).date()
+    end_d = parse_iso_date(end_date or start_date) or start_d
+    off_index = await load_off_day_index(start_d, end_d)
+
+    dummy = {"leave_type": leave_type, "start_date": start_date, "end_date": end_date or start_date, "short_leave_hours": short_leave_hours}
+    need_annual, need_sick = _usage_from_request(dummy, off_index)
+    if need_annual <= 0 and need_sick <= 0:
+        return
 
     bal = await get_balance_for_user(user, year)
     if need_annual > 0 and bal.annual_remaining < need_annual:

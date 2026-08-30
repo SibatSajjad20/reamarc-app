@@ -95,6 +95,9 @@ export const AttendanceView: React.FC = () => {
   const [employeeTimesheet, setEmployeeTimesheet] = useState<PersonalTimesheetResponse | null>(null);
   const timesheetAbortRef = useRef<AbortController | null>(null);
   const timesheetReqIdRef = useRef(0);
+  const matrixAbortRef = useRef<AbortController | null>(null);
+  const matrixReqIdRef = useRef(0);
+  const [isLoadingMatrix, setIsLoadingMatrix] = useState<boolean>(false);
 
   // Modal States
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -130,14 +133,26 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  const loadMatrix = useCallback(async (date: string) => {
+  const loadMatrix = useCallback(async (date: string, dept?: string) => {
+    matrixAbortRef.current?.abort();
+    const controller = new AbortController();
+    matrixAbortRef.current = controller;
+    const reqId = ++matrixReqIdRef.current;
+    setIsLoadingMatrix(true);
     try {
-      const data = await attendanceService.getDailyMatrix(date);
+      const data = await attendanceService.getDailyMatrix(date, dept, { signal: controller.signal });
+      if (reqId !== matrixReqIdRef.current) return;
       if (data) {
         setMatrixData(data);
       }
     } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== matrixReqIdRef.current) return;
       console.error('Failed to load daily attendance matrix:', err);
+    } finally {
+      if (reqId === matrixReqIdRef.current) {
+        setIsLoadingMatrix(false);
+      }
     }
   }, []);
 
@@ -556,12 +571,15 @@ export const AttendanceView: React.FC = () => {
                 selectedDate={matrixDate}
                 onDateChange={(d) => {
                   setMatrixDate(d);
-                  loadMatrix(d);
+                  loadMatrix(d, selectedDepartment);
                 }}
                 selectedDepartment={selectedDepartment}
-                onDepartmentChange={setSelectedDepartment}
-                isLoading={isLoading}
-                onRefresh={() => loadMatrix(matrixDate)}
+                onDepartmentChange={(dept) => {
+                  setSelectedDepartment(dept);
+                  loadMatrix(matrixDate, dept);
+                }}
+                isLoading={isLoading || isLoadingMatrix}
+                onRefresh={() => loadMatrix(matrixDate, selectedDepartment)}
                 canEditOverride={isAdmin || isHR || isOperations || user?.role === 'team_lead'}
                 minDate={attendanceMinDate}
                 onSelectEmployee={(userId) => {

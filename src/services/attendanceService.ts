@@ -84,9 +84,13 @@ class AttendanceService {
   /**
    * Fetch company-wide daily attendance matrix (register replica)
    */
-  public async getDailyMatrix(date: string, department?: string): Promise<DailyMatrixResponse> {
+  public async getDailyMatrix(
+    date: string,
+    department?: string,
+    options?: RequestInit
+  ): Promise<DailyMatrixResponse> {
     const deptQuery = department && department !== 'All' ? `&department=${encodeURIComponent(department)}` : '';
-    return apiClient.get<DailyMatrixResponse>(`/attendance/matrix?date=${date}${deptQuery}`);
+    return apiClient.get<DailyMatrixResponse>(`/attendance/matrix?date=${date}${deptQuery}`, options);
   }
 
   /**
