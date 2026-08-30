@@ -112,7 +112,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const login = async (email: string, password: string) => {
     const uuid = deviceUuid || (await getOrCreateDeviceUuid());
     setDeviceUuid(uuid);
-    const data = await api<{ access_token: string; refresh_token?: string; user: AuthUser }>(
+    const data = await api<{ access_token?: string; refresh_token?: string; user: AuthUser }>(
       '/auth/login',
       {
         method: 'POST',
@@ -120,6 +120,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         body: JSON.stringify({ email, password, device_uuid: uuid }),
       },
     );
+    if (!data?.access_token) {
+      throw new Error('Authentication succeeded but no access token was returned.');
+    }
     await saveTokens(data.access_token, data.refresh_token);
     setUser(data.user);
     void registerPushToken(uuid);

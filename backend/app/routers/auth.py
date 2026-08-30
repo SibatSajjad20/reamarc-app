@@ -61,18 +61,13 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
     )
 
 
-def _token_payload(access_token: str, refresh_token: str, user_doc: dict, include_tokens: bool) -> dict:
-    body = {
+def _token_payload(access_token: str, refresh_token: str, user_doc: dict, include_tokens: bool = True) -> dict:
+    return {
+        "access_token": access_token,
         "token_type": "bearer",
+        "refresh_token": refresh_token,
         "user": _build_user_response(user_doc),
     }
-    if include_tokens:
-        body["access_token"] = access_token
-        body["refresh_token"] = refresh_token
-    else:
-        body["access_token"] = None
-        body["refresh_token"] = None
-    return body
 
 
 def _build_user_response(user_doc: dict) -> dict:

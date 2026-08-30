@@ -13,9 +13,13 @@ export async function getOrCreateDeviceUuid(): Promise<string> {
   return uuid;
 }
 
-export async function saveTokens(access: string, refresh?: string | null) {
-  await SecureStore.setItemAsync(ACCESS_KEY, access);
-  if (refresh) await SecureStore.setItemAsync(REFRESH_KEY, refresh);
+export async function saveTokens(access?: string | null, refresh?: string | null) {
+  if (access && typeof access === 'string') {
+    await SecureStore.setItemAsync(ACCESS_KEY, access);
+  }
+  if (refresh && typeof refresh === 'string') {
+    await SecureStore.setItemAsync(REFRESH_KEY, refresh);
+  }
 }
 
 export async function getAccessToken() {
@@ -27,8 +31,12 @@ export async function getRefreshToken() {
 }
 
 export async function clearSession() {
-  await SecureStore.deleteItemAsync(ACCESS_KEY);
-  await SecureStore.deleteItemAsync(REFRESH_KEY);
+  try {
+    await SecureStore.deleteItemAsync(ACCESS_KEY);
+  } catch {}
+  try {
+    await SecureStore.deleteItemAsync(REFRESH_KEY);
+  } catch {}
 }
 
 const NOTIF_CLEARED_KEY = 'reamarc_notif_cleared_cutoff';
@@ -37,6 +45,8 @@ export async function getClearedNotificationsCutoff(): Promise<string | null> {
   return SecureStore.getItemAsync(NOTIF_CLEARED_KEY);
 }
 
-export async function setClearedNotificationsCutoff(isoString: string): Promise<void> {
-  await SecureStore.setItemAsync(NOTIF_CLEARED_KEY, isoString);
+export async function setClearedNotificationsCutoff(isoString?: string | null): Promise<void> {
+  if (isoString && typeof isoString === 'string') {
+    await SecureStore.setItemAsync(NOTIF_CLEARED_KEY, isoString);
+  }
 }
