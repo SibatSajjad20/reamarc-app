@@ -370,10 +370,10 @@ function PunchScreen() {
     }
   };
 
-  let btnLabel = 'Shift complete';
+  let btnLabel = 'Tap to Check In';
   let btnColor = colors.slate;
   let btnDisabled = true;
-  let btnIcon: keyof typeof Ionicons.glyphMap = 'checkmark-circle';
+  let btnIcon: keyof typeof Ionicons.glyphMap = 'finger-print';
   if (canIn) {
     btnLabel = 'Tap to Check In';
     btnColor = colors.indigo;
@@ -384,6 +384,16 @@ function PunchScreen() {
     btnColor = colors.emerald;
     btnDisabled = false;
     btnIcon = 'exit-outline';
+  } else if (cout) {
+    btnLabel = 'Shift complete';
+    btnColor = colors.slate;
+    btnDisabled = true;
+    btnIcon = 'checkmark-circle';
+  } else if (today?.shift_ended) {
+    btnLabel = 'Shift Ended';
+    btnColor = colors.slate;
+    btnDisabled = true;
+    btnIcon = 'lock-closed';
   }
 
   const roleLine = [prettyRole(user?.role), user?.department].filter(Boolean).join(' · ');

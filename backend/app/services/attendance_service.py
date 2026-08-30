@@ -354,8 +354,6 @@ def get_shift_datetimes(
     else:
         if night and now.hour < 12:
             s_date = now.date() - timedelta(days=1)
-        elif not night and now.hour < 6:
-            s_date = now.date() - timedelta(days=1)
         else:
             s_date = now.date()
 
@@ -453,7 +451,7 @@ def unpunched_day_status(shift: Any, date_str: str, now: Optional[datetime] = No
         return AttendanceStatus.ABSENT
     if date_str > today:
         return AttendanceStatus.AWAITING_CHECKIN
-    if is_shift_window_closed(shift, now):
+    if is_shift_window_closed(shift, now, shift_date=date_str):
         return AttendanceStatus.ABSENT
     return AttendanceStatus.AWAITING_CHECKIN
 
@@ -1736,7 +1734,7 @@ async def process_check_in(
 
     # 3. Shift window: nobody may punch in after their shift has ended
     shift = await get_shift_for_user(user_id, department, date_str)
-    if is_shift_window_closed(shift) and not custom_time:
+    if is_shift_window_closed(shift, now=None, shift_date=date_str) and not custom_time:
         lock_date = closed_shift_attendance_date(shift)
         if lock_date == date_str:
             await persist_auto_absent(user, shift, date_str)
@@ -2174,11 +2172,16 @@ async def get_today_status(
     cin = (record_doc.get("punch_in") or record_doc.get("check_in")) if record_doc else None
     cout = (record_doc.get("punch_out") or record_doc.get("check_out")) if record_doc else None
 
-    shift_ended = is_shift_window_closed(shift, now_pkt) if not active_rec else False
+    shift_ended = is_shift_window_closed(shift, now_pkt, shift_date=target_date) if not active_rec else False
     if shift_ended and not is_wfh and not day_info.is_off and not cin:
         lock_date = closed_shift_attendance_date(shift, now_pkt)
         if lock_date == target_date:
             await persist_auto_absent(user, shift, target_date)
+    elif not shift_ended and record_doc and str(record_doc.get("status") or "") == AttendanceStatus.ABSENT.value and not cin and not cout:
+        # Heal/clean up premature auto-absent record saved prior to shift end
+        if db is not None:
+            await db.attendance_records.delete_one({"user_id": user_id, "date": target_date, "check_in": None, "punch_in": None})
+            record_doc = None
 
     is_checked_in = bool(record_doc and cin and not cout)
     check_in_time = cin
@@ -2386,14 +2389,22 @@ async def get_my_timesheet(
                     stored_shift_id=d.get("shift_id"),
                     fallback=shift,
                 )
+                now_pkt = get_now_pkt()
+                today_str = now_pkt.strftime("%Y-%m-%d")
+
+                # If an absent record was prematurely saved for today before the shift ended, clean it up
+                if not cin and not cout and str(d.get("status")) == AttendanceStatus.ABSENT.value and rec_date >= today_str:
+                    if not is_shift_window_closed(rec_shift, now_pkt, shift_date=rec_date):
+                        if db is not None:
+                            await db.attendance_records.delete_one({"user_id": user_id, "date": rec_date, "check_in": None, "punch_in": None})
+                        continue
+
                 d["shift_id"] = _shift_id(rec_shift) or d.get("shift_id")
                 d["shift_name"] = _shift_label(rec_shift, d.get("shift_name") or "Standard Shift")
                 d = await _heal_overtime_request_for_record(user, d, rec_shift)
 
                 # Read-time healing for unclosed punches with 4-hour waiting window
-                now_pkt = get_now_pkt()
-                today_str = now_pkt.strftime("%Y-%m-%d")
-                checkout_closed = (rec_date < today_str) or is_checkout_window_closed(rec_shift, now_pkt)
+                checkout_closed = (rec_date < today_str) or is_checkout_window_closed(rec_shift, now_pkt, shift_date=rec_date)
 
                 if cin and not cout:
                     if not checkout_closed:
@@ -2755,7 +2766,7 @@ async def get_daily_matrix(
 
                 now_pkt = get_now_pkt()
                 today_str = now_pkt.strftime("%Y-%m-%d")
-                checkout_passed = (target_date < today_str) or is_checkout_window_closed(raw_shift, now_pkt)
+                checkout_passed = (target_date < today_str) or is_checkout_window_closed(raw_shift, now_pkt, shift_date=target_date)
                 if not check_out and checkout_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
                     status_enum = AttendanceStatus.MISSED_PUNCH
                 elif not check_out and not checkout_passed and (rec.get("is_missed_punch") or raw_status == AttendanceStatus.MISSED_PUNCH.value):
