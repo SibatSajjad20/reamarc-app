@@ -401,9 +401,16 @@ def is_shift_window_closed(
     Uses the template on `shift` (Standard, HR, Afternoon, Night, or any custom
     window). Times are never hardcoded.
     """
-    if shift is None:
-        return False
     now = now or get_now_pkt()
+    if shift is None:
+        if shift_date:
+            s_date_str = shift_date.strftime("%Y-%m-%d") if isinstance(shift_date, date) else str(shift_date)
+            yesterday_str = (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+            if s_date_str < yesterday_str:
+                return True
+            if s_date_str > now.strftime("%Y-%m-%d"):
+                return False
+        shift = {"start_time": "09:30", "end_time": "18:30"}
     _, end_dt, _ = get_shift_datetimes(shift, shift_date, now)
     return now >= end_dt
 
@@ -427,9 +434,16 @@ def is_checkout_window_closed(
     - SEO Evening Shift (18:00 - 00:00): 00:00 + 4h = 04:00 AM next morning.
     - WFH Night Shift (21:00 - 05:00): 05:00 AM + 4h = 09:00 AM next morning.
     """
-    if shift is None:
-        return False
     now = now or get_now_pkt()
+    if shift is None:
+        if shift_date:
+            s_date_str = shift_date.strftime("%Y-%m-%d") if isinstance(shift_date, date) else str(shift_date)
+            yesterday_str = (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+            if s_date_str < yesterday_str:
+                return True
+            if s_date_str > now.strftime("%Y-%m-%d"):
+                return False
+        shift = {"start_time": "09:30", "end_time": "18:30"}
     _, _, cutoff_dt = get_shift_datetimes(shift, shift_date, now)
     return now >= cutoff_dt
 
@@ -446,11 +460,6 @@ def closed_shift_attendance_date(shift: Any, now: Optional[datetime] = None) -> 
 def unpunched_day_status(shift: Any, date_str: str, now: Optional[datetime] = None) -> AttendanceStatus:
     """Absent only after that employee's own shift end; otherwise still waiting to check in."""
     now = now or get_now_pkt()
-    today = now.strftime("%Y-%m-%d")
-    if date_str < today:
-        return AttendanceStatus.ABSENT
-    if date_str > today:
-        return AttendanceStatus.AWAITING_CHECKIN
     if is_shift_window_closed(shift, now, shift_date=date_str):
         return AttendanceStatus.ABSENT
     return AttendanceStatus.AWAITING_CHECKIN
@@ -1650,13 +1659,44 @@ async def get_active_attendance_record(user_id: str) -> Optional[dict]:
             "$or": [{"check_in": {"$ne": None}}, {"punch_in": {"$ne": None}}],
             "check_out": None,
             "punch_out": None,
-            "is_missed_punch": {"$ne": True},
-            "status": {"$nin": [AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value]},
         },
         {"_id": 0},
     )
     if rec_yesterday and (rec_yesterday.get("check_in") or rec_yesterday.get("punch_in")):
-        return rec_yesterday
+        shift = None
+        try:
+            if rec_yesterday.get("shift_id"):
+                shift = await get_shift_by_id(rec_yesterday.get("shift_id"))
+            if not shift:
+                shift = await get_shift_for_user(user_id, rec_yesterday.get("department"), yesterday_str)
+        except Exception:
+            shift = None
+
+        if not is_checkout_window_closed(shift, now_pkt, shift_date=yesterday_str):
+            # Shift / checkout window is still open! If it was prematurely marked as missed punch or absent, heal it.
+            if rec_yesterday.get("is_missed_punch") or str(rec_yesterday.get("status")) in (AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value):
+                is_wfh = bool(rec_yesterday.get("is_wfh") or str(rec_yesterday.get("status")) == "wfh")
+                is_late = bool(rec_yesterday.get("is_late"))
+                active_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if is_late else AttendanceStatus.PRESENT.value)
+                rec_yesterday["status"] = active_status
+                rec_yesterday["is_missed_punch"] = False
+                rec_yesterday["undertime_hours"] = 0.0
+                rec_yesterday["undertime_minutes"] = 0
+                rec_yesterday["undertime_formatted"] = "00:00"
+                await db.attendance_records.update_one(
+                    {"user_id": user_id, "date": yesterday_str},
+                    {"$set": {
+                        "status": active_status,
+                        "is_missed_punch": False,
+                        "undertime_hours": 0.0,
+                        "undertime_minutes": 0,
+                        "undertime_formatted": "00:00",
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }}
+                )
+            return rec_yesterday
+        elif not rec_yesterday.get("is_missed_punch") and str(rec_yesterday.get("status")) not in (AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value):
+            return rec_yesterday
 
     return None
 
@@ -2392,8 +2432,8 @@ async def get_my_timesheet(
                 now_pkt = get_now_pkt()
                 today_str = now_pkt.strftime("%Y-%m-%d")
 
-                # If an absent record was prematurely saved for today before the shift ended, clean it up
-                if not cin and not cout and str(d.get("status")) == AttendanceStatus.ABSENT.value and rec_date >= today_str:
+                # If an absent record was prematurely saved before the shift ended, clean it up
+                if not cin and not cout and str(d.get("status")) == AttendanceStatus.ABSENT.value:
                     if not is_shift_window_closed(rec_shift, now_pkt, shift_date=rec_date):
                         if db is not None:
                             await db.attendance_records.delete_one({"user_id": user_id, "date": rec_date, "check_in": None, "punch_in": None})
@@ -2404,7 +2444,7 @@ async def get_my_timesheet(
                 d = await _heal_overtime_request_for_record(user, d, rec_shift)
 
                 # Read-time healing for unclosed punches with 4-hour waiting window
-                checkout_closed = (rec_date < today_str) or is_checkout_window_closed(rec_shift, now_pkt, shift_date=rec_date)
+                checkout_closed = is_checkout_window_closed(rec_shift, now_pkt, shift_date=rec_date)
 
                 if cin and not cout:
                     if not checkout_closed:
@@ -2766,11 +2806,23 @@ async def get_daily_matrix(
 
                 now_pkt = get_now_pkt()
                 today_str = now_pkt.strftime("%Y-%m-%d")
-                checkout_passed = (target_date < today_str) or is_checkout_window_closed(raw_shift, now_pkt, shift_date=target_date)
+                checkout_passed = is_checkout_window_closed(raw_shift, now_pkt, shift_date=target_date)
                 if not check_out and checkout_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
                     status_enum = AttendanceStatus.MISSED_PUNCH
                 elif not check_out and not checkout_passed and (rec.get("is_missed_punch") or raw_status == AttendanceStatus.MISSED_PUNCH.value):
                     status_enum = AttendanceStatus.WFH if is_wfh_flag else (AttendanceStatus.LATE if calc_res.is_late else AttendanceStatus.PRESENT)
+                    if db is not None and u_id:
+                        await db.attendance_records.update_one(
+                            {"user_id": u_id, "date": target_date},
+                            {"$set": {
+                                "status": status_enum.value,
+                                "is_missed_punch": False,
+                                "undertime_hours": 0.0,
+                                "undertime_minutes": 0,
+                                "undertime_formatted": "00:00",
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }}
+                        )
                 elif raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
@@ -4787,17 +4839,18 @@ async def create_missed_punch_inquiry(
         punch_in = att_rec.get("punch_in") or att_rec.get("check_in")
         shift_name = att_rec.get("shift_name") or shift_name
 
-    today_pkt = get_now_pkt().strftime("%Y-%m-%d")
+    now_pkt = get_now_pkt()
     is_missed = False
     if att_rec:
         is_missed = bool(att_rec.get("is_missed_punch") or att_rec.get("status") == "missed_punch")
-        if not is_missed and date_str < today_pkt and (att_rec.get("punch_in") or att_rec.get("check_in")) and not (att_rec.get("punch_out") or att_rec.get("check_out")):
-            is_missed = True
+        if not is_missed and (att_rec.get("punch_in") or att_rec.get("check_in")) and not (att_rec.get("punch_out") or att_rec.get("check_out")):
+            if is_checkout_window_closed(shift, now_pkt, shift_date=date_str):
+                is_missed = True
 
-    if not is_missed and date_str >= today_pkt:
+    if not is_missed and not is_checkout_window_closed(shift, now_pkt, shift_date=date_str):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Cannot request checkout for today's ongoing shift.",
+            detail="Cannot request checkout for an ongoing shift or open checkout window.",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()

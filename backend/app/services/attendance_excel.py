@@ -546,7 +546,8 @@ async def generate_multi_tab_attendance_workbook(
         u_date_leaves = leaves_by_user_date.get(u_id, {})
 
         emp_row = 6
-        today_pkt = datetime.now(PK_TZ).date()
+        now_pkt = datetime.now(PK_TZ)
+        today_pkt = now_pkt.date()
 
         for day_num in range(1, num_days + 1):
             cur_date = date(year, month, day_num)
@@ -601,7 +602,11 @@ async def generate_multi_tab_attendance_workbook(
 
                 st_val = str(rec.get("status") or "")
                 is_wfh_val = bool(rec.get("is_wfh") or st_val == AttendanceStatus.WFH.value or st_val == "wfh")
-                is_missed_val = bool(rec.get("is_missed_punch") or st_val == AttendanceStatus.MISSED_PUNCH.value or (cin and not cout and cur_date < today_pkt))
+                is_missed_val = bool(
+                    rec.get("is_missed_punch")
+                    or st_val == AttendanceStatus.MISSED_PUNCH.value
+                    or (cin and not cout and attendance_service.is_checkout_window_closed(rec_shift, now_pkt, shift_date=cur_date_str))
+                )
                 is_short_val = bool(rec.get("is_short_leave") or st_val == AttendanceStatus.SHORT_LEAVE.value or st_val == "short_leave")
                 is_late = bool(rec.get("is_late") or (rec.get("late_minutes", 0) > 0 and rec.get("late_strike", 0) > 0))
 
