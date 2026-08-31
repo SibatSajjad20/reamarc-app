@@ -601,7 +601,9 @@ async def generate_multi_tab_attendance_workbook(
                 break_str = f"{int(rec_shift.break_duration_minutes or 0)}m"
 
                 st_val = str(rec.get("status") or "")
-                is_wfh_val = bool(rec.get("is_wfh") or st_val == AttendanceStatus.WFH.value or st_val == "wfh")
+                s_name = str(attendance_service.shift_field(rec_shift, "name", "") or "").lower()
+                is_shift_wfh = bool(rec_shift and (attendance_service.shift_field(rec_shift, "is_wfh") or "wfh" in s_name or str(attendance_service.shift_field(rec_shift, "shift_type", "")).lower() == "wfh"))
+                is_wfh_val = bool(rec.get("is_wfh") or st_val == AttendanceStatus.WFH.value or st_val == "wfh" or is_shift_wfh)
                 is_missed_val = bool(
                     rec.get("is_missed_punch")
                     or st_val == AttendanceStatus.MISSED_PUNCH.value

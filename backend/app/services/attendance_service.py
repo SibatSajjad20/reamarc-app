@@ -850,8 +850,10 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
     if shift is None:
         shift = {}
     status_val = str(doc.get("status") or "")
+    s_name = str(shift_field(shift, "name", "") or "").lower()
+    is_shift_wfh = bool(shift_field(shift, "is_wfh") or "wfh" in s_name or str(shift_field(shift, "shift_type", "")).lower() == "wfh")
     extra = {
-        "is_wfh": bool(doc.get("is_wfh")),
+        "is_wfh": bool(doc.get("is_wfh") or is_shift_wfh),
         "is_short_leave": bool(doc.get("is_short_leave") or status_val == AttendanceStatus.SHORT_LEAVE.value),
         "short_leave_hours": float(doc.get("short_leave_hours") or 0.0),
     }
@@ -1594,14 +1596,25 @@ async def is_wfh_leave_approved_for_date(user_id: str, date_str: str) -> bool:
     return leave is not None
 
 
-async def is_wfh_approved_for_date(user_id: str, date_str: str) -> bool:
+async def is_wfh_approved_for_date(user_id: str, date_str: str, department: Optional[str] = None) -> bool:
     """
-    WFH for this date: approved request, or weekday/date pattern with auto_wfh.
+    WFH for this date: approved request, weekday/date pattern with auto_wfh, or assigned a WFH shift.
     A real office punch still records as office (see process_check_in).
     """
     if await is_wfh_leave_approved_for_date(user_id, date_str):
         return True
-    return await is_auto_wfh_for_date(user_id, date_str)
+    if await is_auto_wfh_for_date(user_id, date_str):
+        return True
+    try:
+        shift = await get_shift_for_user(user_id, department, date_str)
+        if shift:
+            s_name = str(getattr(shift, "name", "") or "").lower()
+            s_type = str(getattr(shift, "shift_type", "") or "").lower()
+            if getattr(shift, "is_wfh", False) or "wfh" in s_name or s_type == "wfh":
+                return True
+    except Exception:
+        pass
+    return False
 
 
 async def get_approved_leave_for_date(user_id: str, date_str: str) -> Optional[dict]:
@@ -1674,11 +1687,15 @@ async def get_active_attendance_record(user_id: str) -> Optional[dict]:
 
         if not is_checkout_window_closed(shift, now_pkt, shift_date=yesterday_str):
             # Shift / checkout window is still open! If it was prematurely marked as missed punch or absent, heal it.
-            if rec_yesterday.get("is_missed_punch") or str(rec_yesterday.get("status")) in (AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value):
-                is_wfh = bool(rec_yesterday.get("is_wfh") or str(rec_yesterday.get("status")) == "wfh")
-                is_late = bool(rec_yesterday.get("is_late"))
-                active_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if is_late else AttendanceStatus.PRESENT.value)
+            s_name = str(shift_field(shift, "name", "") or "").lower()
+            is_shift_wfh = bool(shift_field(shift, "is_wfh") or "wfh" in s_name or str(shift_field(shift, "shift_type", "")).lower() == "wfh")
+            is_wfh = bool(rec_yesterday.get("is_wfh") or str(rec_yesterday.get("status")) == "wfh" or is_shift_wfh)
+            is_late = bool(rec_yesterday.get("is_late"))
+            active_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if is_late else AttendanceStatus.PRESENT.value)
+
+            if rec_yesterday.get("is_missed_punch") or str(rec_yesterday.get("status")) in (AttendanceStatus.MISSED_PUNCH.value, AttendanceStatus.ABSENT.value) or (is_wfh and rec_yesterday.get("status") == AttendanceStatus.PRESENT.value):
                 rec_yesterday["status"] = active_status
+                rec_yesterday["is_wfh"] = is_wfh
                 rec_yesterday["is_missed_punch"] = False
                 rec_yesterday["undertime_hours"] = 0.0
                 rec_yesterday["undertime_minutes"] = 0
@@ -1687,6 +1704,7 @@ async def get_active_attendance_record(user_id: str) -> Optional[dict]:
                     {"user_id": user_id, "date": yesterday_str},
                     {"$set": {
                         "status": active_status,
+                        "is_wfh": is_wfh,
                         "is_missed_punch": False,
                         "undertime_hours": 0.0,
                         "undertime_minutes": 0,
@@ -2449,12 +2467,15 @@ async def get_my_timesheet(
                 if cin and not cout:
                     if not checkout_closed:
                         # Inside active shift / 4-hour post-shift waiting window: restore / keep as active
+                        s_name = str(shift_field(rec_shift, "name", "") or "").lower()
+                        is_shift_wfh = bool(shift_field(rec_shift, "is_wfh") or "wfh" in s_name or str(shift_field(rec_shift, "shift_type", "")).lower() == "wfh")
                         is_late = bool(d.get("is_late"))
-                        is_wfh = bool(d.get("is_wfh") or str(d.get("status")) == "wfh")
+                        is_wfh = bool(d.get("is_wfh") or str(d.get("status")) == "wfh" or is_shift_wfh)
                         active_status = "wfh" if is_wfh else (AttendanceStatus.LATE.value if is_late else AttendanceStatus.PRESENT.value)
 
-                        if d.get("is_missed_punch") or str(d.get("status")) == AttendanceStatus.MISSED_PUNCH.value:
+                        if d.get("is_missed_punch") or str(d.get("status")) == AttendanceStatus.MISSED_PUNCH.value or (is_wfh and d.get("status") == AttendanceStatus.PRESENT.value):
                             d["status"] = active_status
+                            d["is_wfh"] = is_wfh
                             d["is_missed_punch"] = False
                             d["undertime_hours"] = 0.0
                             d["undertime_minutes"] = 0
@@ -2464,6 +2485,7 @@ async def get_my_timesheet(
                                     {"user_id": user_id, "date": rec_date},
                                     {"$set": {
                                         "status": active_status,
+                                        "is_wfh": is_wfh,
                                         "is_missed_punch": False,
                                         "undertime_hours": 0.0,
                                         "undertime_minutes": 0,
@@ -2779,11 +2801,20 @@ async def get_daily_matrix(
         shift_break = scheduled_break_minutes(raw_shift)
         shift_timing = f"{shift_start} - {shift_end}"
 
+        is_shift_wfh = bool(
+            raw_shift and (
+                raw_shift.get("is_wfh")
+                or str(raw_shift.get("shift_type", "")).lower() == "wfh"
+                or "wfh" in str(raw_shift.get("name", "")).lower()
+            )
+        )
+        is_leave_wfh = bool(approved_leave and str(approved_leave.get("leave_type", "")).lower() in ("wfh", LeaveType.WFH.value))
+
         if rec:
             if record_punch_times(rec)[0]:
                 rec = await _heal_overtime_request_for_record(u, rec, raw_shift)
             check_in, check_out = record_punch_times(rec)
-            is_wfh_flag = bool(rec.get("is_wfh", False))
+            is_wfh_flag = bool(rec.get("is_wfh", False) or auto_wfh or is_shift_wfh or is_leave_wfh)
             is_short_leave_flag = bool(rec.get("is_short_leave", False))
             short_leave_hours_val = float(rec.get("short_leave_hours", 0.0))
             raw_status = rec.get("status")
@@ -2809,13 +2840,14 @@ async def get_daily_matrix(
                 checkout_passed = is_checkout_window_closed(raw_shift, now_pkt, shift_date=target_date)
                 if not check_out and checkout_passed and not rec.get("is_missed_punch") and raw_status != AttendanceStatus.MISSED_PUNCH.value:
                     status_enum = AttendanceStatus.MISSED_PUNCH
-                elif not check_out and not checkout_passed and (rec.get("is_missed_punch") or raw_status == AttendanceStatus.MISSED_PUNCH.value):
+                elif not check_out and not checkout_passed and (rec.get("is_missed_punch") or raw_status == AttendanceStatus.MISSED_PUNCH.value or (is_wfh_flag and raw_status == AttendanceStatus.PRESENT.value)):
                     status_enum = AttendanceStatus.WFH if is_wfh_flag else (AttendanceStatus.LATE if calc_res.is_late else AttendanceStatus.PRESENT)
                     if db is not None and u_id:
                         await db.attendance_records.update_one(
                             {"user_id": u_id, "date": target_date},
                             {"$set": {
                                 "status": status_enum.value,
+                                "is_wfh": is_wfh_flag,
                                 "is_missed_punch": False,
                                 "undertime_hours": 0.0,
                                 "undertime_minutes": 0,
