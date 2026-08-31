@@ -247,6 +247,24 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     [initialData?.id, date, taskDescription, hoursUtilized, sameDayEntries],
   );
 
+  const derivedMonthSheet = useMemo(() => {
+    if (date) {
+      const parts = date.split('-');
+      if (parts.length === 3) {
+        const year = parseInt(parts[0], 10);
+        const month = parseInt(parts[1], 10);
+        const monthNames = [
+          'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'
+        ];
+        if (month >= 1 && month <= 12 && !isNaN(year)) {
+          return `${monthNames[month - 1]} - ${year}`;
+        }
+      }
+    }
+    return activeSheet;
+  }, [date, activeSheet]);
+
   if (!isOpen) return null;
 
   // --- Revision Points Handlers ---
@@ -396,7 +414,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
           deliverables: formattedDeliverables,
           hours_utilized: hoursUtilized.trim(),
           remarks: remarks.trim(),
-          month_sheet: activeSheet,
+          month_sheet: derivedMonthSheet,
           custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
         };
 
@@ -417,7 +435,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
           deliverables: formattedDeliverables,
           hours_utilized: hoursUtilized.trim(),
           remarks: remarks.trim(),
-          month_sheet: initialData.month_sheet || activeSheet,
+          month_sheet: initialData.month_sheet || derivedMonthSheet,
           custom_fields: Object.keys(customFields).length > 0 ? customFields : undefined,
         };
 
@@ -465,8 +483,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
               </h2>
               <p className="text-[11px] text-zinc-400">
                 {mode === 'create'
-                  ? `Logging for sheet: ${activeSheet}`
-                  : `Updating entry (v${initialData?.version || 1}) • ${initialData?.month_sheet || activeSheet}`}
+                  ? `Logging for sheet: ${derivedMonthSheet}`
+                  : `Updating entry (v${initialData?.version || 1}) • ${initialData?.month_sheet || derivedMonthSheet}`}
               </p>
             </div>
           </div>

@@ -203,6 +203,15 @@ const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) =>
   );
 };
 
+const getCurrentMonthSheet = (): string => {
+  const d = new Date();
+  const monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'
+  ];
+  return `${monthNames[d.getMonth()]} - ${d.getFullYear()}`;
+};
+
 export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
@@ -218,7 +227,7 @@ export const DailyLogView: React.FC = () => {
   const [columns, setColumns] = useState<DailyLogColumn[]>(DEFAULT_COLUMNS);
   const [entries, setEntries] = useState<DailyLogEntry[]>([]);
   const [availableSheets, setAvailableSheets] = useState<string[]>([]);
-  const [activeSheet, setActiveSheet] = useState<string>('August - 2026');
+  const [activeSheet, setActiveSheet] = useState<string>(() => getCurrentMonthSheet());
   const [isLoading, setIsLoading] = useState<boolean>(true);
   useModuleLoadGate(isLoading);
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -391,7 +400,8 @@ export const DailyLogView: React.FC = () => {
       if (combinedSheets.length > 0) {
         setAvailableSheets(combinedSheets);
         if (!combinedSheets.includes(activeSheet)) {
-          setActiveSheet(combinedSheets[0]);
+          const current = getCurrentMonthSheet();
+          setActiveSheet(combinedSheets.includes(current) ? current : combinedSheets[combinedSheets.length - 1]);
         }
       }
 
