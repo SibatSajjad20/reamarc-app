@@ -696,6 +696,7 @@ export const AttendanceView: React.FC = () => {
                 selectedMonth={selectedMonth}
                 onYearMonthChange={handleYearMonthChange}
                 isLoading={isLoading}
+                allowHistoryMonths
                 onOpenRegularizationModal={(record) =>
                   handleOpenRequestModal('regularization', record)
                 }

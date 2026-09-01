@@ -26,7 +26,7 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
-import { findDuplicate, isLogDateExpired, isLogDateNotStarted, getOldestOpenLogDate } from '../../utils/logTimeChecks';
+import { findDuplicate, formatHours, isLogDateExpired, isLogDateNotStarted, getOldestOpenLogDate } from '../../utils/logTimeChecks';
 
 interface DailyLogModalProps {
   isOpen: boolean;
@@ -184,9 +184,13 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
         setDeliverableUrl(rawDeliverables);
       }
 
+      const storedHours = Number(initialData.hours_utilized);
       setHoursUtilized(
-        initialData.hours_utilized !== undefined && initialData.hours_utilized !== null
-          ? String(initialData.hours_utilized)
+        initialData.hours_utilized !== undefined &&
+          initialData.hours_utilized !== null &&
+          Number.isFinite(storedHours) &&
+          storedHours > 0
+          ? formatHours(storedHours)
           : '1.0'
       );
       setRemarks(initialData.remarks || '');

@@ -828,9 +828,7 @@ export const DailyLogView: React.FC = () => {
       const uniquePeople = new Set(entries.map((e) => e.resource_name)).size;
 
       setAiSummary(
-        `Department Summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${totalHours.toFixed(
-          1
-        )} hrs • ${completed} completed, ${blockers} blockers flagged.`
+        `Department Summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${formatHours(totalHours)} • ${completed} completed, ${blockers} blockers flagged.`
       );
       setIsSummarizing(false);
     }, 800);
@@ -1831,6 +1829,32 @@ export const DailyLogView: React.FC = () => {
                                   )}`}
                                 >
                                   {deptStr}
+                                </span>
+                              </td>
+                            );
+                          }
+
+                          if (col.key === 'hours_utilized') {
+                            const hours = Number(val) || 0;
+                            if (!hours) {
+                              return (
+                                <td
+                                  key={col.key}
+                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-300 dark:text-zinc-700 italic"
+                                >
+                                  —
+                                </td>
+                              );
+                            }
+
+                            return (
+                              <td
+                                key={col.key}
+                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
+                                title={`${hours} hrs`}
+                              >
+                                <span className="font-mono text-xs font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                                  {formatHours(hours)}
                                 </span>
                               </td>
                             );
