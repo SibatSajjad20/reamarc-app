@@ -290,9 +290,10 @@ export interface AttendanceConfig {
 }
 
 export interface SecuritySettings {
-  office_public_ips: string[];
-  office_subnets: string[];
+  office_public_ips?: string[];
+  office_subnets?: string[];
   office_ip_whitelist?: string[];
+  locked_office_ips?: string[];
   office_latitude: number;
   office_longitude: number;
   geofence_radius_meters: number;

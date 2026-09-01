@@ -17,11 +17,9 @@ import { NumberStepper } from '../ui/NumberStepper';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
 import { OfficePinControls } from './OfficePinControls';
 import {
-  GEOFENCE_RADIUS_METERS,
-  OFFICE_LATITUDE,
-  OFFICE_LONGITUDE,
-  OFFICE_WIFI_IP,
-  HARDCODED_OFFICE_IPS,
+    GEOFENCE_RADIUS_METERS,
+    OFFICE_LATITUDE,
+    OFFICE_LONGITUDE,
 } from '../../constants/officeLocation';
 
 interface ShiftPolicySettingsModalProps {
@@ -158,8 +156,9 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
 
   // Remove IP from whitelist
   const handleRemoveIp = (ipToRemove: string) => {
-    if (HARDCODED_OFFICE_IPS.includes(ipToRemove) || ipToRemove === OFFICE_WIFI_IP) {
-      addToast('Permanent Office IP', 'The office Wi-Fi IP is hardcoded and cannot be removed.', 'warning');
+    const lockedIps = securitySettings.locked_office_ips || [];
+    if (lockedIps.includes(ipToRemove)) {
+      addToast('Permanent Office IP', 'This office IP is configured via environment and cannot be removed.', 'warning');
       return;
     }
     const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
@@ -177,9 +176,8 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
     try {
       setIsSaving(true);
       const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
-      const mergedIps = Array.from(new Set([...HARDCODED_OFFICE_IPS, ...currentIps]));
       const payload: SecuritySettings = {
-        office_public_ips: mergedIps,
+        office_public_ips: currentIps,
         office_subnets: securitySettings.office_subnets || [],
         office_latitude: OFFICE_LATITUDE,
         office_longitude: OFFICE_LONGITUDE,
@@ -654,7 +652,7 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
 
                 <div className="flex flex-wrap gap-2 pt-1">
                   {(securitySettings.office_public_ips || securitySettings.office_ip_whitelist || []).map((ip) => {
-                    const isPermanent = HARDCODED_OFFICE_IPS.includes(ip) || ip === OFFICE_WIFI_IP;
+                    const isPermanent = (securitySettings.locked_office_ips || []).includes(ip);
                     return (
                       <span
                         key={ip}

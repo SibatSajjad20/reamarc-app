@@ -1,13 +1,13 @@
 {
   "project_info": {
-    "project_number": "284413244038",
-    "project_id": "reamarc-82d8b",
-    "storage_bucket": "reamarc-82d8b.firebasestorage.app"
+    "project_number": "YOUR_PROJECT_NUMBER",
+    "project_id": "your-firebase-project-id",
+    "storage_bucket": "your-firebase-project-id.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:284413244038:android:19e4f2c11c54a137b69707",
+        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_ANDROID_APP_ID",
         "android_client_info": {
           "package_name": "com.reamarc.mobile"
         }
@@ -15,7 +15,7 @@
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyBIM7ox-_x0283cWZel5cXyJhTuEhaN_Ko"
+          "current_key": "YOUR_FIREBASE_ANDROID_API_KEY"
         }
       ],
       "services": {

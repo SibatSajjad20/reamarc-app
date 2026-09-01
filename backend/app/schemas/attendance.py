@@ -309,43 +309,55 @@ class MonthlyTimesheetResponse(BaseModel):
     summary: MonthlyPunctualityRow
 
 
-class SecuritySettingsSchema(BaseModel):
+class PublicSecuritySettingsSchema(BaseModel):
+    """Geofence settings safe to expose to all internal employees (no IP whitelist)."""
+    office_latitude: float = Field(
+        default=OFFICE_LATITUDE,
+        description="Office geographic latitude",
+    )
+    office_longitude: float = Field(
+        default=OFFICE_LONGITUDE,
+        description="Office geographic longitude",
+    )
+    geofence_radius_meters: float = Field(
+        default=GEOFENCE_RADIUS_METERS,
+        ge=10.0,
+        description="Maximum permitted distance in meters from office coordinate",
+    )
+    enforce_ip_whitelist: bool = Field(
+        default=True,
+        description="Enable/disable Tier 1 IP Whitelist verification",
+    )
+    enforce_gps_geofence: bool = Field(
+        default=True,
+        description="Enable/disable Tier 3 GPS Geofencing verification",
+    )
+    allow_wfh_bypass: bool = Field(
+        default=True,
+        description="Allow approved WFH requests to bypass IP and GPS checks",
+    )
+
+
+class SecuritySettingsSchema(PublicSecuritySettingsSchema):
     office_public_ips: List[str] = Field(
         default_factory=list,
-        description="List of whitelisted public IPs and CIDR ranges"
+        description="List of whitelisted public IPs and CIDR ranges",
     )
     office_subnets: List[str] = Field(
         default_factory=list,
-        description="List of authorized office CIDR subnet ranges"
+        description="List of authorized office CIDR subnet ranges",
     )
     office_ip_whitelist: List[str] = Field(
         default_factory=list,
         description="Legacy alias merged into office_public_ips",
     )
-    office_latitude: float = Field(
-        default=OFFICE_LATITUDE,
-        description="Office geographic latitude (Business Bay, Sector F DHA Phase 1, Rawalpindi)"
-    )
-    office_longitude: float = Field(
-        default=OFFICE_LONGITUDE,
-        description="Office geographic longitude (Business Bay, Sector F DHA Phase 1, Rawalpindi)"
-    )
-    geofence_radius_meters: float = Field(
-        default=GEOFENCE_RADIUS_METERS,
-        ge=10.0,
-        description="Maximum permitted distance in meters from office coordinate"
-    )
-    enforce_ip_whitelist: bool = Field(
-        default=True,
-        description="Enable/disable Tier 1 IP Whitelist verification"
-    )
-    enforce_gps_geofence: bool = Field(
-        default=True,
-        description="Enable/disable Tier 3 GPS Geofencing verification"
-    )
-    allow_wfh_bypass: bool = Field(
-        default=True,
-        description="Allow approved WFH requests to bypass IP and GPS checks"
+
+
+class SecuritySettingsResponse(SecuritySettingsSchema):
+    """Full settings for HR/Admin, including env-locked office IPs."""
+    locked_office_ips: List[str] = Field(
+        default_factory=list,
+        description="Env-configured office IPs that cannot be removed via the admin UI",
     )
 
 

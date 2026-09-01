@@ -1,9 +1,7 @@
-/** Canonical Rawalpindi HQ pin (Business Bay, Sector F DHA Phase 1). */
+/** Canonical HQ pin defaults (overridden by /attendance/settings API when available). */
 export const OFFICE_LATITUDE = 33.52062764084008;
 export const OFFICE_LONGITUDE = 73.09183393441234;
 export const OFFICE_MAP_URL = 'https://maps.app.goo.gl/x5w6Sa17eB47htLY6';
-export const OFFICE_WIFI_IP = '154.57.199.55';
-export const HARDCODED_OFFICE_IPS = ['154.57.199.55', '127.0.0.1', '::1'];
 export const GEOFENCE_RADIUS_METERS = 500;
 export const HQ_PIN_ACCURACY_LIMIT_METERS = 50;
 export const MAX_GPS_ACCURACY_METERS = 500;

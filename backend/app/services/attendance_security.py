@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Iterable, List, Literal, Optional, Sequence, Tuple
 
-from app.constants.office_location import HARDCODED_OFFICE_IPS, MAX_GPS_ACCURACY_METERS
+from app.constants.office_location import get_built_in_office_ips, MAX_GPS_ACCURACY_METERS
 from app.schemas.attendance import SecuritySettingsSchema
 
 GpsFixClass = Literal["in_range", "out_of_range", "coarse"]
@@ -89,7 +89,7 @@ def collect_whitelist_entries(settings: SecuritySettingsSchema) -> List[str]:
     seen = set()
     extra_whitelist = getattr(settings, "office_ip_whitelist", None) or []
     for item in (
-        list(HARDCODED_OFFICE_IPS)
+        list(get_built_in_office_ips())
         + list(settings.office_public_ips or [])
         + list(settings.office_subnets or [])
         + list(extra_whitelist)

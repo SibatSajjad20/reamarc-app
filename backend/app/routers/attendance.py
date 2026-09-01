@@ -3,7 +3,7 @@ Attendance REST API Router.
 Provides endpoints for Check-In, Check-Out, Today's Punch Status, Personal Timesheets,
 HR Daily Attendance Matrix, Monthly Punctuality Command Center, and Security Settings.
 """
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
@@ -19,6 +19,8 @@ from app.schemas.attendance import (
     MonthlyPunctualityResponse,
     MonthlyTimesheetResponse,
     SecuritySettingsSchema,
+    SecuritySettingsResponse,
+    PublicSecuritySettingsSchema,
     OverrideAttendanceRequest,
     MissedPunchInquiryCreate,
     MissedPunchInquiryRespond,
@@ -35,6 +37,7 @@ from app.services.attendance_security import (
     is_loopback_ip,
     is_public_ip,
 )
+from app.constants.office_location import get_built_in_office_ips
 from app.services import attendance_service
 
 router = APIRouter(
@@ -321,21 +324,36 @@ async def export_attendance_excel(
     )
 
 
-@router.get("/settings", response_model=SecuritySettingsSchema)
+def _user_is_management(current_user: dict) -> bool:
+    role = str(current_user.get("role") or "").lower()
+    return role in ("admin", "hr", "operations")
+
+
+@router.get("/settings", response_model=Union[SecuritySettingsResponse, PublicSecuritySettingsSchema])
 async def get_security_settings(
     current_user: dict = Depends(require_internal_user),
 ):
-    """Retrieves current IP Whitelist and GPS Geofencing security settings for all members."""
-    return await attendance_service.get_security_settings()
+    """Employees receive geofence settings only; HR/Admin also receive office IP whitelist."""
+    full = await attendance_service.get_security_settings()
+    if not _user_is_management(current_user):
+        return PublicSecuritySettingsSchema(**full.model_dump())
+    return SecuritySettingsResponse(
+        **full.model_dump(),
+        locked_office_ips=get_built_in_office_ips(),
+    )
 
 
-@router.put("/settings", response_model=SecuritySettingsSchema)
+@router.put("/settings", response_model=SecuritySettingsResponse)
 async def update_security_settings(
     settings_in: SecuritySettingsSchema,
     current_user: dict = Depends(require_hr_or_admin),
 ):
     """Updates IP Whitelist and GPS Geofencing security settings (Admin/HR only)."""
-    return await attendance_service.update_security_settings(settings_in)
+    updated = await attendance_service.update_security_settings(settings_in)
+    return SecuritySettingsResponse(
+        **updated.model_dump(),
+        locked_office_ips=get_built_in_office_ips(),
+    )
 
 
 @router.post("/admin/manual-entry", response_model=AttendanceRecordResponse)

@@ -54,8 +54,7 @@ from app.schemas.attendance import (
 from app.constants.office_location import (
     OFFICE_LATITUDE,
     OFFICE_LONGITUDE,
-    OFFICE_WIFI_IP,
-    HARDCODED_OFFICE_IPS,
+    get_built_in_office_ips,
 )
 from app.schemas.leave import (
     LeaveCreateRequest,
@@ -1502,8 +1501,8 @@ async def get_security_settings() -> SecuritySettingsSchema:
         return SecuritySettingsSchema(
             office_latitude=OFFICE_LATITUDE,
             office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(HARDCODED_OFFICE_IPS),
-            office_ip_whitelist=list(HARDCODED_OFFICE_IPS),
+            office_public_ips=list(get_built_in_office_ips()),
+            office_ip_whitelist=list(get_built_in_office_ips()),
         )
 
     doc = await db.system_config.find_one({"key": "attendance_security"}, {"_id": 0})
@@ -1511,8 +1510,8 @@ async def get_security_settings() -> SecuritySettingsSchema:
         default_settings = SecuritySettingsSchema(
             office_latitude=OFFICE_LATITUDE,
             office_longitude=OFFICE_LONGITUDE,
-            office_public_ips=list(HARDCODED_OFFICE_IPS),
-            office_ip_whitelist=list(HARDCODED_OFFICE_IPS),
+            office_public_ips=list(get_built_in_office_ips()),
+            office_ip_whitelist=list(get_built_in_office_ips()),
         )
         await db.system_config.update_one(
             {"key": "attendance_security"},
@@ -1532,7 +1531,7 @@ async def get_security_settings() -> SecuritySettingsSchema:
     ]
     merged_ips: List[str] = []
     seen = set()
-    for item in list(HARDCODED_OFFICE_IPS) + public_ips + extra_list:
+    for item in list(get_built_in_office_ips()) + public_ips + extra_list:
         text = str(item or "").strip()
         if not text or text in seen:
             continue
@@ -1559,7 +1558,7 @@ async def update_security_settings(new_settings: SecuritySettingsSchema) -> Secu
     # Ensure hardcoded office IPs are never removed
     merged_ips = []
     seen = set()
-    for ip in list(HARDCODED_OFFICE_IPS) + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
+    for ip in list(get_built_in_office_ips()) + list(new_settings.office_public_ips or []) + list(new_settings.office_ip_whitelist or []):
         text = str(ip or "").strip()
         if text and text not in seen:
             seen.add(text)

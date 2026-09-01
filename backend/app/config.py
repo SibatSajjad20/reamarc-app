@@ -63,6 +63,14 @@ class Settings(BaseSettings):
     SMTP_TLS: bool = True
     APP_FRONTEND_URL: str = "http://localhost:5173"
 
+    # Office geofence / attendance security (override in production via env)
+    OFFICE_PUBLIC_IPS: str = ""
+    OFFICE_LATITUDE: float = 33.52062764084008
+    OFFICE_LONGITUDE: float = 73.09183393441234
+    OFFICE_MAP_URL: str = ""
+    GEOFENCE_RADIUS_METERS: float = 500.0
+    MAX_GPS_ACCURACY_METERS: float = 500.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -197,9 +197,11 @@ async def _send_brevo_http(
     html_content: str,
 ) -> bool:
     """Dispatches email via Brevo HTTPS REST API."""
-    sender_email = settings.SMTP_USER or settings.SMTP_FROM_EMAIL or "sajjadsibat33@gmail.com"
+    sender_email = (settings.SMTP_FROM_EMAIL or settings.SMTP_USER or "").strip()
+    if not sender_email:
+        raise ValueError("SMTP_FROM_EMAIL or SMTP_USER must be configured for Brevo email delivery")
     if "@resend.dev" in sender_email and settings.SMTP_USER:
-        sender_email = settings.SMTP_USER
+        sender_email = settings.SMTP_USER.strip()
     payload = {
         "sender": {"name": settings.SMTP_FROM_NAME, "email": sender_email},
         "to": [{"email": recipient_email, "name": recipient_name}],
