@@ -125,6 +125,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setErrorMsg('Work Email is required');
       return;
     }
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setErrorMsg('Please enter a valid work email address (e.g. name@reamarc.com)');
+      return;
+    }
     if (!phone.trim()) {
       setErrorMsg('Phone Number is compulsory');
       return;
@@ -149,7 +154,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setIsSubmitting(true);
       await onSubmit({
         full_name: fullName.trim(),
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         phone: phone.trim(),
         role,
         department: deptValue,

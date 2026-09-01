@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import json
 import os
 from datetime import datetime, timezone
@@ -117,7 +117,7 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS — production uses explicit allowlist only (no *.vercel.app regex)
+# CORS â€” production uses explicit allowlist only (no *.vercel.app regex)
 _cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
@@ -163,14 +163,6 @@ app.include_router(leaves.router, prefix=settings.API_V1_STR)
 app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(mobile.router, prefix=settings.API_V1_STR)
 
-# Disabled Non-V1 Modules (Disabled for V1.0 Scope)
-# app.include_router(campaigns.router, prefix=settings.API_V1_STR)
-# app.include_router(posts.router, prefix=settings.API_V1_STR)
-# app.include_router(knowledge.router, prefix=settings.API_V1_STR)
-# app.include_router(matrix.router, prefix=settings.API_V1_STR)
-# app.include_router(portal.router, prefix=settings.API_V1_STR)
-# app.include_router(dashboard.router, prefix=settings.API_V1_STR)
-
 
 
 @app.api_route("/", methods=["GET", "HEAD"])
@@ -190,3 +182,4 @@ async def health_check():
         "message": "Backend is online",
         "mongo": mongo_ok,
     }
+

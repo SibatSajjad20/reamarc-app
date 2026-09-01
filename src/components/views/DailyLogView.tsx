@@ -373,25 +373,38 @@ export const DailyLogView: React.FC = () => {
     return params;
   }, [activeSheet, selectedDept, datePreset, customStartDate, customEndDate]);
 
+  const fetchAbortRef = useRef<AbortController | null>(null);
+  const fetchReqIdRef = useRef(0);
+
   // Fetch Sheets, Columns & Query Entries
   const fetchEntries = useCallback(async () => {
+    fetchAbortRef.current?.abort();
+    const controller = new AbortController();
+    fetchAbortRef.current = controller;
+    const reqId = ++fetchReqIdRef.current;
+
     setIsLoading(true);
     setOccConflictMessage(null);
     try {
       const params = buildFilterParams();
 
       const [sheets, cols, logs, activity] = await Promise.all([
-        dailyLogService.getSheets(),
-        dailyLogService.getColumns(),
-        dailyLogService.getEntries(params),
-        dailyLogService.getMyLogActivity(7).catch(() => null),
+        dailyLogService.getSheets({ signal: controller.signal }),
+        dailyLogService.getColumns({ signal: controller.signal }),
+        dailyLogService.getEntries(params, { signal: controller.signal }),
+        dailyLogService.getMyLogActivity(7, { signal: controller.signal }).catch(() => null),
       ]);
+
+      if (reqId !== fetchReqIdRef.current) return;
 
       if (activity) {
         setMyActivity(activity);
       }
 
       const allSheetSet = new Set<string>(sheets || []);
+      if (activeSheet) allSheetSet.add(activeSheet);
+      const current = getCurrentMonthSheet();
+      allSheetSet.add(current);
       (logs || []).forEach((l) => {
         if (l.month_sheet) allSheetSet.add(l.month_sheet);
       });
@@ -399,10 +412,6 @@ export const DailyLogView: React.FC = () => {
 
       if (combinedSheets.length > 0) {
         setAvailableSheets(combinedSheets);
-        if (!combinedSheets.includes(activeSheet)) {
-          const current = getCurrentMonthSheet();
-          setActiveSheet(combinedSheets.includes(current) ? current : combinedSheets[combinedSheets.length - 1]);
-        }
       }
 
       if (cols && cols.length > 0) {
@@ -435,15 +444,22 @@ export const DailyLogView: React.FC = () => {
       }
 
       setEntries(logs || []);
-    } catch (err) {
+    } catch (err: any) {
+      if (err?.name === 'AbortError' || err?.status === 499) return;
+      if (reqId !== fetchReqIdRef.current) return;
       console.error('Failed to fetch daily log entries:', err);
     } finally {
-      setIsLoading(false);
+      if (reqId === fetchReqIdRef.current) {
+        setIsLoading(false);
+      }
     }
-  }, [buildFilterParams]);
+  }, [buildFilterParams, activeSheet]);
 
   useEffect(() => {
     fetchEntries();
+    return () => {
+      fetchAbortRef.current?.abort();
+    };
   }, [fetchEntries]);
 
   useEffect(() => {
@@ -488,7 +504,7 @@ export const DailyLogView: React.FC = () => {
   }, [entries, bannerDate, user]);
 
   const hoursChip = useMemo(() => {
-    if (!canSubmitLogs || !dayTarget || dayTarget.is_full_leave) return null;
+    if (!viewingSingleDay || !canSubmitLogs || !dayTarget || dayTarget.is_full_leave) return null;
     const logged = formatHours(liveLoggedHours);
     const worked = formatHours(dayTarget.worked_hours || 0);
     const stillIn = Boolean(dayTarget.has_checkin && !dayTarget.has_checkout);
@@ -523,7 +539,7 @@ export const DailyLogView: React.FC = () => {
     if (extras.length) title += ` · ${extras.join(' · ')}`;
 
     return { label, title, tone };
-  }, [canSubmitLogs, dayTarget, liveLoggedHours]);
+  }, [viewingSingleDay, canSubmitLogs, dayTarget, liveLoggedHours]);
 
   const followUps = useMemo(() => {
     const list = [...(dayTarget?.follow_ups || [])] as DayTargetFollowUp[];
@@ -702,10 +718,17 @@ export const DailyLogView: React.FC = () => {
 
   // Handle entry saved
   const handleEntrySaved = (savedEntry: DailyLogEntry) => {
-    if (entryModalMode === 'create') {
-      setEntries((prev) => [savedEntry, ...prev]);
+    const entrySheet = savedEntry.month_sheet;
+    if (entrySheet) {
+      setAvailableSheets((prev) => (prev.includes(entrySheet) ? prev : [...prev, entrySheet]));
+    }
+
+    if (datePreset === 'month' && entrySheet && entrySheet !== activeSheet) {
+      // If the user added/updated an entry for another month sheet, switch to that sheet
+      setActiveSheet(entrySheet);
     } else {
-      setEntries((prev) => prev.map((e) => (e.id === savedEntry.id ? savedEntry : e)));
+      // Refresh current view entries to ensure proper sort order and filters
+      fetchEntries();
     }
     dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
   };

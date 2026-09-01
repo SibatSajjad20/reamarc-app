@@ -1,6 +1,6 @@
-/**
- * Marketing Service — API client methods for the Performance Marketing Module.
- * Follows the same pattern as campaignService.ts and matrixService.ts.
+﻿/**
+ * Marketing Service â€” API client methods for the Performance Marketing Module.
+ * API client for the live Performance Marketing module.
  */
 
 import { apiClient } from './apiClient';

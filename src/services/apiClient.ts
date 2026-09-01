@@ -16,6 +16,48 @@ export class ApiError extends Error {
   }
 }
 
+function formatApiErrorMessage(data: any, status: number): string {
+  if (typeof data?.detail === 'string') {
+    return data.detail;
+  }
+
+  if (Array.isArray(data?.detail)) {
+    const fieldLabels: Record<string, string> = {
+      email: 'Work Email',
+      full_name: 'Full Name',
+      phone: 'Phone Number',
+      role: 'Role',
+      department: 'Department',
+      temporary_password: 'Password',
+    };
+
+    const messages = data.detail
+      .map((item: any) => {
+        const loc = Array.isArray(item?.loc) ? item.loc : [];
+        const fieldKey = String(loc[loc.length - 1] || '');
+        const label = fieldLabels[fieldKey] || fieldKey.replace(/_/g, ' ');
+        let msg = String(item?.msg || 'Invalid value');
+
+        if (fieldKey === 'email' && msg.toLowerCase().includes('valid email')) {
+          msg = 'must be a valid email address (e.g. name@company.com)';
+        }
+
+        return label ? `${label}: ${msg}` : msg;
+      })
+      .filter(Boolean);
+
+    if (messages.length > 0) {
+      return messages.join(' • ');
+    }
+  }
+
+  if (typeof data?.message === 'string' && data.message.trim()) {
+    return data.message;
+  }
+
+  return `API Request failed with status ${status}`;
+}
+
 interface RequestOptions extends RequestInit {
   timeout?: number;
   _retried?: boolean;
@@ -163,10 +205,7 @@ class ApiClient {
           this.onUnauthorizedCallback();
         }
 
-        const errorMessage =
-          typeof data?.detail === 'string'
-            ? data.detail
-            : data?.message || `API Request failed with status ${response.status}`;
+        const errorMessage = formatApiErrorMessage(data, response.status);
         throw new ApiError(errorMessage, response.status, data);
       }
 
@@ -237,10 +276,7 @@ class ApiClient {
           this.onUnauthorizedCallback();
         }
 
-        const errorMessage =
-          typeof data?.detail === 'string'
-            ? data.detail
-            : data?.message || `API Request failed with status ${response.status}`;
+        const errorMessage = formatApiErrorMessage(data, response.status);
         throw new ApiError(errorMessage, response.status, data);
       }
 

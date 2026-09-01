@@ -1,62 +1,11 @@
-export type ViewType = 'dashboard' | 'inbox' | 'campaigns' | 'matrix' | 'knowledge' | 'settings' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients';
+﻿export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients';
 
 export * from './attendance';
-
-export type PlatformType = 'Instagram' | 'LinkedIn' | 'Facebook' | 'Twitter';
-
-export type ToneType = 'Professional' | 'Punchy' | 'Witty' | 'Empathetic' | 'Bold & Visionary';
 
 export type ThemeMode = 'dark' | 'light';
 
 export type MarketingPlatform = 'Meta' | 'Google' | 'TikTok' | 'WhatsApp' | 'Other';
 export type MarketingStatus = 'Active' | 'Paused' | 'Error' | 'Stopped';
-
-export interface InboxTask {
-  id: string;
-  campaign: string;
-  platform: PlatformType;
-  date: string;
-  copy: string;
-  workspaceId: string;
-  dayNumber?: number;
-  status: 'pending' | 'approved' | 'draft';
-  targetAudience?: string;
-  hashtags?: string[];
-  lastModified?: string;
-  versions?: string[];
-}
-
-export interface DayPlan {
-  day: number;
-  topic: string;
-  platform: PlatformType;
-  preview: string;
-}
-
-export interface Campaign {
-  id: string;
-  title: string;
-  status: 'Active' | 'Pending Plan Approval' | 'Completed';
-  currentDay: number;
-  totalDays: number;
-  workspaceId: string;
-  platforms: PlatformType[];
-  targetAudience: string;
-  tone: ToneType;
-  createdAt: string;
-  plan?: DayPlan[];
-  matrixRows?: any[];
-}
-
-export interface KnowledgeSource {
-  id: string;
-  name: string;
-  type: 'pdf' | 'docx' | 'txt' | 'md' | 'url';
-  sizeOrTokens: string;
-  workspaceId: string;
-  dateAdded: string;
-  status: 'indexed' | 'processing';
-}
 
 export interface Workspace {
   id: string;
@@ -87,7 +36,6 @@ export interface Workspace {
 
 import type { AdAccount } from './admin';
 export type { AdAccount };
-
 
 export interface ToastMessage {
   id: string;

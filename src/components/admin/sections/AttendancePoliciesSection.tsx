@@ -2,12 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   Clock,
   Calendar,
-  Shield,
   Plus,
   Edit2,
   Trash2,
-  MapPin,
-  Wifi,
   Sparkles,
   X,
   Users,
@@ -20,7 +17,6 @@ import { adminService } from '../../../services/adminService';
 import { useToast } from '../../../context/ToastContext';
 import type {
   ShiftTemplate,
-  SecuritySettings,
   CompanyCalendarEvent,
   LeaveBalance,
   ShiftAssignment,
@@ -32,13 +28,7 @@ import { CustomTimePicker } from '../../ui/CustomTimePicker';
 import { NumberStepper } from '../../ui/NumberStepper';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
 import { getAttendanceMinDate } from '../../../constants/attendance';
-import {
-  GEOFENCE_RADIUS_METERS,
-  OFFICE_LATITUDE,
-  OFFICE_LONGITUDE,
-} from '../../../constants/officeLocation';
 import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
-import { OfficePinControls } from '../../attendance/OfficePinControls';
 import { ShiftPatternModal } from './ShiftPatternModal';
 import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal } from '../../../utils/shiftAssignment';
 
@@ -87,7 +77,7 @@ const withDerivedHours = (shift: ShiftTemplate, patch: Partial<ShiftTemplate> = 
 export const AttendancePoliciesSection: React.FC = () => {
   const { addToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'security' | 'leaves'>('shifts');
+  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'leaves'>('shifts');
   const [isSaving, setIsSaving] = useState(false);
 
   // Shift Templates State
@@ -125,22 +115,6 @@ export const AttendancePoliciesSection: React.FC = () => {
   const [newEventDate, setNewEventDate] = useState(getAttendanceMinDate());
   const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday'>('holiday');
   const [newEventDesc, setNewEventDesc] = useState('');
-
-  // Security Settings State
-  const [securitySettings, setSecuritySettings] = useState<SecuritySettings>({
-    office_public_ips: [],
-    office_subnets: [],
-    office_ip_whitelist: [],
-    office_latitude: OFFICE_LATITUDE,
-    office_longitude: OFFICE_LONGITUDE,
-    geofence_radius_meters: GEOFENCE_RADIUS_METERS,
-    grace_period_minutes: 30,
-    late_threshold_minutes: 30,
-    enforce_ip_whitelist: true,
-    enforce_gps_geofence: true,
-    allow_wfh_bypass: true,
-  });
-  const [newIpInput, setNewIpInput] = useState('');
 
   const applyShifts = (fetchedShifts: PromiseSettledResult<ShiftTemplate[]>) => {
     if (fetchedShifts.status === 'fulfilled' && fetchedShifts.value?.length) {
@@ -246,17 +220,13 @@ export const AttendancePoliciesSection: React.FC = () => {
   const fetchSecondary = async () => {
     const targetYear = 2026;
     const targetMonth = 8;
-    const [fetchedSec, fetchedCal] = await Promise.allSettled([
-      attendanceService.getSecuritySettings(),
-      attendanceService.getCalendarMonth(targetYear, targetMonth),
-    ]);
-
-    if (fetchedSec.status === 'fulfilled' && fetchedSec.value) {
-      setSecuritySettings(fetchedSec.value);
-    }
-
-    if (fetchedCal.status === 'fulfilled' && fetchedCal.value?.events) {
-      setCalendarEvents(fetchedCal.value.events);
+    try {
+      const fetchedCal = await attendanceService.getCalendarMonth(targetYear, targetMonth);
+      if (fetchedCal?.events) {
+        setCalendarEvents(fetchedCal.events);
+      }
+    } catch {
+      setCalendarEvents([]);
     }
 
     try {
@@ -500,61 +470,6 @@ export const AttendancePoliciesSection: React.FC = () => {
     }
   };
 
-  // ─── IP Whitelist Handlers ───
-  const handleAddIp = () => {
-    if (!newIpInput.trim()) return;
-    const ip = newIpInput.trim();
-    const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
-    if (!currentIps.includes(ip)) {
-      const updated = [...currentIps, ip];
-      setSecuritySettings((prev) => ({
-        ...prev,
-        office_public_ips: updated,
-        office_ip_whitelist: updated,
-      }));
-      setNewIpInput('');
-    }
-  };
-
-  const handleRemoveIp = (ipToRemove: string) => {
-    const lockedIps = securitySettings.locked_office_ips || [];
-    if (lockedIps.includes(ipToRemove)) {
-      addToast('Permanent Office IP', 'This office IP is configured via environment and cannot be removed.', 'warning');
-      return;
-    }
-    const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
-    const updated = currentIps.filter((ip) => ip !== ipToRemove);
-    setSecuritySettings((prev) => ({
-      ...prev,
-      office_public_ips: updated,
-      office_ip_whitelist: updated,
-    }));
-  };
-
-  const handleSaveSecurity = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setIsSaving(true);
-      const currentIps = securitySettings.office_public_ips || securitySettings.office_ip_whitelist || [];
-      const payload: SecuritySettings = {
-        office_public_ips: currentIps,
-        office_subnets: securitySettings.office_subnets || [],
-        office_latitude: OFFICE_LATITUDE,
-        office_longitude: OFFICE_LONGITUDE,
-        geofence_radius_meters: Number(securitySettings.geofence_radius_meters) || GEOFENCE_RADIUS_METERS,
-        enforce_ip_whitelist: Boolean(securitySettings.enforce_ip_whitelist),
-        enforce_gps_geofence: Boolean(securitySettings.enforce_gps_geofence),
-        allow_wfh_bypass: Boolean(securitySettings.allow_wfh_bypass),
-      };
-      await attendanceService.updateSecuritySettings(payload);
-      addToast('Security Settings Updated', 'Office IP whitelist and GPS perimeter saved.', 'success');
-    } catch (err: any) {
-      addToast('Error', err.message || 'Failed to save security settings.', 'error');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
   // ─── Calendar / Holiday Handlers ───
   const handleCreateHoliday = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -608,7 +523,7 @@ export const AttendancePoliciesSection: React.FC = () => {
             </span>
           </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Configure shift schedules, 30m grace buffers, public holidays, and Rawalpindi HQ anti-proxy geofencing
+            Configure shift schedules, 30m grace buffers, public holidays, and leave quotas
           </p>
         </div>
 
@@ -680,19 +595,6 @@ export const AttendancePoliciesSection: React.FC = () => {
         >
           <TreePalm className="w-4 h-4" />
           <span>Leave Quotas</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setActiveTab('security')}
-          className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-            activeTab === 'security'
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
-              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-          }`}
-        >
-          <Shield className="w-4 h-4" />
-          <span>Anti-Proxy Security & Geofencing</span>
         </button>
       </div>
 
@@ -1074,156 +976,6 @@ export const AttendancePoliciesSection: React.FC = () => {
         </div>
       )}
 
-      {/* ─── TAB 3: ANTI-PROXY SECURITY & GEOFENCING ─── */}
-      {activeTab === 'security' && (
-        <form onSubmit={handleSaveSecurity} className="space-y-4">
-          {/* Enforce Toggles */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Shield className="w-4 h-4 text-emerald-600" />
-              Security Check Toggles
-            </h3>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
-                <ToggleSwitch
-                  checked={Boolean(securitySettings.enforce_ip_whitelist)}
-                  onChange={(checked) =>
-                    setSecuritySettings({
-                      ...securitySettings,
-                      enforce_ip_whitelist: checked,
-                    })
-                  }
-                  label="Tier 1: Office IP & CIDR Subnet Whitelist"
-                  description="Staff on a listed office IP can check in even if the browser cannot get GPS (Chrome/Edge on Windows often cannot)."
-                />
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
-                <ToggleSwitch
-                  checked={Boolean(securitySettings.enforce_gps_geofence)}
-                  onChange={(checked) =>
-                    setSecuritySettings({
-                      ...securitySettings,
-                      enforce_gps_geofence: checked,
-                    })
-                  }
-                  label="GPS Geofence (office radius)"
-                  description="Tight GPS inside the radius can check in. Coarse city-level guesses are ignored (office Wi-Fi can still allow). Only a precise out-of-range fix blocks."
-                />
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
-                <ToggleSwitch
-                  checked={Boolean(securitySettings.allow_wfh_bypass)}
-                  onChange={(checked) =>
-                    setSecuritySettings({
-                      ...securitySettings,
-                      allow_wfh_bypass: checked,
-                    })
-                  }
-                  label="Approved WFH Security Auto-Bypass"
-                  description="Automatically bypasses IP and GPS checks if and only if employee has an approved WFH record."
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Office Coordinates */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-indigo-600" />
-              Office Coordinates & Perimeter (Rawalpindi HQ)
-            </h3>
-            <p className="text-xs text-zinc-500">
-              Business Bay, 3rd Floor, Building A-26, Sector F DHA Phase 1, Rawalpindi. Pin the real lobby from
-              Google Maps — a wrong HQ coordinate makes everyone look a few kilometers out of range.
-            </p>
-
-            <OfficePinControls
-              value={{
-                office_latitude: securitySettings.office_latitude,
-                office_longitude: securitySettings.office_longitude,
-                geofence_radius_meters: securitySettings.geofence_radius_meters,
-              }}
-              onChange={(next) =>
-                setSecuritySettings({
-                  ...securitySettings,
-                  ...next,
-                })
-              }
-              addToast={addToast}
-            />
-          </div>
-
-          {/* Office IP Whitelist */}
-          <div className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Wifi className="w-4 h-4 text-indigo-600" />
-              Whitelisted Office IPs & Subnets
-            </h3>
-
-            <div className="flex gap-2 text-xs">
-              <input
-                type="text"
-                placeholder="e.g. 192.168.1.0/24 or 110.39.1.50"
-                value={newIpInput}
-                onChange={(e) => setNewIpInput(e.target.value)}
-                className="flex-1 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-800 dark:text-zinc-200"
-              />
-              <button
-                type="button"
-                onClick={handleAddIp}
-                className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer"
-              >
-                Add IP
-              </button>
-            </div>
-
-            <div className="flex flex-wrap gap-2 pt-1 text-xs">
-              {(securitySettings.office_public_ips || securitySettings.office_ip_whitelist || []).map((ip) => {
-                const isPermanent = (securitySettings.locked_office_ips || []).includes(ip);
-                return (
-                  <span
-                    key={ip}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border font-mono text-xs font-semibold ${
-                      isPermanent
-                        ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-300'
-                        : 'bg-zinc-100 dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200'
-                    }`}
-                  >
-                    <span>{ip}</span>
-                    {isPermanent ? (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-200/60 dark:bg-amber-800/60 text-amber-800 dark:text-amber-200 font-sans font-bold">
-                        Office Wi-Fi (Locked)
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveIp(ip)}
-                        className="text-zinc-400 hover:text-rose-500 p-0.5 rounded cursor-pointer"
-                        title="Remove IP"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex justify-end">
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 cursor-pointer disabled:opacity-50"
-            >
-              {isSaving ? 'Saving...' : 'Save Security Settings'}
-            </button>
-          </div>
-        </form>
-      )}
       </div>
 
       {/* ─── DEDICATED SHIFT MODAL ─── */}

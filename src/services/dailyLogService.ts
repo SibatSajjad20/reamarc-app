@@ -8,19 +8,19 @@ import type {
 } from '../types/dailyLog';
 
 export const dailyLogService = {
-  async getColumns(): Promise<DailyLogColumn[]> {
-    return apiClient.get<DailyLogColumn[]>('/daily-log/columns');
+  async getColumns(options?: { signal?: AbortSignal }): Promise<DailyLogColumn[]> {
+    return apiClient.get<DailyLogColumn[]>('/daily-log/columns', options);
   },
 
   async updateColumns(columns: DailyLogColumn[]): Promise<DailyLogColumn[]> {
     return apiClient.put<DailyLogColumn[]>('/daily-log/columns', columns);
   },
 
-  async getSheets(): Promise<string[]> {
-    return apiClient.get<string[]>('/daily-log/sheets');
+  async getSheets(options?: { signal?: AbortSignal }): Promise<string[]> {
+    return apiClient.get<string[]>('/daily-log/sheets', options);
   },
 
-  async getEntries(params?: GetDailyLogEntriesParams | string): Promise<DailyLogEntry[]> {
+  async getEntries(params?: GetDailyLogEntriesParams | string, options?: { signal?: AbortSignal }): Promise<DailyLogEntry[]> {
     let queryString = '';
     if (typeof params === 'string') {
       queryString = `?month_sheet=${encodeURIComponent(params)}`;
@@ -76,13 +76,13 @@ export const dailyLogService = {
     return apiClient.delete<{ message: string }>(`/daily-log/entries/${id}`);
   },
 
-  async getMyLogActivity(days: number = 7): Promise<import('../types/dailyLog').UserLogActivity> {
-    return apiClient.get<import('../types/dailyLog').UserLogActivity>(`/daily-log/my-activity?days=${days}`);
+  async getMyLogActivity(days: number = 7, options?: { signal?: AbortSignal }): Promise<import('../types/dailyLog').UserLogActivity> {
+    return apiClient.get<import('../types/dailyLog').UserLogActivity>(`/daily-log/my-activity?days=${days}`, options);
   },
 
-  async getDayTarget(date?: string): Promise<import('../types/dailyLog').DayTarget> {
+  async getDayTarget(date?: string, options?: { signal?: AbortSignal }): Promise<import('../types/dailyLog').DayTarget> {
     const q = date ? `?date=${encodeURIComponent(date)}` : '';
-    return apiClient.get<import('../types/dailyLog').DayTarget>(`/daily-log/day-target${q}`);
+    return apiClient.get<import('../types/dailyLog').DayTarget>(`/daily-log/day-target${q}`, options);
   },
 
   async getSubmissionWindow(date: string): Promise<import('../types/dailyLog').SubmissionWindowResponse> {

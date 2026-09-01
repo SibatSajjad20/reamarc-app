@@ -329,7 +329,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
       {/* Monthly KPI Stats Strip (Punctuality Score & Bonus Status Removed) */}
       {summary && (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Working Days</span>
             <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">{summary.total_working_days ?? summary.working_days ?? 11} Days</p>
@@ -354,6 +354,20 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Total Undertime</span>
             <p className={`text-sm font-bold mt-0.5 ${(summary.undertime_hours ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
               {summary.undertime_formatted || '-00:00'}
+            </p>
+          </div>
+          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
+            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Net Variance</span>
+            <p
+              className={`text-sm font-bold font-mono mt-0.5 ${
+                summary.net_variance_formatted?.startsWith('+') && summary.net_variance_formatted !== '+00:00'
+                  ? 'text-emerald-600 dark:text-emerald-400'
+                  : summary.net_variance_formatted?.startsWith('-') && summary.net_variance_formatted !== '-00:00'
+                  ? 'text-rose-600 dark:text-rose-400'
+                  : 'text-zinc-500 dark:text-zinc-400'
+              }`}
+            >
+              {summary.net_variance_formatted || '+00:00'}
             </p>
           </div>
         </div>
