@@ -40,7 +40,7 @@ export const dailyLogService = {
       const str = searchParams.toString();
       if (str) queryString = `?${str}`;
     }
-    return apiClient.get<DailyLogEntry[]>(`/daily-log/entries${queryString}`);
+    return apiClient.get<DailyLogEntry[]>(`/daily-log/entries${queryString}`, options);
   },
 
   async getAllEntries(params?: GetDailyLogEntriesParams): Promise<DailyLogEntry[]> {

@@ -1,18 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import {
   X,
-  Clock,
   Plus,
   Edit2,
   Sliders,
 } from 'lucide-react';
-import type { ShiftTemplate, ShiftType } from '../../types/attendance';
+import type { ShiftTemplate } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
-import { CustomSelect } from '../ui/CustomSelect';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
-import { NumberStepper } from '../ui/NumberStepper';
-import { ToggleSwitch } from '../ui/ToggleSwitch';
 
 interface ShiftPolicySettingsModalProps {
   isOpen: boolean;
@@ -91,104 +87,6 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                 is_cross_midnight: true,
                 expected_work_hours: 7.0,
               },
-            ]);
-          }
-        } catch (err: any) {
-          // Keep defaults
-        }
-      };
-
-      fetchData();
-    }
-  }, [isOpen]);
-
-  if (!isOpen) return null;
-
-  // Fetch shifts and security settings
-  useEffect(() => {
-    if (isOpen) {
-      const fetchData = async () => {
-        try {
-          const [fetchedShifts, fetchedSec] = await Promise.allSettled([
-            attendanceService.getShifts(),
-            attendanceService.getSecuritySettings(),
-          ]);
-
-          if (fetchedShifts.status === 'fulfilled' && fetchedShifts.value) {
-            setShifts(fetchedShifts.value);
-          } else {
-            // Default template initial state
-            setShifts([
-              {
-                id: 'shift_std',
-                name: 'Standard Shift (09:30 – 18:30)',
-                code: 'standard',
-                start_time: '09:30',
-                end_time: '18:30',
-                break_duration_minutes: 60,
-                grace_period_minutes: 30,
-                late_threshold_time: '10:00',
-                is_cross_midnight: false,
-                expected_work_hours: 8.0,
-              },
-              {
-                id: 'shift_hr',
-                name: 'HR Shift (09:00 – 18:00)',
-                code: 'hr',
-                start_time: '09:00',
-                end_time: '18:00',
-                break_duration_minutes: 60,
-                grace_period_minutes: 30,
-                late_threshold_time: '09:30',
-                is_cross_midnight: false,
-                expected_work_hours: 8.0,
-              },
-              {
-                id: 'shift_aft',
-                name: 'Afternoon Shift (14:00 – 20:00)',
-                code: 'afternoon',
-                start_time: '14:00',
-                end_time: '20:00',
-                break_duration_minutes: 30,
-                grace_period_minutes: 30,
-                late_threshold_time: '14:30',
-                is_cross_midnight: false,
-                expected_work_hours: 5.5,
-              },
-              {
-                id: 'shift_ngt',
-                name: 'Night Shift (22:00 – 06:00)',
-                code: 'night',
-                start_time: '22:00',
-                end_time: '06:00',
-                break_duration_minutes: 60,
-                grace_period_minutes: 30,
-                late_threshold_time: '22:30',
-                is_cross_midnight: true,
-                expected_work_hours: 7.0,
-              },
-            ]);
-          }
-
-          if (fetchedSec.status === 'fulfilled' && fetchedSec.value) {
-            setSecuritySettings(fetchedSec.value);
-          }
-        } catch (err: any) {
-          // Keep defaults
-        }
-            setShifts([
-              {
-                id: 'shift_std',
-                name: 'Standard Shift (09:30 – 18:30)',
-                code: 'standard',
-                start_time: '09:30',
-                end_time: '18:30',
-                break_duration_minutes: 60,
-                grace_period_minutes: 30,
-                late_threshold_time: '10:00',
-                is_cross_midnight: false,
-                expected_work_hours: 8.0,
-              }
             ]);
           }
         } catch (err: any) {
