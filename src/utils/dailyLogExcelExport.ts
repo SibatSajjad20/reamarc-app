@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx';
 import type { DailyLogColumn, DailyLogEntry } from '../types/dailyLog';
+import { formatHours } from './logTimeChecks';
 
 export interface DailyLogExportMeta {
   periodLabel: string;
@@ -31,7 +32,8 @@ function getCellValue(entry: DailyLogEntry, key: string): string | number {
 
   if (key === 'hours_utilized') {
     const n = Number(raw);
-    return Number.isFinite(n) ? Math.round(n * 100) / 100 : 0;
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return formatHours(n);
   }
 
   if (raw === undefined || raw === null) return '';
@@ -118,7 +120,7 @@ export function exportDailyLogWorkbook(
     `Entries: ${sorted.length}`,
     `People: ${people.size}`,
     `Projects: ${projects.size}`,
-    `Hours: ${totalHours.toFixed(2)}`,
+    `Hours: ${formatHours(totalHours)}`,
     `Completed: ${completed}`,
     `Incomplete: ${incomplete}`,
     `Blockers: ${blockers}`,
@@ -140,7 +142,7 @@ export function exportDailyLogWorkbook(
   const totals: (string | number)[] = [''];
   exportCols.forEach((col, colIdx) => {
     if (col.key === 'hours_utilized') {
-      totals.push(Math.round(totalHours * 100) / 100);
+      totals.push(formatHours(totalHours));
     } else if (colIdx === 0) {
       totals.push('TOTAL');
     } else {
