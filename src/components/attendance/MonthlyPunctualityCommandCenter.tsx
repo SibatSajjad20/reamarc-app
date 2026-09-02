@@ -13,6 +13,7 @@ import type {
 } from '../../types/attendance';
 import { CustomSelect } from '../ui/CustomSelect';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
+import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface MonthlyPunctualityCommandCenterProps {
   summaryData: MonthlyPunctualityResponse | null;
@@ -213,10 +214,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
         </div>
 
         {isLoading && !summaryData ? (
-          <div className="py-24 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading monthly punctuality summary...</span>
-          </div>
+          <LoadingScreen message="Loading monthly punctuality summary..." size={72} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs border-collapse">

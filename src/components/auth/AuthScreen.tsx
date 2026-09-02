@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import { LottieLogo } from '../ui/LottieLogo';
 import { authService } from '../../services/authService';
+
+const ReamarcLogo3D = React.lazy(() => import('../ui/ReamarcLogo3D'));
 import {
   Lock,
   Mail,
@@ -204,8 +205,10 @@ export const AuthScreen: React.FC = () => {
       <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-8 space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2">
-          <div className="inline-flex p-2 rounded-2xl bg-blue-50 dark:bg-zinc-800/80 border border-blue-100 dark:border-zinc-700/60 shadow-sm mb-1">
-            <LottieLogo size={36} />
+          <div className="flex items-center justify-center mb-1">
+            <React.Suspense fallback={<div style={{ width: 56, height: 56 }} className="shrink-0" />}>
+              <ReamarcLogo3D size={56} />
+            </React.Suspense>
           </div>
           <h2 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
             Reamarc AI

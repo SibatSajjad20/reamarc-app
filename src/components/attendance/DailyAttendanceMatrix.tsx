@@ -19,6 +19,7 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { OffDayBanner } from '../ui/OffDayBanner';
+import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
@@ -375,12 +376,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
           </span>
         </div>
         {isWaitingForNewDate ? (
-          <div className="py-24 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-            <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-              Loading daily attendance register ({selectedDate})...
-            </span>
-          </div>
+          <LoadingScreen message={`Loading daily attendance register (${selectedDate})...`} size={72} />
         ) : (
           <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-xs border-collapse">

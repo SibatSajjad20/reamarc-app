@@ -18,6 +18,7 @@ import { DEPARTMENTS } from '../AddMemberModal';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { CustomDatePicker } from '../../ui/CustomDatePicker';
 import { OffDayBanner } from '../../ui/OffDayBanner';
+import { LoadingScreen } from '../../ui/LoadingScreen';
 import { useOffDays } from '../../../hooks/useOffDays';
 import { logExceptionService } from '../../../services/logExceptionService';
 import { formatHours, formatSignedHours } from '../../../utils/logTimeChecks';
@@ -380,10 +381,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
         </div>
 
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-20 text-zinc-400">
-            <Loader2 className="w-6 h-6 animate-spin mb-3" />
-            <p className="text-xs font-medium">Loading people...</p>
-          </div>
+          <LoadingScreen message="Analyzing team attendance & compliance status..." size={72} />
         ) : (
           <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
             <table className="w-full text-left border-collapse">

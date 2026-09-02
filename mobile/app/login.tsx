@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { useAuth } from '../src/context/AuthContext';
 import { colors, API_URL } from '../src/theme';
+import { ReamarcLogo3D } from '../src/ui/ReamarcLogo3D';
 
 export default function LoginScreen() {
   const { login } = useAuth();
@@ -35,6 +36,9 @@ export default function LoginScreen() {
       style={styles.wrap}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <View style={{ marginBottom: 16 }}>
+        <ReamarcLogo3D size={64} />
+      </View>
       <Text style={styles.brand}>Reamarc</Text>
       <Text style={styles.sub}>Check in from your phone only</Text>
       <TextInput

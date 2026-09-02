@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Location from 'expo-location';
 import * as LocalAuthentication from 'expo-local-authentication';
 import NetInfo from '@react-native-community/netinfo';
@@ -28,7 +29,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
 import { TruckLoader } from '../../src/ui/TruckLoader';
-import { formatLongDate, formatTime, prettyRole } from '../../src/ui/format';
+import { formatDisplayDate, formatLongDate, formatTime, prettyRole } from '../../src/ui/format';
 
 type TodayPayload = {
   record: {
@@ -717,6 +718,7 @@ type DailyMatrixRow = {
   work_hours?: string;
   is_late?: boolean;
   is_wfh_approved?: boolean;
+  notes?: string | null;
 };
 
 type DailyMatrixSummary = {
@@ -741,66 +743,189 @@ type DailyMatrixResponse = {
   rows?: DailyMatrixRow[];
 };
 
+function parseDate(iso: string) {
+  if (!iso) return new Date();
+  const parts = iso.split('-').map(Number);
+  if (parts.length === 3 && parts.every((n) => !isNaN(n))) {
+    return new Date(parts[0], parts[1] - 1, parts[2], 12, 0, 0);
+  }
+  return new Date();
+}
+
+function toIsoDate(d: Date = new Date()) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function todayIso() {
+  return toIsoDate(new Date());
+}
+
 function AdminOverviewScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const [matrix, setMatrix] = useState<DailyMatrixResponse | null>(null);
   const [pendingCount, setPendingCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [isFetchingDate, setIsFetchingDate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<string>('all');
   const [lastUpdated, setLastUpdated] = useState('');
+  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const [draftDate, setDraftDate] = useState<Date>(new Date());
 
-  const loadData = useCallback(async (spin = false) => {
-    if (spin) setLoading(true);
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const activeDateRef = useRef<string>(selectedDate);
+  activeDateRef.current = selectedDate;
+
+  const isToday = selectedDate === todayIso();
+
+  const executeFetch = useCallback(async (dateStr: string, isInitial = false) => {
+    activeDateRef.current = dateStr;
+    if (isInitial) {
+      setLoading(true);
+    } else {
+      setIsFetchingDate(true);
+    }
+
     try {
+      const isDateToday = dateStr === todayIso();
+      const query = isDateToday ? '' : `?date=${dateStr}`;
       const [matrixRes, pendingRes] = await Promise.all([
-        api<DailyMatrixResponse>('/attendance/matrix'),
+        api<DailyMatrixResponse>(`/attendance/matrix${query}`),
         api<any[]>('/leaves/pending').catch(() => []),
       ]);
-      if (matrixRes) {
-        setMatrix(matrixRes);
-        setPendingCount(Array.isArray(pendingRes) ? pendingRes.length : 0);
-        const d = new Date();
-        setLastUpdated(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+
+      // Only apply response if user is still on this target date
+      if (activeDateRef.current === dateStr) {
+        if (matrixRes) {
+          setMatrix(matrixRes);
+          setPendingCount(Array.isArray(pendingRes) ? pendingRes.length : 0);
+          const d = new Date();
+          setLastUpdated(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        }
       }
     } catch (err: any) {
       console.error('Failed to load matrix in admin overview:', err);
     } finally {
-      if (spin) setLoading(false);
-      setRefreshing(false);
+      if (activeDateRef.current === dateStr) {
+        setLoading(false);
+        setIsFetchingDate(false);
+        setRefreshing(false);
+      }
     }
   }, []);
 
+  const queueDateFetch = useCallback((newDate: string) => {
+    if (debounceTimer.current) {
+      clearTimeout(debounceTimer.current);
+    }
+    activeDateRef.current = newDate;
+    setIsFetchingDate(true);
+    // 250ms debounce waiting period to prevent network flooding while clicking dates
+    debounceTimer.current = setTimeout(() => {
+      executeFetch(newDate, false);
+    }, 250);
+  }, [executeFetch]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceTimer.current) {
+        clearTimeout(debounceTimer.current);
+      }
+    };
+  }, []);
+
+  // Safety watchdog: ensure loading indicator never stays stuck if network hangs
+  useEffect(() => {
+    if (!isFetchingDate) return;
+    const watchdog = setTimeout(() => {
+      setIsFetchingDate(false);
+    }, 6000);
+    return () => clearTimeout(watchdog);
+  }, [isFetchingDate]);
+
+  // Periodic refresh ONLY when viewing today (cleans up immediately when viewing historical dates)
+  useEffect(() => {
+    if (selectedDate !== todayIso()) return;
+    const interval = setInterval(() => {
+      executeFetch(todayIso(), false);
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedDate, executeFetch]);
+
   useFocusEffect(
     useCallback(() => {
-      loadData(true);
-      const timer = setInterval(() => {
-        loadData(false);
-      }, 10000);
-      return () => clearInterval(timer);
-    }, [loadData]),
+      executeFetch(activeDateRef.current, false);
+    }, [executeFetch]),
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    loadData(false);
-  }, [loadData]);
+    executeFetch(selectedDate, false);
+  }, [executeFetch, selectedDate]);
+
+  const handleShiftDay = (delta: number) => {
+    const cur = parseDate(selectedDate);
+    cur.setDate(cur.getDate() + delta);
+    const nextIso = toIsoDate(cur);
+    if (delta > 0 && nextIso > todayIso()) return;
+    setSelectedDate(nextIso);
+    queueDateFetch(nextIso);
+  };
+
+  const handleSelectDate = (newDate: string) => {
+    if (newDate > todayIso()) return;
+    setSelectedDate(newDate);
+    queueDateFetch(newDate);
+  };
+
+  const rows = matrix?.rows || [];
+
+  const selectedDateObj = parseDate(selectedDate);
+  const isSelectedSunday = selectedDateObj.getDay() === 0;
+  const isSelectedFirstSat = selectedDateObj.getDay() === 6 && selectedDateObj.getDate() <= 7;
+
+  // Detect if day is marked as company holiday from rows or notes
+  const isHolidayDate = rows.length > 0 && rows.every((r) => {
+    const cin = r.check_in || r.punch_in;
+    return !cin && (
+      r.status === 'holiday' ||
+      r.status_badge === 'Holiday' ||
+      String(r.notes || '').toLowerCase().includes('holiday')
+    );
+  });
+
+  const isWholeDayOff = isSelectedSunday || isSelectedFirstSat || isHolidayDate;
+  const offDayTitle = isHolidayDate
+    ? (rows.find((r) => r.notes)?.notes || 'Company Holiday')
+    : isSelectedSunday
+    ? 'Sunday Off'
+    : isSelectedFirstSat
+    ? '1st Saturday Off'
+    : 'Rest Day';
 
   // Derive counts directly matching desktop daily matrix
-  const totalEmployees = matrix?.total_employees ?? matrix?.summary?.total_headcount ?? (matrix?.rows?.length || 0);
+  const totalEmployees = matrix?.total_employees ?? matrix?.summary?.total_headcount ?? (rows.length || 0);
   const presentCount = matrix?.present_count ?? matrix?.summary?.present ?? 0;
   const onTimeCount = matrix?.summary?.on_time ?? Math.max(0, presentCount - (matrix?.late_count || matrix?.summary?.late || 0));
   const lateCount = matrix?.late_count ?? matrix?.summary?.late ?? 0;
   const wfhCount = matrix?.wfh_count ?? matrix?.summary?.wfh ?? 0;
   const leaveCount = matrix?.leave_count ?? matrix?.summary?.leaves ?? 0;
-  const absentCount = matrix?.absent_count ?? matrix?.summary?.absent ?? Math.max(0, totalEmployees - presentCount - wfhCount - leaveCount);
+
+  // Real absences: strictly 0 on Sundays/holidays/off-days
+  const actualAbsentCount = isWholeDayOff
+    ? 0
+    : (matrix?.absent_count !== undefined
+        ? matrix.absent_count
+        : Math.max(0, totalEmployees - presentCount - wfhCount - leaveCount));
 
   const attendancePercent =
-    totalEmployees > 0 ? Math.round((presentCount / totalEmployees) * 100) : 0;
-
-  const rows = matrix?.rows || [];
+    totalEmployees > 0 && !isWholeDayOff ? Math.round((presentCount / totalEmployees) * 100) : 0;
 
   const filteredEmployees = useMemo(() => {
     return rows.filter((e) => {
@@ -824,24 +949,27 @@ function AdminOverviewScreen() {
         e.status_badge === 'Annual Leave' ||
         e.status_badge === 'Sick Leave';
 
+      const isSundayOff = !isPres && !isWfh && !isLeave && (e.status === 'sunday_off' || e.status_badge === 'Sunday Off' || isSelectedSunday);
+      const isFirstSatOff = !isPres && !isWfh && !isLeave && (e.status === 'first_saturday_off' || e.status_badge === '1st Sat Off' || isSelectedFirstSat);
+      const isHoliday = !isPres && !isWfh && !isLeave && (e.status === 'holiday' || e.status_badge === 'Holiday' || String(e.notes || '').toLowerCase().includes('holiday') || isHolidayDate);
+      const isOff = isSundayOff || isFirstSatOff || isHoliday;
+      const isActualAbsent = !isPres && !isWfh && !isLeave && !isOff;
+
       if (filter === 'all') return true;
       if (filter === 'present') return isPres;
       if (filter === 'late') return isLate;
       if (filter === 'wfh') return isWfh;
       if (filter === 'leave') return isLeave;
-      if (filter === 'absent') return !isPres && !isWfh && !isLeave;
+      if (filter === 'off_day') return isOff;
+      if (filter === 'absent') return isActualAbsent;
       return true;
     });
-  }, [rows, search, filter]);
+  }, [rows, search, filter, isSelectedSunday, isSelectedFirstSat, isHolidayDate]);
 
   if (loading && !matrix) {
     return (
       <SafeAreaView style={[styles.safe, styles.centerScreen]}>
-        <View style={styles.loadingBox}>
-          <ActivityIndicator size="large" color={colors.indigo} />
-          <Text style={styles.loadingTitle}>Loading Command Center</Text>
-          <Text style={styles.loadingSubtitle}>Fetching live attendance from desktop database...</Text>
-        </View>
+        <TruckLoader label="Loading Attendance Command Center..." />
       </SafeAreaView>
     );
   }
@@ -858,16 +986,135 @@ function AdminOverviewScreen() {
           <View style={{ flex: 1 }}>
             <Text style={styles.adminGreeting}>Hi {user?.name?.split(' ')[0] || 'Admin'} 👋</Text>
             <View style={styles.livePulseRow}>
-              <View style={styles.liveDot} />
-              <Text style={styles.liveText}>
-                Live Attendance {lastUpdated ? `· ${lastUpdated}` : ''}
-              </Text>
+              {isToday ? (
+                <>
+                  <View style={styles.liveDot} />
+                  <Text style={styles.liveText}>
+                    Live Attendance {lastUpdated ? `· ${lastUpdated}` : ''}
+                  </Text>
+                </>
+              ) : isWholeDayOff ? (
+                <>
+                  <Ionicons name="calendar" size={13} color={colors.indigo} />
+                  <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '700' }]}>
+                    {offDayTitle} · {formatDisplayDate(selectedDate)}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="time-outline" size={13} color={colors.indigo} />
+                  <Text style={[styles.liveText, { color: colors.indigo, fontWeight: '700' }]}>
+                    Historical Archive · {formatDisplayDate(selectedDate)}
+                  </Text>
+                </>
+              )}
             </View>
           </View>
           <View style={styles.avatarWrap}>
             <Avatar name={user?.name || 'Admin'} size={46} />
           </View>
         </View>
+
+        {/* Date Selector Navigation Bar */}
+        <View style={styles.dateSelectorCard}>
+          <Pressable
+            style={styles.dateNavArrow}
+            onPress={() => handleShiftDay(-1)}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.text} />
+          </Pressable>
+
+          <Pressable
+            style={styles.dateCenterBtn}
+            disabled={isFetchingDate}
+            onPress={() => {
+              setDraftDate(parseDate(selectedDate));
+              setShowDatePicker(true);
+            }}
+          >
+            <Ionicons name="calendar-outline" size={16} color={colors.indigo} />
+            <Text style={styles.dateCenterText}>
+              {isToday ? `Today, ${formatDisplayDate(selectedDate)}` : formatDisplayDate(selectedDate)}
+            </Text>
+            {isFetchingDate ? (
+              <ActivityIndicator size="small" color={colors.indigo} style={{ marginLeft: 2 }} />
+            ) : (
+              <Ionicons name="chevron-down" size={14} color={colors.muted} />
+            )}
+          </Pressable>
+
+          <Pressable
+            style={[styles.dateNavArrow, isToday && { opacity: 0.3 }]}
+            disabled={isToday}
+            onPress={() => handleShiftDay(1)}
+            hitSlop={8}
+          >
+            <Ionicons name="chevron-forward" size={18} color={colors.text} />
+          </Pressable>
+
+          {!isToday && (
+            <Pressable
+              style={styles.todayJumpBadge}
+              onPress={() => handleSelectDate(todayIso())}
+            >
+              <Text style={styles.todayJumpText}>Today</Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* Android Native Date Picker */}
+        {showDatePicker && Platform.OS === 'android' && (
+          <DateTimePicker
+            value={parseDate(selectedDate)}
+            mode="date"
+            display="default"
+            themeVariant="light"
+            maximumDate={new Date()}
+            onChange={(_, date) => {
+              setShowDatePicker(false);
+              if (date) {
+                handleSelectDate(toIsoDate(date));
+              }
+            }}
+          />
+        )}
+
+        {/* iOS Native Modal Date Picker */}
+        {Platform.OS === 'ios' && (
+          <Modal visible={showDatePicker} transparent animationType="slide">
+            <Pressable style={styles.modalOverlay} onPress={() => setShowDatePicker(false)} />
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Select Attendance Date</Text>
+                <Pressable
+                  style={styles.modalDoneBtn}
+                  onPress={() => {
+                    handleSelectDate(toIsoDate(draftDate));
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={styles.modalDoneText}>Done</Text>
+                </Pressable>
+              </View>
+              <View style={styles.datePickerBox}>
+                <DateTimePicker
+                  value={draftDate}
+                  mode="date"
+                  display="inline"
+                  themeVariant="light"
+                  textColor="#0F172A"
+                  accentColor={colors.indigo}
+                  maximumDate={new Date()}
+                  style={styles.inlineDatePicker}
+                  onChange={(_, date) => {
+                    if (date) setDraftDate(date);
+                  }}
+                />
+              </View>
+            </View>
+          </Modal>
+        )}
 
         {/* Pending Approvals Callout Banner */}
         {pendingCount > 0 && (
@@ -892,14 +1139,21 @@ function AdminOverviewScreen() {
           </Pressable>
         )}
 
-        {/* 4 Executive Metric Cards in Clean 2x2 Grid (No whitespace on right!) */}
-        <View style={styles.metricsContainer}>
-          {/* Row 1: Headcount & Punctuality */}
-          <View style={styles.metricsRow}>
-            {/* Card 1: Headcount */}
-            <View style={styles.metricCard}>
+        {/* Dynamic Content: Show 3D Loader during date changes to avoid stale/inaccurate data */}
+        {isFetchingDate ? (
+          <View style={styles.dateLoadingCard}>
+            <TruckLoader label={`Syncing attendance for ${formatDisplayDate(selectedDate)}...`} />
+          </View>
+        ) : (
+          <>
+            {/* 4 Executive Metric Cards in Clean 2x2 Grid (No whitespace on right!) */}
+            <View style={styles.metricsContainer}>
+              {/* Row 1: Headcount & Punctuality */}
+              <View style={styles.metricsRow}>
+                {/* Card 1: Headcount */}
+                <View style={styles.metricCard}>
               <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>Present Today</Text>
+                <Text style={styles.metricLabel}>Present</Text>
                 <View style={[styles.miniIconBg, { backgroundColor: '#ECFDF5' }]}>
                   <Ionicons name="people" size={13} color={colors.emerald} />
                 </View>
@@ -909,9 +1163,11 @@ function AdminOverviewScreen() {
                 <Text style={styles.metricTotal}> / {totalEmployees}</Text>
               </Text>
               <View style={styles.progressBarBg}>
-                <View style={[styles.progressBarFill, { width: `${Math.min(100, attendancePercent)}%` }]} />
+                <View style={[styles.progressBarFill, { width: isWholeDayOff ? '0%' : `${Math.min(100, attendancePercent)}%` }]} />
               </View>
-              <Text style={styles.metricFooter}>{attendancePercent}% Attendance Rate</Text>
+              <Text style={styles.metricFooter}>
+                {isWholeDayOff ? 'Company Rest Day' : `${attendancePercent}% Attendance Rate`}
+              </Text>
             </View>
 
             {/* Card 2: Punctuality */}
@@ -961,18 +1217,33 @@ function AdminOverviewScreen() {
               </View>
             </View>
 
-            {/* Card 4: Absent */}
+            {/* Card 4: Absent or Company Rest Day */}
             <View style={styles.metricCard}>
               <View style={styles.metricHead}>
-                <Text style={styles.metricLabel}>Unreported</Text>
-                <View style={[styles.miniIconBg, { backgroundColor: '#FFF1F2' }]}>
-                  <Ionicons name="alert-circle" size={13} color={colors.rose} />
+                <Text style={styles.metricLabel}>{isWholeDayOff ? 'Company Status' : 'Unreported'}</Text>
+                <View style={[styles.miniIconBg, { backgroundColor: isWholeDayOff ? '#F4F4F5' : '#FFF1F2' }]}>
+                  <Ionicons
+                    name={isWholeDayOff ? 'calendar' : 'alert-circle'}
+                    size={13}
+                    color={isWholeDayOff ? colors.indigo : colors.rose}
+                  />
                 </View>
               </View>
-              <Text style={[styles.metricValue, { color: absentCount > 0 ? colors.rose : colors.text }]}>
-                {absentCount}
-              </Text>
-              <Text style={styles.metricFooter}>Missing clock-in</Text>
+              {isWholeDayOff ? (
+                <>
+                  <Text style={[styles.metricValue, { color: colors.indigo, fontSize: 18, marginTop: 4 }]}>
+                    {offDayTitle}
+                  </Text>
+                  <Text style={styles.metricFooter}>Official non-working day</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={[styles.metricValue, { color: actualAbsentCount > 0 ? colors.rose : colors.text }]}>
+                    {actualAbsentCount}
+                  </Text>
+                  <Text style={styles.metricFooter}>Missing clock-in</Text>
+                </>
+              )}
             </View>
           </View>
         </View>
@@ -1010,7 +1281,9 @@ function AdminOverviewScreen() {
             { id: 'late', label: `Late (${lateCount})` },
             { id: 'wfh', label: `WFH (${wfhCount})` },
             { id: 'leave', label: `Leave (${leaveCount})` },
-            { id: 'absent', label: `Absent (${absentCount})` },
+            ...(isWholeDayOff
+              ? [{ id: 'off_day', label: `${offDayTitle} (${totalEmployees})` }]
+              : [{ id: 'absent', label: `Absent (${actualAbsentCount})` }]),
           ].map((c) => (
             <Pressable
               key={c.id}
@@ -1046,6 +1319,10 @@ function AdminOverviewScreen() {
               emp.status_badge === 'Sick Leave';
             const isCompleted = isPres && Boolean(cout);
 
+            const isSundayOff = !isPres && !isWfh && !isLeave && (emp.status === 'sunday_off' || emp.status_badge === 'Sunday Off' || isSelectedSunday);
+            const isFirstSatOff = !isPres && !isWfh && !isLeave && (emp.status === 'first_saturday_off' || emp.status_badge === '1st Sat Off' || isSelectedFirstSat);
+            const isHoliday = !isPres && !isWfh && !isLeave && (emp.status === 'holiday' || emp.status_badge === 'Holiday' || String(emp.notes || '').toLowerCase().includes('holiday') || isHolidayDate);
+
             let statusLabel = 'Absent';
             let badgeBg = '#FEF2F2';
             let badgeColor = '#DC2626';
@@ -1072,6 +1349,22 @@ function AdminOverviewScreen() {
               statusLabel = emp.status_badge || (emp.status === 'short_leave' ? 'Short Leave' : 'Leave');
               badgeBg = '#F5F3FF';
               badgeColor = '#7C3AED';
+            } else if (isSundayOff) {
+              statusLabel = 'Sunday Off';
+              badgeBg = '#F4F4F5';
+              badgeColor = '#71717A';
+            } else if (isFirstSatOff) {
+              statusLabel = '1st Sat Off';
+              badgeBg = '#F4F4F5';
+              badgeColor = '#71717A';
+            } else if (isHoliday) {
+              statusLabel = (emp.notes && emp.notes !== 'Public Holiday' ? emp.notes : 'Holiday');
+              badgeBg = '#EFF6FF';
+              badgeColor = '#2563EB';
+            } else if (emp.status === 'awaiting_checkin' || emp.status_badge === 'Awaiting') {
+              statusLabel = 'Awaiting';
+              badgeBg = '#F4F4F5';
+              badgeColor = '#71717A';
             }
 
             return (
@@ -1124,6 +1417,8 @@ function AdminOverviewScreen() {
               </View>
             );
           })
+        )}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -1667,5 +1962,105 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: colors.text,
+  },
+  dateSelectorCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.card,
+    borderRadius: 14,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  dateNavArrow: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+    backgroundColor: '#F4F4F5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dateCenterBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+  },
+  dateCenterText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: colors.text,
+  },
+  todayJumpBadge: {
+    backgroundColor: colors.indigo,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginLeft: 4,
+  },
+  todayJumpText: {
+    color: '#FFFFFF',
+    fontSize: 10.5,
+    fontWeight: '800',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingBottom: 28,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F4F4F5',
+  },
+  modalTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  modalDoneBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  modalDoneText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.indigo,
+  },
+  datePickerBox: {
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    backgroundColor: '#FFFFFF',
+    minHeight: 330,
+    justifyContent: 'center',
+  },
+  inlineDatePicker: {
+    height: 330,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+  },
+  dateLoadingCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    paddingVertical: 56,
+    borderWidth: 1,
+    borderColor: colors.line,
+    marginTop: 8,
   },
 });

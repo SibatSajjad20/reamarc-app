@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { ViewType, ThemeMode } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { dailyLogService } from '../services/dailyLogService';
-import { LottieLogo } from './ui/LottieLogo';
+const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
 import { getInitials, getRoleLabel } from '../utils/badgeStyles';
 import {
   LogOut,
@@ -36,7 +36,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleTheme,
 }) => {
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [requestCount, setRequestCount] = useState(0);
 
   useEffect(() => {
@@ -152,8 +152,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="px-4 py-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between">
         {!isCollapsed ? (
           <div className="flex items-center gap-2.5">
-            <div className="p-1.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xs flex items-center justify-center">
-              <LottieLogo size={28} />
+            <div className="flex items-center justify-center shrink-0">
+              <React.Suspense fallback={<div style={{ width: 32, height: 32 }} className="shrink-0" />}>
+                <ReamarcLogo3D size={32} />
+              </React.Suspense>
             </div>
             <div>
               <h1 className="text-sm font-bold text-zinc-950 dark:text-zinc-100 tracking-tight flex items-center gap-1.5 leading-none">
@@ -166,8 +168,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
         ) : (
-          <div className="mx-auto p-1.5 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-2xs">
-            <LottieLogo size={26} />
+          <div className="mx-auto flex items-center justify-center shrink-0">
+            <React.Suspense fallback={<div style={{ width: 30, height: 30 }} className="shrink-0" />}>
+              <ReamarcLogo3D size={30} />
+            </React.Suspense>
           </div>
         )}
 

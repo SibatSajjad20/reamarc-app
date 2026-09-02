@@ -16,7 +16,7 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { useAdAccounts } from './hooks/useAdAccounts';
-import { Sparkles } from 'lucide-react';
+import { LoadingScreen } from './components/ui/LoadingScreen';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -287,17 +287,7 @@ function AppInner() {
   };
 
   if (isAuthLoading) {
-    return (
-      <div className="fixed inset-0 flex flex-col items-center justify-center bg-slate-50 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 space-y-4 select-none">
-        <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-xl shadow-indigo-500/30 animate-pulse">
-          <Sparkles className="w-6 h-6 text-white" />
-        </div>
-        <div className="text-center space-y-1">
-          <p className="text-sm font-bold text-slate-900 dark:text-zinc-200">Reamarc AI</p>
-          <p className="text-xs text-slate-500 dark:text-zinc-400">Verifying session...</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen fullScreen message="Verifying session..." title="Reamarc AI" />;
   }
 
   if (!user) {

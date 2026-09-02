@@ -25,6 +25,7 @@ import type { LogExceptionItem, DailyLogEntry } from '../../types/dailyLog';
 import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { OffDayBanner } from '../ui/OffDayBanner';
+import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 
 const todayIso = () => {
@@ -471,10 +472,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
       {/* ─── Table Content ─── */}
       <div className="flex-1 min-h-0 overflow-auto p-6">
         {isLoading ? (
-          <div className="flex flex-col items-center justify-center py-24 text-zinc-400 space-y-2">
-            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
-            <p className="text-xs font-medium">Loading exception records...</p>
-          </div>
+          <LoadingScreen message="Loading exception records..." size={72} />
         ) : viewingOff.isOff ? (
           <div className="max-w-lg mx-auto mt-10">
             <OffDayBanner info={viewingOff} date={range === 'date' ? pickedDate : todayIso()} />

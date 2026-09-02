@@ -19,6 +19,7 @@ import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
+import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface ActiveClientsViewProps {
   workspaces?: Workspace[];
@@ -29,7 +30,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   workspaces: propWorkspaces,
   adAccounts = [],
 }) => {
-  const { workspaces: liveWorkspaces } = useWorkspaces();
+  const { workspaces: liveWorkspaces, isLoading } = useWorkspaces();
   const workspaces = liveWorkspaces && liveWorkspaces.length > 0 ? liveWorkspaces : (propWorkspaces || []);
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -203,7 +204,9 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
 
       {/* Grid of Active Workspace Cards */}
       <div className="flex-1 overflow-y-auto p-5">
-        {filteredWorkspaces.length === 0 ? (
+        {isLoading && (!workspaces || workspaces.length === 0) ? (
+          <LoadingScreen message="Loading active client accounts..." size={72} />
+        ) : filteredWorkspaces.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
               <Building2 className="w-6 h-6" />

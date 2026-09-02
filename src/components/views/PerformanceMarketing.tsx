@@ -25,6 +25,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
+import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface Props {
   selectedWorkspace?: (Workspace | AdAccount) | null;
@@ -959,10 +960,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
           className="min-w-full flex flex-col flex-1"
         >
           {isLoading ? (
-            <div className="h-64 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-              <Loader2 className="w-6 h-6 animate-spin text-indigo-500" />
-              <span className="text-xs font-medium">Loading matrix data...</span>
-            </div>
+            <LoadingScreen message="Loading marketing matrix data..." size={72} />
           ) : error ? (
             <div className="h-64 flex flex-col items-center justify-center p-8 text-center">
               <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 mb-3">

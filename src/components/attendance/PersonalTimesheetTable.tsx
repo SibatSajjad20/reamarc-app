@@ -17,6 +17,7 @@ import type {
 import { getAugust2026StartDay } from '../../constants/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
+import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface PersonalTimesheetTableProps {
   records: AttendanceRecord[];
@@ -375,12 +376,10 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
       {/* High-Density Timesheet Table */}
       {isLoading && rows.length === 0 && !summary ? (
-        <div className="py-24 flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-          <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-            {employeeName ? `Loading ${employeeName}'s timesheet...` : 'Loading timesheet data...'}
-          </span>
-        </div>
+        <LoadingScreen
+          message={employeeName ? `Loading ${employeeName}'s timesheet...` : 'Loading timesheet data...'}
+          size={72}
+        />
       ) : rows.length === 0 ? (
         <div className="py-16 text-center text-zinc-400 dark:text-zinc-500">
           <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />

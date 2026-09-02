@@ -43,6 +43,7 @@ import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
+import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
 import { formatHours, formatSignedHours, isLogDateExpired } from '../../utils/logTimeChecks';
@@ -1410,10 +1411,7 @@ export const DailyLogView: React.FC = () => {
       {/* ─── Grid Canvas Table ─── */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
         {isLoading ? (
-          <div className="flex-1 min-h-[400px] w-full flex flex-col items-center justify-center gap-3 text-zinc-400 dark:text-zinc-500">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-            <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading daily log entries...</span>
-          </div>
+          <LoadingScreen message="Loading daily log entries..." size={72} />
         ) : (
           <div
             style={{
