@@ -22,7 +22,7 @@
         "NSFaceIDUsageDescription": "Reamarc uses Face ID to confirm it is you before check-in and check-out.",
         "NSLocalNetworkUsageDescription": "Reamarc uses the local network to reach the office API on your computer during development.",
         "NSAppTransportSecurity": {
-          "NSAllowsArbitraryLoads": true,
+          "NSAllowsArbitraryLoads": false,
           "NSAllowsLocalNetworking": true
         }
       }

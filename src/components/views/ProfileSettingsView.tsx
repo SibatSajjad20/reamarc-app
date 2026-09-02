@@ -64,8 +64,8 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onSave
       return;
     }
     if (newPassword) {
-      if (newPassword.length < 6) {
-        setErrorMessage('New password must be at least 6 characters.');
+      if (newPassword.length < 8) {
+        setErrorMessage('New password must be at least 8 characters.');
         return;
       }
       if (newPassword !== confirmPassword) {

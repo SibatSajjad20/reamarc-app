@@ -1,14 +1,24 @@
-﻿import os
+﻿from __future__ import annotations
+
+import os
 import logging
 from pathlib import Path
 from datetime import datetime
-from dotenv import load_dotenv
-
-load_dotenv()
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-VAULT_PATH = Path(os.getenv("OBSIDIAN_VAULT_PATH", "./Reamarc_Brain"))
+
+def _vault_path() -> Optional[Path]:
+    """Only write when OBSIDIAN_VAULT_PATH is an absolute persistent directory."""
+    raw = (os.getenv("OBSIDIAN_VAULT_PATH") or "").strip()
+    if not raw:
+        return None
+    path = Path(raw)
+    if not path.is_absolute():
+        logger.info("Obsidian sync skipped; OBSIDIAN_VAULT_PATH must be an absolute path.")
+        return None
+    return path
 
 
 def _clean_filename(name: str) -> str:
@@ -21,10 +31,14 @@ def sync_daily_marketing_to_obsidian(workspace_name: str, date_str: str, summary
     """
     Appends a daily performance snapshot into
     `{workspace_name} Daily Marketing Reports.md` in the Obsidian vault.
-    Used as a background task after daily metric upserts for long-term RAG memory.
+    No-op on Render unless OBSIDIAN_VAULT_PATH points at a persistent absolute disk.
     """
+    vault = _vault_path()
+    if vault is None:
+        return ""
+
     try:
-        reports_dir = VAULT_PATH / "Marketing Reports"
+        reports_dir = vault / "Marketing Reports"
         reports_dir.mkdir(parents=True, exist_ok=True)
 
         safe_ws = _clean_filename(workspace_name)
@@ -74,9 +88,14 @@ tags: [marketing, performance, {tag_ws}]
         with open(file_path, "a", encoding="utf-8") as f:
             f.write(entry)
 
-        logger.info(f"Appended marketing report for '{campaign_name}' ({date_str}) to {file_path}")
+        logger.info("Appended marketing report for '%s' (%s) to %s", campaign_name, date_str, file_path)
         return str(file_path)
 
     except Exception as e:
-        logger.error(f"Failed to sync daily marketing report to Obsidian vault for '{workspace_name}': {e}", exc_info=True)
+        logger.error(
+            "Failed to sync daily marketing report to Obsidian vault for '%s': %s",
+            workspace_name,
+            e,
+            exc_info=True,
+        )
         return ""

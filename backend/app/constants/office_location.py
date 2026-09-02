@@ -1,4 +1,4 @@
-"""Hardcoded office geofence & IP security constants (Rawalpindi HQ)."""
+"""Office geofence constants. WAN IPs come from env only — never hardcode them."""
 
 from __future__ import annotations
 
@@ -6,18 +6,17 @@ from typing import List
 
 from app.config import settings
 
-# Rawalpindi HQ Coordinates & Map Link
+# Rawalpindi HQ pin (public map location; not a secret).
 OFFICE_LATITUDE: float = 33.52062764084008
 OFFICE_LONGITUDE: float = 73.09183393441234
 OFFICE_MAP_URL: str = "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
-OFFICE_WIFI_IP: str = "154.57.199.55"
 GEOFENCE_RADIUS_METERS: float = 500.0
 MAX_GPS_ACCURACY_METERS: float = 500.0
 
 
 def get_built_in_office_ips() -> List[str]:
-    """Hardcoded office WAN IP merged with env and local dev loopback."""
-    ips = [OFFICE_WIFI_IP]
+    """Office WAN IPs from OFFICE_PUBLIC_IPS. Loopback is added only outside production."""
+    ips: List[str] = []
     raw = (settings.OFFICE_PUBLIC_IPS or "").strip()
     if raw:
         for part in raw.split(","):

@@ -26,7 +26,7 @@ class UserProfileUpdate(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     current_password: Optional[str] = None
-    new_password: Optional[str] = Field(None, min_length=6)
+    new_password: Optional[str] = Field(None, min_length=8)
 
 class MemberResponse(BaseModel):
     id: str

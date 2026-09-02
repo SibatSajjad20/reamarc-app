@@ -62,12 +62,17 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
 
 
 def _token_payload(access_token: str, refresh_token: str, user_doc: dict, include_tokens: bool = True) -> dict:
-    return {
-        "access_token": access_token,
+    payload = {
         "token_type": "bearer",
-        "refresh_token": refresh_token,
         "user": _build_user_response(user_doc),
     }
+    if include_tokens:
+        payload["access_token"] = access_token
+        payload["refresh_token"] = refresh_token
+    else:
+        payload["access_token"] = None
+        payload["refresh_token"] = None
+    return payload
 
 
 def _build_user_response(user_doc: dict) -> dict:
@@ -420,10 +425,10 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
             detail="Database connection is currently unavailable.",
         )
 
-    if len(payload.new_password) < 6:
+    if len(payload.new_password) < 8:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be at least 6 characters long.",
+            detail="New password must be at least 8 characters long.",
         )
 
     email_clean = str(payload.email).lower().strip()

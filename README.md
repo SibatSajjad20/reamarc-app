@@ -1,32 +1,33 @@
-# React + TypeScript + Vite
+# Reamarc
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+Internal workspace for Reamarc: attendance, daily logs, HR, and performance marketing.
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+| Surface | Stack | Host |
+|---|---|---|
+| Web app | React + TypeScript + Vite | Vercel |
+| API | FastAPI + Motor/MongoDB | Render |
+| Mobile | Expo (Android / iOS) | EAS |
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+```bash
+# API (from backend/)
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+# Set SECRET_KEY (>=32 chars) and MONGODB_URL
+uvicorn app.main:app --reload --port 8000
 
-## Expanding the Oxlint configuration
+# Web (repo root)
+npm install
+npm run dev
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+# Mobile (from mobile/)
+npm install
+npx expo start
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Production requires `ENVIRONMENT=production`, `ALLOWED_ORIGINS` (exact Vercel origin), `OFFICE_PUBLIC_IPS` (comma-separated office WAN IPs), and a long random `SECRET_KEY`. Set `ENCRYPTION_KEY` (Fernet) before storing ad credentials, then run `python -m app.migrate_ad_credentials` from `backend/`.

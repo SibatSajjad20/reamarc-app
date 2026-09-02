@@ -1,65 +1,43 @@
-# AI Social Media Copywriting & Publishing Agent - Backend
+# Reamarc API
 
-FastAPI backend for AI Social Media Copywriting & Publishing Agent V1.
+FastAPI backend for Reamarc (auth, attendance, daily logs, workspaces, marketing).
 
-## Directory Structure
-
-```
-backend/
-├── app/
-│   ├── main.py                   # FastAPI Application Entry Point
-│   ├── config.py                 # Configuration & Environment Variables
-│   ├── database.py               # Motor MongoDB Connection & Utilities
-│   ├── core/
-│   │   ├── security.py           # JWT Authentication & Password Hashing
-│   │   └── scheduler.py          # APScheduler In-Process Job Scheduler
-│   ├── models/                   # PyDantic & MongoDB Document Schemas
-│   │   ├── user.py
-│   │   ├── campaign.py
-│   │   ├── post.py
-│   │   └── connection.py
-│   ├── schemas/                  # Request / Response Schemas
-│   │   ├── auth.py
-│   │   ├── campaign.py
-│   │   ├── post.py
-│   │   └── dashboard.py
-│   ├── services/                 # Core Business Logic
-│   │   ├── campaign_service.py
-│   │   ├── generation_service.py
-│   │   └── publishing_service.py
-│   ├── adapters/                 # Third-Party Integrations
-│   │   ├── llm/                  # Configurable LLM Providers & Fallback
-│   │   │   ├── base.py
-│   │   │   ├── gemini.py
-│   │   │   ├── groq.py
-│   │   │   └── fallback.py
-│   │   └── social/               # Native Social Media Publishers
-│   │       ├── base.py
-│   │       └── facebook.py
-│   └── routers/                  # API Endpoint Controllers
-│       ├── auth.py
-│       ├── campaigns.py
-│       ├── posts.py
-│       ├── dashboard.py
-│       ├── connections.py
-│       └── jobs.py
-├── requirements.txt
-└── .env.example
-```
-
-## Setup & Running
+## Run
 
 ```bash
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+venv\Scripts\activate          # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
-
-# Copy environment template
-cp .env.example .env
-
-# Run dev server
+copy .env.example .env         # then fill SECRET_KEY and MONGODB_URL
 uvicorn app.main:app --reload --port 8000
+```
+
+Docs are at `/docs` in development only. They are disabled when `ENVIRONMENT=production`.
+
+## Production env (minimum)
+
+- `ENVIRONMENT=production`
+- `SECRET_KEY` — at least 32 random characters
+- `MONGODB_URL` / `MONGODB_DB_NAME`
+- `ALLOWED_ORIGINS` and `APP_FRONTEND_URL` — exact Vercel HTTPS origins
+- `OFFICE_PUBLIC_IPS` — comma-separated office WAN IPs (**required** in production; empty list refuses to start)
+- `ENCRYPTION_KEY` — Fernet key for ad tokens (`python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`)
+
+After deploying `ENCRYPTION_KEY`, encrypt any existing plaintext ad credentials:
+
+```bash
+python -m app.migrate_ad_credentials
+```
+
+## Layout
+
+```
+backend/app/
+  main.py              # FastAPI app, CORS, security headers, schedulers
+  config.py            # Settings from environment
+  database.py          # Motor MongoDB
+  core/                # JWT, bcrypt, encryption, uploads, rate limiter
+  routers/             # auth, attendance, daily_log, admin, workspaces, marketing, …
+  services/            # punch security, schedulers, email, ads sync
+  constants/           # HQ geofence pin (WAN IPs come from env)
 ```

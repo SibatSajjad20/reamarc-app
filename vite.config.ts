@@ -9,7 +9,7 @@ const securityHeaders = {
   'X-Content-Type-Options': 'nosniff',
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
-  'Permissions-Policy': 'geolocation=(), camera=(), microphone=(), payment=()',
+  'Permissions-Policy': 'geolocation=(self), camera=(), microphone=(), payment=()',
 }
 
 // https://vite.dev/config/

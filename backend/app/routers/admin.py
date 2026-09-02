@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional
+import logging
 import uuid
 import secrets
 import string
@@ -32,9 +33,12 @@ from app.core.security import (
     get_password_hash,
 )
 from app.database import get_database
+from app.core.encryption import encrypt_credential_fields
 from app.services.email_service import EmailService
 from app.services.log_compliance import pkt_today, PKT, batch_expected_targets, person_day_is_leave, person_day_is_due
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin",
@@ -718,20 +722,23 @@ async def create_ad_account(acc_in: AdAccountCreate):
 
     await db.ad_accounts.insert_one(acc_doc.copy())
 
-    # Upsert credentials if provided
+    # Upsert credentials if provided (encrypt before write; never store plaintext)
     if acc_in.access_token or acc_in.refresh_token or acc_in.developer_token or acc_in.client_id:
-        cred_doc = {
-            "account_id": acc_in.account_id,
-            "workspace_id": acc_in.workspace_id or acc_id,
-            "workspace_name": acc_in.name,
-            "platform": "Google" if "google" in platform.lower() else "Meta",
-            "access_token": acc_in.access_token or "",
-            "refresh_token": acc_in.refresh_token or "",
-            "developer_token": acc_in.developer_token or "",
-            "client_id": acc_in.client_id or "",
-            "client_secret": acc_in.client_secret or "",
-            "updated_at": now_iso,
-        }
+        try:
+            cred_doc = encrypt_credential_fields({
+                "account_id": acc_in.account_id,
+                "workspace_id": acc_in.workspace_id or acc_id,
+                "workspace_name": acc_in.name,
+                "platform": "Google" if "google" in platform.lower() else "Meta",
+                "access_token": acc_in.access_token or "",
+                "refresh_token": acc_in.refresh_token or "",
+                "developer_token": acc_in.developer_token or "",
+                "client_id": acc_in.client_id or "",
+                "client_secret": acc_in.client_secret or "",
+                "updated_at": now_iso,
+            })
+        except ValueError as err:
+            raise HTTPException(status_code=500, detail=str(err)) from err
         await db.ad_account_credentials.update_one(
             {"account_id": acc_in.account_id},
             {"$set": cred_doc},
@@ -774,18 +781,21 @@ async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
     # Upsert credentials if provided
     if acc_in.access_token or acc_in.refresh_token or acc_in.developer_token or acc_in.client_id:
         target_account_id = acc_in.account_id or res.get("account_id")
-        cred_doc = {
-            "account_id": target_account_id,
-            "workspace_id": acc_in.workspace_id or res.get("workspace_id") or account_id,
-            "workspace_name": acc_in.name or res.get("name"),
-            "platform": "Google" if "google" in str(res.get("platform", "")).lower() else "Meta",
-            "access_token": acc_in.access_token or "",
-            "refresh_token": acc_in.refresh_token or "",
-            "developer_token": acc_in.developer_token or "",
-            "client_id": acc_in.client_id or "",
-            "client_secret": acc_in.client_secret or "",
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
+        try:
+            cred_doc = encrypt_credential_fields({
+                "account_id": target_account_id,
+                "workspace_id": acc_in.workspace_id or res.get("workspace_id") or account_id,
+                "workspace_name": acc_in.name or res.get("name"),
+                "platform": "Google" if "google" in str(res.get("platform", "")).lower() else "Meta",
+                "access_token": acc_in.access_token or "",
+                "refresh_token": acc_in.refresh_token or "",
+                "developer_token": acc_in.developer_token or "",
+                "client_id": acc_in.client_id or "",
+                "client_secret": acc_in.client_secret or "",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except ValueError as err:
+            raise HTTPException(status_code=500, detail=str(err)) from err
         await db.ad_account_credentials.update_one(
             {"account_id": target_account_id},
             {"$set": cred_doc},

@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     COOKIE_SECURE: bool = True
     IS_PRODUCTION: bool = False
+    # Dedicated Fernet key for ad credentials. Independent of JWT SECRET_KEY.
+    ENCRYPTION_KEY: str = ""
 
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
@@ -63,8 +65,8 @@ class Settings(BaseSettings):
     SMTP_TLS: bool = True
     APP_FRONTEND_URL: str = "http://localhost:5173"
 
-    # Office geofence / attendance security (Hardcoded Rawalpindi HQ defaults)
-    OFFICE_PUBLIC_IPS: str = "154.57.199.55"
+    # Office geofence / attendance security (WAN IPs from env only — no hardcoded allow-list)
+    OFFICE_PUBLIC_IPS: str = ""
     OFFICE_LATITUDE: float = 33.52062764084008
     OFFICE_LONGITUDE: float = 73.09183393441234
     OFFICE_MAP_URL: str = "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
@@ -110,6 +112,12 @@ class Settings(BaseSettings):
 
         if not self.MONGODB_URL or not self.MONGODB_URL.strip():
             raise ValueError("MONGODB_URL environment variable must be provided.")
+
+        if self.IS_PRODUCTION and not (self.OFFICE_PUBLIC_IPS or "").strip():
+            raise ValueError(
+                "OFFICE_PUBLIC_IPS must be set in production (comma-separated office WAN IPs). "
+                "Refusing to start with an empty office IP allow-list."
+            )
 
         if not self.OPENROUTER_API_KEY and not self.GROQ_API_KEY and not self.GEMINI_API_KEY:
             logger.warning(

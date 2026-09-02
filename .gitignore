@@ -59,6 +59,7 @@ docs/google_ads_integration_guide.md
 # General Documentation, Markdown & Excel Files
 *.md
 !README.md
+!backend/README.md
 !mobile/README.md
 docs/
 *.xlsx
@@ -75,3 +76,6 @@ scripts/
 backend/scripts/
 backend/uploads/
 uploads/
+
+# Audit dumps (do not commit)
+SECURITY_AUDIT.pdf

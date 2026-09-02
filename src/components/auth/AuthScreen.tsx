@@ -158,8 +158,8 @@ export const AuthScreen: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (newPassword.length < 6) {
-      setErrorMessage('Password must be at least 6 characters long.');
+    if (newPassword.length < 8) {
+      setErrorMessage('Password must be at least 8 characters long.');
       return;
     }
 
@@ -565,7 +565,7 @@ export const AuthScreen: React.FC = () => {
                 Create New Password
               </h3>
               <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Choose a secure password for your account (minimum 6 characters).
+                Choose a secure password for your account (minimum 8 characters).
               </p>
             </div>
 
