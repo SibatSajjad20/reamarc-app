@@ -36,28 +36,28 @@ export function LoadingScreen({
 
   if (fullScreen) {
     return (
-      <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-white text-slate-900 select-none p-6 ${className}`}>
+      <div className={`fixed inset-0 z-50 flex flex-col items-center justify-center bg-white dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 select-none p-6 ${className}`}>
         <div className="relative flex flex-col items-center text-center space-y-4">
           <div className="flex items-center justify-center mb-1">
             {LogoElement}
           </div>
 
           <div className="space-y-1.5">
-            <h2 className="text-base font-extrabold text-slate-900 tracking-tight">
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
               {title || 'Reamarc AI'}
             </h2>
-            <p className="text-xs font-medium text-slate-500">
+            <p className="text-xs font-medium text-slate-500 dark:text-zinc-400">
               {message}
             </p>
             {subtext && (
-              <p className="text-[11px] text-slate-400 font-mono">
+              <p className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
                 {subtext}
               </p>
             )}
           </div>
 
           {/* Minimalist animated loader bar */}
-          <div className="w-32 h-1 bg-zinc-200 rounded-full overflow-hidden">
+          <div className="w-32 h-1 bg-zinc-200 dark:bg-zinc-800 rounded-full overflow-hidden">
             <div className="h-full bg-gradient-to-r from-indigo-500 to-purple-600 rounded-full animate-pulse w-full" />
           </div>
         </div>
@@ -67,7 +67,7 @@ export function LoadingScreen({
 
   return (
     <div
-      className={`flex-1 min-h-[240px] py-16 w-full flex flex-col items-center justify-center text-center select-none gap-3 bg-white ${className}`}
+      className={`flex-1 min-h-[240px] py-16 w-full flex flex-col items-center justify-center text-center select-none gap-3 bg-transparent ${className}`}
     >
       <div className="flex items-center justify-center">
         {LogoElement}
