@@ -329,7 +329,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               placeholder="+92 300 1234567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
-              className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs font-mono"
+              className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs font-numeric"
             />
           </div>
 
@@ -350,7 +350,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                   setTemporaryPassword(e.target.value);
                   setCopied(false);
                 }}
-                className="w-full pl-3 pr-36 py-2 font-mono text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                className="w-full pl-3 pr-36 py-2 font-numeric text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
               />
               <div className="absolute right-1.5 flex items-center gap-1">
                 <button
@@ -417,3 +417,4 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     document.body
   );
 };
+

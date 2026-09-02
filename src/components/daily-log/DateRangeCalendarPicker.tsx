@@ -207,7 +207,7 @@ export const DateRangeCalendarPicker: React.FC<DateRangeCalendarPickerProps> = (
         </div>
 
         <div className="pt-3 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
-          <div className="text-[10px] text-zinc-400 px-2 font-mono">
+          <div className="text-[10px] text-zinc-400 px-2 font-numeric">
             {startDate} {endDate ? `→ ${endDate}` : ''}
           </div>
         </div>
@@ -312,3 +312,4 @@ export const DateRangeCalendarPicker: React.FC<DateRangeCalendarPickerProps> = (
     </div>
   );
 };
+

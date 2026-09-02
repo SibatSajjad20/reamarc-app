@@ -99,3 +99,4 @@ export const LottieLogo: React.FC<LottieLogoProps> = ({ className = '', size = 3
     </div>
   );
 };
+

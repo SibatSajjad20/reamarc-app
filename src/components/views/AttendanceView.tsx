@@ -363,7 +363,7 @@ export const AttendanceView: React.FC = () => {
   }, [requests]);
 
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-slate-50 dark:bg-[#09090b]">
+    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-slate-50 dark:bg-[#09090b] attendance-view">
       {/* ── Top View Header ─────────────────────────────────────────── */}
       <div className="bg-white dark:bg-[#11131a] border-b border-zinc-200 dark:border-zinc-800 shrink-0">
         <div className="px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -541,7 +541,7 @@ export const AttendanceView: React.FC = () => {
                 </h4>
                 <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
                   HR requested your check-out time for{' '}
-                  <strong className="text-amber-700 dark:text-amber-300 font-mono">
+                  <strong className="text-amber-700 dark:text-amber-300 font-numeric">
                     {pendingInquiries.map((i) => i.date).join(', ')}
                   </strong>
                   . Submit your check-out time and reason to regularize the shift.
@@ -745,3 +745,4 @@ export const AttendanceView: React.FC = () => {
     </div>
   );
 };
+

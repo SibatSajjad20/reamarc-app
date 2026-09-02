@@ -409,7 +409,7 @@ export const SystemSettingsSection: React.FC = () => {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{r.label}</span>
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                    <span className="text-[10px] font-numeric px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
                       {r.id}
                     </span>
                   </div>
@@ -494,7 +494,7 @@ export const SystemSettingsSection: React.FC = () => {
                     placeholder="e.g. project_manager"
                     value={roleId}
                     onChange={(e) => setRoleId(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
-                    className="w-full px-3 py-2 text-xs font-mono bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full px-3 py-2 text-xs font-numeric bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </div>
               )}
@@ -536,3 +536,4 @@ export const SystemSettingsSection: React.FC = () => {
     </div>
   );
 };
+

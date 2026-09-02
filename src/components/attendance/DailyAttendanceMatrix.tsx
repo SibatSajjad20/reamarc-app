@@ -416,7 +416,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors"
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-zinc-400 font-mono">{idx + 1}</td>
+                        <td className="py-3 px-4 text-zinc-400 font-numeric">{idx + 1}</td>
 
                         {/* Employee Info */}
                         <td className="py-3 px-4 whitespace-nowrap">
@@ -455,7 +455,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         </td>
 
                         {/* Punch In */}
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
                           {row.punch_in ? (
                             <span
                               className={
@@ -472,7 +472,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         </td>
 
                         {/* Punch Out */}
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
                           {row.punch_out ? (
                             <span>{row.punch_out}</span>
                           ) : (
@@ -481,12 +481,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         </td>
 
                         {/* Break */}
-                        <td className="py-3 px-4 text-zinc-500 font-mono">
+                        <td className="py-3 px-4 text-zinc-500 font-numeric">
                           {`${row.break_minutes ?? 0}m`}
                         </td>
 
                         {/* Effective Hours */}
-                        <td className="py-3 px-4 font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                        <td className="py-3 px-4 font-numeric font-bold text-zinc-800 dark:text-zinc-200">
                           <div>
                             {row.punch_in || row.check_in ? (
                               row.status === 'missed_punch' ? (
@@ -710,3 +710,4 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
     </div>
   );
 };
+

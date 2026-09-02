@@ -253,7 +253,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-          <span className={`truncate ${value ? 'text-zinc-900 dark:text-zinc-100 font-bold' : 'text-zinc-400 font-normal'}`}>
+          <span className={`truncate font-numeric ${value ? 'text-zinc-900 dark:text-zinc-100 font-bold' : 'text-zinc-400 font-normal'}`}>
             {value ? formatDisplayDate(value) : placeholder}
           </span>
         </div>
@@ -283,7 +283,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
           {/* Header Navigation */}
           <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-100 dark:border-zinc-800/80">
             <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-              {MONTH_NAMES[viewMonth]} {viewYear}
+              {MONTH_NAMES[viewMonth]} <span className="font-numeric">{viewYear}</span>
             </h4>
 
             <div className="flex items-center gap-1">
@@ -342,7 +342,7 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
                       ? "Today's date"
                       : 'Selectable previous date'
                   }
-                  className={`h-8 rounded-xl text-xs font-bold transition-all flex items-center justify-center relative ${
+                  className={`h-8 rounded-xl text-xs font-bold font-numeric transition-all flex items-center justify-center relative ${
                     day.isDisabled
                       ? 'opacity-25 cursor-not-allowed text-zinc-400 dark:text-zinc-600 select-none'
                       : isSelected
@@ -394,3 +394,4 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     </div>
   );
 };
+

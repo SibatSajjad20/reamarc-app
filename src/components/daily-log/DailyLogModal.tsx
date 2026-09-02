@@ -787,7 +787,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                       {file.file_name}
                     </span>
                     {file.file_size ? (
-                      <span className="text-[10px] text-zinc-400 font-mono">({formatFileSize(file.file_size)})</span>
+                      <span className="text-[10px] text-zinc-400 font-numeric">({formatFileSize(file.file_size)})</span>
                     ) : null}
                     <a
                       href={file.file_url}
@@ -832,7 +832,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 <span>Hours Utilized</span>
               </label>
               <span className="text-[11px] text-zinc-400">
-                Supports flexible input: <code className="font-mono text-indigo-500">1.5</code>, <code className="font-mono text-indigo-500">2 hrs</code>, <code className="font-mono text-indigo-500">0:30</code>, <code className="font-mono text-indigo-500">45m</code>
+                Supports flexible input: <code className="font-numeric text-indigo-500">1.5</code>, <code className="font-numeric text-indigo-500">2 hrs</code>, <code className="font-numeric text-indigo-500">0:30</code>, <code className="font-numeric text-indigo-500">45m</code>
               </span>
             </div>
 
@@ -842,7 +842,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 placeholder="e.g. 1.5, 2 hrs, 0:30, 45m"
                 value={hoursUtilized}
                 onChange={(e) => setHoursUtilized(e.target.value)}
-                className="w-40 px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
+                className="w-40 px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-numeric font-bold text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all"
               />
 
               <div className="flex items-center gap-1.5 flex-wrap">
@@ -966,3 +966,4 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     </div>
   );
 };
+

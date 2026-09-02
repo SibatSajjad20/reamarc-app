@@ -237,7 +237,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                           <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">
                             {c.workspace_name || 'Ad Account'}
                           </p>
-                          <span className="text-[11px] font-mono text-zinc-400">({c.account_id})</span>
+                          <span className="text-[11px] font-numeric text-zinc-400">({c.account_id})</span>
                         </div>
                         <p className="text-[10px] text-zinc-500 dark:text-zinc-400 flex items-center gap-1 mt-0.5">
                           <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Live Verified & Synced
@@ -365,7 +365,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                     setAccountId(e.target.value);
                     if (verificationError) setVerificationError('');
                   }}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                   required
                   autoComplete="off"
                 />
@@ -383,7 +383,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                     setAccessToken(e.target.value);
                     if (verificationError) setVerificationError('');
                   }}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2.5 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                   autoComplete="new-password"
                 />
               </div>
@@ -400,7 +400,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                         setDeveloperToken(e.target.value);
                         if (verificationError) setVerificationError('');
                       }}
-                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                       autoComplete="off"
                     />
                   </div>
@@ -414,7 +414,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                         setRefreshToken(e.target.value);
                         if (verificationError) setVerificationError('');
                       }}
-                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                       autoComplete="new-password"
                     />
                   </div>
@@ -430,7 +430,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                         setClientId(e.target.value);
                         if (verificationError) setVerificationError('');
                       }}
-                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                       autoComplete="off"
                     />
                   </div>
@@ -444,7 +444,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                         setClientSecret(e.target.value);
                         if (verificationError) setVerificationError('');
                       }}
-                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-mono shadow-2xs transition"
+                      className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none font-numeric shadow-2xs transition"
                       autoComplete="new-password"
                     />
                   </div>
@@ -496,3 +496,4 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
     document.body
   );
 };
+

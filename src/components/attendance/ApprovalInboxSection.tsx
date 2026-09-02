@@ -618,14 +618,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         {req.request_type === 'short_leave' ? (
                           <div>
                             <p className="font-semibold">{req.start_date}</p>
-                            <p className="text-[10px] text-zinc-400 font-mono">
+                            <p className="text-[10px] text-zinc-400 font-numeric">
                               {req.short_leave_start_time} ({req.short_leave_duration_hours}h duration)
                             </p>
                           </div>
                         ) : req.request_type === 'regularization' ? (
                           <div>
                             <p className="font-semibold">{req.start_date}</p>
-                            <p className="text-[10px] text-zinc-400 font-mono">
+                            <p className="text-[10px] text-zinc-400 font-numeric">
                               {formatCorrectionChange(req)}
                             </p>
                             <p className="text-[10px] text-zinc-400">
@@ -639,7 +639,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         ) : req.request_type === 'overtime' ? (
                           <div>
                             <p className="font-semibold">{req.start_date}</p>
-                            <p className="text-[10px] text-zinc-400 font-mono">
+                            <p className="text-[10px] text-zinc-400 font-numeric">
                               Shift end {req.shift_end || '—'} → Out {req.check_out || '—'}
                             </p>
                           </div>
@@ -872,7 +872,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   Request Details & Audit History
                 </h3>
                 <div className="flex items-center gap-1.5 mt-0.5">
-                  <span className="text-[11px] text-zinc-500 font-mono">ID: {selectedDetailItem.id}</span>
+                  <span className="text-[11px] text-zinc-500 font-numeric">ID: {selectedDetailItem.id}</span>
                   <button
                     type="button"
                     onClick={() => {
@@ -1575,3 +1575,4 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
     </div>
   );
 };
+

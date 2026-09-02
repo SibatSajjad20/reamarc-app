@@ -315,7 +315,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       </td>
 
                       {/* Contact Phone */}
-                      <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 font-mono text-[11px]">
+                      <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 font-numeric text-[11px]">
                         {m.phone || '—'}
                       </td>
 
@@ -365,3 +365,4 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
     </div>
   );
 };
+

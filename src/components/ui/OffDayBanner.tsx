@@ -38,3 +38,4 @@ export const OffDayBanner: React.FC<OffDayBannerProps> = ({
     </div>
   );
 };
+

@@ -133,7 +133,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
                 <Calendar className="w-3.5 h-3.5 text-indigo-500" />
                 Date:
               </span>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100 font-mono">
+              <span className="font-semibold text-zinc-900 dark:text-zinc-100 font-numeric">
                 {inquiry.date}
               </span>
             </div>
@@ -153,7 +153,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
                 <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
                 Punch In Recorded:
               </span>
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-mono">
+              <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-numeric">
                 {inquiry.punch_in || 'Recorded'}
               </span>
             </div>
@@ -249,3 +249,4 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
     </div>
   );
 };
+

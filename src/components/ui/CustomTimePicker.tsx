@@ -47,7 +47,7 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({
           disabled={disabled}
           value={safeValue}
           onChange={(e) => onChange(e.target.value.slice(0, 5))}
-          className="time-input min-w-0 flex-1 h-10 px-3 bg-zinc-100 dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-mono font-bold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
+          className="time-input min-w-0 flex-1 h-10 px-3 bg-zinc-100 dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-numeric font-bold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
         />
         {allowClear && !disabled && (
           <button
@@ -65,3 +65,4 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({
     </div>
   );
 };
+

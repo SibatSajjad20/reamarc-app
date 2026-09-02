@@ -432,7 +432,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="e.g. AT"
                   value={initials}
                   onChange={(e) => setInitials(e.target.value.toUpperCase())}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors uppercase font-mono text-center"
+                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors uppercase font-numeric text-center"
                 />
               </div>
             </div>
@@ -444,7 +444,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <Palette className="w-3.5 h-3.5 text-indigo-500" />
                   <span>Brand Avatar Color</span>
                 </div>
-                <span className="font-mono text-[11px] text-zinc-400 font-bold uppercase">
+                <span className="font-numeric text-[11px] text-zinc-400 font-bold uppercase">
                   {brandColor}
                 </span>
               </label>
@@ -492,7 +492,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                         const val = e.target.value;
                         setBrandColor(val);
                       }}
-                      className="w-24 px-2.5 py-1.5 text-xs font-mono font-bold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 uppercase focus:outline-none focus:border-indigo-500"
+                      className="w-24 px-2.5 py-1.5 text-xs font-numeric font-bold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 uppercase focus:outline-none focus:border-indigo-500"
                     />
                   </div>
                 </div>
@@ -694,7 +694,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       {proposalName || 'Client Proposal Document'}
                     </p>
                     {proposalSize && (
-                      <p className="text-[10px] text-zinc-400 font-mono mt-0.5">
+                      <p className="text-[10px] text-zinc-400 font-numeric mt-0.5">
                         {formatFileSize(proposalSize)}
                       </p>
                     )}
@@ -896,3 +896,4 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     document.body
   );
 };
+

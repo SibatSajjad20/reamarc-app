@@ -91,7 +91,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
             readOnly
             disabled
             value={OFFICE_LATITUDE}
-            className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-600 dark:text-zinc-400 cursor-not-allowed"
+            className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 font-numeric text-zinc-600 dark:text-zinc-400 cursor-not-allowed"
           />
         </div>
         <div>
@@ -104,7 +104,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
             readOnly
             disabled
             value={OFFICE_LONGITUDE}
-            className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 font-mono text-zinc-600 dark:text-zinc-400 cursor-not-allowed"
+            className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 font-numeric text-zinc-600 dark:text-zinc-400 cursor-not-allowed"
           />
         </div>
         <div>
@@ -150,3 +150,4 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
     </div>
   );
 };
+

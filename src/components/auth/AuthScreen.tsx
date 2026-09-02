@@ -488,7 +488,7 @@ export const AuthScreen: React.FC = () => {
                       if (errorMessage) setErrorMessage(null);
                     }
                   }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-center text-lg tracking-[0.4em] font-mono font-bold text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
+                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-center text-lg tracking-[0.4em] font-numeric font-bold text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
                   required
                   autoFocus
                 />
@@ -706,3 +706,4 @@ export const AuthScreen: React.FC = () => {
     </div>
   );
 };
+

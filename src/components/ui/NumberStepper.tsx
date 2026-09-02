@@ -54,7 +54,7 @@ export const NumberStepper: React.FC<NumberStepperProps> = ({
           <Minus className="w-3.5 h-3.5" />
         </button>
 
-        <div className="flex-1 text-center font-mono font-bold text-xs text-zinc-900 dark:text-zinc-100 px-2 select-none">
+        <div className="flex-1 text-center font-numeric font-bold text-xs text-zinc-900 dark:text-zinc-100 px-2 select-none">
           {value} {unit && <span className="font-sans text-[11px] font-normal text-zinc-400">{unit}</span>}
         </div>
 
@@ -70,3 +70,4 @@ export const NumberStepper: React.FC<NumberStepperProps> = ({
     </div>
   );
 };
+

@@ -498,3 +498,4 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
     </div>
   );
 };
+

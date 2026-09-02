@@ -50,7 +50,7 @@ export function LoadingScreen({
               {message}
             </p>
             {subtext && (
-              <p className="text-[11px] text-slate-400 dark:text-zinc-500 font-mono">
+              <p className="text-[11px] text-slate-400 dark:text-zinc-500 font-numeric">
                 {subtext}
               </p>
             )}
@@ -86,3 +86,4 @@ export function LoadingScreen({
 }
 
 export default LoadingScreen;
+

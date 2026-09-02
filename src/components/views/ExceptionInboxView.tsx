@@ -444,7 +444,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
               >
                 <span>{tab.label}</span>
                 <span
-                  className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
+                  className={`text-[10px] font-numeric px-1.5 py-0.2 rounded-full ${
                     activeFilter === tab.id
                       ? 'bg-blue-700/60 text-white'
                       : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
@@ -531,7 +531,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         </div>
                       </td>
 
-                      <td className="px-4 py-3.5 font-mono font-medium text-zinc-600 dark:text-zinc-300 whitespace-nowrap">
+                      <td className="px-4 py-3.5 font-numeric font-medium text-zinc-600 dark:text-zinc-300 whitespace-nowrap">
                         {item.date}
                       </td>
 
@@ -867,7 +867,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                             <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs truncate">
                               {entry.client_project || entry.department || 'General'}
                             </span>
-                            <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 shrink-0">
+                            <span className="font-numeric text-[11px] font-bold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 shrink-0">
                               {formatHours(Number(entry.hours_utilized) || 0)}
                             </span>
                           </div>
@@ -948,3 +948,4 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
     </div>
   );
 };
+

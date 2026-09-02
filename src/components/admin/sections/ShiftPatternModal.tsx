@@ -183,7 +183,7 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
                     key={row.date}
                     className="flex items-center justify-between rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-800 px-3 py-2 text-[11px]"
                   >
-                    <span className="font-semibold text-zinc-700 dark:text-zinc-200">
+                    <span className="font-semibold font-numeric text-zinc-700 dark:text-zinc-200">
                       {row.date} · {shift?.name || 'Default shift'} · {wfhLabel}
                     </span>
                     <button
@@ -227,3 +227,4 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
     </div>
   );
 };
+

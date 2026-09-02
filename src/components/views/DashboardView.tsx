@@ -197,7 +197,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   }, [netVarianceFormatted]);
 
   return (
-    <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6 max-w-7xl mx-auto w-full">
+    <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6 max-w-7xl mx-auto w-full dashboard-view">
       {/* 1. Top User Profile Banner */}
       <div className="relative overflow-hidden rounded-3xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-6 sm:p-8 shadow-sm">
         {/* Subtle decorative glow */}
@@ -403,7 +403,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   </div>
                 </div>
 
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-700 dark:text-indigo-300 text-xs font-bold font-numeric">
                   <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
                   <span>{isLoadingTimesheet ? '…' : `${punctualityScore}% Score`}</span>
                 </div>
@@ -415,7 +415,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
                     Present Days
                   </span>
-                  <span className="text-base font-extrabold font-mono text-zinc-900 dark:text-zinc-100">
+                  <span className="text-base font-extrabold font-numeric text-zinc-900 dark:text-zinc-100">
                     {daysPresent} / {totalWorkingDays}
                   </span>
                 </div>
@@ -425,7 +425,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                     Late Strikes
                   </span>
                   <span
-                    className={`text-base font-extrabold font-mono ${
+                    className={`text-base font-extrabold font-numeric ${
                       lateStrikes > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
                     }`}
                   >
@@ -437,7 +437,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
                     Leaves Taken
                   </span>
-                  <span className="text-base font-extrabold font-mono text-zinc-700 dark:text-zinc-300">
+                  <span className="text-base font-extrabold font-numeric text-zinc-700 dark:text-zinc-300">
                     {leavesTaken}d
                   </span>
                 </div>
@@ -447,7 +447,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                     Net Variance
                   </span>
                   <span
-                    className={`text-base font-extrabold font-mono ${
+                    className={`text-base font-extrabold font-numeric ${
                       netVarianceFormatted.startsWith('+')
                         ? 'text-emerald-600 dark:text-emerald-400'
                         : netVarianceFormatted.startsWith('-')
@@ -494,3 +494,4 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     </div>
   );
 };
+

@@ -611,7 +611,7 @@ export const AttendancePoliciesSection: React.FC = () => {
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 uppercase">
+                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-numeric font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 uppercase">
                       {shift.code || 'SHIFT'}
                     </span>
                     {shift.is_cross_midnight && (
@@ -628,25 +628,25 @@ export const AttendancePoliciesSection: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
                   <div>
                     <span className="text-zinc-400">Shift Timings:</span>
-                    <p className="font-mono font-bold text-zinc-800 dark:text-zinc-200">
+                    <p className="font-numeric font-bold text-zinc-800 dark:text-zinc-200">
                       {shift.start_time} &mdash; {shift.end_time}
                     </p>
                   </div>
                   <div>
                     <span className="text-zinc-400">Grace Period:</span>
-                    <p className="font-bold text-emerald-600 dark:text-emerald-400">
+                    <p className="font-bold font-numeric text-emerald-600 dark:text-emerald-400">
                       {shift.grace_period_minutes}m buffer
                     </p>
                   </div>
                   <div>
                     <span className="text-zinc-400">Meal Break:</span>
-                    <p className="font-bold text-zinc-700 dark:text-zinc-300">
+                    <p className="font-bold font-numeric text-zinc-700 dark:text-zinc-300">
                       {shift.break_duration_minutes} mins
                     </p>
                   </div>
                   <div>
                     <span className="text-zinc-400">Expected Work:</span>
-                    <p className="font-bold text-indigo-600 dark:text-indigo-400">
+                    <p className="font-bold font-numeric text-indigo-600 dark:text-indigo-400">
                       {shift.expected_hours ?? shift.expected_work_hours ?? 8.0} hrs/day
                     </p>
                   </div>
@@ -752,7 +752,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                             <div className="font-bold text-zinc-900 dark:text-zinc-100">
                               {member.full_name || (member as any).name || 'User'}
                             </div>
-                            <div className="text-[11px] text-zinc-400 font-mono">{member.email}</div>
+                            <div className="text-[11px] text-zinc-400 font-sans">{member.email}</div>
                           </td>
                           <td className="py-3 px-4 whitespace-nowrap">
                             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold border ${getDeptBadgeClass(member.department)}`}>
@@ -776,7 +776,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                             />
                           </td>
                           <td className="py-3 px-4 whitespace-nowrap">
-                            <div className="font-mono font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">
+                            <div className="font-numeric font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">
                               {todayShift
                                 ? `${todayShift.start_time} — ${todayShift.end_time}`
                                 : '09:30 — 18:30'}
@@ -815,7 +815,7 @@ export const AttendancePoliciesSection: React.FC = () => {
               Official Holidays & Working Saturday Overrides
             </h3>
             <span className="text-xs font-semibold text-zinc-400">
-              Tracking starts from 19 Aug 2026
+              Tracking starts from <span className="font-numeric">19 Aug 2026</span>
             </span>
           </div>
 
@@ -837,7 +837,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                     <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
                       {evt.title}
                     </h4>
-                    <p className="text-xs font-mono text-zinc-500">{evt.date}</p>
+                    <p className="text-xs font-numeric text-zinc-500">{evt.date}</p>
                     {evt.description && (
                       <p className="text-xs text-zinc-400 pt-1">{evt.description}</p>
                     )}
@@ -1021,7 +1021,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                     placeholder="e.g. STD or HR"
                     value={editingShift.code}
                     onChange={(e) => setEditingShift({ ...editingShift, code: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-mono"
+                    className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-numeric"
                   />
                 </div>
               </div>
@@ -1112,7 +1112,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">
                     Expected Work
                   </label>
-                  <div className="h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center text-sm font-semibold text-zinc-800 dark:text-zinc-200">
+                  <div className="h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center text-sm font-semibold font-numeric text-zinc-800 dark:text-zinc-200">
                     {(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8).toFixed(2)} hrs
                   </div>
                   <p className="text-[10px] text-zinc-400 mt-1">

@@ -254,7 +254,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       case 'not_tracked':
       case 'upcoming':
         return (
-          <span className="text-zinc-400 font-mono text-[11px]">-</span>
+          <span className="text-zinc-400 font-numeric text-[11px]">-</span>
         );
       case 'absent':
         return (
@@ -360,7 +360,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Net Variance</span>
             <p
-              className={`text-sm font-bold font-mono mt-0.5 ${
+              className={`text-sm font-bold font-numeric mt-0.5 ${
                 summary.net_variance_formatted?.startsWith('+') && summary.net_variance_formatted !== '+00:00'
                   ? 'text-emerald-600 dark:text-emerald-400'
                   : summary.net_variance_formatted?.startsWith('-') && summary.net_variance_formatted !== '-00:00'
@@ -508,7 +508,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     {/* Punch In */}
                     <td className="py-3 px-4 whitespace-nowrap">
                       {punchIn ? (
-                        <span className={`font-mono font-bold ${isLate ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                        <span className={`font-numeric font-bold ${isLate ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-200'}`}>
                           {punchIn}
                         </span>
                       ) : (
@@ -519,7 +519,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     {/* Punch Out */}
                     <td className="py-3 px-4 whitespace-nowrap">
                       {punchOut ? (
-                        <span className="font-mono text-zinc-800 dark:text-zinc-200">{punchOut}</span>
+                        <span className="font-numeric text-zinc-800 dark:text-zinc-200">{punchOut}</span>
                       ) : isMissedPunch ? (
                         <span className="text-rose-600 dark:text-rose-400 font-medium">Missed</span>
                       ) : punchIn ? (
@@ -540,7 +540,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     </td>
 
                     {/* Overtime */}
-                    <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
+                    <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
                       {otDisplay !== '-' ? (
                         <span
                           className={
@@ -565,7 +565,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     </td>
 
                     {/* Undertime */}
-                    <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
+                    <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
                       {utDisplay !== '-' ? (
                         <span
                           className={record && record.undertime_minutes > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"}
@@ -651,3 +651,4 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
     </div>
   );
 };
+

@@ -532,8 +532,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               <span
                 className={
                   punchIn
-                    ? 'text-sm font-extrabold font-mono text-emerald-600 dark:text-emerald-400'
-                    : 'text-zinc-400 font-mono text-lg font-medium'
+                    ? 'text-sm font-extrabold font-numeric text-emerald-600 dark:text-emerald-400'
+                    : 'text-zinc-400 font-numeric text-lg font-medium'
                 }
               >
                 {punchIn || '— : —'}
@@ -546,8 +546,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               <span
                 className={
                   punchOut
-                    ? 'text-sm font-extrabold font-mono text-indigo-600 dark:text-indigo-400'
-                    : 'text-zinc-400 font-mono text-lg font-medium'
+                    ? 'text-sm font-extrabold font-numeric text-indigo-600 dark:text-indigo-400'
+                    : 'text-zinc-400 font-numeric text-lg font-medium'
                 }
               >
                 {punchOut || '— : —'}
@@ -801,3 +801,4 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     </div>
   );
 };
+

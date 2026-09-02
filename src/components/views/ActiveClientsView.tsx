@@ -384,3 +384,4 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     </div>
   );
 };
+

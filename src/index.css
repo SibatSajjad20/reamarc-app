@@ -223,3 +223,19 @@ body.dark .time-input {
   height: 1.75rem;
   margin-left: 4px;
 }
+
+/* ─── Numeric & Tabular Digits ─────────────────────── */
+/* Clean, legible digits with open zero (no center dot/slash) and fixed tabular spacing */
+.font-numeric {
+  font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* Scoped fallback for Attendance and Performance Marketing to guarantee clear digits */
+.attendance-view .font-mono,
+.performance-marketing-view .font-mono {
+  font-family: 'Inter', 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}

@@ -273,7 +273,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         title={onSelectEmployee ? 'Open this employee monthly timesheet' : undefined}
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-zinc-400 font-mono">{idx + 1}</td>
+                        <td className="py-3 px-4 text-zinc-400 font-numeric">{idx + 1}</td>
 
                         {/* Employee Name */}
                         <td className="py-3 px-4 whitespace-nowrap">
@@ -304,7 +304,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Days Present / Working */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-mono">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           <span className="font-bold text-emerald-600 dark:text-emerald-400">
                             {row.days_present}
                           </span>
@@ -312,7 +312,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Leaves Taken */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-mono">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {leavesTaken > 0 ? (
                             <span className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
                               {leavesTaken}d
@@ -323,7 +323,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Late Strikes */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-mono">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {lateStrikes > 0 ? (
                             <span className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-[11px]">
                               {lateStrikes}
@@ -334,12 +334,12 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Short Leaves */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-mono text-zinc-600 dark:text-zinc-400">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric text-zinc-600 dark:text-zinc-400">
                           {shortLeaves > 0 ? shortLeaves : mutedDash}
                         </td>
 
                         {/* Missed Punches */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-mono">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {missedPunches > 0 ? (
                             <span className="text-rose-600 font-bold">{missedPunches}</span>
                           ) : (
@@ -348,17 +348,17 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Overtime */}
-                        <td className="py-3 px-4 font-mono font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                           {hasOvertime ? row.overtime_formatted : mutedDash}
                         </td>
 
                         {/* Undertime */}
-                        <td className="py-3 px-4 font-mono font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                           {hasUndertime ? row.undertime_formatted : mutedDash}
                         </td>
 
                         {/* Net Variance */}
-                        <td className="py-3 px-4 font-mono font-bold whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
                           {!hasActivity ? (
                             <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
                           ) : (
@@ -393,3 +393,4 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
     </div>
   );
 };
+

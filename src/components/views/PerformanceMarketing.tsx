@@ -422,7 +422,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
   }, [calendarViewDate]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
+    <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden performance-marketing-view">
       {/* Top Toolbar Bar — matching DailyLogView styling & layout */}
       <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
         {/* Left: Ad Account Switcher & Live KPI Counters */}
@@ -690,7 +690,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               -
             </button>
-            <span className="text-xs font-mono font-bold px-1 min-w-[34px] text-center text-zinc-900 dark:text-zinc-100">
+            <span className="text-xs font-numeric font-bold px-1 min-w-[34px] text-center text-zinc-900 dark:text-zinc-100">
               {defaultRowHeight}px
             </span>
             <button
@@ -729,7 +729,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             >
               <ZoomOut className="w-3.5 h-3.5" />
             </button>
-            <span className="px-2.5 text-xs font-mono font-bold text-zinc-700 dark:text-zinc-300 min-w-[48px] text-center select-none">
+            <span className="px-2.5 text-xs font-numeric font-bold text-zinc-700 dark:text-zinc-300 min-w-[48px] text-center select-none">
               {zoomLevel}%
             </span>
             <button
@@ -998,7 +998,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
                     <th
                       style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                      className="p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
+                      className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
                     >
                       #
                     </th>
@@ -1051,7 +1051,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                         {/* Serial Number */}
                         <td
                           style={{ width: '44px', minWidth: '44px', maxWidth: '44px', height: `${rHeight}px` }}
-                          className="p-2 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative"
+                          className="p-2 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative"
                         >
                           <span>{rowNumber}</span>
                           {/* Row Height Resize Handle */}
@@ -1102,43 +1102,43 @@ export const PerformanceMarketing: React.FC<Props> = ({
                                   {row.campaign_name}
                                 </span>
                               ) : col.key === 'budget_set' ? (
-                                <span className="font-mono text-zinc-600 dark:text-zinc-300 tabular-nums">
+                                <span className="font-numeric text-zinc-600 dark:text-zinc-300">
                                   {formatCellValue(row.budget_set, 'currency')}
                                 </span>
                               ) : col.key === 'ad_spend' ? (
                                 spendVal > 0 ? (
-                                  <span className="font-mono font-extrabold text-indigo-600 dark:text-indigo-400 tabular-nums">
+                                  <span className="font-numeric font-extrabold text-indigo-600 dark:text-indigo-400">
                                     {formatCellValue(row.ad_spend, 'currency')}
                                   </span>
                                 ) : (
-                                  <span className="font-mono text-zinc-400 dark:text-zinc-600">0.00</span>
+                                  <span className="font-numeric text-zinc-400 dark:text-zinc-600">0.00</span>
                                 )
                               ) : col.key === 'cpl_cpa' ? (
-                                <span className="font-mono text-zinc-700 dark:text-zinc-300 tabular-nums">
+                                <span className="font-numeric text-zinc-700 dark:text-zinc-300">
                                   {formatCellValue(row.cpl_cpa, 'currency')}
                                 </span>
                               ) : col.key === 'leads_conversions' ? (
                                 leadsVal > 0 ? (
-                                  <span className="font-mono font-extrabold text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                  <span className="font-numeric font-extrabold text-emerald-600 dark:text-emerald-400">
                                     {formatCellValue(row.leads_conversions, 'number')}
                                   </span>
                                 ) : (
-                                  <span className="font-mono text-zinc-400 dark:text-zinc-600">0</span>
+                                  <span className="font-numeric text-zinc-400 dark:text-zinc-600">0</span>
                                 )
                               ) : col.key === 'avg_frequency' ? (
-                                <span className="font-mono text-zinc-600 dark:text-zinc-400 tabular-nums">
+                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
                                   {formatCellValue(row.avg_frequency, 'number')}
                                 </span>
                               ) : col.key === 'impressions' ? (
-                                <span className="font-mono text-zinc-600 dark:text-zinc-400 tabular-nums">
+                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
                                   {formatCellValue(row.impressions, 'number')}
                                 </span>
                               ) : col.key === 'clicks' ? (
-                                <span className="font-mono text-zinc-600 dark:text-zinc-400 tabular-nums">
+                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
                                   {formatCellValue(row.clicks, 'number')}
                                 </span>
                               ) : col.key === 'reach' ? (
-                                <span className="font-mono text-zinc-600 dark:text-zinc-400 tabular-nums">
+                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
                                   {formatCellValue(row.reach, 'number')}
                                 </span>
                               ) : col.key === 'remarks' ? (
@@ -1206,7 +1206,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                         className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs transition-all shadow-2xs hover:shadow-xs cursor-pointer flex items-center gap-1.5 select-none"
                       >
                         <span>+ Load 50 More</span>
-                        <span className="text-[10px] opacity-80 font-mono">({sortedRows.length - visibleLimit} left)</span>
+                        <span className="text-[10px] opacity-80 font-numeric">({sortedRows.length - visibleLimit} left)</span>
                       </button>
                       <button
                         type="button"
@@ -1248,3 +1248,4 @@ export const PerformanceMarketing: React.FC<Props> = ({
     </div>
   );
 };
+

@@ -211,12 +211,12 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                       <span className="font-bold text-zinc-900 dark:text-zinc-100">
                         {shift.name}
                       </span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 uppercase">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-numeric font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 uppercase">
                         {shift.code}
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-3 text-zinc-500 font-mono text-[11px]">
+                    <div className="flex items-center gap-3 text-zinc-500 font-numeric text-[11px]">
                       <span>{shift.start_time} – {shift.end_time}</span>
                       <span>•</span>
                       <span>{shift.break_duration_minutes}m break</span>
@@ -343,3 +343,4 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
     </div>
   );
 };
+

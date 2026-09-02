@@ -197,7 +197,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                       <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
                         {acc.name}
                       </h3>
-                      <p className="text-xs text-zinc-400 font-mono mt-0.5 truncate">
+                      <p className="text-xs text-zinc-400 font-numeric mt-0.5 truncate">
                         ID: {acc.account_id}
                       </p>
                     </div>
@@ -224,7 +224,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                     {acc.pixel_id && (
                       <div className="flex items-center justify-between">
                         <span className="text-zinc-400 text-[11px]">Pixel ID:</span>
-                        <span className="font-mono font-semibold text-zinc-700 dark:text-zinc-300 text-[11px]">
+                        <span className="font-numeric font-semibold text-zinc-700 dark:text-zinc-300 text-[11px]">
                           {acc.pixel_id}
                         </span>
                       </div>
@@ -262,3 +262,4 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
     </div>
   );
 };
+

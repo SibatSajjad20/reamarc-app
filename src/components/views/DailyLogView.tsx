@@ -1348,7 +1348,7 @@ export const DailyLogView: React.FC = () => {
                 <span className="font-bold">Pending Log Submission: </span>
                 <span>
                   You haven't recorded entries for{' '}
-                  <strong className="underline font-mono font-bold">
+                  <strong className="underline font-numeric font-bold">
                     {extraMissingDates.slice(0, 3).join(', ')}
                     {extraMissingDates.length > 3 ? ` (+${extraMissingDates.length - 3} more)` : ''}
                   </strong>
@@ -1428,7 +1428,7 @@ export const DailyLogView: React.FC = () => {
                 <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
                   <th
                     style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                    className="p-2.5 text-center font-mono text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
+                    className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
                   >
                     #
                   </th>
@@ -1598,7 +1598,7 @@ export const DailyLogView: React.FC = () => {
                         title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
                       >
                         {/* Row Index */}
-                        <td className="p-2 text-center font-mono text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
+                        <td className="p-2 text-center font-numeric text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
                           {idx + 1}
                         </td>
 
@@ -1874,7 +1874,7 @@ export const DailyLogView: React.FC = () => {
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                                 title={`${hours} hrs`}
                               >
-                                <span className="font-mono text-xs font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
+                                <span className="font-numeric text-xs font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
                                   {formatHours(hours)}
                                 </span>
                               </td>
@@ -2128,3 +2128,4 @@ export const DailyLogView: React.FC = () => {
     </div>
   );
 };
+
