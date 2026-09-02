@@ -85,7 +85,7 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str) -> int:
             "title": title,
             "body": body,
             "priority": "high",
-            "channelId": "default",
+            "channelId": "reamarc_alerts_v2",
             "_displayInForeground": True,
         }
         for token in tokens

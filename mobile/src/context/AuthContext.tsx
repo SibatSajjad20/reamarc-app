@@ -34,8 +34,8 @@ async function registerPushToken(deviceUuid: string) {
   };
   try {
     if (Platform.OS === 'android') {
-      await Notifications.setNotificationChannelAsync('default', {
-        name: 'Default Notifications',
+      await Notifications.setNotificationChannelAsync('reamarc_alerts_v2', {
+        name: 'Reamarc Alerts',
         importance: Notifications.AndroidImportance.MAX,
         vibrationPattern: [0, 250, 250, 250],
         lightColor: '#965cfd',
@@ -44,6 +44,10 @@ async function registerPushToken(deviceUuid: string) {
         enableVibrate: true,
         showBadge: true,
         lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+        audioAttributes: {
+          usage: Notifications.AndroidAudioUsage.NOTIFICATION_RINGTONE,
+          contentType: Notifications.AndroidAudioContentType.SONIFICATION,
+        },
       });
     }
     await Notifications.requestPermissionsAsync();
