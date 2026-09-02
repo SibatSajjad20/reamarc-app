@@ -1,11 +1,9 @@
 import React from 'react';
-
-const LOGO_WEBP = `${import.meta.env.BASE_URL || '/'}reamarc-logo-3d.webp`;
-const LOGO_GIF = `${import.meta.env.BASE_URL || '/'}reamarc-logo-3d.gif`;
+import ReamarcLogo3D from './ReamarcLogo3D';
 
 /**
  * LoadingScreen Component (Pure JavaScript)
- * Renders the animated 3D Reamarc logo prominently in the center
+ * Renders the interactive 3D Reamarc logo with real-time 60/120fps WebGL
  * Supports both full-screen overlay (e.g. auth/session verification)
  * and in-container section loading (e.g. tables, matrices, modules).
  *
@@ -30,18 +28,9 @@ export function LoadingScreen({
   const LogoElement = (
     <div
       style={{ width: logoSize, height: logoSize }}
-      className="relative flex items-center justify-center shrink-0 animate-in fade-in duration-300"
+      className="relative flex items-center justify-center shrink-0"
     >
-      <picture>
-        <source srcSet={LOGO_WEBP} type="image/webp" />
-        <img
-          src={LOGO_GIF}
-          alt="Reamarc 3D Logo"
-          width={logoSize}
-          height={logoSize}
-          className="w-full h-full object-contain select-none pointer-events-none"
-        />
-      </picture>
+      <ReamarcLogo3D size={logoSize} floatSpeed={2.2} floatIntensity={0.6} />
     </div>
   );
 
