@@ -3575,6 +3575,8 @@ async def _sync_attendance_record_for_request(
     if db is None:
         return
 
+    from app.services.workdays import load_off_day_index, parse_iso_date
+
     leave_type_val = str(req.get("leave_type") or req.get("request_type") or "").strip().lower()
     request_type_val = str(req.get("request_type") or "").strip().lower()
     target_user_id = req.get("user_id")

@@ -148,6 +148,10 @@ async def check_out(
         request,
         check_out_req.detected_public_ip,
     )
+    if not check_out_req.detected_public_ip:
+        check_out_req.detected_public_ip = extract_detected_public_ip(
+            request,
+        )
     return await attendance_service.process_check_out(
         user=current_user,
         check_out_req=check_out_req,

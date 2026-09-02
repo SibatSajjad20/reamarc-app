@@ -272,6 +272,9 @@ class PunchSecurityResult:
     distance_meters: Optional[float]
     client_ip: Optional[str]
 
+    def __iter__(self):
+        return iter((self.authorized, self.error))
+
 
 def validate_punch_security(
     client_ip: Optional[str],
