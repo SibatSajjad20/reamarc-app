@@ -7,7 +7,7 @@ Internal workspace for Reamarc: attendance, daily logs, HR, and performance mark
 | Surface | Stack | Host |
 |---|---|---|
 | Web app | React + TypeScript + Vite | Vercel |
-| API | FastAPI + Motor/MongoDB | Render |
+| API | FastAPI + Motor/MongoDB | Render (`pip install -r requirements.txt` at repo root) |
 | Mobile | Expo (Android / iOS) | EAS |
 
 ## Local development

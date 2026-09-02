@@ -1,0 +1,2 @@
+﻿# Render installs from the repo root. Canonical pins live in backend/requirements.txt.
+-r backend/requirements.txt
