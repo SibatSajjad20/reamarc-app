@@ -304,8 +304,51 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const submitCheckOut = async (reason?: string, category?: string) => {
     try {
       setIsSubmitting(true);
+
+      // Same office proof as check-in: Wi-Fi IP OR in-range GPS (server OR).
+      // Previously checkout sent no GPS, so people who checked in via GPS but
+      // were not on the office WAN could not check out on the website.
+      let coordsToSend: { lat: number; lng: number; accuracy: number } | null = null;
+      if (!isWfh && enforceGps) {
+        setVerificationStep('Capturing GPS location...');
+        try {
+          const fresh = await waitForGps();
+          const dist = haversineMeters(fresh.lat, fresh.lng, officeLat, officeLng);
+          setCoords(fresh);
+          setDistanceMeters(dist);
+          setGeoError(null);
+          const quality = classifyGpsFix(dist, fresh.accuracy, geofenceLimitMeters);
+          if (quality === 'out_of_range') {
+            addToast(
+              'Out of Office Range',
+              `You are ${formatDistance(dist)} from the office (limit ${geofenceLimitMeters}m). Check-out blocked.`,
+              'error'
+            );
+            return;
+          }
+          if (quality === 'in_range') {
+            coordsToSend = fresh;
+          }
+        } catch (gpsErr) {
+          setGeoError(geoErrorMessage(gpsErr));
+        }
+      }
+
+      if (!isWfh && !wifiOk && !coordsToSend) {
+        addToast(
+          'Office Wi-Fi or Location Required',
+          'Connect to office Wi-Fi, or allow location while you are at the office, then try again.',
+          'error'
+        );
+        return;
+      }
+
       setVerificationStep('Submitting Check-Out Punch...');
       await attendanceService.checkOut({
+        latitude: coordsToSend?.lat,
+        longitude: coordsToSend?.lng,
+        accuracy_meters: coordsToSend?.accuracy,
+        gps_captured_at: coordsToSend ? new Date().toISOString() : undefined,
         notes: 'Shift check-out',
         variance_reason: reason || undefined,
         variance_category: category || undefined,

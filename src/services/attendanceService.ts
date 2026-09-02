@@ -44,10 +44,14 @@ class AttendanceService {
   }
 
   /**
-   * Submit Check-Out punch with optional notes
+   * Submit Check-Out punch with optional GPS (same office proof as check-in) and notes
    */
   public async checkOut(payload: CheckOutPayload = {}): Promise<AttendanceRecord> {
-    return apiClient.post<AttendanceRecord>('/attendance/check-out', payload);
+    const publicIp = payload.detected_public_ip || (await detectPublicIp()) || undefined;
+    return apiClient.post<AttendanceRecord>('/attendance/check-out', {
+      ...payload,
+      detected_public_ip: publicIp,
+    });
   }
 
   /**

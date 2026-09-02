@@ -57,6 +57,10 @@ class CheckOutRequest(BaseModel):
     biometric_verified: Optional[bool] = Field(default=None)
     is_mocked: Optional[bool] = Field(default=None)
     notes: Optional[str] = Field(default=None, description="Optional check-out notes / remarks")
+    detected_public_ip: Optional[str] = Field(
+        default=None,
+        description="Browser-detected public IP, used only when the API request IP is loopback (local Vite proxy)",
+    )
     variance_reason: Optional[str] = Field(
         default=None,
         max_length=500,

@@ -355,9 +355,14 @@ export interface CheckInPayload {
 }
 
 export interface CheckOutPayload {
+  latitude?: number;
+  longitude?: number;
+  accuracy_meters?: number;
+  gps_captured_at?: string;
   notes?: string;
   variance_reason?: string;
   variance_category?: string;
+  detected_public_ip?: string;
 }
 
 export interface BreakActionPayload {

@@ -1546,7 +1546,7 @@ async def get_security_settings() -> SecuritySettingsSchema:
 
 
 async def update_security_settings(new_settings: SecuritySettingsSchema) -> SecuritySettingsSchema:
-    """Updates system attendance security settings while strictly maintaining hardcoded office pin & wifi IP."""
+    """Updates attendance security settings. HQ pin is fixed; env OFFICE_PUBLIC_IPS is always merged in."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
@@ -1985,7 +1985,10 @@ async def process_check_out(
     _ = closed_break_minutes
 
     settings = await get_security_settings()
-    ip_to_check = resolve_effective_client_ip(client_ip, None)
+    ip_to_check = resolve_effective_client_ip(
+        client_ip,
+        getattr(check_out_req, "detected_public_ip", None),
+    )
     sec_result: PunchSecurityResult = validate_punch_security(
         client_ip=ip_to_check,
         user_lat=check_out_req.latitude,

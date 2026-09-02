@@ -142,9 +142,12 @@ async def check_out(
 ):
     """
     Punch Out for the day.
-    Mobile app only. Calculates net working hours, overtime, and undertime.
+    Same office Wi-Fi / GPS proof as check-in (WFH bypasses). Calculates hours, OT, undertime.
     """
-    client_ip = extract_client_ip(request)
+    client_ip = extract_client_ip(
+        request,
+        check_out_req.detected_public_ip,
+    )
     return await attendance_service.process_check_out(
         user=current_user,
         check_out_req=check_out_req,
