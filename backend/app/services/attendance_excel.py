@@ -349,7 +349,9 @@ async def generate_multi_tab_attendance_workbook(
                 if rec_date not in shift_by_date:
                     shift_by_date[rec_date] = resolve_user_shift_fast(u_id, u_dept, rec_date)
                 rec_shift = shift_by_date[rec_date]
-            if not r.get("work_duration_formatted") or r.get("work_duration_formatted") == "00:00":
+            cin = r.get("check_in") or r.get("punch_in")
+            cout = r.get("check_out") or r.get("punch_out")
+            if cin and cout:
                 attendance_service.apply_daily_calc_fields(r, rec_shift)
             st = r.get("status", AttendanceStatus.PRESENT)
             is_missed = r.get("is_missed_punch", False) or (st in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
@@ -588,7 +590,7 @@ async def generate_multi_tab_attendance_workbook(
                 ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
                 ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
 
-                if (not rec.get("work_duration_formatted") or rec.get("work_duration_formatted") == "00:00") and cout:
+                if cout:
                     attendance_service.apply_daily_calc_fields(rec, rec_shift)
                     work_duration = rec.get("work_duration_formatted", "00:00")
                     ot_str = rec.get("overtime_formatted", "+00:00")
