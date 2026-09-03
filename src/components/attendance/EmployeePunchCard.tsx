@@ -21,8 +21,6 @@ import { useToast } from '../../context/ToastContext';
 import { geoErrorMessage, getBrowserLocation, isLikelyMobile } from '../../utils/geolocation';
 import {
   GEOFENCE_RADIUS_METERS,
-  OFFICE_LATITUDE,
-  OFFICE_LONGITUDE,
   classifyGpsFix,
   haversineMeters,
 } from '../../constants/officeLocation';
@@ -62,9 +60,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const [isCapturingGps, setIsCapturingGps] = useState<boolean>(false);
   const [distanceMeters, setDistanceMeters] = useState<number | null>(null);
 
-  // Office reference coordinates (Rawalpindi HQ)
-  const [officeLat, setOfficeLat] = useState(todayData?.office_latitude ?? OFFICE_LATITUDE);
-  const [officeLng, setOfficeLng] = useState(todayData?.office_longitude ?? OFFICE_LONGITUDE);
+  // Office reference coordinates (Rawalpindi HQ - available to management, server-verified for others)
+  const [officeLat, setOfficeLat] = useState<number | null>(todayData?.office_latitude ?? null);
+  const [officeLng, setOfficeLng] = useState<number | null>(todayData?.office_longitude ?? null);
   const [geofenceLimitMeters, setGeofenceLimitMeters] = useState(
     todayData?.geofence_radius_meters ?? GEOFENCE_RADIUS_METERS
   );
@@ -95,7 +93,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         }
       })
       .catch(() => {
-        // Keep defaults
+        // Server-side verification mode
       });
   }, [todayData?.office_latitude, todayData?.office_longitude, isLoading]);
 
@@ -109,16 +107,24 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       void request
         .then((fix) => {
           setCoords(fix);
-          const dist = haversineMeters(fix.lat, fix.lng, officeLat, officeLng);
+          const dist = (officeLat != null && officeLng != null) ? haversineMeters(fix.lat, fix.lng, officeLat, officeLng) : null;
           setDistanceMeters(dist);
           setIsCapturingGps(false);
           if (showToast) {
-            const quality = classifyGpsFix(dist, fix.accuracy, geofenceLimitMeters);
-            addToast(
-              quality === 'in_range' ? 'GPS in Range' : quality === 'out_of_range' ? 'GPS Out of Range' : 'Location too coarse',
-              `Coordinates: ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)} (${formatDistance(dist)} to HQ${formatAccuracy(fix.accuracy)})`,
-              quality === 'in_range' ? 'success' : 'info'
-            );
+            if (dist != null) {
+              const quality = classifyGpsFix(dist, fix.accuracy, geofenceLimitMeters);
+              addToast(
+                quality === 'in_range' ? 'GPS in Range' : quality === 'out_of_range' ? 'GPS Out of Range' : 'Location too coarse',
+                `Coordinates: ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)} (${formatDistance(dist)} to HQ${formatAccuracy(fix.accuracy)})`,
+                quality === 'in_range' ? 'success' : 'info'
+              );
+            } else {
+              addToast(
+                'GPS Location Acquired',
+                `Coordinates captured (${formatAccuracy(fix.accuracy)}). Office proximity will be verified on punch.`,
+                'success'
+              );
+            }
           }
         })
         .catch((error) => {
@@ -220,7 +226,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         try {
           const fresh = await waitForGps();
           nextCoords = fresh;
-          nextDistance = haversineMeters(fresh.lat, fresh.lng, officeLat, officeLng);
+          nextDistance = (officeLat != null && officeLng != null) ? haversineMeters(fresh.lat, fresh.lng, officeLat, officeLng) : null;
           setCoords(fresh);
           setDistanceMeters(nextDistance);
           setGeoError(null);
@@ -235,9 +241,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       const gpsQuality =
         nextCoords != null && nextDistance != null
           ? classifyGpsFix(nextDistance, nextCoords.accuracy, geofenceLimitMeters)
-          : 'coarse';
+          : (nextCoords != null ? 'in_range' : 'coarse');
 
-      if (!isWfh && enforceGps && gpsQuality === 'out_of_range') {
+      if (!isWfh && enforceGps && nextDistance != null && gpsQuality === 'out_of_range') {
         addToast(
           'Out of Office Range',
           `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
@@ -246,8 +252,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         return;
       }
 
-      const gpsOk = !enforceGps || gpsQuality === 'in_range';
-      const coordsToSend = gpsQuality === 'in_range' ? nextCoords : null;
+      const gpsOk = !enforceGps || (nextCoords != null && (nextDistance == null || gpsQuality === 'in_range'));
+      const coordsToSend = nextCoords != null && (nextDistance == null || gpsQuality === 'in_range') ? nextCoords : null;
 
       if (!isWfh && !wifiOk && !gpsOk) {
         addToast(
@@ -313,12 +319,12 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         setVerificationStep('Capturing GPS location...');
         try {
           const fresh = await waitForGps();
-          const dist = haversineMeters(fresh.lat, fresh.lng, officeLat, officeLng);
+          const dist = (officeLat != null && officeLng != null) ? haversineMeters(fresh.lat, fresh.lng, officeLat, officeLng) : null;
           setCoords(fresh);
           setDistanceMeters(dist);
           setGeoError(null);
-          const quality = classifyGpsFix(dist, fresh.accuracy, geofenceLimitMeters);
-          if (quality === 'out_of_range') {
+          const quality = dist != null ? classifyGpsFix(dist, fresh.accuracy, geofenceLimitMeters) : 'in_range';
+          if (dist != null && quality === 'out_of_range') {
             addToast(
               'Out of Office Range',
               `You are ${formatDistance(dist)} from the office (limit ${geofenceLimitMeters}m). Check-out blocked.`,
@@ -326,7 +332,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             );
             return;
           }
-          if (quality === 'in_range') {
+          if (dist == null || quality === 'in_range') {
             coordsToSend = fresh;
           }
         } catch (gpsErr) {
@@ -429,10 +435,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const gpsQuality =
     coords != null && distanceMeters != null
       ? classifyGpsFix(distanceMeters, coords.accuracy, geofenceLimitMeters)
-      : 'coarse';
-  const gpsInRange = isWfh || !enforceGps || gpsQuality === 'in_range';
-  const gpsClearlyOutOfRange = !isWfh && enforceGps && gpsQuality === 'out_of_range';
-  const gpsCoarse = !isWfh && enforceGps && coords != null && gpsQuality === 'coarse';
+      : (coords != null ? 'in_range' : 'coarse');
+  const gpsInRange = isWfh || !enforceGps || (coords != null && (distanceMeters == null || gpsQuality === 'in_range'));
+  const gpsClearlyOutOfRange = !isWfh && enforceGps && distanceMeters != null && gpsQuality === 'out_of_range';
+  const gpsCoarse = !isWfh && enforceGps && coords != null && distanceMeters != null && gpsQuality === 'coarse';
   const securityBlocksCheckIn = !isWfh && (gpsClearlyOutOfRange || (!wifiOk && !gpsInRange));
 
   return (
@@ -481,11 +487,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             {isWfh
               ? 'WFH exemption'
               : coords
-              ? gpsQuality === 'in_range'
-                ? `In Office (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
-                : gpsQuality === 'out_of_range'
-                  ? `Out of range (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
-                  : `Location coarse (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})${wifiOk ? ' · Wi-Fi OK' : ''}`
+              ? distanceMeters != null
+                ? gpsQuality === 'in_range'
+                  ? `In Office (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
+                  : gpsQuality === 'out_of_range'
+                    ? `Out of range (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
+                    : `Location coarse (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})${wifiOk ? ' · Wi-Fi OK' : ''}`
+                : `GPS Ready (${formatAccuracy(coords.accuracy)})`
               : isCapturingGps
               ? 'Acquiring GPS'
               : 'Tap Allow location'}

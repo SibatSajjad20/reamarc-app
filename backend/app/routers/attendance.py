@@ -33,6 +33,7 @@ from app.core.security import (
     require_hr_or_admin,
     require_management_role,
 )
+from app.core.limiter import limiter
 from app.services.attendance_security import (
     is_loopback_ip,
     is_public_ip,
@@ -109,6 +110,7 @@ def extract_detected_public_ip(request: Request, body_ip: Optional[str] = None) 
 
 
 @router.post("/check-in", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
 async def check_in(
     request: Request,
     check_in_req: CheckInRequest,
@@ -135,6 +137,7 @@ async def check_in(
 
 
 @router.post("/check-out", response_model=AttendanceRecordResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
 async def check_out(
     request: Request,
     check_out_req: CheckOutRequest,
@@ -297,7 +300,9 @@ async def get_monthly_punctuality_summary(
 
 @router.get("/export")
 @router.get("/export/excel")
+@limiter.limit("5/minute")
 async def export_attendance_excel(
+    request: Request,
     year: Optional[int] = Query(default=None, description="Year (e.g. 2026)"),
     month: Optional[int] = Query(default=None, description="Month (1 - 12)"),
     department: Optional[str] = Query(default=None, description="Filter by department"),
@@ -343,7 +348,11 @@ async def get_security_settings(
     """Employees receive geofence settings only; HR/Admin also receive office IP whitelist."""
     full = await attendance_service.get_security_settings()
     if not _user_is_management(current_user):
-        return PublicSecuritySettingsSchema(**full.model_dump())
+        safe_dict = full.model_dump()
+        safe_dict["office_latitude"] = None
+        safe_dict["office_longitude"] = None
+        safe_dict["geofence_radius_meters"] = None
+        return PublicSecuritySettingsSchema(**safe_dict)
     return SecuritySettingsResponse(
         **full.model_dump(),
         locked_office_ips=get_built_in_office_ips(),

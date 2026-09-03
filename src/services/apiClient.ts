@@ -133,7 +133,11 @@ class ApiClient {
         const res = await fetch(`${this.baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+          },
           body: '{}',
         });
         return res.ok;
@@ -149,6 +153,7 @@ class ApiClient {
   private buildHeaders(customHeaders?: HeadersInit, skipContentType = false): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
       ...(skipContentType ? {} : { 'Content-Type': 'application/json' }),
       ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),

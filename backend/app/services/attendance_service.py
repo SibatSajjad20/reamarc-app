@@ -2344,6 +2344,8 @@ async def get_today_status(
         today_record=record_res,
     )
 
+    u_role = str(user.get("role") or "").lower()
+    is_mgmt = u_role in ("admin", "hr", "operations")
     return TodayAttendanceResponse(
         record=record_res,
         shift=shift,
@@ -2352,9 +2354,9 @@ async def get_today_status(
         has_active_break=has_active_break,
         can_punch_in=can_check_in,
         can_punch_out=can_check_out,
-        office_latitude=sec_settings.office_latitude,
-        office_longitude=sec_settings.office_longitude,
-        geofence_radius_meters=sec_settings.geofence_radius_meters,
+        office_latitude=sec_settings.office_latitude if is_mgmt else None,
+        office_longitude=sec_settings.office_longitude if is_mgmt else None,
+        geofence_radius_meters=sec_settings.geofence_radius_meters if is_mgmt else None,
         client_ip=effective_ip,
         is_ip_verified=is_ip_verified,
         enforce_ip_whitelist=bool(sec_settings.enforce_ip_whitelist),

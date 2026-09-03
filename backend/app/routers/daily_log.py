@@ -1,10 +1,11 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request
 from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 import uuid
 import re
 import os
+from app.core.limiter import limiter
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
 from app.core.mongo_filters import exact_ci, contains_ci
@@ -561,8 +562,57 @@ ALLOWED_EXTENSIONS = {
 MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
 
 
+def validate_file_magic_bytes(content: bytes, ext: str) -> bool:
+    """
+    Validates file binary signature (magic bytes) against declared extension.
+    Rejects disguised executables, scripts, and polyglot payloads.
+    """
+    if not content:
+        return False
+
+    # Block common executable and script binary headers
+    DANGEROUS_PREFIXES = (
+        b"MZ",                # DOS / Windows PE Executable (.exe, .dll)
+        b"\x7fELF",           # Linux Executable (ELF)
+        b"\xfe\xed\xfa",      # Mach-O 32-bit
+        b"\xcf\xfa\xed\xfe",  # Mach-O 64-bit
+        b"<!DOCTYPE",         # HTML / XML polyglot
+        b"<!doctype",
+        b"<html",
+        b"<HTML",
+        b"<script",
+        b"<SCRIPT",
+        b"<?php",
+    )
+    for prefix in DANGEROUS_PREFIXES:
+        if content.startswith(prefix):
+            return False
+
+    ext_clean = ext.lower()
+    if ext_clean == ".pdf":
+        return content.startswith(b"%PDF-")
+    if ext_clean == ".png":
+        return content.startswith(b"\x89PNG\r\n\x1a\n")
+    if ext_clean in (".jpg", ".jpeg"):
+        return content.startswith(b"\xff\xd8\xff")
+    if ext_clean in (".zip", ".docx", ".xlsx"):
+        return content.startswith((b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"))
+    if ext_clean == ".doc":
+        return content.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+    if ext_clean in (".txt", ".csv"):
+        try:
+            sample = content[:4096].decode("utf-8")
+            return "\x00" not in sample
+        except UnicodeDecodeError:
+            return False
+
+    return True
+
+
 @router.post("/upload")
+@limiter.limit("15/minute")
 async def upload_deliverable(
+    request: Request,
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
@@ -580,6 +630,12 @@ async def upload_deliverable(
     content = await file.read()
     if len(content) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="File size exceeds maximum limit of 25MB.")
+
+    if not validate_file_magic_bytes(content, ext):
+        raise HTTPException(
+            status_code=400,
+            detail=f"File content signature (magic bytes) does not match declared extension '{ext}'.",
+        )
 
     clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
     safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"

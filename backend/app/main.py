@@ -1,8 +1,10 @@
-﻿import logging
+import logging
 import json
 import os
 from datetime import datetime, timezone
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import re
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
@@ -122,13 +124,50 @@ _cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With"],
     expose_headers=["X-Hidden-Count", "X-Total-Count"],
 )
 if not settings.IS_PRODUCTION:
-    _cors_kwargs["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1)(:\d+)?"
+    _cors_kwargs["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?"
 
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
+
+@app.middleware("http")
+async def csrf_protection_middleware(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        # Cookie-based sessions are vulnerable to cross-site request forgery.
+        # Token-based auth (Authorization: Bearer) and mobile clients (X-Client: mobile) are immune.
+        has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
+        has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
+        is_mobile = (request.headers.get("x-client") or "").strip().lower() == "mobile"
+
+        if has_auth_cookie and not has_bearer and not is_mobile:
+            origin = (request.headers.get("origin") or "").strip()
+            custom_header = (
+                (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest"
+                or bool(request.headers.get("x-workspace-id"))
+            )
+
+            # 1. Validate Origin when present
+            if origin:
+                allowed = set(settings.CORS_ORIGINS)
+                is_valid_origin = origin in allowed
+                if not is_valid_origin and not settings.IS_PRODUCTION:
+                    is_valid_origin = bool(re.match(r"^https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?$", origin))
+                if not is_valid_origin:
+                    return JSONResponse(
+                        status_code=403,
+                        content={"detail": "CSRF verification failed: Origin not authorized."},
+                    )
+
+            # 2. Block cross-site HTML forms in production (must supply custom header that forms cannot send)
+            if not custom_header and settings.IS_PRODUCTION:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF verification failed: Missing required request header."},
+                )
+
+    return await call_next(request)
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):

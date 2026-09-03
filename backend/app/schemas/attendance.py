@@ -190,9 +190,9 @@ class TodayAttendanceResponse(BaseModel):
     has_active_break: bool = False
     can_punch_in: bool = True
     can_punch_out: bool = False
-    office_latitude: float = OFFICE_LATITUDE
-    office_longitude: float = OFFICE_LONGITUDE
-    geofence_radius_meters: float = GEOFENCE_RADIUS_METERS
+    office_latitude: Optional[float] = None
+    office_longitude: Optional[float] = None
+    geofence_radius_meters: Optional[float] = None
     client_ip: Optional[str] = None
     is_ip_verified: bool = False
     enforce_ip_whitelist: bool = True
@@ -314,19 +314,18 @@ class MonthlyTimesheetResponse(BaseModel):
 
 
 class PublicSecuritySettingsSchema(BaseModel):
-    """Geofence settings safe to expose to all internal employees (no IP whitelist)."""
-    office_latitude: float = Field(
-        default=OFFICE_LATITUDE,
-        description="Office geographic latitude",
+    """Geofence status safe to expose to internal employees (exact coordinates masked for non-management)."""
+    office_latitude: Optional[float] = Field(
+        default=None,
+        description="Office geographic latitude (restricted to management)",
     )
-    office_longitude: float = Field(
-        default=OFFICE_LONGITUDE,
-        description="Office geographic longitude",
+    office_longitude: Optional[float] = Field(
+        default=None,
+        description="Office geographic longitude (restricted to management)",
     )
-    geofence_radius_meters: float = Field(
-        default=GEOFENCE_RADIUS_METERS,
-        ge=10.0,
-        description="Maximum permitted distance in meters from office coordinate",
+    geofence_radius_meters: Optional[float] = Field(
+        default=None,
+        description="Maximum permitted distance in meters from office coordinate (restricted to management)",
     )
     enforce_ip_whitelist: bool = Field(
         default=True,
@@ -343,6 +342,19 @@ class PublicSecuritySettingsSchema(BaseModel):
 
 
 class SecuritySettingsSchema(PublicSecuritySettingsSchema):
+    office_latitude: float = Field(
+        default=OFFICE_LATITUDE,
+        description="Office geographic latitude",
+    )
+    office_longitude: float = Field(
+        default=OFFICE_LONGITUDE,
+        description="Office geographic longitude",
+    )
+    geofence_radius_meters: float = Field(
+        default=GEOFENCE_RADIUS_METERS,
+        ge=10.0,
+        description="Maximum permitted distance in meters from office coordinate",
+    )
     office_public_ips: List[str] = Field(
         default_factory=list,
         description="List of whitelisted public IPs and CIDR ranges",
