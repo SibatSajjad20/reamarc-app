@@ -409,8 +409,8 @@ export const AttendancePoliciesSection: React.FC = () => {
       start_time: '09:30',
       end_time: '18:30',
       grace_period_minutes: 30,
-      overtime_buffer_minutes: 10,
-      undertime_buffer_minutes: 10,
+      overtime_buffer_minutes: 5,
+      undertime_buffer_minutes: 5,
       break_duration_minutes: 60,
       break_start_time: '13:00',
       break_end_time: '14:00',
@@ -1052,7 +1052,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   max={60}
                   step={5}
                   unit="mins"
-                  value={editingShift.overtime_buffer_minutes ?? 10}
+                  value={editingShift.overtime_buffer_minutes ?? 5}
                   onChange={(val) =>
                     setEditingShift({
                       ...editingShift,
@@ -1066,7 +1066,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   max={60}
                   step={5}
                   unit="mins"
-                  value={editingShift.undertime_buffer_minutes ?? 10}
+                  value={editingShift.undertime_buffer_minutes ?? 5}
                   onChange={(val) =>
                     setEditingShift({
                       ...editingShift,

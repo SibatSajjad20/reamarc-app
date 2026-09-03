@@ -340,9 +340,17 @@ function PunchScreen() {
 
   const onPress = async (kind: 'in' | 'out') => {
     setError('');
-    if (kind === 'out' && today?.checkout_gate && today.checkout_gate.type && today.checkout_gate.type !== 'none') {
-      setReasonOpen(true);
-      return;
+    let currentToday = today;
+    if (kind === 'out') {
+      try {
+        currentToday = await load();
+      } catch {
+        currentToday = today;
+      }
+      if (currentToday?.checkout_gate && currentToday.checkout_gate.type && currentToday.checkout_gate.type !== 'none') {
+        setReasonOpen(true);
+        return;
+      }
     }
     setBusy(true);
     try {

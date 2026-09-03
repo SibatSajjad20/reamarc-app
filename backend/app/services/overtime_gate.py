@@ -14,8 +14,8 @@ from app.services.attendance_calculator import (
     parse_time_to_minutes,
 )
 
-DEFAULT_OT_BUFFER = 10
-DEFAULT_UT_BUFFER = 10
+DEFAULT_OT_BUFFER = 5
+DEFAULT_UT_BUFFER = 5
 
 GateType = Literal["none", "overtime", "undertime"]
 OvertimeStatus = Literal["not_applicable", "pending", "approved", "rejected"]
@@ -128,9 +128,11 @@ def classify_checkout_gate(
     delta = minutes_after_shift_end(
         check_out, shift_start, shift_end, is_night_shift, check_in
     )
-    if delta > int(overtime_buffer_minutes or 0) and int(claimed_overtime_minutes or 0) > 0:
+    ot_buf = int(overtime_buffer_minutes if overtime_buffer_minutes is not None else DEFAULT_OT_BUFFER)
+    ut_buf = int(undertime_buffer_minutes if undertime_buffer_minutes is not None else DEFAULT_UT_BUFFER)
+    if delta > ot_buf and int(claimed_overtime_minutes or 0) > ot_buf:
         return "overtime"
-    if delta < -int(undertime_buffer_minutes or 0) and int(claimed_undertime_minutes or 0) > 0:
+    if delta < -ut_buf and int(claimed_undertime_minutes or 0) > ut_buf:
         return "undertime"
     return "none"
 
@@ -236,27 +238,20 @@ def settle_checkout_hours(
         resolved = "not_applicable"
         pending = 0
     else:
-        # Inside the end buffer: clip tiny OT/UT from leaving a few minutes off.
+        # Inside the end buffer (-undertime_buffer <= delta <= overtime_buffer)
         if minutes_past_end >= 0:
-            # Stayed until or after shift end: any stay past shift end first covers
-            # late-arrival deficit (make-up time). Small overtime within buffer is not credited.
-            base_mins = max(0, claimed.work_minutes - claimed_ot)
-            hours = {
-                "work_minutes": base_mins,
-                "work_hours": round(base_mins / 60.0, 4),
-                "work_duration_formatted": format_minutes_to_hhmm(base_mins, show_sign=False),
-                "overtime_minutes": 0,
-                "overtime_hours": 0.0,
-                "overtime_formatted": "+00:00",
-                "undertime_minutes": claimed.undertime_minutes,
-                "undertime_hours": claimed.undertime_hours,
-                "undertime_formatted": claimed.undertime_formatted,
-            }
+            # Stayed until or after shift end:
+            # 1. Any stay past shift end first covers late-arrival deficit (make-up time).
+            # 2. Net overtime up to the buffer (e.g. 1 to 5 minutes) is AUTO-CREDITED as valid overtime!
+            # It does not require a reason or HR approval.
+            hours = _from_calc(claimed)
+            resolved = "approved" if claimed_ot > 0 else "not_applicable"
+            pending = 0
         else:
             # Left slightly early within buffer: forgive minor undertime via shift_end_calc
             hours = _from_calc(shift_end_calc)
-        resolved = "not_applicable"
-        pending = 0
+            resolved = "not_applicable"
+            pending = 0
 
     return SettledHours(
         work_minutes=hours["work_minutes"],

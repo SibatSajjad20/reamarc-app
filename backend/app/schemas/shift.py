@@ -16,12 +16,12 @@ class ShiftBase(BaseModel):
     break_end_time: Optional[str] = Field(default=None, description="Unpaid break end HH:MM (e.g. 14:00)")
     grace_period_minutes: int = Field(default=30, ge=0, description="Buffer in minutes before arrival counts as late strike")
     overtime_buffer_minutes: int = Field(
-        default=10,
+        default=5,
         ge=0,
         description="Minutes after shift end before late checkout requires an overtime reason",
     )
     undertime_buffer_minutes: int = Field(
-        default=10,
+        default=5,
         ge=0,
         description="Minutes before shift end before early checkout requires an undertime reason",
     )
