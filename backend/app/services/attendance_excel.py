@@ -350,8 +350,7 @@ async def generate_multi_tab_attendance_workbook(
                     shift_by_date[rec_date] = resolve_user_shift_fast(u_id, u_dept, rec_date)
                 rec_shift = shift_by_date[rec_date]
             cin = r.get("check_in") or r.get("punch_in")
-            cout = r.get("check_out") or r.get("punch_out")
-            if cin and cout:
+            if cin:
                 attendance_service.apply_daily_calc_fields(r, rec_shift)
             st = r.get("status", AttendanceStatus.PRESENT)
             is_missed = r.get("is_missed_punch", False) or (st in (AttendanceStatus.MISSED_PUNCH.value, "missed_punch"))
@@ -584,19 +583,12 @@ async def generate_multi_tab_attendance_workbook(
             cout = rec.get("check_out") or rec.get("punch_out") if rec else None
 
             if rec and cin:
-                work_duration = rec.get("work_duration_formatted") or "00:00"
-                ot_str = rec.get("overtime_formatted") or "+00:00"
-                ut_str = rec.get("undertime_formatted") or "-00:00"
+                attendance_service.apply_daily_calc_fields(rec, rec_shift)
+                work_duration = rec.get("work_duration_formatted", "00:00")
+                ot_str = rec.get("overtime_formatted", "+00:00")
+                ut_str = rec.get("undertime_formatted", "-00:00")
                 ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
                 ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
-
-                if cout:
-                    attendance_service.apply_daily_calc_fields(rec, rec_shift)
-                    work_duration = rec.get("work_duration_formatted", "00:00")
-                    ot_str = rec.get("overtime_formatted", "+00:00")
-                    ut_str = rec.get("undertime_formatted", "-00:00")
-                    ot_mins = int(rec.get("overtime_minutes") or round(float(rec.get("overtime_hours", 0.0)) * 60))
-                    ut_mins = int(rec.get("undertime_minutes") or round(float(rec.get("undertime_hours", 0.0)) * 60))
 
                 punch_in = cin
                 punch_out = cout or "-"
