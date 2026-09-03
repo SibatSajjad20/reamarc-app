@@ -2533,6 +2533,8 @@ async def get_my_timesheet(
                                         "updated_at": datetime.now(timezone.utc).isoformat(),
                                     }}
                                 )
+                elif cin and cout:
+                    apply_daily_calc_fields(d, rec_shift)
 
             records.append(AttendanceRecordResponse.from_mongo(d))
 

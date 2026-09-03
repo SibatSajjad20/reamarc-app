@@ -237,7 +237,24 @@ def settle_checkout_hours(
         pending = 0
     else:
         # Inside the end buffer: clip tiny OT/UT from leaving a few minutes off.
-        hours = _from_calc(shift_end_calc)
+        if minutes_past_end >= 0:
+            # Stayed until or after shift end: any stay past shift end first covers
+            # late-arrival deficit (make-up time). Small overtime within buffer is not credited.
+            base_mins = max(0, claimed.work_minutes - claimed_ot)
+            hours = {
+                "work_minutes": base_mins,
+                "work_hours": round(base_mins / 60.0, 4),
+                "work_duration_formatted": format_minutes_to_hhmm(base_mins, show_sign=False),
+                "overtime_minutes": 0,
+                "overtime_hours": 0.0,
+                "overtime_formatted": "+00:00",
+                "undertime_minutes": claimed.undertime_minutes,
+                "undertime_hours": claimed.undertime_hours,
+                "undertime_formatted": claimed.undertime_formatted,
+            }
+        else:
+            # Left slightly early within buffer: forgive minor undertime via shift_end_calc
+            hours = _from_calc(shift_end_calc)
         resolved = "not_applicable"
         pending = 0
 
