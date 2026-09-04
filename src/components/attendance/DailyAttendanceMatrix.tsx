@@ -664,10 +664,8 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                       { value: 'late', label: 'Late Arrival' },
                       { value: 'wfh', label: 'Work From Home (WFH)' },
                       { value: 'short_leave', label: 'Short Leave' },
-                      { value: 'casual_leave', label: 'Casual Leave' },
                       { value: 'sick_leave', label: 'Sick Leave' },
                       { value: 'annual_leave', label: 'Annual Leave' },
-                      { value: 'unpaid_leave', label: 'Unpaid Leave' },
                       { value: 'absent', label: 'Absent' },
                     ]}
                   />

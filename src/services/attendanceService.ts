@@ -251,10 +251,11 @@ class AttendanceService {
   }
 
   /**
-   * Fetch full calendar month with events, holidays, and working saturdays
+   * Fetch calendar month (or full year if month omitted) with events, holidays, and working saturdays
    */
-  public async getCalendarMonth(year: number, month: number): Promise<{ events: CompanyCalendarEvent[]; holidays: string[]; working_saturdays: string[] }> {
-    return apiClient.get<{ events: CompanyCalendarEvent[]; holidays: string[]; working_saturdays: string[] }>(`/company-calendar?year=${year}&month=${month}`);
+  public async getCalendarMonth(year: number, month?: number): Promise<{ events: CompanyCalendarEvent[]; holidays: string[]; working_saturdays: string[] }> {
+    const q = month !== undefined ? `&month=${month}` : '';
+    return apiClient.get<{ events: CompanyCalendarEvent[]; holidays: string[]; working_saturdays: string[] }>(`/company-calendar?year=${year}${q}`);
   }
 
   /**
@@ -292,7 +293,7 @@ class AttendanceService {
 
   public async getLeaveBalances(year?: number): Promise<LeaveBalance[]> {
     const q = year ? `?year=${year}` : '';
-    return apiClient.get<LeaveBalance[]>(`/leaves/balances${q}`);
+    return apiClient.get<LeaveBalance[]>(`/leaves/balances${q}`, { timeout: 30000 });
   }
 
   public async updateLeaveOpening(

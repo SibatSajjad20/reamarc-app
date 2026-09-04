@@ -619,7 +619,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                           <div>
                             <p className="font-semibold">{req.start_date}</p>
                             <p className="text-[10px] text-zinc-400 font-numeric">
-                              {req.short_leave_start_time} ({req.short_leave_duration_hours}h duration)
+                              {req.short_leave_start_time}
+                              {req.short_leave_end_time ? ` → ${req.short_leave_end_time}` : ''} ({req.short_leave_duration_hours}h duration)
                             </p>
                           </div>
                         ) : req.request_type === 'regularization' ? (

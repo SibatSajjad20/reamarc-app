@@ -520,6 +520,7 @@ def compute_settled_checkout(
         check_out_time=end,
         **kwargs,
     )
+    is_sl = bool((extra or {}).get("is_short_leave", False) or kwargs.get("is_short_leave", False))
     gate = classify_checkout_gate(
         check_out=cout,
         claimed_overtime_minutes=claimed.overtime_minutes,
@@ -530,6 +531,7 @@ def compute_settled_checkout(
         overtime_buffer_minutes=ot_buf,
         undertime_buffer_minutes=ut_buf,
         check_in=cin,
+        is_short_leave=is_sl,
     )
     delta = minutes_after_shift_end(cout, start, end, night, cin)
     settled = settle_checkout_hours(
@@ -539,6 +541,9 @@ def compute_settled_checkout(
         minutes_past_end=delta,
         overtime_status=overtime_status,
         auto_approve=auto_approve,
+        undertime_buffer_minutes=ut_buf,
+        overtime_buffer_minutes=ot_buf,
+        is_short_leave=is_sl,
     )
     return claimed, settled, gate, ot_buf, ut_buf, start, end
 
@@ -851,11 +856,24 @@ def apply_daily_calc_fields(doc: Dict[str, Any], shift: Any) -> Dict[str, Any]:
     status_val = str(doc.get("status") or "")
     s_name = str(shift_field(shift, "name", "") or "").lower()
     is_shift_wfh = bool(shift_field(shift, "is_wfh") or "wfh" in s_name or str(shift_field(shift, "shift_type", "")).lower() == "wfh")
+    is_short = bool(doc.get("is_short_leave") or status_val == AttendanceStatus.SHORT_LEAVE.value)
+    sl_hours = float(doc.get("short_leave_hours") or 0.0)
+    if is_short and sl_hours <= 0.0 and cin and cout:
+        exp_h = float(shift_field(shift, "expected_hours", 8.0) or 8.0)
+        in_m = parse_time_to_minutes(cin)
+        out_m = parse_time_to_minutes(cout)
+        start_m = parse_time_to_minutes(shift_field(shift, "start_time", "09:30"))
+        effective_in = max(start_m, in_m)
+        actual_work_m = max(0, out_m - effective_in - scheduled_break)
+        sl_hours = max(0.0, round(exp_h - (actual_work_m / 60.0), 4))
+        doc["short_leave_hours"] = sl_hours
+
     extra = {
         "is_wfh": bool(doc.get("is_wfh") or is_shift_wfh),
-        "is_short_leave": bool(doc.get("is_short_leave") or status_val == AttendanceStatus.SHORT_LEAVE.value),
-        "short_leave_hours": float(doc.get("short_leave_hours") or 0.0),
+        "is_short_leave": is_short,
+        "short_leave_hours": sl_hours,
     }
+
     keep_status = {
         AttendanceStatus.WFH.value,
         AttendanceStatus.SHORT_LEAVE.value,
@@ -2758,7 +2776,12 @@ async def get_daily_matrix(
 
     # 4. Check company calendar for holiday or workday override
     calendar_event = await db.company_calendar.find_one({"date": target_date}, {"_id": 0})
-    is_holiday = calendar_event and (calendar_event.get("event_type") == "holiday" or calendar_event.get("event_type") == CalendarEventType.HOLIDAY)
+    is_holiday = bool(
+        calendar_event and (
+            calendar_event.get("is_off_day") is True
+            or str(calendar_event.get("event_type") or "").lower() in ("holiday", "calendar_event_type.holiday")
+        )
+    )
     is_workday_override = calendar_event and calendar_event.get("is_workday_override", False)
 
     is_sunday = is_sunday_date(parsed_date)
@@ -2891,12 +2914,49 @@ async def get_daily_matrix(
                 is_late_alert = False
                 late_minutes = 0
 
-                if raw_status in keep_status:
+                if is_holiday:
+                    status_enum = AttendanceStatus.HOLIDAY
+                    # Auto-heal database record if it was previously marked absent/wfh or has undertime penalty
+                    if db is not None and u_id and (raw_status != AttendanceStatus.HOLIDAY.value or float(rec.get("undertime_hours") or 0.0) > 0 or bool(rec.get("is_absent"))):
+                        h_title = calendar_event.get("title") if calendar_event else "Public Holiday"
+                        asyncio.create_task(db.attendance_records.update_one(
+                            {"user_id": u_id, "date": target_date},
+                            {"$set": {
+                                "status": AttendanceStatus.HOLIDAY.value,
+                                "shift_name": h_title,
+                                "notes": f"{h_title} (Public Holiday)",
+                                "is_absent": False,
+                                "is_wfh": False,
+                                "is_late": False,
+                                "late_minutes": 0,
+                                "work_hours": 0.0,
+                                "working_hours_minutes": 0,
+                                "work_duration_formatted": "00:00",
+                                "overtime_hours": 0.0,
+                                "overtime_minutes": 0,
+                                "overtime_formatted": "+00:00",
+                                "undertime_hours": 0.0,
+                                "undertime_minutes": 0,
+                                "undertime_formatted": "+00:00",
+                                "updated_at": datetime.now(timezone.utc).isoformat(),
+                            }}
+                        ))
+                elif is_sunday and not rec.get("punch_in") and not rec.get("check_in"):
+                    status_enum = AttendanceStatus.SUNDAY_OFF
+                elif is_first_sat and not rec.get("punch_in") and not rec.get("check_in"):
+                    status_enum = AttendanceStatus.FIRST_SATURDAY_OFF
+                elif raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
                 else:
                     status_enum = unpunched_day_status(raw_shift, target_date)
 
-            if status_enum == AttendanceStatus.ABSENT:
+            if status_enum == AttendanceStatus.HOLIDAY:
+                status_badge = "Holiday"
+            elif status_enum == AttendanceStatus.SUNDAY_OFF:
+                status_badge = "Sunday Off"
+            elif status_enum == AttendanceStatus.FIRST_SATURDAY_OFF:
+                status_badge = "1st Sat Off"
+            elif status_enum == AttendanceStatus.ABSENT:
                 status_badge = "Absent"
                 absent_count += 1
             elif status_enum == AttendanceStatus.AWAITING_CHECKIN:
@@ -2917,12 +2977,6 @@ async def get_daily_matrix(
             elif status_enum in (AttendanceStatus.SICK_LEAVE, AttendanceStatus.CASUAL_LEAVE, AttendanceStatus.ANNUAL_LEAVE, AttendanceStatus.UNPAID_LEAVE, AttendanceStatus.ON_LEAVE):
                 status_badge = "Leave"
                 leave_count += 1
-            elif status_enum == AttendanceStatus.SUNDAY_OFF:
-                status_badge = "Sunday Off"
-            elif status_enum == AttendanceStatus.FIRST_SATURDAY_OFF:
-                status_badge = "1st Sat Off"
-            elif status_enum == AttendanceStatus.HOLIDAY:
-                status_badge = "Holiday"
             else:
                 status_badge = "Present"
                 present_count += 1
@@ -4444,6 +4498,7 @@ async def delete_leave_request(request_id: str, current_user: dict) -> bool:
         current_user,
         existing.get("user_id"),
         existing.get("status"),
+        allow_scoped_hide=True,
     )
 
     req_status = str(existing.get("status") or "").lower()
@@ -4589,6 +4644,11 @@ async def admin_manual_attendance_entry(
             is_late = False
             late_strike = 0
             final_status = AttendanceStatus.SHORT_LEAVE.value
+            exp_h = float(shift.expected_hours or 8.0)
+            sl_hours_val = max(0.0, round(exp_h - float(work_hours or 0.0), 4))
+            undertime_hours = 0.0
+            undertime_minutes = 0
+            undertime_formatted = "-00:00"
         else:
             # Respect mathematical shift grace buffer against check_in time
             is_late = calc_res.is_late or (status_override == AttendanceStatus.LATE)
@@ -4612,6 +4672,12 @@ async def admin_manual_attendance_entry(
             "claimed_overtime_minutes": 0,
             "overtime_status": "not_applicable",
         }
+
+    sl_hours_final = (
+        sl_hours_val
+        if final_status == AttendanceStatus.SHORT_LEAVE.value
+        else float(existing.get("short_leave_hours", 0.0) if existing else 0.0)
+    )
 
     record_doc = {
         "id": f"att_{user_id}_{date_str}",
@@ -4638,7 +4704,10 @@ async def admin_manual_attendance_entry(
         "late_strike": late_strike,
         "status": final_status,
         "is_wfh": (final_status == AttendanceStatus.WFH.value),
+        "is_short_leave": (final_status == AttendanceStatus.SHORT_LEAVE.value or bool(existing.get("is_short_leave") if existing else False)),
+        "short_leave_hours": sl_hours_final,
         "is_missed_punch": False,
+
         "notes": f"Manual override by {admin_name}: {notes or ''}".strip(),
         "updated_at": now_iso,
         **ot_fields,
@@ -4783,6 +4852,17 @@ async def create_calendar_event(event_in: CalendarEventCreate) -> CalendarEventR
                     "is_late": False,
                     "late_minutes": 0,
                     "is_absent": False,
+                    "is_wfh": False,
+                    "is_missed_punch": False,
+                    "work_hours": 0.0,
+                    "working_hours_minutes": 0,
+                    "work_duration_formatted": "00:00",
+                    "overtime_hours": 0.0,
+                    "overtime_minutes": 0,
+                    "overtime_formatted": "+00:00",
+                    "undertime_hours": 0.0,
+                    "undertime_minutes": 0,
+                    "undertime_formatted": "+00:00",
                     "updated_at": now_iso,
                 }}
             )

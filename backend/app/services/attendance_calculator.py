@@ -350,8 +350,8 @@ def calculate_daily_attendance(
     work_hours = round(net_work_minutes / 60.0, 4)
     work_duration_formatted = format_minutes_to_hhmm(net_work_minutes, show_sign=False)
 
-    short_leave_mins = int(round(float(short_leave_hours or 0.0) * 60)) if is_short_leave else 0
-    effective_expected_work_minutes = max(0, expected_work_minutes - short_leave_mins)
+    # Even when on short leave, unworked hours are counted as undertime toward the 8h threshold
+    effective_expected_work_minutes = expected_work_minutes
 
     # Clocked OT / UT vs the assigned shift end and net effective hours.
     # Time worked past shift end first covers any late-arrival deficit.

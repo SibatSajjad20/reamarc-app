@@ -52,11 +52,23 @@ def can_delete_leave_request(
     actor: Mapping[str, Any],
     applicant_id: Optional[str],
     request_status: Optional[str] = None,
+    allow_scoped_hide: bool = False,
 ) -> bool:
     actor_role = normalize_role(actor.get("role"))
-    if actor_role in ("admin", "hr", "operations"):
-        return True
-    return bool(actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id))
+    st = str(request_status or "").strip().lower()
+    is_in_flight = st in ("pending", "appealed", "needs_info", "")
+
+    if is_in_flight:
+        if actor_role == "admin":
+            return True
+        return bool(actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id))
+
+    if allow_scoped_hide:
+        if actor_role in ("admin", "hr", "operations"):
+            return True
+        return bool(actor_id(actor) and applicant_id and actor_id(actor) == str(applicant_id))
+
+    return False
 
 
 def assert_can_review_leave_request(
@@ -134,13 +146,21 @@ def assert_can_delete_leave_request(
     actor: Mapping[str, Any],
     applicant_id: Optional[str],
     request_status: Optional[str] = None,
+    allow_scoped_hide: bool = False,
 ) -> None:
-    if can_delete_leave_request(actor, applicant_id, request_status):
-        return
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail="You do not have permission to delete this request.",
-    )
+    st = str(request_status or "").strip().lower()
+    is_in_flight = st in ("pending", "appealed", "needs_info", "")
+
+    if not is_in_flight and not allow_scoped_hide:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only pending requests can be deleted.",
+        )
+    if not can_delete_leave_request(actor, applicant_id, request_status, allow_scoped_hide=allow_scoped_hide):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this request.",
+        )
 
 
 # Aliases for backward/forward compatibility

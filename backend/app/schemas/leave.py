@@ -131,6 +131,9 @@ class LeaveBalanceResponse(BaseModel):
     sick_pending: float = 0.0
     annual_remaining: float = 14.0
     sick_remaining: float = 8.0
+    undertime_days_deducted: float = 0.0
+    total_undertime_hours: float = 0.0
+    carried_undertime_hours: float = 0.0
     go_live_date: str = "2026-08-21"
 
 

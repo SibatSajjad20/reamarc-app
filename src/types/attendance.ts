@@ -227,6 +227,7 @@ export interface AttendanceRequest {
   start_date: string;
   end_date: string;
   short_leave_start_time?: string;
+  short_leave_end_time?: string;
   short_leave_duration_hours?: number;
   correction_target?: 'time_in' | 'time_out' | 'both';
   regularization_date?: string;
@@ -278,6 +279,9 @@ export interface LeaveBalance {
   sick_pending: number;
   annual_remaining: number;
   sick_remaining: number;
+  undertime_days_deducted?: number;
+  total_undertime_hours?: number;
+  carried_undertime_hours?: number;
   go_live_date: string;
 }
 
@@ -377,6 +381,7 @@ export interface CreateLeavePayload {
   start_date: string;
   end_date: string;
   short_leave_start_time?: string;
+  short_leave_end_time?: string;
   short_leave_duration_hours?: number;
   short_leave_hours?: number;
   correction_target?: 'time_in' | 'time_out' | 'both';

@@ -14,6 +14,8 @@ import type {
   LeaveCategory,
   CreateLeavePayload,
   AttendanceRecord,
+  ShiftTemplate,
+  LeaveBalance,
 } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
@@ -22,7 +24,7 @@ import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { getAttendanceMinDate, isFuturePktClockTime } from '../../constants/attendance';
 import { useOffDays } from '../../hooks/useOffDays';
-import type { LeaveBalance } from '../../types/attendance';
+import { parseTimeToMinutes, formatHours } from '../../utils/logTimeChecks';
 
 interface RequestManagementModalProps {
   isOpen: boolean;
@@ -60,17 +62,30 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     return lastWorkday(today, minDate) || today;
   };
 
+  // Current PKT time helper
+  const getCurrentTimePkt = () => {
+    const now = new Date();
+    return new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'Asia/Karachi',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(now);
+  };
+
   // Form State: Full Leave
-  const [leaveCategory, setLeaveCategory] = useState<LeaveCategory>('casual');
+  const [leaveCategory, setLeaveCategory] = useState<LeaveCategory>('annual');
   const [leaveStartDate, setLeaveStartDate] = useState(getTodayIso());
   const [leaveEndDate, setLeaveEndDate] = useState(getTodayIso());
   const [leaveReason, setLeaveReason] = useState('');
 
   // Form State: Short Leave
   const [shortLeaveDate, setShortLeaveDate] = useState(getTodayIso());
-  const [shortLeaveStartTime, setShortLeaveStartTime] = useState('14:00');
+  const [shortLeaveStartTime, setShortLeaveStartTime] = useState(getCurrentTimePkt());
   const [shortLeaveDuration, setShortLeaveDuration] = useState(2.0);
   const [shortLeaveReason, setShortLeaveReason] = useState('');
+  const [isLeavingEarly, setIsLeavingEarly] = useState(true);
+  const [userShift, setUserShift] = useState<ShiftTemplate | null>(null);
 
   // Form State: WFH
   const [wfhStartDate, setWfhStartDate] = useState(getTodayIso());
@@ -92,6 +107,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     const initDate = getInitialWorkday();
     if (initialRecord?.date) {
       setRegularizeDate(initialRecord.date);
+      setShortLeaveDate(initialRecord.date);
       const existingIn = initialRecord.punch_in || initialRecord.check_in;
       const existingOut = initialRecord.punch_out || initialRecord.check_out;
       if (existingIn) {
@@ -99,6 +115,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       }
       if (existingOut) {
         setRegularizeOut(existingOut.substring(0, 5));
+        setShortLeaveStartTime(existingOut.substring(0, 5));
       }
       // Already checked in with no checkout: only fix time in so the day stays open.
       if (existingIn && !existingOut) {
@@ -120,7 +137,32 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       .getMyLeaveBalance()
       .then(setLeaveBalance)
       .catch(() => setLeaveBalance(null));
+    attendanceService
+      .getTodayStatus()
+      .then((res) => {
+        if (res?.shift) {
+          setUserShift(res.shift);
+        }
+      })
+      .catch(() => {});
   }, [isOpen, defaultTab, initialRecord]);
+
+  // Derived shift and duration calculations for Short Leave
+  const shiftEndTime = userShift?.end_time?.substring(0, 5) || '18:30';
+  const departureMinutes = parseTimeToMinutes(shortLeaveStartTime);
+  const shiftEndMinutes = parseTimeToMinutes(shiftEndTime) ?? (18 * 60 + 30);
+  const earlyDepartureDiffMinutes =
+    departureMinutes !== null && shiftEndMinutes !== null
+      ? Math.max(0, shiftEndMinutes - departureMinutes)
+      : 0;
+  const autoCalculatedHours = Math.round((earlyDepartureDiffMinutes / 60) * 100) / 100;
+  const autoDurationFormatted = formatHours(autoCalculatedHours);
+
+  const midShiftStartMinutes = parseTimeToMinutes(shortLeaveStartTime) ?? (14 * 60);
+  const midShiftReturnMinutes = (midShiftStartMinutes + Math.round(Number(shortLeaveDuration) * 60)) % (24 * 60);
+  const midShiftReturnTime = `${String(Math.floor(midShiftReturnMinutes / 60)).padStart(2, '0')}:${String(
+    midShiftReturnMinutes % 60
+  ).padStart(2, '0')}`;
 
   if (!isOpen) return null;
 
@@ -156,20 +198,21 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           if (leaveBalance.sick_remaining < workdays) {
             return `Not enough sick leave remaining (${leaveBalance.sick_remaining} left, ${workdays} working day${workdays > 1 ? 's' : ''} requested).`;
           }
-        } else if (leaveCategory === 'annual' || leaveCategory === 'casual') {
-          if (leaveBalance.annual_remaining < workdays) {
-            return `Not enough annual leave remaining (${leaveBalance.annual_remaining} left, ${workdays} working day${workdays > 1 ? 's' : ''} requested).`;
-          }
         }
+        // Annual leaves allow exceeding quota; excess days result in negative quota settled at year-end.
       }
     } else if (activeTab === 'short_leave') {
       if (isOffDay(shortLeaveDate)) {
         return `Cannot request short leave on a non-working day (${getOffDay(shortLeaveDate).label}).`;
       }
-      if (leaveBalance && Number(shortLeaveDuration) >= 2) {
-        if (leaveBalance.annual_remaining < 0.5) {
-          return `Not enough annual leave remaining (${leaveBalance.annual_remaining} left). Short leave of 2–4 hours uses 0.5 day.`;
-        }
+      const dur = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
+      if (dur < 0.5) {
+        return isLeavingEarly
+          ? `Departure time must be at least 30 minutes before your shift ends (${shiftEndTime}).`
+          : 'Short leave duration must be at least 30 minutes (0.5 hours).';
+      }
+      if (dur > 4.0) {
+        return `Short leave cannot exceed 4.0 hours (${dur}h requested). Please apply for a Full Leave.`;
       }
     } else if (activeTab === 'wfh') {
       const workdays = countWorkingDays(wfhStartDate, wfhEndDate);
@@ -212,18 +255,38 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           return;
         }
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(shortLeaveStartTime)) {
-          addToast('Invalid Time', 'Start time must be HH:MM (24-hour), e.g. 14:00.', 'warning');
+          addToast('Invalid Time', 'Departure / Start time must be HH:MM (24-hour), e.g. 16:00.', 'warning');
           setIsSubmitting(false);
           return;
         }
+        const finalDuration = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
+        if (finalDuration < 0.5) {
+          addToast(
+            'Invalid Duration',
+            isLeavingEarly
+              ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
+              : 'Short leave duration must be at least 30 minutes (0.5h).',
+            'warning'
+          );
+          setIsSubmitting(false);
+          return;
+        }
+        if (finalDuration > 4.0) {
+          addToast('Duration Exceeded', 'Short leave cannot exceed 4.0 hours. Please apply for Full Leave.', 'warning');
+          setIsSubmitting(false);
+          return;
+        }
+        const finalEndTime = isLeavingEarly ? shiftEndTime : midShiftReturnTime;
+
         payload = {
           leave_type: 'short_leave',
           request_type: 'short_leave',
           start_date: shortLeaveDate,
           end_date: shortLeaveDate,
           short_leave_start_time: shortLeaveStartTime,
-          short_leave_hours: Number(shortLeaveDuration),
-          short_leave_duration_hours: Number(shortLeaveDuration),
+          short_leave_end_time: finalEndTime,
+          short_leave_hours: finalDuration,
+          short_leave_duration_hours: finalDuration,
           reason: shortLeaveReason.trim(),
         };
       } else if (activeTab === 'wfh') {
@@ -395,15 +458,20 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               {leaveBalance && (
                 <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300">
                   Remaining {leaveBalance.year}: <strong>{leaveBalance.annual_remaining}</strong> annual / <strong>{leaveBalance.sick_remaining}</strong> sick
-                  <span className="block mt-1 text-zinc-500">Half-day and 2–4 hour short leave count as 0.5 annual day. Rest days & holidays are not deducted.</span>
+                  <span className="block mt-1 text-zinc-500">Rest days & public holidays are not deducted. If annual leaves exceed quota, negative balance is settled at year-end (deducted from salary or reducing next year&apos;s quota).</span>
+                </div>
+              )}
+              {leaveCategory === 'annual' && leaveBalance && leaveBalance.annual_remaining < countWorkingDays(leaveStartDate, leaveEndDate) && (
+                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-200 text-xs">
+                  ⚠️ <strong>Quota Notice:</strong> This request requires {countWorkingDays(leaveStartDate, leaveEndDate)} day(s), which exceeds your remaining {leaveBalance.annual_remaining} annual days. Your balance will become negative ({Math.round((leaveBalance.annual_remaining - countWorkingDays(leaveStartDate, leaveEndDate)) * 100) / 100}d) and will be settled at year-end.
                 </div>
               )}
               <div>
                 <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
                   Leave Category
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  {(['casual', 'sick', 'annual', 'unpaid'] as LeaveCategory[]).map((cat) => (
+                <div className="grid grid-cols-2 gap-2">
+                  {(['annual', 'sick'] as LeaveCategory[]).map((cat) => (
                     <button
                       key={cat}
                       type="button"
@@ -414,7 +482,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                           : 'bg-zinc-50 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
                       }`}
                     >
-                      {cat} Leave
+                      {cat === 'annual' ? 'Annual Leave (14 allowed)' : 'Sick Leave (8 allowed)'}
                     </button>
                   ))}
                 </div>
@@ -475,44 +543,168 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-300 flex items-start gap-2">
                 <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
                 <p className="leading-tight">
-                  Short leaves can be requested for 1 to 4 hours on working days. 2–4 hours counts as a half day of annual leave.
+                  Short leaves are approved for up to 4 hours. Hours not worked count as undertime. Every 8 hours of cumulative undertime deducts 1 day from your annual leave quota.
                 </p>
               </div>
 
-              <div className="grid grid-cols-3 gap-3 items-end">
-                <div>
-                  <CustomDatePicker
-                    offDayMode="disable"
-                    label="Date"
-                    minDate={minDate}
-                    value={shortLeaveDate}
-                    onChange={setShortLeaveDate}
-                  />
-                </div>
-                <div>
-                  <CustomTimePicker
-                    label="Start Time"
-                    required
-                    value={shortLeaveStartTime}
-                    onChange={setShortLeaveStartTime}
-                  />
-                </div>
-                <div>
-                  <CustomSelect
-                    label="Duration"
-                    value={String(shortLeaveDuration)}
-                    onChange={(e) => setShortLeaveDuration(Number(e))}
-                    options={[
-                      { value: '1', label: '1.0 Hour' },
-                      { value: '1.5', label: '1.5 Hours' },
-                      { value: '2', label: '2.0 Hours' },
-                      { value: '2.5', label: '2.5 Hours' },
-                      { value: '3', label: '3.0 Hours' },
-                      { value: '4', label: '4.0 Hours (half day)' },
-                    ]}
-                  />
-                </div>
+              {/* Leave Mode Selector: Leaving Early vs Mid-Shift */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setIsLeavingEarly(true)}
+                  className={`py-2 px-3 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    isLeavingEarly
+                      ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Leaving Early (End of Day)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsLeavingEarly(false)}
+                  className={`py-2 px-3 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    !isLeavingEarly
+                      ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-xs'
+                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  Mid-Shift (Returning)
+                </button>
               </div>
+
+              {isLeavingEarly ? (
+                /* Mode 1: Leaving Early - Auto-calculated duration to shift end */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <CustomDatePicker
+                        offDayMode="disable"
+                        label="Date"
+                        minDate={minDate}
+                        value={shortLeaveDate}
+                        onChange={setShortLeaveDate}
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
+                          Departure Time
+                        </label>
+                        {shortLeaveDate === getTodayIso() && (
+                          <button
+                            type="button"
+                            onClick={() => setShortLeaveStartTime(getCurrentTimePkt())}
+                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                          >
+                            <Clock className="w-2.5 h-2.5" />
+                            Leave Now ({getCurrentTimePkt()})
+                          </button>
+                        )}
+                      </div>
+                      <CustomTimePicker
+                        required
+                        value={shortLeaveStartTime}
+                        onChange={setShortLeaveStartTime}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Auto-Calculated Duration Card */}
+                  <div className="p-3.5 rounded-xl bg-linear-to-br from-amber-50/70 to-orange-50/70 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-900/40">
+                    <div className="flex items-center justify-between">
+                      <div className="space-y-0.5">
+                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
+                          Undertime Added (until shift end {shiftEndTime})
+                        </span>
+                        <div className="flex items-baseline gap-2">
+                          <span className="text-lg font-extrabold font-numeric text-amber-700 dark:text-amber-400">
+                            {earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0h 00m'}
+                          </span>
+                          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-numeric">
+                            ({autoCalculatedHours}h)
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300/40">
+                          +{earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0m'} Undertime
+                        </span>
+                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1">
+                          8h total undertime = 1 annual leave
+                        </p>
+                      </div>
+                    </div>
+
+                    <p className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400 leading-tight">
+                      Short leave authorizes your departure. The shortfall of <strong>{autoDurationFormatted}</strong> will be counted as undertime toward the 8h threshold.
+                    </p>
+
+                    {departureMinutes !== null && shiftEndMinutes !== null && departureMinutes >= shiftEndMinutes && (
+                      <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        Departure time ({shortLeaveStartTime}) is at or after shift end ({shiftEndTime}).
+                      </p>
+                    )}
+
+                    {autoCalculatedHours > 4.0 && (
+                      <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400 flex items-center gap-1 font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                        Short leave cannot exceed 4.0h. For absences over 4 hours, please submit a Full Leave request.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                /* Mode 2: Mid-Shift - Discrete Duration Dropdown with return time estimate */
+                <div className="space-y-3">
+                  <div className="grid grid-cols-3 gap-3 items-end">
+                    <div>
+                      <CustomDatePicker
+                        offDayMode="disable"
+                        label="Date"
+                        minDate={minDate}
+                        value={shortLeaveDate}
+                        onChange={setShortLeaveDate}
+                      />
+                    </div>
+                    <div>
+                      <CustomTimePicker
+                        label="Departure Time"
+                        required
+                        value={shortLeaveStartTime}
+                        onChange={setShortLeaveStartTime}
+                      />
+                    </div>
+                    <div>
+                      <CustomSelect
+                        label="Duration"
+                        value={String(shortLeaveDuration)}
+                        onChange={(e) => setShortLeaveDuration(Number(e))}
+                        options={[
+                          { value: '1', label: '1.0 Hour' },
+                          { value: '1.5', label: '1.5 Hours' },
+                          { value: '2', label: '2.0 Hours' },
+                          { value: '2.5', label: '2.5 Hours' },
+                          { value: '3', label: '3.0 Hours' },
+                          { value: '4', label: '4.0 Hours (half day)' },
+                        ]}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700/60 flex items-center justify-between text-xs">
+                    <span className="text-zinc-600 dark:text-zinc-400">
+                      Expected Return to Desk: <strong className="text-zinc-800 dark:text-zinc-200 font-numeric">{midShiftReturnTime}</strong>
+                    </span>
+                    <span className="text-[10px] text-zinc-500 font-medium">
+                      Adds {shortLeaveDuration}h to undertime if not made up
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
@@ -521,7 +713,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <textarea
                   rows={3}
                   required
-                  placeholder="Reason for mid-shift departure..."
+                  placeholder={
+                    isLeavingEarly
+                      ? 'Reason for leaving early today (e.g. medical appointment, urgent personal matter)...'
+                      : 'Reason for temporary absence and return plan...'
+                  }
                   value={shortLeaveReason}
                   onChange={(e) => setShortLeaveReason(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"

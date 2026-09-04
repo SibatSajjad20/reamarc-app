@@ -218,10 +218,9 @@ export const AttendancePoliciesSection: React.FC = () => {
   };
 
   const fetchSecondary = async () => {
-    const targetYear = 2026;
-    const targetMonth = 8;
+    const currentYear = new Date().getFullYear();
     try {
-      const fetchedCal = await attendanceService.getCalendarMonth(targetYear, targetMonth);
+      const fetchedCal = await attendanceService.getCalendarMonth(currentYear);
       if (fetchedCal?.events) {
         setCalendarEvents(fetchedCal.events);
       }
@@ -232,19 +231,21 @@ export const AttendancePoliciesSection: React.FC = () => {
     try {
       setIsLoadingLeaveBalances(true);
       const balances = await attendanceService.getLeaveBalances();
-      setLeaveBalances(balances);
-      const drafts: Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }> = {};
-      balances.forEach((b) => {
-        drafts[b.user_id] = {
-          annual: String(b.annual_used_opening),
-          sick: String(b.sick_used_opening),
-          annualQuota: String(b.annual_entitled),
-          sickQuota: String(b.sick_entitled),
-        };
-      });
-      setLeaveDrafts(drafts);
-    } catch {
-      setLeaveBalances([]);
+      if (Array.isArray(balances) && balances.length > 0) {
+        setLeaveBalances(balances);
+        const drafts: Record<string, { annual: string; sick: string; annualQuota: string; sickQuota: string }> = {};
+        balances.forEach((b) => {
+          drafts[b.user_id] = {
+            annual: String(b.annual_used_opening),
+            sick: String(b.sick_used_opening),
+            annualQuota: String(b.annual_entitled),
+            sickQuota: String(b.sick_entitled),
+          };
+        });
+        setLeaveDrafts(drafts);
+      }
+    } catch (err) {
+      console.error('[AttendancePolicies] Failed to load leave balances:', err);
     } finally {
       setIsLoadingLeaveBalances(false);
     }
@@ -586,7 +587,12 @@ export const AttendancePoliciesSection: React.FC = () => {
 
         <button
           type="button"
-          onClick={() => setActiveTab('leaves')}
+          onClick={() => {
+            setActiveTab('leaves');
+            if (leaveBalances.length === 0 && !isLoadingLeaveBalances) {
+              void fetchSecondary();
+            }
+          }}
           className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
             activeTab === 'leaves'
               ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
@@ -859,8 +865,27 @@ export const AttendancePoliciesSection: React.FC = () => {
       {/* ─── TAB: LEAVE QUOTAS ─── */}
       {activeTab === 'leaves' && (
         <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-200">
-            Set each employee&apos;s annual and sick quota (total days for the year) and days already taken. Remaining = quota − taken − approved/pending in-app requests. Casual leave and 2–4h short leave deduct from annual.
+          <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-200 space-y-1.5">
+            <div className="font-bold text-sm text-indigo-950 dark:text-indigo-100">
+              Company Leave Policy & Monthly Settlement Rules
+            </div>
+            <p>
+              Only <strong>3 leave types</strong> are supported: <strong>Annual Leave (14 days quota)</strong>, <strong>Sick Leave (8 days quota)</strong>, and <strong>Short Leave</strong>.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px]">
+              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
+                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">1. Short Leave Undertime</span>
+                Leaving early on a short leave counts departure time off effective hours as <strong>undertime</strong> for that day (no direct 0.5d leave deduction).
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
+                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">2. Monthly Net Variance</span>
+                Monthly Overtime offsets Undertime. If net variance is ≥ 0, overtime is paid monthly (never pays past debt). If negative, net deficit carries forward.
+              </div>
+              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
+                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">3. 8h Undertime = 1 Day</span>
+                Every <strong>8h (480 mins)</strong> of cumulative net undertime deficit automatically deducts <strong>1 Annual Leave</strong>. Exceeding 14 days shows negative quota for year-end settlement.
+              </div>
+            </div>
           </div>
           {isLoadingLeaveBalances ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-400 dark:text-zinc-500">
@@ -874,24 +899,38 @@ export const AttendancePoliciesSection: React.FC = () => {
                 <thead className="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500">
                   <tr>
                     <th className="text-left font-bold px-4 py-3">Employee</th>
-                    <th className="text-left font-bold px-3 py-3">Annual taken</th>
-                    <th className="text-left font-bold px-3 py-3">Sick taken</th>
+                    <th className="text-left font-bold px-3 py-3" title="Opening baseline taken before system go-live">Annual taken</th>
+                    <th className="text-left font-bold px-3 py-3" title="Opening baseline taken before system go-live">Sick taken</th>
                     <th className="text-left font-bold px-3 py-3">Annual quota</th>
                     <th className="text-left font-bold px-3 py-3">Sick quota</th>
+                    <th className="text-left font-bold px-3 py-3" title="Approved in-app requests">In-app used</th>
+                    <th className="text-left font-bold px-3 py-3" title="Days deducted from 8h cumulative undertime deficit">UT deducted</th>
+                    <th className="text-left font-bold px-3 py-3" title="Carried undertime deficit towards next 8h cut">Carried deficit</th>
                     <th className="text-left font-bold px-3 py-3">Annual left</th>
                     <th className="text-left font-bold px-3 py-3">Sick left</th>
-                    <th className="px-4 py-3" />
+                    <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {leaveBalances.map((row) => {
+                  {leaveBalances.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="py-12 text-center text-zinc-400 dark:text-zinc-500">
+                        No employee leave quota records found.
+                      </td>
+                    </tr>
+                  ) : (
+                    leaveBalances.map((row) => {
                     const draft = leaveDrafts[row.user_id];
                     const annualTaken = Number(draft?.annual ?? row.annual_used_opening) || 0;
                     const sickTaken = Number(draft?.sick ?? row.sick_used_opening) || 0;
                     const annualQuota = Number(draft?.annualQuota ?? row.annual_entitled) || 0;
                     const sickQuota = Number(draft?.sickQuota ?? row.sick_entitled) || 0;
-                    const annualLeft = Math.round((annualQuota - annualTaken - row.annual_used_in_app - row.annual_pending) * 100) / 100;
-                    const sickLeft = Math.round((sickQuota - sickTaken - row.sick_used_in_app - row.sick_pending) * 100) / 100;
+                    const inAppAnnual = Number(row.annual_used_in_app) || 0;
+                    const inAppSick = Number(row.sick_used_in_app) || 0;
+                    const utDeducted = Number(row.undertime_days_deducted) || 0;
+                    const carriedHours = Number(row.carried_undertime_hours) || 0;
+                    const annualLeft = Math.round((annualQuota - annualTaken - inAppAnnual - utDeducted - (row.annual_pending || 0)) * 100) / 100;
+                    const sickLeft = Math.round((sickQuota - sickTaken - inAppSick - (row.sick_pending || 0)) * 100) / 100;
                     const patchDraft = (patch: Partial<{ annual: string; sick: string; annualQuota: string; sickQuota: string }>) =>
                       setLeaveDrafts((prev) => ({
                         ...prev,
@@ -916,7 +955,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.annual ?? String(row.annual_used_opening)}
                           onChange={(e) => patchDraft({ annual: e.target.value })}
-                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -926,7 +965,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.sick ?? String(row.sick_used_opening)}
                           onChange={(e) => patchDraft({ sick: e.target.value })}
-                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -936,7 +975,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.annualQuota ?? String(row.annual_entitled)}
                           onChange={(e) => patchDraft({ annualQuota: e.target.value })}
-                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -946,11 +985,46 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.sickQuota ?? String(row.sick_entitled)}
                           onChange={(e) => patchDraft({ sickQuota: e.target.value })}
-                          className="w-24 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
                         />
                       </td>
-                      <td className={`px-3 py-2 font-bold ${annualLeft <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
-                        {annualLeft}
+                      <td className="px-3 py-2 text-zinc-600 dark:text-zinc-300">
+                        <div className="font-semibold">{inAppAnnual}a / {inAppSick}s</div>
+                        {(row.annual_pending > 0 || row.sick_pending > 0) && (
+                          <div className="text-[10px] text-amber-500 font-medium">
+                            +{row.annual_pending}a / +{row.sick_pending}s pend
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className={`font-bold ${utDeducted > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500'}`}>
+                          {utDeducted > 0 ? `${utDeducted}d` : '0d'}
+                        </div>
+                        {utDeducted > 0 && (
+                          <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                            -{utDeducted * 8}h settled
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className={`font-semibold ${carriedHours > 0 ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-400'}`}>
+                          {carriedHours}h
+                        </div>
+                        <div className="text-[10px] text-zinc-400">
+                          {carriedHours > 0 ? `${(8 - carriedHours).toFixed(1)}h to next 1d cut` : 'Clean'}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className={`font-bold ${annualLeft < 0 ? 'text-rose-600 dark:text-rose-400' : annualLeft === 0 ? 'text-zinc-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                            {annualLeft}
+                          </span>
+                          {annualLeft < 0 && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 whitespace-nowrap">
+                              Exceeded {Math.abs(annualLeft)}d
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className={`px-3 py-2 font-bold ${sickLeft <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
                         {sickLeft}
@@ -960,14 +1034,15 @@ export const AttendancePoliciesSection: React.FC = () => {
                           type="button"
                           disabled={savingLeaveUserId === row.user_id}
                           onClick={() => handleSaveLeaveOpening(row.user_id)}
-                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50"
+                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50 transition-colors"
                         >
                           {savingLeaveUserId === row.user_id ? 'Saving...' : 'Save'}
                         </button>
                       </td>
                     </tr>
                     );
-                  })}
+                  })
+                )}
                 </tbody>
               </table>
             </div>

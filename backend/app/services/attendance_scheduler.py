@@ -63,8 +63,8 @@ async def is_workday_for_date(target_date_str: str) -> bool:
         try:
             cal_event = await db.company_calendar.find_one({"date": target_date_str}, {"_id": 0})
             if cal_event:
-                ev_type = cal_event.get("event_type")
-                if ev_type in (CalendarEventType.HOLIDAY.value, "holiday"):
+                ev_type = str(cal_event.get("event_type") or "").lower()
+                if cal_event.get("is_off_day") is True or ev_type in (CalendarEventType.HOLIDAY.value, "holiday"):
                     return False
                 if cal_event.get("is_workday_override") or ev_type in (
                     CalendarEventType.WORKING_SATURDAY.value,
@@ -430,6 +430,90 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
     return {"success": True, "closed": closed, "missed_flagged": missed_flagged, "skipped": skipped}
 
 
+async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] = None) -> Dict[str, Any]:
+    """
+    End-of-month leave & undertime settlement job:
+    1. Evaluates monthly net variance (monthly_overtime - monthly_undertime) for each active internal employee.
+    2. If net variance >= 0:
+       - Overtime is payable for this month.
+       - Closed cleanly: does NOT pay past debt or carry forward.
+    3. If net variance < 0:
+       - Overtime is 0.
+       - Net undertime deficit (|net_variance|) is carried forward into the cumulative deficit tracker.
+       - For every 480 minutes (8h) of accumulated deficit, 1 day is deducted from the annual leave quota.
+    4. Records settlement snapshot in `monthly_leave_settlements`.
+    """
+    db = get_database()
+    if db is None:
+        logger.warning("[Scheduler] Database unavailable for monthly leave settlement.")
+        return {"success": False, "error": "Database unavailable"}
+
+    now_pk = datetime.now(PK_TZ)
+    if not target_year_month:
+        if now_pk.day == 1:
+            target_year_month = (now_pk - timedelta(days=1)).strftime("%Y-%m")
+        else:
+            target_year_month = now_pk.strftime("%Y-%m")
+
+    logger.info(f"[Scheduler] Running Monthly Leave Settlement Job for {target_year_month}...")
+
+    users = await db.users.find(
+        {"is_active": True, "role": {"$nin": ["client", "CLIENT", "admin", "ADMIN"]}},
+        {"_id": 0, "hashed_password": 0},
+    ).to_list(1000)
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    settled_count = 0
+    from app.services import leave_balance
+
+    for u in users:
+        uid = u.get("id")
+        if not uid:
+            continue
+        try:
+            recs = await db.attendance_records.find({
+                "user_id": uid,
+                "date": {"$regex": f"^{target_year_month}"},
+            }).to_list(50)
+
+            from app.services.leave_balance import EXCLUDED_UNDERTIME_STATUSES
+            monthly_ot = sum(int(r.get("overtime_minutes") or 0) for r in recs)
+            monthly_ut = sum(
+                int(r.get("undertime_minutes") or 0)
+                for r in recs
+                if str(r.get("status") or "").lower() not in EXCLUDED_UNDERTIME_STATUSES
+            )
+            net_var = monthly_ot - monthly_ut
+
+            year_int = int(target_year_month[:4])
+            bal = await leave_balance.get_balance_for_user(u, year_int)
+
+            settlement_doc = {
+                "user_id": uid,
+                "user_name": u.get("full_name"),
+                "year_month": target_year_month,
+                "overtime_minutes": monthly_ot,
+                "undertime_minutes": monthly_ut,
+                "net_variance_minutes": net_var,
+                "deficit_added_minutes": abs(net_var) if net_var < 0 else 0,
+                "undertime_days_deducted": bal.undertime_days_deducted,
+                "carried_undertime_hours": bal.carried_undertime_hours,
+                "annual_remaining": bal.annual_remaining,
+                "settled_at": now_iso,
+            }
+            await db.monthly_leave_settlements.update_one(
+                {"user_id": uid, "year_month": target_year_month},
+                {"$set": settlement_doc},
+                upsert=True,
+            )
+            settled_count += 1
+        except Exception as err:
+            logger.error(f"[Scheduler] Error settling monthly leave for user {uid}: {err}")
+
+    logger.info(f"[Scheduler] Completed Monthly Leave Settlement for {settled_count} employees for {target_year_month}.")
+    return {"success": True, "year_month": target_year_month, "settled_count": settled_count}
+
+
 def start_attendance_scheduler() -> AsyncIOScheduler:
     """
     Initializes and starts the APScheduler AsyncIOScheduler with Asia/Karachi timezone.
@@ -462,6 +546,15 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
         replace_existing=True,
     )
 
+    # Schedule monthly leave settlement at 00:05 PKT on the 1st of every month
+    _attendance_scheduler.add_job(
+        run_monthly_leave_settlement_job_now,
+        CronTrigger(day=1, hour=0, minute=5, timezone=PK_TZ),
+        id="monthly_leave_settlement",
+        name="Monthly Leave & Undertime Settlement",
+        replace_existing=True,
+    )
+
     # Close shifts throughout the day once each employee's end time has passed
     _attendance_scheduler.add_job(
         close_elapsed_shifts_now,
@@ -484,7 +577,7 @@ def start_attendance_scheduler() -> AsyncIOScheduler:
     )
 
     _attendance_scheduler.start()
-    logger.info("[Scheduler] Attendance scheduler started (midnight, shift close, mobile reminders).")
+    logger.info("[Scheduler] Attendance scheduler started (midnight, monthly settlement, shift close, mobile reminders).")
     return _attendance_scheduler
 
 

@@ -124,6 +124,7 @@ def classify_checkout_gate(
     overtime_buffer_minutes: int = DEFAULT_OT_BUFFER,
     undertime_buffer_minutes: int = DEFAULT_UT_BUFFER,
     check_in: Optional[Union[str, int]] = None,
+    is_short_leave: bool = False,
 ) -> GateType:
     delta = minutes_after_shift_end(
         check_out, shift_start, shift_end, is_night_shift, check_in
@@ -132,7 +133,8 @@ def classify_checkout_gate(
     ut_buf = int(undertime_buffer_minutes if undertime_buffer_minutes is not None else DEFAULT_UT_BUFFER)
     if delta > ot_buf and int(claimed_overtime_minutes or 0) > ot_buf:
         return "overtime"
-    if delta < -ut_buf and int(claimed_undertime_minutes or 0) > ut_buf:
+    # Approved short leave authorizes early departure; do not trigger undertime reason modal at checkout
+    if not is_short_leave and delta < -ut_buf and int(claimed_undertime_minutes or 0) > ut_buf:
         return "undertime"
     return "none"
 
@@ -191,6 +193,9 @@ def settle_checkout_hours(
     minutes_past_end: int,
     overtime_status: Optional[str] = None,
     auto_approve: bool = False,
+    undertime_buffer_minutes: int = DEFAULT_UT_BUFFER,
+    overtime_buffer_minutes: int = DEFAULT_OT_BUFFER,
+    is_short_leave: bool = False,
 ) -> SettledHours:
     """
     claimed: hours if the actual Time Out is fully credited.
@@ -238,7 +243,7 @@ def settle_checkout_hours(
         resolved = "not_applicable"
         pending = 0
     else:
-        # Inside the end buffer (-undertime_buffer <= delta <= overtime_buffer)
+        # Inside the end buffer or authorized short leave:
         if minutes_past_end >= 0:
             # Stayed until or after shift end:
             # 1. Any stay past shift end first covers late-arrival deficit (make-up time).
@@ -248,10 +253,15 @@ def settle_checkout_hours(
             resolved = "approved" if claimed_ot > 0 else "not_applicable"
             pending = 0
         else:
-            # Left slightly early within buffer: forgive minor undertime via shift_end_calc
-            hours = _from_calc(shift_end_calc)
+            # Left slightly early: only forgive minor undertime via shift_end_calc if actually within buffer and not on short leave
+            ut_limit = int(undertime_buffer_minutes if undertime_buffer_minutes is not None else DEFAULT_UT_BUFFER)
+            if not is_short_leave and minutes_past_end >= -ut_limit:
+                hours = _from_calc(shift_end_calc)
+            else:
+                hours = _from_calc(claimed)
             resolved = "not_applicable"
             pending = 0
+
 
     return SettledHours(
         work_minutes=hours["work_minutes"],
