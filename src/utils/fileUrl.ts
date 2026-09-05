@@ -14,8 +14,32 @@ export const getBackendFileUrl = (url?: string): string => {
   return `${backendRoot}${cleanPath}`;
 };
 
+/** Extract `/uploads/...` path from a relative or absolute backend URL. */
+const extractUploadsPath = (url: string): string | null => {
+  const raw = url.trim();
+  if (!raw) return null;
+
+  if (raw.startsWith('/uploads/') || raw.startsWith('uploads/')) {
+    return raw.startsWith('/') ? raw : `/${raw}`;
+  }
+
+  if (raw.startsWith('http://') || raw.startsWith('https://')) {
+    try {
+      const pathname = new URL(raw).pathname || '';
+      const idx = pathname.indexOf('/uploads/');
+      if (idx !== -1) return pathname.slice(idx);
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+};
+
 /**
  * Downloads an attachment via authenticated API download routes (cookie session).
+ * Absolute `/uploads/...` host URLs are normalized onto auth download routes so
+ * locked-down public StaticFiles mounts do not 404 after security hardening.
  */
 export const downloadFileAttachment = async (url: string, filename?: string) => {
   if (!url) return;
@@ -43,12 +67,29 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
   }
 
   const candidateUrls: string[] = [];
+  const uploadsPath = extractUploadsPath(url);
 
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) {
+  if (uploadsPath) {
+    candidateUrls.push(
+      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`
+    );
+    candidateUrls.push(
+      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`
+    );
+  } else if (
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('blob:') ||
+    url.startsWith('data:')
+  ) {
     candidateUrls.push(url);
   } else {
-    candidateUrls.push(`${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(url)}`);
-    candidateUrls.push(`${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(url)}`);
+    candidateUrls.push(
+      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(url)}`
+    );
+    candidateUrls.push(
+      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(url)}`
+    );
   }
 
   let downloaded = false;
@@ -59,6 +100,7 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
       const response = await fetch(targetUrl, {
         method: 'GET',
         credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
 
       if (response.status === 404) {
@@ -91,7 +133,11 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
   if (!downloaded) {
     if (is404) {
       console.error(`Requested attachment not found on server: ${url}`);
-      alert('The requested proposal file was not found on the server storage. Please re-upload the proposal document via Edit Workspace.');
+      alert(
+        'This proposal PDF is not on the server anymore — only the link remains in the database (common after a cloud redeploy wiped ephemeral disk).\n\n' +
+          'Fix once: Admin → Edit Workspace → attach the same PDF again. Do not remove the client or clear the proposal first.\n\n' +
+          'After the latest backend is running, that re-attach is stored in MongoDB and will survive future redeploys.'
+      );
       return;
     }
     alert('Unable to download the file. Please try again or contact an administrator.');

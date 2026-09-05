@@ -65,6 +65,9 @@ async def lifespan(app: FastAPI):
                             {"$or": [{"user_id": h.get("id")}, {"resource_name": {"$regex": f"^{_re.escape(h_name)}$", "$options": "i"}}], "department": {"$in": ["All", "", None]}},
                             {"$set": {"department": "HR"}}
                         )
+                # Persist any leftover on-disk uploads into Mongo GridFS (survives Render redeploys)
+                from app.core.uploads import migrate_disk_uploads_to_gridfs
+                await migrate_disk_uploads_to_gridfs(db)
         except Exception as err:
             logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
 

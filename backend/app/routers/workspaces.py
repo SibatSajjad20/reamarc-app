@@ -1,13 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
-from fastapi.responses import FileResponse
 from typing import List, Optional
 import uuid
-import re
 from datetime import datetime, timezone
 
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
 from app.core.security import require_admin, require_member_or_admin, require_operations_or_admin
-from app.core.uploads import resolve_upload_file
+from app.core.uploads import open_upload_response
 from app.database import get_database
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
@@ -197,15 +195,5 @@ async def download_proposal(
     current_user: dict = Depends(require_member_or_admin),
 ):
     """Download a workspace proposal file. Requires an authenticated internal member/lead/ops/admin."""
-    full_path = resolve_upload_file(file_path)
-
-    raw_filename = full_path.name
-    clean_display_name = re.sub(r"^[a-f0-9]{10}_", "", raw_filename)
-
-    return FileResponse(
-        path=str(full_path),
-        filename=clean_display_name,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{clean_display_name}"'},
-    )
+    return await open_upload_response(get_database(), file_path)
 

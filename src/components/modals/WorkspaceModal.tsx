@@ -243,7 +243,12 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     setIsUploadingProposal(true);
 
     try {
-      const res = await dailyLogService.uploadDeliverableFile(file);
+      // When restoring an existing proposal path, overwrite the same key so the
+      // workspace URL stays valid (ops does not need to remove + re-link).
+      const res = await dailyLogService.uploadDeliverableFile(
+        file,
+        proposalUrl?.startsWith('/uploads/') ? proposalUrl : undefined
+      );
       setProposalUrl(res.file_url);
       setProposalName(res.file_name || file.name);
       setProposalSize(res.file_size || file.size);

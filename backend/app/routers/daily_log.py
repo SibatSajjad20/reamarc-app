@@ -1,5 +1,4 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request
-from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 import uuid
@@ -10,7 +9,7 @@ from app.core.limiter import limiter
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
 from app.core.mongo_filters import exact_ci, contains_ci
-from app.core.uploads import resolve_upload_file, uploads_root
+from app.core.uploads import open_upload_response, save_upload_bytes, normalize_upload_key
 from app.schemas.daily_log import (
     DailyLogEntryCreate,
     DailyLogEntryUpdate,
@@ -613,9 +612,13 @@ def validate_file_magic_bytes(content: bytes, ext: str) -> bool:
 async def upload_deliverable(
     request: Request,
     file: UploadFile = File(...),
+    store_as: Optional[str] = Query(
+        None,
+        description="Optional existing /uploads/... path to overwrite (restores proposals without changing DB URLs).",
+    ),
     current_user: dict = Depends(get_current_user),
 ):
-    """Upload a deliverable attachment file securely (max 25MB)."""
+    """Upload a deliverable/proposal file securely (max 25MB). Persists to disk + Mongo GridFS."""
     if not file.filename:
         raise HTTPException(status_code=400, detail="No file filename provided.")
 
@@ -636,17 +639,24 @@ async def upload_deliverable(
             detail=f"File content signature (magic bytes) does not match declared extension '{ext}'.",
         )
 
-    clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
-    safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"
+    if store_as:
+        # Overwrite an existing stored path (keeps workspace.proposal_url stable).
+        key = normalize_upload_key(store_as)
+        if not key.startswith("deliverables/"):
+            raise HTTPException(status_code=400, detail="store_as must be an /uploads/deliverables/... path.")
+    else:
+        clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
+        safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"
+        key = f"deliverables/{safe_name}"
 
-    upload_dir = uploads_root() / "deliverables"
-    upload_dir.mkdir(parents=True, exist_ok=True)
-    file_path = upload_dir / safe_name
-
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    file_url = f"/uploads/deliverables/{safe_name}"
+    db = get_database()
+    file_url = await save_upload_bytes(
+        db,
+        relative_key=key,
+        content=content,
+        original_name=file.filename,
+        content_type=file.content_type,
+    )
 
     return {
         "file_url": file_url,
@@ -667,17 +677,7 @@ async def download_file(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Client accounts do not have access to internal daily logs.",
         )
-    full_path = resolve_upload_file(file_path)
-
-    raw_filename = full_path.name
-    clean_display_name = re.sub(r"^[a-f0-9]{10}_", "", raw_filename)
-
-    return FileResponse(
-        path=str(full_path),
-        filename=clean_display_name,
-        media_type="application/octet-stream",
-        headers={"Content-Disposition": f'attachment; filename="{clean_display_name}"'},
-    )
+    return await open_upload_response(get_database(), file_path)
 
 
 @router.post("/entries", response_model=DailyLogEntryResponse, status_code=status.HTTP_201_CREATED)

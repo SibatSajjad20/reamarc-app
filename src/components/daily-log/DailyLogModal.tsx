@@ -51,7 +51,7 @@ const QUICK_DURATIONS = [
   { label: '8h', value: '8.0' },
 ];
 
-const ALLOWED_UPLOAD_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.svg', '.docx', '.doc', '.txt', '.zip', '.xlsx', '.csv'];
+const ALLOWED_UPLOAD_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc', '.txt', '.zip', '.xlsx', '.csv'];
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB
 
 export const DailyLogModal: React.FC<DailyLogModalProps> = ({
@@ -301,7 +301,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 
     const ext = '.' + file.name.split('.').pop()?.toLowerCase();
     if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
-      setUploadError(`Unsupported format '${ext}'. Allowed: PDF, PNG, JPG, SVG, DOCX, TXT, ZIP, XLSX, CSV.`);
+      setUploadError(`Unsupported format '${ext}'. Allowed: PDF, PNG, JPG, DOCX, TXT, ZIP, XLSX, CSV.`);
       return;
     }
 
@@ -763,7 +763,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 ref={fileInputRef}
                 type="file"
                 className="hidden"
-                accept=".pdf,.png,.jpg,.jpeg,.svg,.docx,.doc,.txt,.zip,.xlsx,.csv"
+                accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.txt,.zip,.xlsx,.csv"
                 onChange={handleFileSelect}
               />
             </div>

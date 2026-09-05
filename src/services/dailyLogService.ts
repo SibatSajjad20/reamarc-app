@@ -89,10 +89,20 @@ export const dailyLogService = {
     return apiClient.get<import('../types/dailyLog').SubmissionWindowResponse>(`/daily-log/submission-window?date=${encodeURIComponent(date)}`);
   },
 
-  async uploadDeliverableFile(file: File): Promise<{ file_url: string; file_name: string; file_size: number }> {
+  async uploadDeliverableFile(
+    file: File,
+    storeAs?: string | null
+  ): Promise<{ file_url: string; file_name: string; file_size: number }> {
     const formData = new FormData();
     formData.append('file', file);
-    return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>('/daily-log/upload', formData);
+    const qs =
+      storeAs && storeAs.trim()
+        ? `?store_as=${encodeURIComponent(storeAs.trim())}`
+        : '';
+    return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>(
+      `/daily-log/upload${qs}`,
+      formData
+    );
   },
 };
 
