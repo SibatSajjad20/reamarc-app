@@ -441,6 +441,69 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const gpsCoarse = !isWfh && enforceGps && coords != null && distanceMeters != null && gpsQuality === 'coarse';
   const securityBlocksCheckIn = !isWfh && (gpsClearlyOutOfRange || (!wifiOk && !gpsInRange));
 
+  if (isLoading && !todayData) {
+    return (
+      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
+        {/* Header Strip Skeleton */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-zinc-100 dark:border-zinc-800/80">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
+                Attendance Terminal
+              </h2>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="h-7 w-28 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
+            <div className="h-7 w-28 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
+            <div className="h-7 w-24 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
+          </div>
+        </div>
+
+        {/* Main Terminal Grid Skeleton */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-5">
+          <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+            <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 animate-pulse space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b border-zinc-200/60 dark:border-zinc-800">
+                <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                <div className="h-4 w-16 bg-zinc-200 dark:bg-zinc-800 rounded" />
+              </div>
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="space-y-1.5">
+                  <div className="h-2.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                </div>
+                <div className="space-y-1.5">
+                  <div className="h-2.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                </div>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center animate-pulse space-y-2">
+                <div className="h-2.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+              </div>
+              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center animate-pulse space-y-2">
+                <div className="h-2.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+              </div>
+            </div>
+          </div>
+          <div className="md:col-span-5 flex flex-col justify-center">
+            <div className="h-44 w-full rounded-2xl bg-zinc-100 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 animate-pulse flex flex-col items-center justify-center gap-3">
+              <div className="w-12 h-12 rounded-full bg-zinc-200 dark:bg-zinc-800" />
+              <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-800 rounded" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
       {/* Header Strip: Title, security pills, status */}

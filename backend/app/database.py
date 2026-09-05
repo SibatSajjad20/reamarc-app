@@ -62,6 +62,7 @@ async def _create_indexes_background():
         await db_instance.db.daily_log_entries.create_index([("workspace_id", 1), ("resource_name", 1), ("date", -1)])
         await db_instance.db.daily_log_entries.create_index([("user_id", 1), ("date", -1)], name="idx_dailylog_user_date")
         await db_instance.db.daily_log_entries.create_index([("department", 1), ("date", -1)], name="idx_dailylog_dept_date")
+        await db_instance.db.daily_log_entries.create_index([("date", -1)], name="idx_dailylog_date_desc")
         await db_instance.db.daily_log_entries.create_index([("id", 1), ("workspace_id", 1)], unique=True)
         await db_instance.db.daily_log_columns.create_index([("workspace_id", 1)], unique=True)
         try:
@@ -105,6 +106,7 @@ async def _create_indexes_background():
             logger.warning(f"Could not create unique attendance user/date index: {e}")
         await db_instance.db.attendance_records.create_index([("date", -1)], name="idx_att_date_desc")
         await db_instance.db.attendance_records.create_index([("date", 1), ("status", 1)], name="idx_att_date_status")
+        await db_instance.db.company_calendar.create_index([("date", 1)], name="idx_company_calendar_date")
         await db_instance.db.leave_requests.create_index([("created_at", -1)], name="idx_leave_created_at")
         await db_instance.db.leave_requests.create_index([("status", 1), ("created_at", -1)], name="idx_leave_status_created")
         await db_instance.db.leave_requests.create_index([("user_id", 1), ("created_at", -1)], name="idx_leave_user_created")

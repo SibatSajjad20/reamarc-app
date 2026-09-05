@@ -86,36 +86,33 @@ export const AdminPanel: React.FC = () => {
     setActiveSection(section);
   };
 
+  const fetchActivities = useCallback(async () => {
+    try {
+      const list = await adminService.getMembersActivity(7);
+      const actMap: Record<string, MemberActivity> = {};
+      list.forEach((a) => {
+        actMap[a.user_id] = a;
+      });
+      setActivities(actMap);
+    } catch (err: any) {
+      console.warn('Failed to load member activity in background:', err);
+    }
+  }, []);
+
   const fetchMembers = async (showSpinner = false) => {
     try {
       if (showSpinner || members.length === 0) {
         setIsLoadingMembers(true);
       }
-
-      const membersPromise = adminService.getMembers().then((list) => {
-        setMembers(list);
-        setIsLoadingMembers(false);
-        return list;
-      }).catch((err) => {
-        addToast('Error', err?.message || 'Failed to load team members directory', 'warning');
-        setIsLoadingMembers(false);
-        throw err;
-      });
-
-      const activitiesPromise = adminService.getMembersActivity(7).then((list) => {
-        const actMap: Record<string, MemberActivity> = {};
-        list.forEach((a) => {
-          actMap[a.user_id] = a;
-        });
-        setActivities(actMap);
-        return list;
-      });
-
-      await Promise.allSettled([membersPromise, activitiesPromise]);
+      const list = await adminService.getMembers();
+      setMembers(list);
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to load administrative data', 'warning');
+      addToast('Error', err?.message || 'Failed to load team members directory', 'warning');
+    } finally {
       setIsLoadingMembers(false);
     }
+    // Non-blocking background fetch for compliance activity
+    fetchActivities();
   };
 
   const fetchAdAccounts = useCallback(async () => {

@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from typing import List, Optional
+from typing import List, Optional, Dict, Set
 import logging
 import uuid
 import secrets
@@ -216,19 +216,44 @@ async def list_members_activity(
                 att_by_key[(rec["user_id"], rec["date"])] = rec
     targets = await batch_expected_targets(users, workdays) if workdays else {}
 
+    # Batch load all daily log entries for the workdays in a single query
+    entries_by_user: Dict[str, Set[str]] = {}
+    entries_by_name: Dict[str, Set[str]] = {}
+    if workdays:
+        all_entries = await db.daily_log_entries.find(
+            {"date": {"$in": workdays}},
+            {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1}
+        ).to_list(5000)
+        for e in all_entries:
+            d = e.get("date")
+            if not d:
+                continue
+            e_uid = e.get("user_id")
+            if e_uid:
+                entries_by_user.setdefault(str(e_uid), set()).add(d)
+            rname = str(e.get("resource_name") or "").strip().lower()
+            if rname:
+                entries_by_name.setdefault(rname, set()).add(d)
+
+    # Batch load last logged date per user in a single aggregation pipeline
+    last_logged_by_user: Dict[str, str] = {}
+    if user_ids:
+        last_entries = await db.daily_log_entries.aggregate([
+            {"$match": {"user_id": {"$in": user_ids}}},
+            {"$sort": {"date": -1}},
+            {"$group": {"_id": "$user_id", "last_date": {"$first": "$date"}}}
+        ]).to_list(len(user_ids) + 50)
+        for row in last_entries:
+            if row.get("_id") and row.get("last_date"):
+                last_logged_by_user[str(row["_id"])] = row["last_date"]
+
     result = []
     for u in users:
         uid = u.get("id") or str(u.get("_id"))
         fname = u.get("full_name") or u.get("name", "User")
-        
-        recent_entries = await db.daily_log_entries.find(
-            {
-                "$or": [{"user_id": uid}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}],
-                "date": {"$in": workdays}
-            },
-            {"date": 1}
-        ).to_list(20)
-        logged_dates = {e["date"] for e in recent_entries if e.get("date")}
+        fname_lower = fname.strip().lower()
+
+        logged_dates = entries_by_user.get(uid, set()) | entries_by_name.get(fname_lower, set())
         logged_today = today_str in logged_dates
 
         missing = []
@@ -243,11 +268,15 @@ async def list_members_activity(
                 continue
             missing.append(d)
 
-        last_entry = await db.daily_log_entries.find_one(
-            {"$or": [{"user_id": uid}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}]},
-            sort=[("date", -1)]
-        )
-        last_logged = last_entry["date"] if last_entry and last_entry.get("date") else None
+        last_logged = last_logged_by_user.get(uid)
+        if not last_logged:
+            # Fallback for rare legacy records without user_id
+            legacy_last = await db.daily_log_entries.find_one(
+                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
+                sort=[("date", -1)]
+            )
+            if legacy_last and legacy_last.get("date"):
+                last_logged = legacy_last["date"]
 
         result.append({
             "user_id": uid,
@@ -335,11 +364,21 @@ async def remind_member_log(
             continue
         if not person_day_is_due(d, today_str, target, att):
             continue
+        # 48 Working-Hours Expiration Gate: do not remind if backfill window has passed
+        from app.services.log_compliance import compute_log_submission_window
+        win = await compute_log_submission_window(
+            user_id=user_id,
+            target_date_str=d,
+            user_dept=member.get("department"),
+            now_dt=now,
+        )
+        if win.get("is_expired"):
+            continue
         missing_dates.append(d)
     if not missing_dates:
         raise HTTPException(
             status_code=409,
-            detail="Nothing to remind — they are on leave or today's shift has not finished.",
+            detail="Cannot send reminder: daily log submission window (>48 working hours) has expired or shift has not finished.",
         )
 
     formatted_missing = ", ".join(missing_dates) if missing_dates else today_str

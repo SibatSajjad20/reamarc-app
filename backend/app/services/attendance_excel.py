@@ -163,10 +163,12 @@ async def generate_multi_tab_attendance_workbook(
     holidays_set: Set[str] = set()
     working_saturdays_set: Set[str] = set()
     calendar_titles: Dict[str, str] = {}
+    start_of_month = f"{month_prefix}-01"
+    end_of_month = f"{month_prefix}-{num_days:02d}"
 
     if db is not None:
         calendar_events = await db.company_calendar.find(
-            {"date": {"$regex": f"^{month_prefix}-"}},
+            {"date": {"$gte": start_of_month, "$lte": end_of_month}},
             {"_id": 0}
         ).to_list(100)
         for ev in calendar_events:
@@ -186,16 +188,13 @@ async def generate_multi_tab_attendance_workbook(
     records_by_user_date = defaultdict(dict)
     if db is not None:
         all_records = await db.attendance_records.find(
-            {"date": {"$regex": f"^{month_prefix}-"}},
+            {"date": {"$gte": start_of_month, "$lte": end_of_month}},
             {"_id": 0}
         ).sort("date", 1).to_list(10000)
         for r in all_records:
             u_id = r.get("user_id")
             records_by_user[u_id].append(r)
             records_by_user_date[u_id][r.get("date")] = r
-
-    start_of_month = f"{month_prefix}-01"
-    end_of_month = f"{month_prefix}-{num_days:02d}"
 
     leaves_by_user = defaultdict(list)
     leaves_by_user_date = defaultdict(dict)

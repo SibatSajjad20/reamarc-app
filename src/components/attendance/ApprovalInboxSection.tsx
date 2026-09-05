@@ -64,6 +64,7 @@ const formatCorrectionChange = (req: AttendanceRequest): string => {
 
 export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
   requests,
+  isLoading = false,
   onRefresh,
   canReview = true,
 }) => {
@@ -401,7 +402,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Total</span>
-            <p className="text-lg font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5">{totalCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-zinc-900 dark:text-zinc-100 mt-0.5">{totalCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             <Inbox className="w-4 h-4" />
@@ -411,7 +416,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Pending</span>
-            <p className="text-lg font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">{pendingCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-amber-600 dark:text-amber-400 mt-0.5">{pendingCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
             <Clock className="w-4 h-4" />
@@ -421,7 +430,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Appealed</span>
-            <p className="text-lg font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">{appealedCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">{appealedCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400">
             <CornerUpLeft className="w-4 h-4" />
@@ -431,7 +444,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Needs Info</span>
-            <p className="text-lg font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">{needsInfoCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">{needsInfoCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400">
             <HelpCircle className="w-4 h-4" />
@@ -441,7 +458,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Approved</span>
-            <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{approvedCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">{approvedCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400">
             <CheckCircle2 className="w-4 h-4" />
@@ -451,7 +472,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         <div className="p-3 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 shadow-xs flex items-center justify-between">
           <div>
             <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">Rejected</span>
-            <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{rejectedCount}</p>
+            {isLoading && requests.length === 0 ? (
+              <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+            ) : (
+              <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400 mt-0.5">{rejectedCount}</p>
+            )}
           </div>
           <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400">
             <XCircle className="w-4 h-4" />
@@ -538,7 +563,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
             Approval Inbox & Request Audit Log
           </h3>
           <span className="text-xs font-semibold text-zinc-500">
-            {filteredRequests.length} requests displayed
+            {isLoading && requests.length === 0 ? 'Loading requests...' : `${filteredRequests.length} requests displayed`}
           </span>
         </div>
 
@@ -555,7 +580,39 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
-              {filteredRequests.length === 0 ? (
+              {isLoading && requests.length === 0 ? (
+                Array.from({ length: 8 }).map((_, idx) => (
+                  <tr key={`req-skeleton-${idx}`} className="animate-pulse">
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="space-y-1">
+                          <div className="h-3.5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                          <div className="h-2.5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="space-y-1">
+                        <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                        <div className="h-2.5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4 max-w-sm">
+                      <div className="h-3.5 w-48 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+                    </td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="h-7 w-16 bg-zinc-200 dark:bg-zinc-800 rounded-lg ml-auto" />
+                    </td>
+                  </tr>
+                ))
+              ) : filteredRequests.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="py-16">
                     <div className="flex flex-col items-center justify-center gap-2 text-zinc-400 dark:text-zinc-500">

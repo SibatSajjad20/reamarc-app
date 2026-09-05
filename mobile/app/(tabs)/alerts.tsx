@@ -453,7 +453,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  backdropPressable: { ...StyleSheet.absoluteFillObject },
+  backdropPressable: { ...StyleSheet.absoluteFill },
   centerCard: {
     width: '100%',
     maxWidth: 400,

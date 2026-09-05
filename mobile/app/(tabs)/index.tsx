@@ -786,7 +786,7 @@ function AdminOverviewScreen() {
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [draftDate, setDraftDate] = useState<Date>(new Date());
 
-  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
+  const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeDateRef = useRef<string>(selectedDate);
   activeDateRef.current = selectedDate;
 
@@ -1630,7 +1630,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-  backdropPressable: { ...StyleSheet.absoluteFillObject },
+  backdropPressable: { ...StyleSheet.absoluteFill },
   centerCard: {
     width: '100%',
     maxWidth: 400,

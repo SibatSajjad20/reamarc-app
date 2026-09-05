@@ -376,15 +376,12 @@ async def get_expected_log_hours(
             {
                 "user_id": user_id,
                 "status": {"$in": ["approved", "Approved"]},
-                "$or": [
-                    {"start_date": date_str, "end_date": {"$in": [None, "", date_str]}},
-                    {"start_date": {"$lte": date_str}, "end_date": {"$gte": date_str}},
-                    {"start_date": date_str},
-                ],
+                "start_date": {"$lte": date_str},
             },
             {"_id": 0},
         )
-        leaves = await leave_cursor.to_list(20)
+        raw_leaves = await leave_cursor.to_list(50)
+        leaves = [l for l in raw_leaves if (l.get("end_date") or l.get("start_date") or "") >= date_str]
         for leave in leaves:
             ltype = str(leave.get("leave_type") or "").lower()
             if ltype in FULL_DAY_LEAVE_TYPES:
@@ -394,13 +391,16 @@ async def get_expected_log_hours(
                     short_leave_hours += float(leave.get("short_leave_hours") or leave.get("short_leave_duration_hours") or 0)
                 except (TypeError, ValueError):
                     pass
+            elif ltype in ("wfh", "work_from_home"):
+                is_wfh = True
 
+    shift = await get_shift_for_user(user_id, department, date_str)
+    if not is_wfh:
         try:
-            is_wfh = await is_wfh_approved_for_date(user_id, date_str)
+            is_wfh = await is_wfh_approved_for_date(user_id, date_str, department=department, shift=shift)
         except Exception:
             is_wfh = False
 
-    shift = await get_shift_for_user(user_id, department, date_str)
     expected = 0.0 if is_full_leave else float(getattr(shift, "expected_hours", 8.0) or 8.0)
     if not is_full_leave and short_leave_hours > 0:
         expected = max(0.0, round(expected - short_leave_hours, 2))

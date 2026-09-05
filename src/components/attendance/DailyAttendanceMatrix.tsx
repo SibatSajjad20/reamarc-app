@@ -19,7 +19,6 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { OffDayBanner } from '../ui/OffDayBanner';
-import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
@@ -375,10 +374,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               : `Showing ${filteredRows.length} of ${matrixData?.rows.length || 0} employees`}
           </span>
         </div>
-        {isWaitingForNewDate ? (
-          <LoadingScreen message={`Loading daily attendance register (${selectedDate})...`} size={72} />
-        ) : (
-          <div className="overflow-x-auto custom-scrollbar">
+        <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
@@ -395,7 +391,50 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
-                {filteredRows.length === 0 ? (
+                {isWaitingForNewDate ? (
+                  Array.from({ length: 12 }).map((_, idx) => (
+                    <tr key={`matrix-skel-${idx}`} className="animate-pulse">
+                      <td className="py-3 px-4">
+                        <div className="w-4 h-3 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                          <div className="space-y-1">
+                            <div className="h-3.5 bg-zinc-200 dark:bg-zinc-800 rounded w-28" />
+                            <div className="h-2.5 bg-zinc-200/70 dark:bg-zinc-800/60 rounded w-16" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="h-5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-lg w-24" />
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="h-4 bg-zinc-200/70 dark:bg-zinc-800/60 rounded w-20" />
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="h-4 bg-zinc-200/80 dark:bg-zinc-800/70 rounded w-14" />
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="h-4 bg-zinc-200/80 dark:bg-zinc-800/70 rounded w-14" />
+                      </td>
+                      <td className="py-3 px-4 text-zinc-500 font-numeric">
+                        <div className="h-4 bg-zinc-200/60 dark:bg-zinc-800/50 rounded w-10" />
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-16" />
+                      </td>
+                      <td className="py-3 px-4 whitespace-nowrap">
+                        <div className="h-5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-md w-20" />
+                      </td>
+                      {canEditOverride && (
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="w-6 h-6 bg-zinc-200/60 dark:bg-zinc-800/50 rounded-lg ml-auto" />
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                ) : filteredRows.length === 0 ? (
                   <tr>
                     <td colSpan={10} className="py-12 text-center text-zinc-400 dark:text-zinc-500">
                       No employee records found matching your filters.
@@ -590,7 +629,6 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               </tbody>
             </table>
           </div>
-        )}
       </div>
 
       {/* HR Override Dialog Modal */}

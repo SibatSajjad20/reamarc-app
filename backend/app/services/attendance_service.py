@@ -9,7 +9,9 @@ Handles business logic and database persistence for MongoDB collections:
 - `system_config`
 """
 import uuid
+import time
 import calendar
+import asyncio
 from datetime import datetime, timezone, date, timedelta
 from typing import Optional, List, Dict, Any, Tuple, Union
 from fastapi import HTTPException, status
@@ -960,6 +962,15 @@ def is_sunday_date(d: date) -> bool:
 # ──────────────────────────────────────────────────────────
 
 _default_shifts_ensured = False
+_cached_active_shifts: Optional[List[dict]] = None
+_cached_shifts_time: float = 0.0
+
+
+def invalidate_shifts_cache() -> None:
+    """Invalidate in-memory shifts cache when shifts are modified."""
+    global _cached_active_shifts, _cached_shifts_time
+    _cached_active_shifts = None
+    _cached_shifts_time = 0.0
 
 
 async def ensure_default_shifts() -> List[dict]:
@@ -967,15 +978,22 @@ async def ensure_default_shifts() -> List[dict]:
     Ensures standard shift templates exist in the database.
     If the `shifts` collection is empty, seeds DEFAULT_SHIFTS.
     Seed/backfill runs once per process so dashboard and admin reads stay cheap.
+    Active shifts are cached in memory for 5 minutes (invalidated on mutation).
     """
-    global _default_shifts_ensured
+    global _default_shifts_ensured, _cached_active_shifts, _cached_shifts_time
     db = get_database()
     if db is None:
         return []
 
+    now = time.time()
+    if _default_shifts_ensured and _cached_active_shifts is not None and (now - _cached_shifts_time < 300):
+        return _cached_active_shifts
+
     if _default_shifts_ensured:
-        cursor = db.shifts.find({"is_active": True})
-        return await cursor.to_list(100)
+        cursor = db.shifts.find({"is_active": True}, {"_id": 0})
+        _cached_active_shifts = await cursor.to_list(100)
+        _cached_shifts_time = now
+        return _cached_active_shifts
 
     count = await db.shifts.count_documents({})
     if count == 0:
@@ -995,14 +1013,18 @@ async def ensure_default_shifts() -> List[dict]:
         if seeded_docs:
             await db.shifts.insert_many(seeded_docs)
         _default_shifts_ensured = True
+        _cached_active_shifts = [dict(d) for d in seeded_docs if d.get("is_active", True)]
+        _cached_shifts_time = time.time()
         return seeded_docs
 
     await _ensure_wfh_shift_templates()
     await _backfill_shift_break_windows()
     await _reclassify_noncanonical_category_shifts()
     _default_shifts_ensured = True
-    cursor = db.shifts.find({"is_active": True})
-    return await cursor.to_list(100)
+    cursor = db.shifts.find({"is_active": True}, {"_id": 0})
+    _cached_active_shifts = await cursor.to_list(100)
+    _cached_shifts_time = time.time()
+    return _cached_active_shifts
 
 
 async def _ensure_wfh_shift_templates() -> None:
@@ -1165,6 +1187,7 @@ async def create_shift(shift_in: ShiftCreate) -> ShiftResponse:
     coerce_user_created_shift_type(shift_dict)
 
     await db.shifts.insert_one(shift_dict)
+    invalidate_shifts_cache()
     created_doc = await db.shifts.find_one({"id": shift_dict["id"]}, {"_id": 0})
     return ShiftResponse(**created_doc)
 
@@ -1199,6 +1222,7 @@ async def update_shift(shift_id: str, shift_in: ShiftUpdate) -> ShiftResponse:
     )
     if not result:
         raise HTTPException(status_code=404, detail=f"Shift '{shift_id}' not found")
+    invalidate_shifts_cache()
     return ShiftResponse(**result)
 
 
@@ -1217,6 +1241,7 @@ async def delete_shift(shift_id: str) -> dict:
         if result_soft.matched_count == 0:
             raise HTTPException(status_code=404, detail=f"Shift '{shift_id}' not found")
 
+    invalidate_shifts_cache()
     return {"message": f"Shift '{shift_id}' deleted successfully", "id": shift_id}
 
 
@@ -1307,7 +1332,7 @@ async def get_shift_for_user(
     3. Fallback to the seeded Standard Shift (never a later custom template).
     """
     db = get_database()
-    await ensure_default_shifts()
+    all_shifts = await ensure_default_shifts()
     target_date = date_str or get_current_date_str()
 
     if db is not None:
@@ -1316,11 +1341,12 @@ async def get_shift_for_user(
             resolved = resolve_shift_assignment_for_date(assignment, target_date)
             shift_id = resolved.get("shift_id")
             if shift_id:
-                shift_doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+                shift_doc = next((s for s in (all_shifts or []) if s.get("id") == shift_id), None)
+                if not shift_doc and db is not None:
+                    shift_doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
                 if shift_doc and shift_doc.get("is_active", True):
                     return ShiftResponse(**shift_doc)
 
-        all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
         std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
 
         if department and str(department).upper() == "HR" and hr_shift:
@@ -1613,21 +1639,34 @@ async def is_wfh_leave_approved_for_date(user_id: str, date_str: str) -> bool:
     return leave is not None
 
 
-async def is_wfh_approved_for_date(user_id: str, date_str: str, department: Optional[str] = None) -> bool:
+async def is_wfh_approved_for_date(
+    user_id: str,
+    date_str: str,
+    department: Optional[str] = None,
+    shift: Optional[Any] = None,
+    assignment: Optional[dict] = None,
+) -> bool:
     """
     WFH for this date: approved request, weekday/date pattern with auto_wfh, or assigned a WFH shift.
     A real office punch still records as office (see process_check_in).
     """
     if await is_wfh_leave_approved_for_date(user_id, date_str):
         return True
-    if await is_auto_wfh_for_date(user_id, date_str):
+    if assignment is not None:
+        try:
+            from app.services.shift_assignment import resolve_shift_assignment_for_date
+            if bool(resolve_shift_assignment_for_date(assignment, date_str).get("auto_wfh")):
+                return True
+        except Exception:
+            pass
+    elif await is_auto_wfh_for_date(user_id, date_str):
         return True
     try:
-        shift = await get_shift_for_user(user_id, department, date_str)
-        if shift:
-            s_name = str(getattr(shift, "name", "") or "").lower()
-            s_type = str(getattr(shift, "shift_type", "") or "").lower()
-            if getattr(shift, "is_wfh", False) or "wfh" in s_name or s_type == "wfh":
+        resolved_shift = shift if shift is not None else await get_shift_for_user(user_id, department, date_str)
+        if resolved_shift:
+            s_name = str(getattr(resolved_shift, "name", "") or "").lower()
+            s_type = str(getattr(resolved_shift, "shift_type", "") or "").lower()
+            if getattr(resolved_shift, "is_wfh", False) or "wfh" in s_name or s_type == "wfh":
                 return True
     except Exception:
         pass
@@ -2231,9 +2270,14 @@ async def get_today_status(
                 {"_id": 0}
             )
 
-    shift = await get_shift_for_user(user_id, department, target_date)
-    is_wfh = await is_wfh_approved_for_date(user_id, target_date)
-    sec_settings = await get_security_settings()
+    from app.services.workdays import classify_date, attendance_status_for_off_day
+
+    shift, is_wfh, sec_settings, day_info = await asyncio.gather(
+        get_shift_for_user(user_id, department, target_date),
+        is_wfh_approved_for_date(user_id, target_date),
+        get_security_settings(),
+        classify_date(target_date),
+    )
     whitelist = collect_whitelist_entries(sec_settings)
     effective_ip = resolve_effective_client_ip(client_ip, detected_public_ip)
 
@@ -2242,10 +2286,6 @@ async def get_today_status(
         is_ip_verified = True
     elif effective_ip:
         is_ip_verified = validate_client_ip(effective_ip, whitelist, ())
-
-    from app.services.workdays import classify_date, attendance_status_for_off_day
-
-    day_info = await classify_date(target_date)
 
     cin = (record_doc.get("punch_in") or record_doc.get("check_in")) if record_doc else None
     cout = (record_doc.get("punch_out") or record_doc.get("check_out")) if record_doc else None
@@ -2418,13 +2458,13 @@ async def get_my_timesheet(
                 shifts_by_id[parsed.id] = parsed
             except Exception:
                 continue
+        month_last_day = calendar.monthrange(year, month)[1]
+        start_date = max(min_date, f"{month_str}-01") if min_date else f"{month_str}-01"
+        end_date = f"{month_str}-{month_last_day:02d}"
         docs = await db.attendance_records.find(
             {
                 "user_id": user_id,
-                "$and": [
-                    {"date": {"$regex": f"^{month_str}-"}},
-                    {"date": {"$gte": min_date}},
-                ],
+                "date": {"$gte": start_date, "$lte": end_date},
             },
             {"_id": 0}
         ).sort("date", 1).to_list(100)
@@ -2686,7 +2726,7 @@ async def calculate_month_working_days(year: int, month: int) -> int:
     if db is not None:
         month_prefix = f"{year:04d}-{month:02d}"
         events = await db.company_calendar.find(
-            {"date": {"$regex": f"^{month_prefix}-"}},
+            {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}},
             {"_id": 0}
         ).to_list(100)
         for ev in events:
@@ -3236,12 +3276,12 @@ async def get_monthly_punctuality_summary(
     # Batch-load all monthly records for all users in a single query
     from app.services.attendance_golive import get_effective_start_date
     min_date = get_effective_start_date()
+    num_days = calendar.monthrange(year, month)[1]
+    start_date = max(min_date, f"{month_prefix}-01") if min_date else f"{month_prefix}-01"
+    end_date = f"{month_prefix}-{num_days:02d}"
     all_monthly_records = await db.attendance_records.find(
         {
-            "$and": [
-                {"date": {"$regex": f"^{month_prefix}-"}},
-                {"date": {"$gte": min_date}},
-            ]
+            "date": {"$gte": start_date, "$lte": end_date}
         },
         {"_id": 0}
     ).to_list(10000)
@@ -4795,10 +4835,11 @@ async def get_calendar_events(year: Optional[int] = None, month: Optional[int] =
 
     query = {}
     if year is not None and month is not None:
+        num_days = calendar.monthrange(year, month)[1]
         month_prefix = f"{year:04d}-{month:02d}"
-        query = {"date": {"$regex": f"^{month_prefix}-"}}
+        query = {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}}
     elif year is not None:
-        query = {"date": {"$regex": f"^{year:04d}-"}}
+        query = {"date": {"$gte": f"{year:04d}-01-01", "$lte": f"{year:04d}-12-31"}}
 
     docs = await db.company_calendar.find(query, {"_id": 0}).sort("date", 1).to_list(500)
 

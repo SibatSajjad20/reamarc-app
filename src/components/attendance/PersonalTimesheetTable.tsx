@@ -17,7 +17,6 @@ import type {
 import { getAugust2026StartDay } from '../../constants/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
-import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface PersonalTimesheetTableProps {
   records: AttendanceRecord[];
@@ -329,7 +328,8 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       </div>
 
       {/* Monthly KPI Stats Strip (Punctuality Score & Bonus Status Removed) */}
-      {summary && (
+      {/* Monthly KPI Stats Strip (Punctuality Score & Bonus Status Removed) */}
+      {summary ? (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
           <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
             <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Working Days</span>
@@ -372,41 +372,90 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
             </p>
           </div>
         </div>
-      )}
+      ) : isLoading ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 animate-pulse">
+              <div className="h-2 w-16 bg-zinc-200 dark:bg-zinc-800 rounded mb-2" />
+              <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {/* High-Density Timesheet Table */}
-      {isLoading && rows.length === 0 && !summary ? (
-        <LoadingScreen
-          message={employeeName ? `Loading ${employeeName}'s timesheet...` : 'Loading timesheet data...'}
-          size={72}
-        />
-      ) : rows.length === 0 ? (
-        <div className="py-16 text-center text-zinc-400 dark:text-zinc-500">
-          <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
-          <p className="text-sm font-semibold">No attendance records for this period.</p>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Records are logged day-by-day starting from August 19, 2026.</p>
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
-                <th className="py-3 px-4">Date & Day</th>
-                <th className="py-3 px-4">Assigned Shift</th>
-                <th className="py-3 px-4">Time In</th>
-                <th className="py-3 px-4">Time Out</th>
-                <th className="py-3 px-4">Break</th>
-                <th className="py-3 px-4">Effective Hours</th>
-                <th className="py-3 px-4">Overtime</th>
-                <th className="py-3 px-4">Undertime</th>
-                <th className="py-3 px-4">Status Tag</th>
-                {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                  <th className="py-3 px-4 text-right">Action</th>
-                )}
+      <div className="overflow-x-auto">
+        <table className="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
+              <th className="py-3 px-4">Date & Day</th>
+              <th className="py-3 px-4">Assigned Shift</th>
+              <th className="py-3 px-4">Time In</th>
+              <th className="py-3 px-4">Time Out</th>
+              <th className="py-3 px-4">Break</th>
+              <th className="py-3 px-4">Effective Hours</th>
+              <th className="py-3 px-4">Overtime</th>
+              <th className="py-3 px-4">Undertime</th>
+              <th className="py-3 px-4">Status Tag</th>
+              {(!readOnly || (canInquireMissedPunch && employeeId)) && (
+                <th className="py-3 px-4 text-right">Action</th>
+              )}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
+            {isLoading && rows.length === 0 ? (
+              Array.from({ length: 14 }).map((_, i) => (
+                <tr key={`ts-skeleton-${i}`} className="animate-pulse">
+                  <td className="py-3 px-4">
+                    <div className="flex items-center gap-2">
+                      <div className="h-5 w-7 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      <div className="h-3.5 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </div>
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-10 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  </td>
+                  <td className="py-3 px-4">
+                    <div className="h-5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+                  </td>
+                  {(!readOnly || (canInquireMissedPunch && employeeId)) && (
+                    <td className="py-3 px-4 text-right">
+                      <div className="h-6 w-16 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
+                    </td>
+                  )}
+                </tr>
+              ))
+            ) : rows.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={(!readOnly || (canInquireMissedPunch && employeeId)) ? 10 : 9}
+                  className="py-16 text-center text-zinc-400 dark:text-zinc-500"
+                >
+                  <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
+                  <p className="text-sm font-semibold">No attendance records for this period.</p>
+                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Records are logged day-by-day starting from August 19, 2026.</p>
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
-              {rows.map(({ date, dayNumber, dayOfWeek, isSunday, isFirstSaturday, record }) => {
+            ) : (
+              rows.map(({ date, dayNumber, dayOfWeek, isSunday, isFirstSaturday, record }) => {
                 const isHoliday = record?.status === 'holiday';
                 const isOffDay = isSunday || isFirstSaturday || record?.status === 'sunday_off' || record?.status === 'first_saturday_off' || isHoliday;
                 const defaultShiftName = summary?.shift_name || 'Standard 09:30-18:30';
@@ -643,11 +692,11 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     )}
                   </tr>
                 );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 };

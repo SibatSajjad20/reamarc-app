@@ -25,7 +25,6 @@ import type { LogExceptionItem, DailyLogEntry } from '../../types/dailyLog';
 import { formatHours, formatSignedHours } from '../../utils/logTimeChecks';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { OffDayBanner } from '../ui/OffDayBanner';
-import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 
 const todayIso = () => {
@@ -363,9 +362,13 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
               <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Missing Logs
               </p>
-              <p className="text-lg font-extrabold text-amber-600 dark:text-amber-400">
-                {counts.missing}
-              </p>
+              {isLoading ? (
+                <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+              ) : (
+                <p className="text-lg font-extrabold text-amber-600 dark:text-amber-400">
+                  {counts.missing}
+                </p>
+              )}
             </div>
             <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
               <AlertTriangle className="w-4 h-4" />
@@ -385,7 +388,11 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
               <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Hours Discrepancies
               </p>
-              <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400">{counts.gap}</p>
+              {isLoading ? (
+                <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+              ) : (
+                <p className="text-lg font-extrabold text-rose-600 dark:text-rose-400">{counts.gap}</p>
+              )}
             </div>
             <div className="p-2.5 rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
               <Clock className="w-4 h-4" />
@@ -407,9 +414,13 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
               <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
                 Reasons Awaiting Review
               </p>
-              <p className="text-lg font-extrabold text-blue-600 dark:text-blue-400">
-                {counts.pendingReason}
-              </p>
+              {isLoading ? (
+                <div className="h-6 w-8 bg-zinc-200 dark:bg-zinc-800 rounded animate-pulse mt-0.5" />
+              ) : (
+                <p className="text-lg font-extrabold text-blue-600 dark:text-blue-400">
+                  {counts.pendingReason}
+                </p>
+              )}
             </div>
             <div className="p-2.5 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400">
               <MessageSquare className="w-4 h-4" />
@@ -450,7 +461,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       : 'bg-zinc-200/80 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-400'
                   }`}
                 >
-                  {tab.count}
+                  {isLoading ? '·' : tab.count}
                 </span>
               </button>
             ))}
@@ -471,21 +482,9 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
 
       {/* ─── Table Content ─── */}
       <div className="flex-1 min-h-0 overflow-auto p-6">
-        {isLoading ? (
-          <LoadingScreen message="Loading exception records..." size={72} />
-        ) : viewingOff.isOff ? (
+        {viewingOff.isOff && !isLoading ? (
           <div className="max-w-lg mx-auto mt-10">
             <OffDayBanner info={viewingOff} date={range === 'date' ? pickedDate : todayIso()} />
-          </div>
-        ) : filteredItems.length === 0 ? (
-          <div className="max-w-md mx-auto mt-16 text-center space-y-3 p-8 rounded-3xl bg-white dark:bg-[#12141c] border border-zinc-200/80 dark:border-zinc-800">
-            <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
-              <CheckCircle2 className="w-6 h-6" />
-            </div>
-            <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">All Exceptions Resolved</p>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              No open attendance discrepancies or missing logs found for the selected view.
-            </p>
           </div>
         ) : (
           <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden shadow-xs">
@@ -502,7 +501,54 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
-                {filteredItems.map((item) => {
+                {isLoading ? (
+                  Array.from({ length: 10 }).map((_, idx) => (
+                    <tr key={`exc-skeleton-${idx}`} className="animate-pulse">
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-xl bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                          <div className="space-y-1">
+                            <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                            <div className="h-2.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="h-4 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="h-5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="h-5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <div className="h-7 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-xl ml-auto" />
+                      </td>
+                    </tr>
+                  ))
+                ) : filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-16">
+                      <div className="max-w-md mx-auto text-center space-y-3 p-8">
+                        <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto">
+                          <CheckCircle2 className="w-6 h-6" />
+                        </div>
+                        <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">All Exceptions Resolved</p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                          No open attendance discrepancies or missing logs found for the selected view.
+                        </p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((item) => {
                   const waiting =
                     item.action_status === 'waiting_on_employee' || Boolean(item.employee_notified);
                   const pendingReason = item.action_status === 'waiting_on_reviewer';
@@ -695,12 +741,13 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       </td>
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
 
       {/* ─── Inspection Sidebar Drawer (Slide-Over) ─── */}
       {selectedDetailItem && (

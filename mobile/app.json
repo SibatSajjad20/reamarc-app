@@ -69,6 +69,7 @@
       ],
       "expo-splash-screen",
       "expo-font",
+      "expo-status-bar",
       "@react-native-community/datetimepicker"
     ],
     "extra": {

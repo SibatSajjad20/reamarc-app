@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 import uuid
 import re
 import os
+import asyncio
 from app.core.limiter import limiter
 from app.database import get_database
 from app.core.security import get_current_user, require_admin
@@ -256,9 +257,11 @@ async def get_day_target(
 
     date_str = date or pkt_today()
     uid = current_user["id"]
-    target = await get_expected_log_hours(uid, date_str, current_user.get("department"))
-    punch = await get_attendance_worked(uid, date_str)
-    entries = await load_user_day_entries(uid, date_str)
+    target, punch, entries = await asyncio.gather(
+        get_expected_log_hours(uid, date_str, current_user.get("department")),
+        get_attendance_worked(uid, date_str),
+        load_user_day_entries(uid, date_str),
+    )
     logged = 0.0
     for e in entries:
         try:
@@ -314,17 +317,19 @@ async def get_day_target(
             },
             {"_id": 0},
         ).to_list(20)
-        from app.services.log_compliance import person_day_is_leave, batch_expected_targets
-        leave_targets = await batch_expected_targets([current_user], window)
-        leave_att = await db.attendance_records.find(
-            {"user_id": uid, "date": {"$in": window}},
-            {"_id": 0, "date": 1, "status": 1},
-        ).to_list(20)
-        leave_att_by_day = {d.get("date"): d for d in leave_att if d.get("date")}
-        for item in waiting:
-            item_day = item.get("date")
-            if person_day_is_leave(leave_targets.get((uid, item_day)) or {}, leave_att_by_day.get(item_day)):
-                continue
+        if waiting:
+            waiting_dates = list({item.get("date") for item in waiting if item.get("date")})
+            from app.services.log_compliance import person_day_is_leave, batch_expected_targets
+            leave_targets = await batch_expected_targets([current_user], waiting_dates)
+            leave_att = await db.attendance_records.find(
+                {"user_id": uid, "date": {"$in": waiting_dates}},
+                {"_id": 0, "date": 1, "status": 1},
+            ).to_list(20)
+            leave_att_by_day = {d.get("date"): d for d in leave_att if d.get("date")}
+            for item in waiting:
+                item_day = item.get("date")
+                if person_day_is_leave(leave_targets.get((uid, item_day)) or {}, leave_att_by_day.get(item_day)):
+                    continue
             actor_role = str(item.get("action_by_role") or "").lower()
             who = item.get("action_by_name") or ("HR" if actor_role == "hr" else "Your lead")
             astatus = item.get("action_status")
@@ -525,12 +530,6 @@ async def get_entries(
     if task_type:
         query_filter["task_type"] = task_type
 
-    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.OPERATIONS.value, "operations"):
-        from app.services.member_cleanup import purge_orphaned_member_records
-        try:
-            await purge_orphaned_member_records(db)
-        except Exception:
-            pass
 
     cursor = (
         db.daily_log_entries

@@ -25,7 +25,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
-import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface Props {
   selectedWorkspace?: (Workspace | AdAccount) | null;
@@ -959,81 +958,119 @@ export const PerformanceMarketing: React.FC<Props> = ({
           }}
           className="min-w-full flex flex-col flex-1"
         >
-          {isLoading ? (
-            <LoadingScreen message="Loading marketing matrix data..." size={72} />
-          ) : error ? (
-            <div className="h-64 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 mb-3">
-                <AlertTriangle className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Failed to load performance metrics</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">{error}</p>
-              <button
-                type="button"
-                onClick={refetch}
-                className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-              >
-                Retry
-              </button>
-            </div>
-          ) : sortedRows.length === 0 ? (
-            <div className="h-64 flex flex-col items-center justify-center p-8 text-center">
-              <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
-                <TrendingUp className="w-6 h-6" />
-              </div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No campaigns found</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">
-                {showInactive
-                  ? `No recorded marketing metrics found for ${selectedDate}. Click 'Sync Ads API' to fetch latest data.`
-                  : `All campaigns on ${selectedDate} might be paused. Try enabling 'Show Paused' toggle above.`}
-              </p>
-            </div>
-          ) : (
-            <>
-              <table
-                className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
-                style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-              >
-                <thead className="sticky top-0 z-30 shadow-2xs">
-                  <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
+          <table
+            className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
+            style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
+          >
+            <thead className="sticky top-0 z-30 shadow-2xs">
+              <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
+                <th
+                  style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                  className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
+                >
+                  #
+                </th>
+                {DEFAULT_COLUMNS.map((col) => {
+                  const colW = columnWidths[col.key] || col.width;
+                  const alignClass =
+                    col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
+                  const justifyClass =
+                    col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start';
+
+                  return (
                     <th
-                      style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                      className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
+                      key={col.key}
+                      style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                      className={`sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors ${alignClass}`}
                     >
-                      #
+                      <div className={`flex items-center gap-1 ${justifyClass}`}>
+                        <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
+                          {col.label}
+                        </span>
+                      </div>
+
+                      {/* Column Resize Handle — exact match with DailyLogView */}
+                      <div
+                        onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
+                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
+                        title="Drag to resize column"
+                      />
                     </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
+              {isLoading ? (
+                Array.from({ length: 20 }).map((_, idx) => (
+                  <tr key={`pm-skeleton-${idx}`} className="animate-pulse" style={{ height: `${defaultRowHeight}px` }}>
+                    <td
+                      style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                      className="p-2 text-center border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40"
+                    >
+                      <div className="h-3.5 w-4 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
                     {DEFAULT_COLUMNS.map((col) => {
                       const colW = columnWidths[col.key] || col.width;
                       const alignClass =
                         col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
-                      const justifyClass =
-                        col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start';
-
                       return (
-                        <th
+                        <td
                           key={col.key}
                           style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                          className={`sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors ${alignClass}`}
+                          className={`p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle ${alignClass}`}
                         >
-                          <div className={`flex items-center gap-1 ${justifyClass}`}>
-                            <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
-                              {col.label}
-                            </span>
-                          </div>
-
-                          {/* Column Resize Handle — exact match with DailyLogView */}
-                          <div
-                            onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
-                            title="Drag to resize column"
-                          />
-                        </th>
+                          {col.align === 'right' ? (
+                            <div className="h-3.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
+                          ) : col.align === 'center' ? (
+                            <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto" />
+                          ) : col.key === 'campaign_name' ? (
+                            <div className="h-3.5 w-40 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                          ) : (
+                            <div className="h-3.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                          )}
+                        </td>
                       );
                     })}
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-                  {visibleRows.map((row, idx) => {
+                ))
+              ) : error ? (
+                <tr>
+                  <td colSpan={DEFAULT_COLUMNS.length + 1} className="py-20 text-center">
+                    <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 mb-3">
+                        <AlertTriangle className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Failed to load performance metrics</h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">{error}</p>
+                      <button
+                        type="button"
+                        onClick={refetch}
+                        className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                      >
+                        Retry
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ) : sortedRows.length === 0 ? (
+                <tr>
+                  <td colSpan={DEFAULT_COLUMNS.length + 1} className="py-20 text-center">
+                    <div className="flex flex-col items-center justify-center p-8 text-center">
+                      <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
+                        <TrendingUp className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No campaigns found</h3>
+                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">
+                        {showInactive
+                          ? `No recorded marketing metrics found for ${selectedDate}. Click 'Sync Ads API' to fetch latest data.`
+                          : `All campaigns on ${selectedDate} might be paused. Try enabling 'Show Paused' toggle above.`}
+                      </p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                visibleRows.map((row, idx) => {
                     const isWarning = row.status === 'Stopped' || row.status === 'Error';
                     const rHeight = rowHeights[row.campaign_id] || defaultRowHeight;
                     const spendVal = Number(row.ad_spend) || 0;
@@ -1176,11 +1213,13 @@ export const PerformanceMarketing: React.FC<Props> = ({
                         })}
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
+                  })
+                )}
+              </tbody>
+            </table>
 
-              {/* Table Footer with Progressive Batch Loading Controls */}
+            {/* Table Footer with Progressive Batch Loading Controls */}
+            {!isLoading && !error && sortedRows.length > 0 && (
               <div
                 style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
                 className="px-5 py-3.5 bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-4 text-xs select-none sticky bottom-0 z-20 shadow-xs"
@@ -1233,10 +1272,9 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   ) : null}
                 </div>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
-      </div>
 
       {/* Ad Account Credentials Modal */}
       <AdAccountCredentialsModal

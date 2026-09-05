@@ -317,6 +317,11 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
         apply_daily_calc_fields,
     )
 
+    from zoneinfo import ZoneInfo
+    now_pk = datetime.now(ZoneInfo("Asia/Karachi"))
+    current_ym = now_pk.strftime("%Y-%m")
+    current_m_start = f"{current_ym}-01"
+
     # Concurrently batch-query off_day_index, leave balances, in-app requests, attendance records, shifts, and shift assignments
     off_task = load_off_day_index(start_d, end_d)
     bal_task = db.leave_balances.find({"year": y}, {"_id": 0}).to_list(1000)
@@ -330,8 +335,21 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
         {"_id": 0},
     ).to_list(2000)
     att_task = db.attendance_records.find(
-        {"date": {"$gte": start_str, "$lte": end_str}},
-        {"_id": 0},
+        {"date": {"$gte": start_str, "$lt": current_m_start}},
+        {
+            "_id": 0,
+            "user_id": 1,
+            "date": 1,
+            "status": 1,
+            "overtime_minutes": 1,
+            "undertime_minutes": 1,
+            "shift_id": 1,
+            "punch_in": 1,
+            "punch_out": 1,
+            "check_in": 1,
+            "check_out": 1,
+            "work_hours": 1,
+        },
     ).to_list(10000)
     shift_task = db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     asgn_task = db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
@@ -355,10 +373,6 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
         uid = a.get("user_id")
         if uid:
             att_by_user.setdefault(uid, []).append(a)
-
-    from zoneinfo import ZoneInfo
-    now_pk = datetime.now(ZoneInfo("Asia/Karachi"))
-    current_ym = now_pk.strftime("%Y-%m")
 
     rows: List[LeaveBalanceResponse] = []
     for u in users:

@@ -43,7 +43,6 @@ import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
-import { LoadingScreen } from '../ui/LoadingScreen';
 import { useOffDays } from '../../hooks/useOffDays';
 import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
 import { formatHours, formatSignedHours, isLogDateExpired } from '../../utils/logTimeChecks';
@@ -1410,16 +1409,13 @@ export const DailyLogView: React.FC = () => {
 
       {/* ─── Grid Canvas Table ─── */}
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
-        {isLoading ? (
-          <LoadingScreen message="Loading daily log entries..." size={72} />
-        ) : (
-          <div
-            style={{
-              width: `${totalTableWidth}px`,
-              minWidth: `${totalTableWidth}px`,
-            }}
-            className="min-w-full flex flex-col"
-          >
+        <div
+          style={{
+            width: `${totalTableWidth}px`,
+            minWidth: `${totalTableWidth}px`,
+          }}
+          className="min-w-full flex flex-col"
+        >
             <table
               className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
               style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
@@ -1558,7 +1554,38 @@ export const DailyLogView: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-normal">
-                {filteredEntries.length === 0 ? (
+                {isLoading ? (
+                  Array.from({ length: 22 }).map((_, rIdx) => (
+                    <tr
+                      key={`skel-row-${rIdx}`}
+                      style={{ height: `${DEFAULT_ROW_HEIGHT}px` }}
+                      className="animate-pulse hover:bg-transparent"
+                    >
+                      <td className="p-2.5 text-center border-b border-r border-zinc-200/80 dark:border-zinc-800/80">
+                        <div className="w-5 h-3 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      </td>
+                      {columns.map((col, cIdx) => {
+                        const colW = columnWidths[col.key] || 150;
+                        const widthPercent = ((rIdx * 19 + cIdx * 29) % 36) + 48;
+                        return (
+                          <td
+                            key={`skel-${rIdx}-${col.key}`}
+                            style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                            className="p-2.5 border-b border-r border-zinc-200/80 dark:border-zinc-800/80"
+                          >
+                            <div
+                              className="h-3.5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-md"
+                              style={{ width: `${widthPercent}%` }}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="p-2.5 text-center border-b border-zinc-200/80 dark:border-zinc-800/80">
+                        <div className="w-8 h-3.5 bg-zinc-200 dark:bg-zinc-800/80 rounded mx-auto" />
+                      </td>
+                    </tr>
+                  ))
+                ) : filteredEntries.length === 0 ? (
                   <tr>
                     <td colSpan={columns.length + 2} className="py-20 text-center text-zinc-400 dark:text-zinc-500">
                       <div className="flex flex-col items-center justify-center gap-2">
@@ -1928,7 +1955,6 @@ export const DailyLogView: React.FC = () => {
               </tbody>
             </table>
           </div>
-        )}
       </div>
 
       {/* ─── Bottom Sheet Tabs (Month Selector) ─── */}

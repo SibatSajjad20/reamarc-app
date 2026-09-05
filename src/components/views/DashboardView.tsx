@@ -117,38 +117,39 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // Load Daily Log Data (Skipped for Operations)
   const loadDailyLogs = useCallback(async () => {
     if (isOperations) return;
-    try {
-      setIsLoadingDailyLog(true);
-      const [todayRes, yesterdayRes, targetRes] = await Promise.allSettled([
-        dailyLogService.getEntries({
-          start_date: todayIso,
-          end_date: todayIso,
-          user_id: user?.id,
-          limit: 100,
-        }),
-        dailyLogService.getEntries({
-          start_date: yesterdayIso,
-          end_date: yesterdayIso,
-          user_id: user?.id,
-          limit: 100,
-        }),
-        dailyLogService.getDayTarget(),
-      ]);
+    setIsLoadingDailyLog(true);
 
-      if (todayRes.status === 'fulfilled') {
-        setTodayLogEntries(todayRes.value || []);
-      }
-      if (yesterdayRes.status === 'fulfilled') {
-        setYesterdayLogEntries(yesterdayRes.value || []);
-      }
-      if (targetRes.status === 'fulfilled') {
-        setLogFollowUps(targetRes.value.follow_ups || []);
-      }
-    } catch (err) {
-      console.error('Failed to load dashboard daily logs:', err);
-    } finally {
-      setIsLoadingDailyLog(false);
-    }
+    // 1. Fetch entries fast to immediately show submitted/pending status (<200ms)
+    const entriesPromise = dailyLogService
+      .getEntries({
+        start_date: yesterdayIso,
+        end_date: todayIso,
+        user_id: user?.id,
+        limit: 100,
+      })
+      .then((allEntries) => {
+        const entries = allEntries || [];
+        setTodayLogEntries(entries.filter((e) => e.date === todayIso));
+        setYesterdayLogEntries(entries.filter((e) => e.date === yesterdayIso));
+      })
+      .catch((err) => {
+        console.error('Failed to load dashboard daily log entries:', err);
+      })
+      .finally(() => {
+        setIsLoadingDailyLog(false);
+      });
+
+    // 2. Fetch follow-ups in background without delaying main status card
+    const targetPromise = dailyLogService
+      .getDayTarget()
+      .then((target) => {
+        setLogFollowUps(target?.follow_ups || []);
+      })
+      .catch((err) => {
+        console.error('Failed to load dashboard day target:', err);
+      });
+
+    await Promise.allSettled([entriesPromise, targetPromise]);
   }, [todayIso, yesterdayIso, user?.id, isOperations]);
 
   useEffect(() => {
@@ -299,7 +300,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
                 {/* Status Display */}
                 <div className="pt-5 space-y-4">
-                  {todayOff.isOff ? (
+                  {isLoadingDailyLog ? (
+                    <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 animate-pulse space-y-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-5 h-5 rounded-full bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded-md w-44" />
+                      </div>
+                      <div className="h-3 bg-zinc-200/70 dark:bg-zinc-800/60 rounded-md w-5/6 ml-7" />
+                      <div className="h-3 bg-zinc-200/70 dark:bg-zinc-800/60 rounded-md w-2/3 ml-7" />
+                    </div>
+                  ) : todayOff.isOff ? (
                     <OffDayBanner info={todayOff} date={todayIso} />
                   ) : isTodayLogSubmitted ? (
                     <div className="p-4 rounded-xl bg-emerald-50/80 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/50 flex items-start gap-3">
@@ -329,7 +339,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   )}
 
                   {/* Missed Yesterday Notice */}
-                  {logFollowUps && logFollowUps.length > 0 && (
+                  {!isLoadingDailyLog && logFollowUps && logFollowUps.length > 0 && (
                     <div className="p-3 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 space-y-2">
                       <p className="text-xs font-bold text-indigo-900 dark:text-indigo-200">Requests</p>
                       {logFollowUps.map((fu) => (
@@ -351,7 +361,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                     </div>
                   )}
 
-                  {isYesterdayMissed && (
+                  {!isLoadingDailyLog && isYesterdayMissed && (
                     <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 flex items-center justify-between text-xs text-rose-800 dark:text-rose-300">
                       <span className="flex items-center gap-2">
                         <AlertTriangle className="w-4 h-4 text-rose-600 dark:text-rose-400" />
@@ -411,59 +421,73 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
               {/* 4 Metrics Grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-5">
-                <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                    Present Days
-                  </span>
-                  <span className="text-base font-extrabold font-numeric text-zinc-900 dark:text-zinc-100">
-                    {daysPresent} / {totalWorkingDays}
-                  </span>
-                </div>
+                {isLoadingTimesheet ? (
+                  Array.from({ length: 4 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center animate-pulse space-y-2.5"
+                    >
+                      <div className="h-2.5 bg-zinc-200 dark:bg-zinc-800 rounded w-16 mx-auto" />
+                      <div className="h-6 bg-zinc-200 dark:bg-zinc-800 rounded w-14 mx-auto" />
+                    </div>
+                  ))
+                ) : (
+                  <>
+                    <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                        Present Days
+                      </span>
+                      <span className="text-base font-extrabold font-numeric text-zinc-900 dark:text-zinc-100">
+                        {daysPresent} / {totalWorkingDays}
+                      </span>
+                    </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                    Late Strikes
-                  </span>
-                  <span
-                    className={`text-base font-extrabold font-numeric ${
-                      lateStrikes > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                    }`}
-                  >
-                    {lateStrikes}
-                  </span>
-                </div>
+                    <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                        Late Strikes
+                      </span>
+                      <span
+                        className={`text-base font-extrabold font-numeric ${
+                          lateStrikes > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                        }`}
+                      >
+                        {lateStrikes}
+                      </span>
+                    </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                    Leaves Taken
-                  </span>
-                  <span className="text-base font-extrabold font-numeric text-zinc-700 dark:text-zinc-300">
-                    {leavesTaken}d
-                  </span>
-                </div>
+                    <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                        Leaves Taken
+                      </span>
+                      <span className="text-base font-extrabold font-numeric text-zinc-700 dark:text-zinc-300">
+                        {leavesTaken}d
+                      </span>
+                    </div>
 
-                <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-                  <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                    Net Variance
-                  </span>
-                  <span
-                    className={`text-base font-extrabold font-numeric ${
-                      netVarianceFormatted.startsWith('+')
-                        ? 'text-emerald-600 dark:text-emerald-400'
-                        : netVarianceFormatted.startsWith('-')
-                        ? 'text-rose-600 dark:text-rose-400'
-                        : 'text-zinc-400'
-                    }`}
-                    title={netVarianceHelper || 'On expected hours'}
-                  >
-                    {netVarianceFormatted}
-                  </span>
-                  {netVarianceHelper && (
-                    <span className="block text-[10px] font-medium text-zinc-400 mt-0.5">
-                      ({netVarianceHelper})
-                    </span>
-                  )}
-                </div>
+                    <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
+                      <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
+                        Net Variance
+                      </span>
+                      <span
+                        className={`text-base font-extrabold font-numeric ${
+                          netVarianceFormatted.startsWith('+')
+                            ? 'text-emerald-600 dark:text-emerald-400'
+                            : netVarianceFormatted.startsWith('-')
+                            ? 'text-rose-600 dark:text-rose-400'
+                            : 'text-zinc-400'
+                        }`}
+                        title={netVarianceHelper || 'On expected hours'}
+                      >
+                        {netVarianceFormatted}
+                      </span>
+                      {netVarianceHelper && (
+                        <span className="block text-[10px] font-medium text-zinc-400 mt-0.5">
+                          ({netVarianceHelper})
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 

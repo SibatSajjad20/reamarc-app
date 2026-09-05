@@ -225,12 +225,18 @@ export const AttendanceView: React.FC = () => {
     setIsLoading(true);
     try {
       if (isManagementRole) {
+        // Priority 1: Load Daily Matrix & inquiries so UI renders immediately
         await Promise.allSettled([
           loadMatrix(matrixDate),
+          loadPendingInquiries(),
+        ]);
+        setIsLoading(false);
+
+        // Priority 2: Secondary tabs load in background without blocking screen
+        void Promise.allSettled([
           loadMonthlySummary(selectedYear, selectedMonth),
           loadRequests(),
           loadDirectoryMembers(),
-          loadPendingInquiries(),
         ]);
       } else {
         await Promise.allSettled([

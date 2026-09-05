@@ -473,7 +473,7 @@ async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] 
         try:
             recs = await db.attendance_records.find({
                 "user_id": uid,
-                "date": {"$regex": f"^{target_year_month}"},
+                "date": {"$gte": f"{target_year_month}-01", "$lte": f"{target_year_month}-31"},
             }).to_list(50)
 
             from app.services.leave_balance import EXCLUDED_UNDERTIME_STATUSES

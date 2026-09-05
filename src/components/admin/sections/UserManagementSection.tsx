@@ -11,7 +11,6 @@ import {
 } from 'lucide-react';
 import type { AdminMember } from '../../../types/admin';
 import { CustomSelect } from '../../ui/CustomSelect';
-import { LoadingScreen } from '../../ui/LoadingScreen';
 
 export const SYSTEM_DEPARTMENTS = [
   'Website',
@@ -195,7 +194,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
           <div className="flex items-center gap-2.5">
             <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">Team & Role Directory</h1>
             <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-              {filteredMembers.length} {filteredMembers.length === 1 ? 'user' : 'users'}
+              {isLoading ? (
+                <span className="inline-block w-10 h-3 bg-zinc-300 dark:bg-zinc-700 rounded animate-pulse align-middle" />
+              ) : (
+                `${filteredMembers.length} ${filteredMembers.length === 1 ? 'user' : 'users'}`
+              )}
             </span>
           </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
@@ -257,32 +260,62 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
 
       {/* Directory Table */}
       <div className="flex-1 overflow-y-auto p-5">
-        {isLoading ? (
-          <LoadingScreen message="Loading organization directory..." size={72} />
-        ) : filteredMembers.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
-              <Users className="w-6 h-6" />
-            </div>
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No members found</h3>
-            <p className="text-xs text-zinc-400 mt-1 max-w-sm">
-              Try adjusting your search query or department/role filters.
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
-                  <th className="py-3 px-4">Member</th>
-                  <th className="py-3 px-4">Role</th>
-                  <th className="py-3 px-4">Department</th>
-                  <th className="py-3 px-4">Contact</th>
-                  {canManageMembers && <th className="py-3 px-4 text-right">Actions</th>}
+        <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-xs overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                <th className="py-3 px-4">Member</th>
+                <th className="py-3 px-4">Role</th>
+                <th className="py-3 px-4">Department</th>
+                <th className="py-3 px-4">Contact</th>
+                {canManageMembers && <th className="py-3 px-4 text-right">Actions</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 text-xs">
+              {isLoading ? (
+                Array.from({ length: 12 }).map((_, idx) => (
+                  <tr key={`member-skeleton-${idx}`} className="animate-pulse">
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="space-y-1">
+                          <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                          <div className="h-2.5 w-36 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="h-5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="h-3.5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    {canManageMembers && (
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="h-6 w-14 bg-zinc-200 dark:bg-zinc-800 rounded-lg ml-auto" />
+                      </td>
+                    )}
+                  </tr>
+                ))
+              ) : filteredMembers.length === 0 ? (
+                <tr>
+                  <td colSpan={canManageMembers ? 5 : 4} className="py-20 text-center">
+                    <div className="flex flex-col items-center justify-center">
+                      <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
+                        <Users className="w-6 h-6" />
+                      </div>
+                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No members found</h3>
+                      <p className="text-xs text-zinc-400 mt-1 max-w-sm">
+                        Try adjusting your search query or department/role filters.
+                      </p>
+                    </div>
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 text-xs">
-                {filteredMembers.map((m) => {
+              ) : (
+                filteredMembers.map((m) => {
                   const initials = getInitials(m.full_name, m.email);
                   const isGlobalRole = m.role === 'admin' || m.role === 'hr' || m.role === 'operations';
 
@@ -356,11 +389,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       )}
                     </tr>
                   );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
