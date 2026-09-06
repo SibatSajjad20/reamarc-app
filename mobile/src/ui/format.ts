@@ -37,6 +37,15 @@ export function formatDisplayDate(iso: string) {
   });
 }
 
+export function formatHours(hours: number): string {
+  const totalMinutes = Math.round(Math.max(0, hours) * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (m === 0) return `${h}h`;
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
 export function formatTime(hhmm?: string | null) {
   if (!hhmm) return '—';
   return hhmm.slice(0, 5);

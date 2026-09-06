@@ -212,7 +212,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           : 'Short leave duration must be at least 30 minutes (0.5 hours).';
       }
       if (dur > 4.0) {
-        return `Short leave cannot exceed 4.0 hours (${dur}h requested). Please apply for a Full Leave.`;
+        return `Short leave cannot exceed 4 hours (${formatHours(dur)} requested). Please apply for a Full Leave.`;
       }
     } else if (activeTab === 'wfh') {
       const workdays = countWorkingDays(wfhStartDate, wfhEndDate);
@@ -621,10 +621,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                         </span>
                         <div className="flex items-baseline gap-2">
                           <span className="text-lg font-extrabold font-numeric text-amber-700 dark:text-amber-400">
-                            {earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0h 00m'}
-                          </span>
-                          <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-numeric">
-                            ({autoCalculatedHours}h)
+                            {earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0h'}
                           </span>
                         </div>
                       </div>
@@ -700,7 +697,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       Expected Return to Desk: <strong className="text-zinc-800 dark:text-zinc-200 font-numeric">{midShiftReturnTime}</strong>
                     </span>
                     <span className="text-[10px] text-zinc-500 font-medium">
-                      Adds {shortLeaveDuration}h to undertime if not made up
+                      Adds {formatHours(Number(shortLeaveDuration) || 0)} to undertime if not made up
                     </span>
                   </div>
                 </div>

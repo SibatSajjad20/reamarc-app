@@ -248,6 +248,7 @@ async def get_day_target(
         recent_workdays,
         person_day_is_leave,
         live_day_hours,
+        format_hours_hm,
     )
 
     user_role = current_user.get("role", "team_member")
@@ -340,7 +341,10 @@ async def get_day_target(
                 msg = f"Your reason for {item.get('date')} is waiting on {who}."
             else:
                 verb = "send a reason" if item.get("action_type") == "explain" else "add the missing time"
-                msg = f"{who} asked you to {verb} for {item.get('date')} — {logged_h}h logged vs {worked_h}h at work."
+                msg = (
+                    f"{who} asked you to {verb} for {item.get('date')} — "
+                    f"{format_hours_hm(logged_h)} logged vs {format_hours_hm(worked_h)} at work."
+                )
             follow_ups.append({
                 "date": item.get("date"),
                 "id": item.get("id"),

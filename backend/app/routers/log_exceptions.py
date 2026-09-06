@@ -28,6 +28,8 @@ from app.services.log_compliance import (
     signed_hours_gap,
     live_day_hours,
     apply_accepted_gap_state,
+    format_hours_hm,
+    people_noun,
 )
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
 from app.services.workdays import load_off_day_index, parse_iso_date, recent_company_workdays
@@ -802,13 +804,13 @@ async def get_operating_snapshot(
     noun = "this week" if range_key == "week" else ("today" if date_str == pkt_today() else f"on {date_str}")
     if range_key == "today" and date_str == pkt_today() and due_count == 0:
         summary = (
-            f"Today's shift has not started yet. {employees_expected} people expected — "
+            f"Today's shift has not started yet. {employees_expected} {people_noun(employees_expected)} expected — "
             "status waits until they check out."
         )
     else:
         summary = (
-            f"{logs_submitted} of {employees_expected} people logged {noun}. "
-            f"Team was at work {round(worked_hours, 1)}h and accounted for {round(logged_hours, 1)}h in the log."
+            f"{logs_submitted} of {employees_expected} {people_noun(employees_expected)} logged {noun}. "
+            f"Team was at work {format_hours_hm(worked_hours)} and accounted for {format_hours_hm(logged_hours)} in the log."
         )
 
     highlights: List[SnapshotHighlight] = []
@@ -817,7 +819,10 @@ async def get_operating_snapshot(
         top = mismatch[0]
         highlights.append(SnapshotHighlight(
             label="Biggest hours gap",
-            value=f"{top.get('full_name')} · {top.get('logged_hours')}h logged / {top.get('worked_hours') or top.get('expected_hours')}h at work",
+            value=(
+                f"{top.get('full_name')} · {format_hours_hm(top.get('logged_hours') or 0)} logged / "
+                f"{format_hours_hm(top.get('worked_hours') or top.get('expected_hours') or 0)} at work"
+            ),
             user_name=top.get("full_name"),
         ))
     highlights.append(SnapshotHighlight(label="Didn't log", value=str(missing_count)))

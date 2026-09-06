@@ -89,6 +89,21 @@ def signed_hours_gap(logged_hours: float, worked_hours: float) -> float:
     return round(float(logged_hours or 0) - float(worked_hours or 0), 2)
 
 
+def format_hours_hm(hours: float) -> str:
+    """Duration as Xh Ym (e.g. 79h 48m). Omits zero parts."""
+    total = int(round(max(0.0, float(hours or 0)) * 60))
+    h, m = divmod(total, 60)
+    if m == 0:
+        return f"{h}h"
+    if h == 0:
+        return f"{m}m"
+    return f"{h}h {m}m"
+
+
+def people_noun(count: int) -> str:
+    return "person" if int(count) == 1 else "people"
+
+
 def format_signed_gap_label(hours: float) -> str:
     total = abs(int(round(float(hours or 0) * 60)))
     sign = "+" if float(hours or 0) >= 0 else "-"
@@ -298,7 +313,7 @@ def classify_day_status(
             "type": "logged_without_attendance",
             "hours": logged_hours,
             "severity": "medium",
-            "message": f"Logged {logged_hours}h with no time in/out",
+            "message": f"Logged {format_hours_hm(logged_hours)} with no time in/out",
             "required_action": "review",
         })
         return "amber", exceptions
@@ -314,7 +329,7 @@ def classify_day_status(
             "type": "near_zero",
             "hours": round(baseline - logged_hours, 2),
             "severity": "high",
-            "message": f"{logged_hours}h logged vs {baseline}h at work",
+            "message": f"{format_hours_hm(logged_hours)} logged vs {format_hours_hm(baseline)} at work",
             "required_action": "explain",
         })
     elif abs(delta) > SMALL_GAP_HOURS:
@@ -323,7 +338,7 @@ def classify_day_status(
                 "type": "hours_mismatch",
                 "hours": round(-delta, 2),
                 "severity": "medium",
-                "message": f"{logged_hours}h logged / {baseline}h at work",
+                "message": f"{format_hours_hm(logged_hours)} logged / {format_hours_hm(baseline)} at work",
                 "required_action": "explain",
             })
         else:
@@ -331,7 +346,7 @@ def classify_day_status(
                 "type": "hours_mismatch",
                 "hours": delta,
                 "severity": "medium",
-                "message": f"{logged_hours}h logged / {baseline}h at work",
+                "message": f"{format_hours_hm(logged_hours)} logged / {format_hours_hm(baseline)} at work",
                 "required_action": "explain",
             })
 

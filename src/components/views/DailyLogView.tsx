@@ -1899,7 +1899,7 @@ export const DailyLogView: React.FC = () => {
                               <td
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                                title={`${hours} hrs`}
+                                title={formatHours(hours)}
                               >
                                 <span className="font-numeric text-xs font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
                                   {formatHours(hours)}

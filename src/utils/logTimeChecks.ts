@@ -18,10 +18,13 @@ export function hoursFromStartEnd(start?: string | null, end?: string | null): n
   return Math.round(((finish - startM) / 60) * 100) / 100;
 }
 
+/** UI tolerance: gaps under this are treated as minor / neutral. */
+export const GAP_NEUTRAL_HOURS = 0.5;
+
 export function formatHours(hours: number): string {
-  const safe = Math.max(0, hours);
-  const h = Math.floor(safe);
-  const m = Math.round((safe - h) * 60);
+  const totalMinutes = Math.round(Math.max(0, hours) * 60);
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
   if (m === 0) return `${h}h`;
   if (h === 0) return `${m}m`;
   return `${h}h ${m}m`;
@@ -31,6 +34,19 @@ export function formatSignedHours(hours: number): string {
   if (Math.abs(hours) < 0.01) return '0h';
   const sign = hours > 0 ? '+' : '−';
   return `${sign}${formatHours(Math.abs(hours))}`;
+}
+
+export function pluralize(n: number, singular: string, plural = `${singular}s`): string {
+  return Math.abs(n) === 1 ? singular : plural;
+}
+
+export type GapTone = 'none' | 'ok' | 'minor' | 'deficit' | 'surplus';
+
+export function gapTone(signedGap: number, comparable = true): GapTone {
+  if (!comparable) return 'none';
+  if (Math.abs(signedGap) < 0.01) return 'ok';
+  if (Math.abs(signedGap) < GAP_NEUTRAL_HOURS) return 'minor';
+  return signedGap < 0 ? 'deficit' : 'surplus';
 }
 
 export interface TimedLogSlice {

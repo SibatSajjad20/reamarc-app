@@ -31,6 +31,7 @@ import { getAttendanceMinDate } from '../../../constants/attendance';
 import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
 import { ShiftPatternModal } from './ShiftPatternModal';
 import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal } from '../../../utils/shiftAssignment';
+import { formatHours } from '../../../utils/logTimeChecks';
 
 const timeToMinutes = (value?: string | null) => {
   if (!value) return 0;
@@ -653,7 +654,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   <div>
                     <span className="text-zinc-400">Expected Work:</span>
                     <p className="font-bold font-numeric text-indigo-600 dark:text-indigo-400">
-                      {shift.expected_hours ?? shift.expected_work_hours ?? 8.0} hrs/day
+                      {formatHours(shift.expected_hours ?? shift.expected_work_hours ?? 8)} /day
                     </p>
                   </div>
                 </div>
@@ -1002,16 +1003,16 @@ export const AttendancePoliciesSection: React.FC = () => {
                         </div>
                         {utDeducted > 0 && (
                           <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                            -{utDeducted * 8}h settled
+                            -{formatHours(utDeducted * 8)} settled
                           </div>
                         )}
                       </td>
                       <td className="px-3 py-2">
                         <div className={`font-semibold ${carriedHours > 0 ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-400'}`}>
-                          {carriedHours}h
+                          {formatHours(carriedHours)}
                         </div>
                         <div className="text-[10px] text-zinc-400">
-                          {carriedHours > 0 ? `${(8 - carriedHours).toFixed(1)}h to next 1d cut` : 'Clean'}
+                          {carriedHours > 0 ? `${formatHours(8 - carriedHours)} to next 1d cut` : 'Clean'}
                         </div>
                       </td>
                       <td className="px-3 py-2">
@@ -1188,7 +1189,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                     Expected Work
                   </label>
                   <div className="h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center text-sm font-semibold font-numeric text-zinc-800 dark:text-zinc-200">
-                    {(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8).toFixed(2)} hrs
+                    {formatHours(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8)}
                   </div>
                   <p className="text-[10px] text-zinc-400 mt-1">
                     Shift span minus unpaid break

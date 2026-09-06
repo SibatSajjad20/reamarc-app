@@ -32,6 +32,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { getDeptBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
+import { formatHours } from '../../utils/logTimeChecks';
 import { useOffDays } from '../../hooks/useOffDays';
 import { OffDayBanner } from '../ui/OffDayBanner';
 
@@ -192,9 +193,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const sign = netVarianceFormatted.startsWith('+') ? 'overtime' : netVarianceFormatted.startsWith('-') ? 'undertime' : null;
     if (!sign) return null;
     const raw = netVarianceFormatted.replace(/^[+-]/, '');
-    const [hStr] = raw.split(':');
-    const hours = parseInt(hStr || '0', 10);
-    return `${hours} hrs ${sign}`;
+    const [hStr, mStr] = raw.split(':');
+    const hours = (parseInt(hStr || '0', 10) || 0) + (parseInt(mStr || '0', 10) || 0) / 60;
+    if (hours < 0.01) return null;
+    return `${formatHours(hours)} ${sign}`;
   }, [netVarianceFormatted]);
 
   return (
@@ -320,7 +322,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                         </h4>
                         <p className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">
                           You have logged <span className="font-bold">{todayLogEntries.length} tasks</span> totaling{' '}
-                          <span className="font-bold">{todayTotalHours} hours</span> for today.
+                          <span className="font-bold">{formatHours(todayTotalHours)}</span> for today.
                         </p>
                       </div>
                     </div>

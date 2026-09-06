@@ -24,6 +24,22 @@ import {
   classifyGpsFix,
   haversineMeters,
 } from '../../constants/officeLocation';
+import { formatHours } from '../../utils/logTimeChecks';
+import { CustomSelect } from '../ui/CustomSelect';
+
+const OVERTIME_CATEGORY_OPTIONS = [
+  { value: 'client_deadline', label: 'Client deadline' },
+  { value: 'deployment', label: 'Deployment / release' },
+  { value: 'meeting', label: 'Meeting ran late' },
+  { value: 'other', label: 'Other' },
+];
+
+const EARLY_CHECKOUT_CATEGORY_OPTIONS = [
+  { value: 'personal', label: 'Personal' },
+  { value: 'appointment', label: 'Appointment' },
+  { value: 'short_leave', label: 'Looks like short leave' },
+  { value: 'other', label: 'Other' },
+];
 
 const formatDistance = (meters: number | null): string => {
   if (meters === null || meters === undefined) return '--';
@@ -606,7 +622,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 {shift?.name || 'Assigned Shift'}
               </span>
               <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
-                {(shift?.expected_hours ?? shift?.expected_work_hours ?? 8.0)} hrs/day
+                {formatHours(shift?.expected_hours ?? shift?.expected_work_hours ?? 8)} /day
               </span>
             </div>
 
@@ -839,29 +855,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               className="space-y-3"
             >
               <div>
-                <label className="block text-[11px] font-bold text-zinc-500 uppercase mb-1">Category</label>
-                <select
+                <CustomSelect
+                  label="Category"
                   value={varianceCategory}
-                  onChange={(e) => setVarianceCategory(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200"
-                >
-                  <option value="">Select (optional)</option>
-                  {gateType === 'overtime' ? (
-                    <>
-                      <option value="client_deadline">Client deadline</option>
-                      <option value="deployment">Deployment / release</option>
-                      <option value="meeting">Meeting ran late</option>
-                      <option value="other">Other</option>
-                    </>
-                  ) : (
-                    <>
-                      <option value="personal">Personal</option>
-                      <option value="appointment">Appointment</option>
-                      <option value="short_leave">Looks like short leave</option>
-                      <option value="other">Other</option>
-                    </>
-                  )}
-                </select>
+                  onChange={setVarianceCategory}
+                  options={gateType === 'overtime' ? OVERTIME_CATEGORY_OPTIONS : EARLY_CHECKOUT_CATEGORY_OPTIONS}
+                  placeholder="Select (optional)"
+                />
               </div>
               {gateType === 'overtime' && (
                 <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">

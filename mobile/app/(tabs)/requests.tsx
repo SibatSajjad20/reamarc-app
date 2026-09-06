@@ -22,7 +22,7 @@ import { colors } from '../../src/theme';
 import { DateField, TimeField } from '../../src/ui/DateTimeField';
 import { StatusBadge } from '../../src/ui/StatusBadge';
 import { TruckLoader } from '../../src/ui/TruckLoader';
-import { formatDisplayDate } from '../../src/ui/format';
+import { formatDisplayDate, formatHours } from '../../src/ui/format';
 
 type RequestType = 'leave' | 'wfh' | 'short_leave' | 'regularization';
 type CorrectionTarget = 'both' | 'time_in' | 'time_out';
@@ -631,7 +631,7 @@ export default function RequestsScreen() {
                       {r.request_type === 'short_leave' && (
                         <View style={styles.detailBox}>
                           <Text style={styles.detailBoxText}>
-                            {r.short_leave_hours}h duration starting at {r.short_leave_start_time || '—'}
+                            {formatHours(Number(r.short_leave_hours) || 0)} duration starting at {r.short_leave_start_time || '—'}
                           </Text>
                         </View>
                       )}
@@ -907,7 +907,7 @@ export default function RequestsScreen() {
                       {r.request_type === 'short_leave' && (
                         <View style={styles.detailBox}>
                           <Text style={styles.detailBoxText}>
-                            {r.short_leave_hours}h duration starting at {r.short_leave_start_time || '—'}
+                            {formatHours(Number(r.short_leave_hours) || 0)} duration starting at {r.short_leave_start_time || '—'}
                           </Text>
                         </View>
                       )}
@@ -1051,7 +1051,7 @@ export default function RequestsScreen() {
                   {tab === 'leave' || tab === 'wfh'
                     ? `${formatDisplayDate(start)}${start !== end ? ` to ${formatDisplayDate(end)}` : ''}`
                     : tab === 'short_leave'
-                    ? `${hours}h duration starting at ${startTime}`
+                    ? `${formatHours(Number(hours) || 0)} duration starting at ${startTime}`
                     : `${formatDisplayDate(start)} · ${
                         correctionTarget === 'both'
                           ? 'Both In & Out'

@@ -27,6 +27,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { isFuturePktClockTime } from '../../constants/attendance';
+import { formatHours } from '../../utils/logTimeChecks';
 import {
   canDeleteLeaveRequest,
   canReviewLeaveRequest,
@@ -326,7 +327,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
       case 'short_leave':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-            <Clock className="w-3 h-3" /> Short Leave ({req.short_leave_duration_hours || 2}h)
+            <Clock className="w-3 h-3" /> Short Leave ({formatHours(req.short_leave_duration_hours || 2)})
           </span>
         );
       case 'wfh':
@@ -677,7 +678,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                             <p className="font-semibold">{req.start_date}</p>
                             <p className="text-[10px] text-zinc-400 font-numeric">
                               {req.short_leave_start_time}
-                              {req.short_leave_end_time ? ` → ${req.short_leave_end_time}` : ''} ({req.short_leave_duration_hours}h duration)
+                              {req.short_leave_end_time ? ` → ${req.short_leave_end_time}` : ''} ({formatHours(req.short_leave_duration_hours || 0)} duration)
                             </p>
                           </div>
                         ) : req.request_type === 'regularization' ? (
