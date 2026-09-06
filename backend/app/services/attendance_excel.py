@@ -184,7 +184,11 @@ async def generate_multi_tab_attendance_workbook(
                 working_saturdays_set.add(ev_date)
 
     # 3. Company-wide working days (fallback); per-employee uses joining floor below
-    total_working_days = await attendance_service.calculate_month_working_days(year, month)
+    from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start
+    min_date = get_effective_start_date()
+    total_working_days = attendance_service.compute_month_working_days_sync(
+        year, month, holidays_set, working_saturdays_set, min_date
+    )
 
     # 4. Fetch Attendance Records and Leaves for all users for this month
     records_by_user = defaultdict(list)
@@ -338,8 +342,8 @@ async def generate_multi_tab_attendance_workbook(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
         employee_start = get_employee_attendance_start(u)
-        emp_working_days = await attendance_service.calculate_month_working_days(
-            year, month, employee_start=employee_start
+        emp_working_days = attendance_service.compute_month_working_days_sync(
+            year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
         )
         if emp_working_days <= 0:
             continue

@@ -321,24 +321,32 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  // Main refresh trigger
+  // User-initiated manual refresh trigger (clears all caches and forces fresh fetch)
   const handleRefreshAll = useCallback(async () => {
     attendanceService.clearAllCaches();
     setIsLoading(true);
     try {
       if (isManagementRole) {
-        // Priority 1: Load Daily Matrix & inquiries so UI renders immediately
+        if (activeTab === 'punctuality-hub') {
+          await loadMonthlySummary(
+            selectedYear,
+            selectedMonth,
+            selectedDepartment !== 'All' ? selectedDepartment : undefined,
+            true
+          );
+        } else if (activeTab === 'employee-timesheets' && selectedEmployeeId) {
+          await loadEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth, true);
+        } else {
+          await loadMatrix(
+            matrixDate,
+            selectedDepartment !== 'All' ? selectedDepartment : undefined,
+            true
+          );
+        }
         await Promise.allSettled([
-          loadMatrix(matrixDate, selectedDepartment !== 'All' ? selectedDepartment : undefined, true),
-          loadPendingInquiries(),
-        ]);
-        setIsLoading(false);
-
-        // Priority 2: Secondary tabs load in background without blocking screen
-        void Promise.allSettled([
-          loadMonthlySummary(selectedYear, selectedMonth, selectedDepartment !== 'All' ? selectedDepartment : undefined, true),
           loadRequests(),
           loadDirectoryMembers(),
+          loadPendingInquiries(),
         ]);
       } else {
         await Promise.allSettled([
@@ -352,9 +360,12 @@ export const AttendanceView: React.FC = () => {
     }
   }, [
     isManagementRole,
+    activeTab,
+    selectedEmployeeId,
     loadTimesheet,
     loadMatrix,
     loadMonthlySummary,
+    loadEmployeeTimesheet,
     loadRequests,
     loadDirectoryMembers,
     loadPendingInquiries,
@@ -364,9 +375,58 @@ export const AttendanceView: React.FC = () => {
     matrixDate,
   ]);
 
-  // Initial load on mount
+  // Initial load on mount - Cache-first (NEVER clears cache on mount!)
   useEffect(() => {
-    handleRefreshAll();
+    const init = async () => {
+      try {
+        if (isManagementRole) {
+          const cachedMatrix = attendanceService.getCachedDailyMatrix(
+            matrixDate,
+            selectedDepartment !== 'All' ? selectedDepartment : undefined
+          );
+          if (cachedMatrix) {
+            setMatrixData(cachedMatrix.data);
+            setIsLoading(false);
+          } else {
+            setIsLoading(true);
+          }
+
+          await Promise.allSettled([
+            loadMatrix(
+              matrixDate,
+              selectedDepartment !== 'All' ? selectedDepartment : undefined,
+              false
+            ),
+            loadPendingInquiries(),
+          ]);
+          setIsLoading(false);
+
+          void Promise.allSettled([
+            loadRequests(),
+            loadDirectoryMembers(),
+          ]);
+        } else {
+          const cachedTs = attendanceService.getCachedMyTimesheet(selectedYear, selectedMonth);
+          if (cachedTs) {
+            setTimesheetData(cachedTs.data);
+            setIsLoading(false);
+          } else {
+            setIsLoading(true);
+          }
+
+          await Promise.allSettled([
+            loadTimesheet(selectedYear, selectedMonth, false),
+            loadRequests(),
+            loadPendingInquiries(),
+          ]);
+          setIsLoading(false);
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    void init();
   }, [isManagementRole]);
 
   useEffect(() => {
@@ -455,7 +515,7 @@ export const AttendanceView: React.FC = () => {
         selectedMonth,
         selectedDepartment !== 'All' ? selectedDepartment : undefined
       );
-    }, 200);
+    }, cached ? 1000 : 50);
 
     return () => {
       window.clearTimeout(timer);
@@ -635,7 +695,17 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 1: Daily Matrix */}
             <button
               type="button"
-              onClick={() => setActiveTab('daily-matrix')}
+              onClick={() => {
+                setActiveTab('daily-matrix');
+                const cached = attendanceService.getCachedDailyMatrix(
+                  matrixDate,
+                  selectedDepartment !== 'All' ? selectedDepartment : undefined
+                );
+                if (cached) {
+                  setMatrixData(cached.data);
+                  setIsLoadingMatrix(false);
+                }
+              }}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'daily-matrix'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -649,7 +719,18 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 2: Punctuality Hub */}
             <button
               type="button"
-              onClick={() => setActiveTab('punctuality-hub')}
+              onClick={() => {
+                setActiveTab('punctuality-hub');
+                const cached = attendanceService.getCachedMonthlySummary(
+                  selectedYear,
+                  selectedMonth,
+                  selectedDepartment !== 'All' ? selectedDepartment : undefined
+                );
+                if (cached) {
+                  setMonthlySummaryData(cached.data);
+                  setIsLoadingMonthlySummary(false);
+                }
+              }}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'punctuality-hub'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -663,7 +744,20 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 3: Individual employee timesheets */}
             <button
               type="button"
-              onClick={() => setActiveTab('employee-timesheets')}
+              onClick={() => {
+                setActiveTab('employee-timesheets');
+                if (selectedEmployeeId) {
+                  const cached = attendanceService.getCachedEmployeeTimesheet(
+                    selectedEmployeeId,
+                    selectedYear,
+                    selectedMonth
+                  );
+                  if (cached) {
+                    setEmployeeTimesheet(cached.data);
+                    setIsLoadingTimesheet(false);
+                  }
+                }
+              }}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'employee-timesheets'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -825,8 +919,13 @@ export const AttendanceView: React.FC = () => {
                 selectedDepartment={selectedDepartment}
                 onDepartmentChange={(dept) => {
                   setSelectedDepartment(dept);
+                  const cached = attendanceService.getCachedMonthlySummary(selectedYear, selectedMonth, dept);
+                  if (cached) {
+                    setMonthlySummaryData(cached.data);
+                    setIsLoadingMonthlySummary(false);
+                  }
                 }}
-                isLoading={isLoading || isLoadingMonthlySummary}
+                isLoading={isLoadingMonthlySummary}
                 onExportExcel={handleExportExcel}
                 isExporting={isExporting}
                 onSelectEmployee={(userId) => {

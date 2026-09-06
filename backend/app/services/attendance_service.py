@@ -2723,6 +2723,54 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
 # 6. DAILY MATRIX & MONTHLY PUNCTUALITY COMMAND CENTER
 # ──────────────────────────────────────────────────────────
 
+def compute_month_working_days_sync(
+    year: int,
+    month: int,
+    holidays_set: set,
+    working_saturdays_set: set,
+    effective_start_date: str,
+    employee_start: Optional[str] = None,
+) -> int:
+    """
+    Synchronous calculation of working days in a month using pre-fetched holidays and overrides.
+    Zero database calls; executes in microseconds.
+    """
+    num_days = calendar.monthrange(year, month)[1]
+    min_date = effective_start_date or ""
+    if employee_start and employee_start > min_date:
+        min_date = employee_start
+    start_day = 1
+    month_prefix = f"{year:04d}-{month:02d}"
+    if min_date and min_date.startswith(month_prefix):
+        start_day = int(min_date[-2:])
+    elif min_date and min_date > f"{month_prefix}-{num_days:02d}":
+        return 0
+
+    working_days_count = 0
+    for day in range(start_day, num_days + 1):
+        cur_date = date(year, month, day)
+        date_str = cur_date.strftime("%Y-%m-%d")
+        if min_date and date_str < min_date:
+            continue
+
+        if date_str in working_saturdays_set:
+            working_days_count += 1
+            continue
+
+        if date_str in holidays_set:
+            continue
+
+        if is_sunday_date(cur_date):
+            continue
+
+        if is_first_saturday_of_month(cur_date):
+            continue
+
+        working_days_count += 1
+
+    return max(0, working_days_count) if employee_start else max(1, working_days_count)
+
+
 async def calculate_month_working_days(
     year: int,
     month: int,
@@ -2753,39 +2801,11 @@ async def calculate_month_working_days(
             if ev.get("is_workday_override", False) or ev.get("event_type") == CalendarEventType.WORKING_SATURDAY.value:
                 working_saturdays_set.add(ev_date)
 
-    working_days_count = 0
     from app.services.attendance_golive import get_effective_start_date
     min_date = get_effective_start_date()
-    if employee_start and employee_start > min_date:
-        min_date = employee_start
-    start_day = 1
-    month_prefix = f"{year:04d}-{month:02d}"
-    if min_date.startswith(month_prefix):
-        start_day = int(min_date[-2:])
-    elif min_date > f"{month_prefix}-{num_days:02d}":
-        return 0
-    for day in range(start_day, num_days + 1):
-        cur_date = date(year, month, day)
-        date_str = cur_date.strftime("%Y-%m-%d")
-        if date_str < min_date:
-            continue
-
-        if date_str in working_saturdays_set:
-            working_days_count += 1
-            continue
-
-        if date_str in holidays_set:
-            continue
-
-        if is_sunday_date(cur_date):
-            continue
-
-        if is_first_saturday_of_month(cur_date):
-            continue
-
-        working_days_count += 1
-
-    return max(0, working_days_count) if employee_start else max(1, working_days_count)
+    return compute_month_working_days_sync(
+        year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
+    )
 
 
 async def get_daily_matrix(
@@ -3317,6 +3337,20 @@ async def get_monthly_punctuality_summary(
         if uid:
             records_by_user.setdefault(uid, []).append(r)
 
+    # Batch-load company calendar events once for this month (eliminates N+1 queries in user loop)
+    holidays_set = set()
+    working_saturdays_set = set()
+    month_events = await db.company_calendar.find(
+        {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}},
+        {"_id": 0}
+    ).to_list(100)
+    for ev in month_events:
+        ev_date = ev.get("date")
+        if ev.get("event_type") == CalendarEventType.HOLIDAY.value or ev.get("event_type") == "holiday":
+            holidays_set.add(ev_date)
+        if ev.get("is_workday_override", False) or ev.get("event_type") == CalendarEventType.WORKING_SATURDAY.value:
+            working_saturdays_set.add(ev_date)
+
     rows: List[MonthlyPunctualityRow] = []
 
     for u in users:
@@ -3327,7 +3361,9 @@ async def get_monthly_punctuality_summary(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department")
 
-        total_working_days = await calculate_month_working_days(year, month, employee_start=employee_start)
+        total_working_days = compute_month_working_days_sync(
+            year, month, holidays_set, working_saturdays_set, min_date, employee_start=employee_start
+        )
         if total_working_days <= 0:
             continue
 
