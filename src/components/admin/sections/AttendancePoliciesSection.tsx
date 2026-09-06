@@ -866,28 +866,6 @@ export const AttendancePoliciesSection: React.FC = () => {
       {/* ─── TAB: LEAVE QUOTAS ─── */}
       {activeTab === 'leaves' && (
         <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-xs text-indigo-900 dark:text-indigo-200 space-y-1.5">
-            <div className="font-bold text-sm text-indigo-950 dark:text-indigo-100">
-              Company Leave Policy & Monthly Settlement Rules
-            </div>
-            <p>
-              Only <strong>3 leave types</strong> are supported: <strong>Annual Leave (14 days quota)</strong>, <strong>Sick Leave (8 days quota)</strong>, and <strong>Short Leave</strong>.
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-[11px]">
-              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
-                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">1. Short Leave Undertime</span>
-                Leaving early on a short leave counts departure time off effective hours as <strong>undertime</strong> for that day (no direct 0.5d leave deduction).
-              </div>
-              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
-                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">2. Monthly Net Variance</span>
-                Monthly Overtime offsets Undertime. If net variance is ≥ 0, overtime is paid monthly (never pays past debt). If negative, net deficit carries forward.
-              </div>
-              <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
-                <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">3. 8h Undertime = 1 Day</span>
-                Every <strong>8h (480 mins)</strong> of cumulative net undertime deficit automatically deducts <strong>1 Annual Leave</strong> for <strong>contract</strong> employees. Probation employees are excluded from this leave-quota list (undertime is not deducted from leave). Exceeding 14 days shows negative quota for year-end settlement.
-              </div>
-            </div>
-          </div>
           {isLoadingLeaveBalances ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-400 dark:text-zinc-500">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
