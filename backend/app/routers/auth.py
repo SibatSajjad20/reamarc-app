@@ -84,6 +84,8 @@ def _build_user_response(user_doc: dict) -> dict:
         "role": role_str,
         "department": user_doc.get("department"),
         "designation": user_doc.get("designation"),
+        "joining_date": user_doc.get("joining_date"),
+        "employment_type": user_doc.get("employment_type") or "contract",
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
     }

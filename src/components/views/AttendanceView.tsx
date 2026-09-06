@@ -79,16 +79,30 @@ export const AttendanceView: React.FC = () => {
   const [attendanceMinDate, setAttendanceMinDate] = useState<string>(getAttendanceMinDate());
   const [selectedDepartment, setSelectedDepartment] = useState<string>('All');
 
-  // Loading States
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Loading States - If already in session cache, do not show full-page blocking loader!
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    if (isManagementRole) {
+      return !attendanceService.getCachedDailyMatrix(getTodayIso(), 'All');
+    }
+    const d = new Date();
+    return !attendanceService.getCachedMyTimesheet(d.getFullYear(), d.getMonth() + 1);
+  });
   const [isLoadingTimesheet, setIsLoadingTimesheet] = useState<boolean>(false);
   useModuleLoadGate(isLoading);
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
-  // Data States
-  const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(null);
-  const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(null);
-  const [monthlySummaryData, setMonthlySummaryData] = useState<MonthlyPunctualityResponse | null>(null);
+  // Data States - Initialized immediately from session cache if returning from another module
+  const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(() => {
+    const d = new Date();
+    return attendanceService.getCachedMyTimesheet(d.getFullYear(), d.getMonth() + 1)?.data || null;
+  });
+  const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(() => {
+    return attendanceService.getCachedDailyMatrix(getTodayIso(), 'All')?.data || null;
+  });
+  const [monthlySummaryData, setMonthlySummaryData] = useState<MonthlyPunctualityResponse | null>(() => {
+    const d = new Date();
+    return attendanceService.getCachedMonthlySummary(d.getFullYear(), d.getMonth() + 1, 'All')?.data || null;
+  });
   const [requests, setRequests] = useState<AttendanceRequest[]>([]);
   const [directoryMembers, setDirectoryMembers] = useState<AdminMember[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
@@ -98,6 +112,9 @@ export const AttendanceView: React.FC = () => {
   const matrixAbortRef = useRef<AbortController | null>(null);
   const matrixReqIdRef = useRef(0);
   const [isLoadingMatrix, setIsLoadingMatrix] = useState<boolean>(false);
+  const monthlySummaryAbortRef = useRef<AbortController | null>(null);
+  const monthlySummaryReqIdRef = useRef(0);
+  const [isLoadingMonthlySummary, setIsLoadingMonthlySummary] = useState<boolean>(false);
 
   // Modal States
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
@@ -122,10 +139,24 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  const loadTimesheet = useCallback(async (y: number, m: number) => {
+  const loadTimesheet = useCallback(async (y: number, m: number, forceRefresh = false) => {
+    const cached = attendanceService.getCachedMyTimesheet(y, m);
+
+    if (cached && !forceRefresh) {
+      setTimesheetData(cached.data);
+
+      const now = new Date();
+      const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
+      const isExpired = Date.now() - cached.fetchedAt > 120_000;
+      if (!isCurrentMonth || !isExpired) {
+        return;
+      }
+    }
+
     try {
       const data = await attendanceService.getMyTimesheet(y, m);
       if (data) {
+        attendanceService.setCachedMyTimesheet(y, m, data);
         setTimesheetData(data);
       }
     } catch (err: any) {
@@ -133,16 +164,33 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  const loadMatrix = useCallback(async (date: string, dept?: string) => {
+  const loadMatrix = useCallback(async (date: string, dept?: string, forceRefresh = false) => {
+    const cached = attendanceService.getCachedDailyMatrix(date, dept);
+
+    if (cached && !forceRefresh) {
+      setMatrixData(cached.data);
+      setIsLoadingMatrix(false);
+
+      const todayIso = getTodayIso();
+      const isToday = date === todayIso;
+      const isExpired = Date.now() - cached.fetchedAt > 120_000;
+      if (!isToday || !isExpired) {
+        return;
+      }
+    } else if (!cached) {
+      setIsLoadingMatrix(true);
+    }
+
     matrixAbortRef.current?.abort();
     const controller = new AbortController();
     matrixAbortRef.current = controller;
     const reqId = ++matrixReqIdRef.current;
-    setIsLoadingMatrix(true);
+
     try {
       const data = await attendanceService.getDailyMatrix(date, dept, { signal: controller.signal });
       if (reqId !== matrixReqIdRef.current) return;
       if (data) {
+        attendanceService.setCachedDailyMatrix(date, data, dept);
         setMatrixData(data);
       }
     } catch (err: any) {
@@ -156,16 +204,49 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  const loadMonthlySummary = useCallback(async (y: number, m: number, dept?: string) => {
-    try {
-      const data = await attendanceService.getMonthlySummary(y, m, dept);
-      if (data) {
-        setMonthlySummaryData(data);
+  const loadMonthlySummary = useCallback(
+    async (y: number, m: number, dept?: string, forceRefresh = false) => {
+      const cached = attendanceService.getCachedMonthlySummary(y, m, dept);
+
+      if (cached && !forceRefresh) {
+        setMonthlySummaryData(cached.data);
+        setIsLoadingMonthlySummary(false);
+
+        // SWR: Only revalidate in background if it's the current month and data is older than 2 minutes
+        const now = new Date();
+        const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
+        const isExpired = Date.now() - cached.fetchedAt > 120_000;
+        if (!isCurrentMonth || !isExpired) {
+          return;
+        }
+      } else if (!cached) {
+        setIsLoadingMonthlySummary(true);
       }
-    } catch (err: any) {
-      console.error('Failed to load monthly punctuality summary:', err);
-    }
-  }, []);
+
+      monthlySummaryAbortRef.current?.abort();
+      const controller = new AbortController();
+      monthlySummaryAbortRef.current = controller;
+      const reqId = ++monthlySummaryReqIdRef.current;
+
+      try {
+        const data = await attendanceService.getMonthlySummary(y, m, dept, { signal: controller.signal });
+        if (reqId !== monthlySummaryReqIdRef.current) return;
+        if (data && data.year === y && data.month === m) {
+          attendanceService.setCachedMonthlySummary(y, m, data, dept);
+          setMonthlySummaryData(data);
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || err?.status === 499) return;
+        if (reqId !== monthlySummaryReqIdRef.current) return;
+        console.error('Failed to load monthly punctuality summary:', err);
+      } finally {
+        if (reqId === monthlySummaryReqIdRef.current) {
+          setIsLoadingMonthlySummary(false);
+        }
+      }
+    },
+    []
+  );
 
   const loadRequests = useCallback(async () => {
     try {
@@ -192,22 +273,42 @@ export const AttendanceView: React.FC = () => {
     }
   }, []);
 
-  const loadEmployeeTimesheet = useCallback(async (userId: string, y: number, m: number) => {
+  const loadEmployeeTimesheet = useCallback(async (userId: string, y: number, m: number, forceRefresh = false) => {
     if (!userId) {
       setEmployeeTimesheet(null);
       setIsLoadingTimesheet(false);
       return;
     }
+
+    const cached = attendanceService.getCachedEmployeeTimesheet(userId, y, m);
+
+    if (cached && !forceRefresh) {
+      setEmployeeTimesheet(cached.data);
+      setIsLoadingTimesheet(false);
+
+      const now = new Date();
+      const isCurrentMonth = y === now.getFullYear() && m === now.getMonth() + 1;
+      const isExpired = Date.now() - cached.fetchedAt > 120_000;
+      if (!isCurrentMonth || !isExpired) {
+        return;
+      }
+    } else if (!cached) {
+      setIsLoadingTimesheet(true);
+      setEmployeeTimesheet(null);
+    }
+
     timesheetAbortRef.current?.abort();
     const controller = new AbortController();
     timesheetAbortRef.current = controller;
     const reqId = ++timesheetReqIdRef.current;
-    setIsLoadingTimesheet(true);
-    setEmployeeTimesheet(null);
+
     try {
       const data = await attendanceService.getEmployeeTimesheet(userId, y, m, { signal: controller.signal });
       if (reqId !== timesheetReqIdRef.current) return;
-      setEmployeeTimesheet(data || null);
+      if (data) {
+        attendanceService.setCachedEmployeeTimesheet(userId, y, m, data);
+        setEmployeeTimesheet(data);
+      }
     } catch (err: any) {
       if (err?.name === 'AbortError' || err?.status === 499) return;
       if (reqId !== timesheetReqIdRef.current) return;
@@ -222,25 +323,26 @@ export const AttendanceView: React.FC = () => {
 
   // Main refresh trigger
   const handleRefreshAll = useCallback(async () => {
+    attendanceService.clearAllCaches();
     setIsLoading(true);
     try {
       if (isManagementRole) {
         // Priority 1: Load Daily Matrix & inquiries so UI renders immediately
         await Promise.allSettled([
-          loadMatrix(matrixDate),
+          loadMatrix(matrixDate, selectedDepartment !== 'All' ? selectedDepartment : undefined, true),
           loadPendingInquiries(),
         ]);
         setIsLoading(false);
 
         // Priority 2: Secondary tabs load in background without blocking screen
         void Promise.allSettled([
-          loadMonthlySummary(selectedYear, selectedMonth),
+          loadMonthlySummary(selectedYear, selectedMonth, selectedDepartment !== 'All' ? selectedDepartment : undefined, true),
           loadRequests(),
           loadDirectoryMembers(),
         ]);
       } else {
         await Promise.allSettled([
-          loadTimesheet(selectedYear, selectedMonth),
+          loadTimesheet(selectedYear, selectedMonth, true),
           loadRequests(),
           loadPendingInquiries(),
         ]);
@@ -258,6 +360,7 @@ export const AttendanceView: React.FC = () => {
     loadPendingInquiries,
     selectedYear,
     selectedMonth,
+    selectedDepartment,
     matrixDate,
   ]);
 
@@ -281,6 +384,23 @@ export const AttendanceView: React.FC = () => {
   useEffect(() => {
     if (!isManagementRole || !selectedEmployeeId) return;
     if (activeTab !== 'employee-timesheets') return;
+
+    const cached = attendanceService.getCachedEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth);
+    if (cached) {
+      setEmployeeTimesheet(cached.data);
+      setIsLoadingTimesheet(false);
+
+      const now = new Date();
+      const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
+      const isExpired = Date.now() - cached.fetchedAt > 120_000;
+      if (!isCurrentMonth || !isExpired) {
+        return;
+      }
+    } else {
+      setIsLoadingTimesheet(true);
+      setEmployeeTimesheet(null);
+    }
+
     const timer = window.setTimeout(() => {
       void loadEmployeeTimesheet(selectedEmployeeId, selectedYear, selectedMonth);
     }, 150);
@@ -293,6 +413,71 @@ export const AttendanceView: React.FC = () => {
     selectedMonth,
     loadEmployeeTimesheet,
   ]);
+
+  // Debounced load for Punctuality Command Center
+  useEffect(() => {
+    if (!isManagementRole) return;
+    if (activeTab !== 'punctuality-hub') return;
+
+    const deptMatch =
+      selectedDepartment === 'All'
+        ? !monthlySummaryData?.department || monthlySummaryData.department === 'All'
+        : monthlySummaryData?.department === selectedDepartment;
+
+    if (
+      monthlySummaryData &&
+      monthlySummaryData.year === selectedYear &&
+      monthlySummaryData.month === selectedMonth &&
+      deptMatch
+    ) {
+      return;
+    }
+
+    const cached = attendanceService.getCachedMonthlySummary(selectedYear, selectedMonth, selectedDepartment);
+
+    if (cached) {
+      setMonthlySummaryData(cached.data);
+      setIsLoadingMonthlySummary(false);
+
+      const now = new Date();
+      const isCurrentMonth = selectedYear === now.getFullYear() && selectedMonth === now.getMonth() + 1;
+      const isExpired = Date.now() - cached.fetchedAt > 120_000;
+      if (!isCurrentMonth || !isExpired) {
+        return;
+      }
+    } else {
+      setIsLoadingMonthlySummary(true);
+    }
+
+    const timer = window.setTimeout(() => {
+      void loadMonthlySummary(
+        selectedYear,
+        selectedMonth,
+        selectedDepartment !== 'All' ? selectedDepartment : undefined
+      );
+    }, 200);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [
+    isManagementRole,
+    activeTab,
+    selectedYear,
+    selectedMonth,
+    selectedDepartment,
+    loadMonthlySummary,
+    monthlySummaryData,
+  ]);
+
+  // Clean up abort controllers on unmount
+  useEffect(() => {
+    return () => {
+      matrixAbortRef.current?.abort();
+      timesheetAbortRef.current?.abort();
+      monthlySummaryAbortRef.current?.abort();
+    };
+  }, []);
 
   // Year / Month Change Handler
   const handleYearMonthChange = (year: number, month: number) => {
@@ -311,9 +496,24 @@ export const AttendanceView: React.FC = () => {
     }
     setSelectedYear(nextYear);
     setSelectedMonth(nextMonth);
-    if (isManagementRole) {
-      loadMonthlySummary(nextYear, nextMonth);
-    } else {
+
+    if (isManagementRole && activeTab === 'punctuality-hub') {
+      const cached = attendanceService.getCachedMonthlySummary(nextYear, nextMonth, selectedDepartment);
+      if (cached) {
+        setMonthlySummaryData(cached.data);
+        setIsLoadingMonthlySummary(false);
+      }
+    } else if (isManagementRole && activeTab === 'employee-timesheets' && selectedEmployeeId) {
+      const cached = attendanceService.getCachedEmployeeTimesheet(selectedEmployeeId, nextYear, nextMonth);
+      if (cached) {
+        setEmployeeTimesheet(cached.data);
+        setIsLoadingTimesheet(false);
+      }
+    } else if (!isManagementRole) {
+      const cached = attendanceService.getCachedMyTimesheet(nextYear, nextMonth);
+      if (cached) {
+        setTimesheetData(cached.data);
+      }
       loadTimesheet(nextYear, nextMonth);
     }
   };
@@ -577,15 +777,25 @@ export const AttendanceView: React.FC = () => {
                 selectedDate={matrixDate}
                 onDateChange={(d) => {
                   setMatrixDate(d);
+                  const cached = attendanceService.getCachedDailyMatrix(d, selectedDepartment);
+                  if (cached) {
+                    setMatrixData(cached.data);
+                    setIsLoadingMatrix(false);
+                  }
                   loadMatrix(d, selectedDepartment);
                 }}
                 selectedDepartment={selectedDepartment}
                 onDepartmentChange={(dept) => {
                   setSelectedDepartment(dept);
+                  const cached = attendanceService.getCachedDailyMatrix(matrixDate, dept);
+                  if (cached) {
+                    setMatrixData(cached.data);
+                    setIsLoadingMatrix(false);
+                  }
                   loadMatrix(matrixDate, dept);
                 }}
                 isLoading={isLoading || isLoadingMatrix}
-                onRefresh={() => loadMatrix(matrixDate, selectedDepartment)}
+                onRefresh={() => loadMatrix(matrixDate, selectedDepartment, true)}
                 canEditOverride={isAdmin || isHR || isOperations || user?.role === 'team_lead'}
                 minDate={attendanceMinDate}
                 onSelectEmployee={(userId) => {
@@ -593,6 +803,13 @@ export const AttendanceView: React.FC = () => {
                   const [y, m] = matrixDate.split('-').map(Number);
                   if (y) setSelectedYear(y);
                   if (m) setSelectedMonth(m);
+                  const targetYear = y || selectedYear;
+                  const targetMonth = m || selectedMonth;
+                  const cached = attendanceService.getCachedEmployeeTimesheet(userId, targetYear, targetMonth);
+                  if (cached) {
+                    setEmployeeTimesheet(cached.data);
+                    setIsLoadingTimesheet(false);
+                  }
                   setActiveTab('employee-timesheets');
                 }}
               />
@@ -608,13 +825,17 @@ export const AttendanceView: React.FC = () => {
                 selectedDepartment={selectedDepartment}
                 onDepartmentChange={(dept) => {
                   setSelectedDepartment(dept);
-                  loadMonthlySummary(selectedYear, selectedMonth, dept);
                 }}
-                isLoading={isLoading}
+                isLoading={isLoading || isLoadingMonthlySummary}
                 onExportExcel={handleExportExcel}
                 isExporting={isExporting}
                 onSelectEmployee={(userId) => {
                   setSelectedEmployeeId(userId);
+                  const cached = attendanceService.getCachedEmployeeTimesheet(userId, selectedYear, selectedMonth);
+                  if (cached) {
+                    setEmployeeTimesheet(cached.data);
+                    setIsLoadingTimesheet(false);
+                  }
                   setActiveTab('employee-timesheets');
                 }}
               />
@@ -635,7 +856,14 @@ export const AttendanceView: React.FC = () => {
                             <button
                               key={m.id}
                               type="button"
-                              onClick={() => setSelectedEmployeeId(m.id)}
+                              onClick={() => {
+                                setSelectedEmployeeId(m.id);
+                                const cached = attendanceService.getCachedEmployeeTimesheet(m.id, selectedYear, selectedMonth);
+                                if (cached) {
+                                  setEmployeeTimesheet(cached.data);
+                                  setIsLoadingTimesheet(false);
+                                }
+                              }}
                               className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 ${
                                 selected
                                   ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
@@ -666,6 +894,9 @@ export const AttendanceView: React.FC = () => {
                     readOnly
                     allowHistoryMonths
                     employeeId={selectedEmployeeId}
+                    joiningDate={
+                      directoryMembers.find((m) => m.id === selectedEmployeeId)?.joining_date
+                    }
                     canInquireMissedPunch={isAdmin || isHR || isOperations}
                     employeeName={
                       employeeTimesheet?.employee_name ||
@@ -703,6 +934,7 @@ export const AttendanceView: React.FC = () => {
                 onYearMonthChange={handleYearMonthChange}
                 isLoading={isLoading}
                 allowHistoryMonths
+                joiningDate={user?.joining_date}
                 onOpenRegularizationModal={(record) =>
                   handleOpenRequestModal('regularization', record)
                 }

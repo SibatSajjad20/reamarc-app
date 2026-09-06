@@ -24,6 +24,30 @@ export function getAugust2026StartDay(now: Date = new Date()): number {
   return Number(getAttendanceMinDate(now).slice(-2));
 }
 
+/** First calendar day of a month that attendance should render for this employee. */
+export function getTimesheetStartDay(
+  year: number,
+  month: number,
+  joiningDate?: string | null,
+  now: Date = new Date(),
+): number {
+  const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const companyMin = getAttendanceMinDate(now);
+  let floor = companyMin;
+  const joining = (joiningDate || '').trim();
+  if (joining && joining > floor) {
+    floor = joining;
+  }
+  if (floor > `${monthPrefix}-${String(daysInMonth).padStart(2, '0')}`) {
+    return daysInMonth + 1; // no days in this month
+  }
+  if (floor.startsWith(monthPrefix)) {
+    return Number(floor.slice(-2));
+  }
+  return 1;
+}
+
 export function getPktNowParts(now: Date = new Date()): { date: string; hour: number; minute: number } {
   const parts = Object.fromEntries(
     new Intl.DateTimeFormat('en-GB', {

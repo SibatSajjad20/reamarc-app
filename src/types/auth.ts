@@ -19,6 +19,8 @@ export interface AuthUser {
   phone_number?: string;
   role: UserRole;
   department?: string;
+  joining_date?: string | null;
+  employment_type?: 'probation' | 'contract';
   is_active?: boolean;
 }
 

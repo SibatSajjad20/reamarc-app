@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import {
   Search,
   Download,
@@ -13,7 +13,6 @@ import type {
 } from '../../types/attendance';
 import { CustomSelect } from '../ui/CustomSelect';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
-import { LoadingScreen } from '../ui/LoadingScreen';
 
 interface MonthlyPunctualityCommandCenterProps {
   summaryData: MonthlyPunctualityResponse | null;
@@ -69,6 +68,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
   onSelectEmployee,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const lastSwitchTimeRef = useRef<number>(0);
 
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -76,8 +76,19 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
   const canGoPrev = selectedYear > 2026 || (selectedYear === 2026 && selectedMonth > 8);
   const canGoNext = selectedYear < currentYear || (selectedYear === currentYear && selectedMonth < currentMonth);
 
+  // Check if data is loading or belongs to a different month/year
+  const isDataLoading =
+    isLoading ||
+    !summaryData ||
+    summaryData.year !== selectedYear ||
+    summaryData.month !== selectedMonth;
+
+  // Rate-limited month navigation
   const handlePrevMonth = () => {
     if (!canGoPrev) return;
+    const nowTime = Date.now();
+    if (nowTime - lastSwitchTimeRef.current < 200) return;
+    lastSwitchTimeRef.current = nowTime;
     if (selectedMonth === 1) {
       onYearMonthChange(selectedYear - 1, 12);
     } else {
@@ -87,6 +98,9 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
   const handleNextMonth = () => {
     if (!canGoNext) return;
+    const nowTime = Date.now();
+    if (nowTime - lastSwitchTimeRef.current < 200) return;
+    lastSwitchTimeRef.current = nowTime;
     if (selectedMonth === 12) {
       onYearMonthChange(selectedYear + 1, 1);
     } else {
@@ -96,7 +110,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
   // Filtered Rows
   const filteredRows = useMemo(() => {
-    if (!summaryData?.rows) return [];
+    if (isDataLoading || !summaryData?.rows) return [];
     return summaryData.rows.filter((row) => {
       const rowDept = row.department || '';
       const matchesDept =
@@ -112,7 +126,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
       return matchesDept && matchesSearch;
     });
-  }, [summaryData, selectedDepartment, searchTerm]);
+  }, [summaryData, selectedDepartment, searchTerm, isDataLoading]);
 
   return (
     <div className="space-y-4">
@@ -205,43 +219,100 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
           <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
             Company-Wide Monthly Summary ({MONTH_NAMES[selectedMonth - 1]} {selectedYear})
-            {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
+            {isDataLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
           </h3>
           <span className="text-xs font-semibold text-zinc-500">
-            {filteredRows.length} employees listed
-            {onSelectEmployee ? ' · click a name to open timesheet' : ''}
+            {isDataLoading
+              ? 'Loading summary...'
+              : `${filteredRows.length} employees listed${onSelectEmployee ? ' · click a name to open timesheet' : ''}`}
           </span>
         </div>
 
-        {isLoading && !summaryData ? (
-          <LoadingScreen message="Loading monthly punctuality summary..." size={72} />
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
-                  <th className="py-3 px-4 w-10">#</th>
-                  <th className="py-3 px-4">Employee</th>
-                  <th className="py-3 px-4">Department & Shift</th>
-                  <th className="py-3 px-4 text-center">Days (Pres/Work)</th>
-                  <th className="py-3 px-4 text-center">Leaves</th>
-                  <th className="py-3 px-4 text-center">Late Strikes</th>
-                  <th className="py-3 px-4 text-center">Short Leaves</th>
-                  <th className="py-3 px-4 text-center">Missed</th>
-                  <th className="py-3 px-4">Overtime</th>
-                  <th className="py-3 px-4">Undertime</th>
-                  <th className="py-3 px-4">Net Variance</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
-                {filteredRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={12} className="py-12 text-center text-zinc-400">
-                      No punctuality summary records match current filters.
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs border-collapse">
+            <thead>
+              <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
+                <th className="py-3 px-4 w-10">#</th>
+                <th className="py-3 px-4">Employee</th>
+                <th className="py-3 px-4">Department & Shift</th>
+                <th className="py-3 px-4 text-center">Days (Pres/Work)</th>
+                <th className="py-3 px-4 text-center">Leaves</th>
+                <th className="py-3 px-4 text-center">Late Strikes</th>
+                <th className="py-3 px-4 text-center">Short Leaves</th>
+                <th className="py-3 px-4 text-center">Missed</th>
+                <th className="py-3 px-4">Overtime</th>
+                <th className="py-3 px-4">Undertime</th>
+                <th className="py-3 px-4">Net Variance</th>
+                <th className="py-3 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
+              {isDataLoading ? (
+                Array.from({ length: 8 }).map((_, idx) => (
+                  <tr key={`punctuality-skeleton-${idx}`} className="animate-pulse">
+                    {/* Index */}
+                    <td className="py-3.5 px-4 text-zinc-400">
+                      <div className="h-4 w-4 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    {/* Employee */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-7 h-7 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                        <div className="h-4 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      </div>
+                    </td>
+                    {/* Department & Shift */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="space-y-1">
+                        <div className="h-4 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
+                        <div className="h-3 w-16 bg-zinc-100 dark:bg-zinc-800/60 rounded" />
+                      </div>
+                    </td>
+                    {/* Days Pres / Work */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
+                    {/* Leaves */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="h-4 w-8 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
+                    {/* Late Strikes */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="h-4 w-8 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
+                    {/* Short Leaves */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="h-4 w-6 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
+                    {/* Missed */}
+                    <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                      <div className="h-4 w-6 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    </td>
+                    {/* Overtime */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    {/* Undertime */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    {/* Net Variance */}
+                    <td className="py-3.5 px-4 whitespace-nowrap">
+                      <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    </td>
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                      <div className="h-4 w-4 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
                     </td>
                   </tr>
-                ) : (
+                ))
+              ) : filteredRows.length === 0 ? (
+                <tr>
+                  <td colSpan={12} className="py-12 text-center text-zinc-400">
+                    No punctuality summary records match current filters.
+                  </td>
+                </tr>
+              ) : (
                   filteredRows.map((row, idx) => {
                     const initials = row.employee_name
                       .split(' ')
@@ -388,7 +459,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
               </tbody>
             </table>
           </div>
-        )}
       </div>
     </div>
   );

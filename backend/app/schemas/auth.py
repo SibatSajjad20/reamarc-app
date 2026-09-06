@@ -21,6 +21,8 @@ class UserResponse(BaseModel):
     role: str = "member"
     department: Optional[str] = None
     designation: Optional[str] = None
+    joining_date: Optional[str] = None
+    employment_type: Optional[str] = "contract"
     is_active: bool = True
     workspace_ids: List[str] = []
 

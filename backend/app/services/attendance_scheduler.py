@@ -224,7 +224,10 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
         try:
             # 1. Fetch all active internal users (excluding client accounts)
             user_query = {"is_active": True, "role": {"$nin": ["client", "CLIENT"]}}
-            users = await db.users.find(user_query, {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1}).to_list(1000)
+            users = await db.users.find(
+                user_query,
+                {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "joining_date": 1},
+            ).to_list(1000)
 
             # 2. Fetch existing attendance records for target_date
             existing_records = await db.attendance_records.find(
@@ -244,10 +247,15 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             ).to_list(1000)
             approved_leave_user_ids = {l["user_id"] for l in approved_leaves if l.get("user_id")}
 
+            from app.services.attendance_golive import get_employee_attendance_start
+
             # 4. Identify absentees: Active internal users with no attendance record and no approved leave/WFH
             for u in users:
                 u_id = u.get("id")
                 if not u_id:
+                    continue
+
+                if target_date < get_employee_attendance_start(u):
                     continue
 
                 if u_id in recorded_user_ids or u_id in approved_leave_user_ids:
@@ -352,10 +360,15 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
         ).to_list(1000)
         today_str = now_pkt.strftime("%Y-%m-%d")
         yesterday_str = (now_pkt.date() - timedelta(days=1)).isoformat()
+        from app.services.attendance_golive import ATTENDANCE_GO_LIVE_DATE, get_employee_attendance_start
         for user in users:
             uid = user.get("id")
             dept = user.get("department")
+            employee_start = get_employee_attendance_start(user)
             for check_date in (yesterday_str, today_str):
+                if check_date < ATTENDANCE_GO_LIVE_DATE or check_date < employee_start:
+                    skipped += 1
+                    continue
                 shift = await attendance_service.get_shift_for_user(uid, dept, check_date)
                 is_auto_wfh = await attendance_service.is_auto_wfh_for_date(uid, check_date)
 
@@ -469,6 +482,9 @@ async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] 
     for u in users:
         uid = u.get("id")
         if not uid:
+            continue
+        # Probation employees are excluded from leave-quota undertime settlement.
+        if str(u.get("employment_type") or "contract").lower() == "probation":
             continue
         try:
             recs = await db.attendance_records.find({

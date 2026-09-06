@@ -4,6 +4,7 @@ import type {
   MonthlyPunctualitySummary,
   AttendanceRecord,
 } from '../types/attendance';
+import { getTimesheetStartDay } from '../constants/attendance';
 
 const MONTH_NAMES = [
   'January',
@@ -240,8 +241,9 @@ export function exportMonthlyAttendanceWorkbook({
     ];
     empSheetData.push(empHeaders);
 
-    // Days 1 to daysInMonth
-    for (let d = 1; d <= daysInMonth; d++) {
+    // Days from attendance floor (go-live / joining) through end of month
+    const startDay = getTimesheetStartDay(year, month);
+    for (let d = startDay; d <= daysInMonth; d++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayDate = new Date(year, month - 1, d);
       const dayName = dayDate.toLocaleDateString('en-US', { weekday: 'short' });

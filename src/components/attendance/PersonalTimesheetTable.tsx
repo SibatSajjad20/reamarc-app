@@ -14,7 +14,7 @@ import type {
   MonthlyPunctualityRow,
   AttendanceStatus,
 } from '../../types/attendance';
-import { getAugust2026StartDay } from '../../constants/attendance';
+import { getTimesheetStartDay } from '../../constants/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 
@@ -27,6 +27,7 @@ interface PersonalTimesheetTableProps {
   isLoading?: boolean;
   employeeName?: string;
   employeeId?: string;
+  joiningDate?: string | null;
   canInquireMissedPunch?: boolean;
   readOnly?: boolean;
   onOpenRegularizationModal?: (record?: AttendanceRecord) => void;
@@ -57,6 +58,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
   isLoading = false,
   employeeName,
   employeeId,
+  joiningDate,
   canInquireMissedPunch = false,
   readOnly = false,
   onOpenRegularizationModal,
@@ -160,13 +162,17 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       return [];
     }
 
-    // Start day: August 2026 starts at go-live (21st after midnight; 19th while testing)
-    const startDay = (selectedYear === 2026 && selectedMonth === 8) ? getAugust2026StartDay() : 1;
+    // Start day: max(company go-live, employee joining date) within this month
+    const startDay = getTimesheetStartDay(selectedYear, selectedMonth, joiningDate);
 
     // End day: current active month shows day-by-day up to today; completed past months show full month
     let endDay = daysInMonth;
     if (selectedYear === currY && selectedMonth === currM) {
       endDay = Math.min(daysInMonth, currD);
+    }
+
+    if (startDay > endDay) {
+      return [];
     }
 
     const list = [];
@@ -188,7 +194,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       });
     }
     return list;
-  }, [selectedYear, selectedMonth, daysInMonth, recordMap]);
+  }, [selectedYear, selectedMonth, daysInMonth, recordMap, joiningDate]);
 
   // Helper for Status Badge styling
   const renderStatusBadge = (status: AttendanceStatus | string, lateMin: number) => {

@@ -9,6 +9,10 @@ class UserRole(str, Enum):
     CLIENT = "client"
     MEMBER = "team_member"
 
+class EmploymentType(str, Enum):
+    PROBATION = "probation"
+    CONTRACT = "contract"
+
 class Department(str, Enum):
     WEBSITE = "website"
     CREATIVE = "creative"

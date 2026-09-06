@@ -1,5 +1,7 @@
 import type { UserRole } from './auth';
 
+export type EmploymentType = 'probation' | 'contract';
+
 export interface AdminMember {
   id: string;
   email: string;
@@ -7,6 +9,10 @@ export interface AdminMember {
   role: UserRole;
   phone?: string;
   department?: string;
+  joining_date?: string | null;
+  employment_type?: EmploymentType;
+  probation_start_date?: string | null;
+  probation_end_date?: string | null;
   is_active: boolean;
   created_at?: string;
 }
@@ -19,6 +25,10 @@ export interface CreateMemberPayload {
   role: UserRole;
   phone?: string;
   department?: string;
+  joining_date: string;
+  employment_type?: EmploymentType;
+  probation_start_date?: string | null;
+  probation_end_date?: string | null;
   temporary_password?: string;
   send_invite_email?: boolean;
   is_active?: boolean;
@@ -33,6 +43,10 @@ export interface UpdateMemberPayload {
   password?: string;
   role?: UserRole;
   department?: string;
+  joining_date?: string;
+  employment_type?: EmploymentType;
+  probation_start_date?: string | null;
+  probation_end_date?: string | null;
   is_active?: boolean;
 }
 

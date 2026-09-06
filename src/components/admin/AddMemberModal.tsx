@@ -12,9 +12,11 @@ import {
   Loader2,
   Copy,
   Check,
+  CalendarDays,
+  Briefcase,
 } from 'lucide-react';
 import type { UserRole } from '../../types/auth';
-import type { CreateMemberPayload } from '../../types/admin';
+import type { CreateMemberPayload, EmploymentType } from '../../types/admin';
 
 export const DEPARTMENTS = [
   'Website',
@@ -62,6 +64,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>(defaultRole);
   const [department, setDepartment] = useState<string>('Website');
+  const [joiningDate, setJoiningDate] = useState('');
+  const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
+  const [probationStartDate, setProbationStartDate] = useState('');
+  const [probationEndDate, setProbationEndDate] = useState('');
   const [passwordMode, setPasswordMode] = useState<'invite' | 'manual'>('manual');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [copied, setCopied] = useState(false);
@@ -76,6 +82,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setPhone('');
       setRole(defaultRole === 'member' ? 'team_member' : defaultRole);
       setDepartment('Website');
+      const today = new Date().toISOString().slice(0, 10);
+      setJoiningDate(today);
+      setEmploymentType('contract');
+      setProbationStartDate(today);
+      setProbationEndDate('');
       setPasswordMode('manual');
       setTemporaryPassword(generateRandomPassword());
       setCopied(false);
@@ -134,6 +145,25 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setErrorMsg('Phone Number is compulsory');
       return;
     }
+    if (!joiningDate.trim()) {
+      setErrorMsg('Joining date is required');
+      return;
+    }
+    if (employmentType === 'probation') {
+      const start = (probationStartDate || joiningDate).trim();
+      if (!start) {
+        setErrorMsg('Probation start date is required');
+        return;
+      }
+      if (!probationEndDate.trim()) {
+        setErrorMsg('Probation end date is required');
+        return;
+      }
+      if (start > probationEndDate.trim()) {
+        setErrorMsg('Probation start must be on or before the end date');
+        return;
+      }
+    }
 
     const finalPassword = temporaryPassword.trim() || generateRandomPassword();
     if (passwordMode === 'manual' && finalPassword.length < 8) {
@@ -158,6 +188,11 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         phone: phone.trim(),
         role,
         department: deptValue,
+        joining_date: joiningDate.trim(),
+        employment_type: employmentType,
+        probation_start_date:
+          employmentType === 'probation' ? (probationStartDate.trim() || joiningDate.trim()) : null,
+        probation_end_date: employmentType === 'probation' ? probationEndDate.trim() : null,
         temporary_password: finalPassword,
         send_invite_email: passwordMode === 'invite',
         is_active: true,
@@ -332,6 +367,93 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs font-numeric"
             />
           </div>
+
+          {/* Joining date & employment type */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Joining Date <span className="text-rose-500">*</span></span>
+              </label>
+              <input
+                type="date"
+                required
+                value={joiningDate}
+                onChange={(e) => setJoiningDate(e.target.value)}
+                className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+              />
+              <p className="mt-1 text-[10px] text-zinc-400">Attendance starts from this date.</p>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Employment Type <span className="text-rose-500">*</span></span>
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { id: 'contract' as EmploymentType, label: 'Contract' },
+                  { id: 'probation' as EmploymentType, label: 'Probation' },
+                ]).map((opt) => {
+                  const isSelected = employmentType === opt.id;
+                  return (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setEmploymentType(opt.id);
+                        if (opt.id === 'probation' && !probationStartDate) {
+                          setProbationStartDate(joiningDate);
+                        }
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
+                        isSelected
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
+                          : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {employmentType === 'probation' && (
+            <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 space-y-3">
+              <p className="text-xs font-bold text-amber-800 dark:text-amber-300">Probation Period</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                    Start Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={probationStartDate || joiningDate}
+                    onChange={(e) => setProbationStartDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                    End Date <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={probationEndDate}
+                    min={probationStartDate || joiningDate}
+                    onChange={(e) => setProbationEndDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80">
+                Undertime during probation is not deducted from leave quotas.
+              </p>
+            </div>
+          )}
 
           {/* Initial Password & Credentials */}
           <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">

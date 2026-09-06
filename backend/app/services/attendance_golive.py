@@ -34,6 +34,42 @@ def get_effective_start_date(today: str | None = None) -> str:
     return ATTENDANCE_GO_LIVE_DATE if is_go_live_reached(today) else ATTENDANCE_TEST_START_DATE
 
 
+def get_employee_attendance_start(user: Dict[str, Any] | None, today: str | None = None) -> str:
+    """Per-employee floor: max(company go-live/test start, joining_date)."""
+    company = get_effective_start_date(today)
+    joining = str((user or {}).get("joining_date") or "").strip()
+    if joining and joining > company:
+        return joining
+    return company
+
+
+async def purge_pre_joining_attendance(user_id: str, joining_date: str) -> Dict[str, Any]:
+    """Delete attendance rows for a user before their joining_date."""
+    joining = (joining_date or "").strip()
+    if not user_id or not joining:
+        return {"purged": False, "attendance_deleted": 0, "reason": "missing_user_or_date"}
+
+    db = get_database()
+    if db is None:
+        return {"purged": False, "attendance_deleted": 0, "reason": "database_unavailable"}
+
+    result = await db.attendance_records.delete_many(
+        {"user_id": user_id, "date": {"$lt": joining}}
+    )
+    logger.info(
+        "[JoiningDate] Purged pre-%s attendance for user %s: deleted=%s",
+        joining,
+        user_id,
+        result.deleted_count,
+    )
+    return {
+        "purged": True,
+        "user_id": user_id,
+        "joining_date": joining,
+        "attendance_deleted": result.deleted_count,
+    }
+
+
 async def purge_pre_go_live_attendance(force: bool = False) -> Dict[str, Any]:
     """
     Deletes attendance (and closed test leave requests) before 21 Aug.

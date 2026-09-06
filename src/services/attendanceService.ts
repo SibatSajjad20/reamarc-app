@@ -24,7 +24,100 @@ import type {
   ShiftAssignment,
 } from '../types/attendance';
 
+export interface AttendanceCacheEntry<T> {
+  data: T;
+  fetchedAt: number;
+}
+
+/**
+ * Bounded LRU Cache to store session data in memory without causing memory leaks or pressure.
+ */
+class BoundedCache<T> {
+  private map = new Map<string, AttendanceCacheEntry<T>>();
+  private maxEntries: number;
+
+  constructor(maxEntries: number = 30) {
+    this.maxEntries = maxEntries;
+  }
+
+  public get(key: string): AttendanceCacheEntry<T> | undefined {
+    const entry = this.map.get(key);
+    if (entry) {
+      this.map.delete(key);
+      this.map.set(key, entry);
+    }
+    return entry;
+  }
+
+  public set(key: string, data: T): void {
+    if (this.map.has(key)) {
+      this.map.delete(key);
+    } else if (this.map.size >= this.maxEntries) {
+      const oldestKey = this.map.keys().next().value;
+      if (oldestKey !== undefined) {
+        this.map.delete(oldestKey);
+      }
+    }
+    this.map.set(key, { data, fetchedAt: Date.now() });
+  }
+
+  public delete(key: string): void {
+    this.map.delete(key);
+  }
+
+  public clear(): void {
+    this.map.clear();
+  }
+}
+
 class AttendanceService {
+  private monthlySummaryCache = new BoundedCache<MonthlyPunctualityResponse>(24);
+  private matrixCache = new BoundedCache<DailyMatrixResponse>(30);
+  private employeeTimesheetCache = new BoundedCache<PersonalTimesheetResponse>(50);
+  private myTimesheetCache = new BoundedCache<PersonalTimesheetResponse>(24);
+
+  public getCachedMonthlySummary(year: number, month: number, department?: string): AttendanceCacheEntry<MonthlyPunctualityResponse> | undefined {
+    const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
+    return this.monthlySummaryCache.get(`${year}-${month}-${deptKey}`);
+  }
+
+  public setCachedMonthlySummary(year: number, month: number, data: MonthlyPunctualityResponse, department?: string): void {
+    const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
+    this.monthlySummaryCache.set(`${year}-${month}-${deptKey}`, data);
+  }
+
+  public getCachedDailyMatrix(date: string, department?: string): AttendanceCacheEntry<DailyMatrixResponse> | undefined {
+    const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
+    return this.matrixCache.get(`${date}-${deptKey}`);
+  }
+
+  public setCachedDailyMatrix(date: string, data: DailyMatrixResponse, department?: string): void {
+    const deptKey = department && department !== 'All' ? department.toLowerCase() : 'all';
+    this.matrixCache.set(`${date}-${deptKey}`, data);
+  }
+
+  public getCachedEmployeeTimesheet(userId: string, year: number, month: number): AttendanceCacheEntry<PersonalTimesheetResponse> | undefined {
+    return this.employeeTimesheetCache.get(`${userId}-${year}-${month}`);
+  }
+
+  public setCachedEmployeeTimesheet(userId: string, year: number, month: number, data: PersonalTimesheetResponse): void {
+    this.employeeTimesheetCache.set(`${userId}-${year}-${month}`, data);
+  }
+
+  public getCachedMyTimesheet(year: number, month: number): AttendanceCacheEntry<PersonalTimesheetResponse> | undefined {
+    return this.myTimesheetCache.get(`${year}-${month}`);
+  }
+
+  public setCachedMyTimesheet(year: number, month: number, data: PersonalTimesheetResponse): void {
+    this.myTimesheetCache.set(`${year}-${month}`, data);
+  }
+
+  public clearAllCaches(): void {
+    this.monthlySummaryCache.clear();
+    this.matrixCache.clear();
+    this.employeeTimesheetCache.clear();
+    this.myTimesheetCache.clear();
+  }
   /**
    * Fetch current user's today attendance status, assigned shift, and WFH state
    */
@@ -103,11 +196,13 @@ class AttendanceService {
   public async getMonthlySummary(
     year: number,
     month: number,
-    department?: string
+    department?: string,
+    options?: RequestInit
   ): Promise<MonthlyPunctualityResponse> {
     const deptQuery = department && department !== 'All' ? `&department=${encodeURIComponent(department)}` : '';
     return apiClient.get<MonthlyPunctualityResponse>(
-      `/attendance/monthly-summary?year=${year}&month=${month}${deptQuery}`
+      `/attendance/monthly-summary?year=${year}&month=${month}${deptQuery}`,
+      options
     );
   }
 

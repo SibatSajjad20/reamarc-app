@@ -166,6 +166,9 @@ async def generate_multi_tab_attendance_workbook(
     start_of_month = f"{month_prefix}-01"
     end_of_month = f"{month_prefix}-{num_days:02d}"
 
+    from app.services.attendance_golive import get_employee_attendance_start
+    users = [u for u in users if get_employee_attendance_start(u) <= end_of_month]
+
     if db is not None:
         calendar_events = await db.company_calendar.find(
             {"date": {"$gte": start_of_month, "$lte": end_of_month}},
@@ -180,7 +183,7 @@ async def generate_multi_tab_attendance_workbook(
             if ev.get("is_workday_override") or ev_type in (CalendarEventType.WORKING_SATURDAY.value, "working_saturday"):
                 working_saturdays_set.add(ev_date)
 
-    # 3. Calculate working days in month
+    # 3. Company-wide working days (fallback); per-employee uses joining floor below
     total_working_days = await attendance_service.calculate_month_working_days(year, month)
 
     # 4. Fetch Attendance Records and Leaves for all users for this month
@@ -334,9 +337,18 @@ async def generate_multi_tab_attendance_workbook(
         u_id = u.get("id")
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
+        employee_start = get_employee_attendance_start(u)
+        emp_working_days = await attendance_service.calculate_month_working_days(
+            year, month, employee_start=employee_start
+        )
+        if emp_working_days <= 0:
+            continue
 
         shift = resolve_user_shift_fast(u_id, u_dept)
-        u_records = records_by_user.get(u_id, [])
+        u_records = [
+            r for r in records_by_user.get(u_id, [])
+            if str(r.get("date") or "") >= employee_start
+        ]
         shift_by_date: Dict[str, Any] = {}
 
         daily_dicts = []
@@ -365,16 +377,18 @@ async def generate_multi_tab_attendance_workbook(
                 "is_short_leave": (st in (AttendanceStatus.SHORT_LEAVE.value, "short_leave") or r.get("is_short_leave", False)),
             })
 
-        agg = calculate_monthly_aggregation(daily_dicts, total_working_days=total_working_days)
+        agg = calculate_monthly_aggregation(daily_dicts, total_working_days=emp_working_days)
         employee_aggregates[u_id] = {
             "agg": agg,
             "shift": shift,
             "shift_by_date": shift_by_date,
             "missed_punches": missed_punches_count,
+            "employee_start": employee_start,
+            "working_days": emp_working_days,
         }
 
         # Expected hours
-        expected_monthly_hours = round(total_working_days * float(shift.expected_hours), 2)
+        expected_monthly_hours = round(emp_working_days * float(shift.expected_hours), 2)
 
         # Totals accumulation
         tot_scheduled += agg.total_working_days
@@ -487,10 +501,13 @@ async def generate_multi_tab_attendance_workbook(
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
 
-        emp_data = employee_aggregates.get(u_id, {})
+        emp_data = employee_aggregates.get(u_id)
+        if not emp_data:
+            continue
         agg = emp_data.get("agg")
         shift = emp_data.get("shift") or resolve_user_shift_fast(u_id, u_dept)
         emp_shift_by_date = emp_data.get("shift_by_date", {})
+        employee_start = emp_data.get("employee_start") or get_employee_attendance_start(u)
 
         sheet_title = sanitize_sheet_title(u_name, used_sheet_titles)
         ws_emp = wb.create_sheet(title=sheet_title)
@@ -553,6 +570,9 @@ async def generate_multi_tab_attendance_workbook(
             cur_date = date(year, month, day_num)
             cur_date_str = cur_date.strftime("%Y-%m-%d")
             day_name = cur_date.strftime("%A")
+
+            if cur_date_str < employee_start:
+                continue
 
             rec = u_date_records.get(cur_date_str)
             leave = u_date_leaves.get(cur_date_str)

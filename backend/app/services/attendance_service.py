@@ -1447,6 +1447,10 @@ async def persist_auto_absent(
     if not user_id:
         return None
 
+    from app.services.attendance_golive import get_employee_attendance_start
+    if date_str < get_employee_attendance_start(user):
+        return None
+
     existing = await db.attendance_records.find_one(
         {"user_id": user_id, "date": date_str},
         {"_id": 0},
@@ -2449,8 +2453,9 @@ async def get_my_timesheet(
 
     records = []
     if db is not None:
-        from app.services.attendance_golive import get_effective_start_date
+        from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start
         min_date = get_effective_start_date()
+        employee_start = get_employee_attendance_start(user)
         assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
         for raw in await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100):
             try:
@@ -2459,15 +2464,18 @@ async def get_my_timesheet(
             except Exception:
                 continue
         month_last_day = calendar.monthrange(year, month)[1]
-        start_date = max(min_date, f"{month_str}-01") if min_date else f"{month_str}-01"
+        start_date = max(min_date, employee_start, f"{month_str}-01")
         end_date = f"{month_str}-{month_last_day:02d}"
-        docs = await db.attendance_records.find(
-            {
-                "user_id": user_id,
-                "date": {"$gte": start_date, "$lte": end_date},
-            },
-            {"_id": 0}
-        ).sort("date", 1).to_list(100)
+        if start_date > end_date:
+            docs = []
+        else:
+            docs = await db.attendance_records.find(
+                {
+                    "user_id": user_id,
+                    "date": {"$gte": start_date, "$lte": end_date},
+                },
+                {"_id": 0}
+            ).sort("date", 1).to_list(100)
         needed_ids = {
             d.get("shift_id") for d in docs
             if d.get("shift_id") and d.get("shift_id") not in shifts_by_id
@@ -2635,8 +2643,12 @@ async def get_my_timesheet(
 
         records.sort(key=lambda r: r.date)
 
-    # Calculate total working days in this month
-    total_working_days = await calculate_month_working_days(year, month)
+    # Calculate total working days in this month (pro-rated from employee joining/go-live)
+    from app.services.attendance_golive import get_employee_attendance_start
+    employee_start = get_employee_attendance_start(user)
+    total_working_days = await calculate_month_working_days(year, month, employee_start=employee_start)
+    if total_working_days <= 0:
+        total_working_days = 0
 
     daily_dicts = []
     for r in records:
@@ -2711,11 +2723,16 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
 # 6. DAILY MATRIX & MONTHLY PUNCTUALITY COMMAND CENTER
 # ──────────────────────────────────────────────────────────
 
-async def calculate_month_working_days(year: int, month: int) -> int:
+async def calculate_month_working_days(
+    year: int,
+    month: int,
+    employee_start: Optional[str] = None,
+) -> int:
     """
     Computes standard company working days in a month:
     Excludes Sundays, 1st Saturday off, and registered public holidays in company_calendar.
     Includes any working Saturday overrides.
+    When employee_start is set, days before that date are excluded.
     """
     db = get_database()
     num_days = calendar.monthrange(year, month)[1]
@@ -2739,12 +2756,19 @@ async def calculate_month_working_days(year: int, month: int) -> int:
     working_days_count = 0
     from app.services.attendance_golive import get_effective_start_date
     min_date = get_effective_start_date()
+    if employee_start and employee_start > min_date:
+        min_date = employee_start
     start_day = 1
-    if year == 2026 and month == 8:
-        start_day = int(min_date[-2:]) if min_date.startswith("2026-08-") else 21
+    month_prefix = f"{year:04d}-{month:02d}"
+    if min_date.startswith(month_prefix):
+        start_day = int(min_date[-2:])
+    elif min_date > f"{month_prefix}-{num_days:02d}":
+        return 0
     for day in range(start_day, num_days + 1):
         cur_date = date(year, month, day)
         date_str = cur_date.strftime("%Y-%m-%d")
+        if date_str < min_date:
+            continue
 
         if date_str in working_saturdays_set:
             working_days_count += 1
@@ -2761,7 +2785,7 @@ async def calculate_month_working_days(year: int, month: int) -> int:
 
         working_days_count += 1
 
-    return max(1, working_days_count)
+    return max(0, working_days_count) if employee_start else max(1, working_days_count)
 
 
 async def get_daily_matrix(
@@ -2842,8 +2866,12 @@ async def get_daily_matrix(
     wfh_count = 0
     leave_count = 0
 
+    from app.services.attendance_golive import get_employee_attendance_start
+
     for u in users:
         u_id = u.get("id")
+        if target_date < get_employee_attendance_start(u):
+            continue
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department") or "General"
         u_role = u.get("role", "team_member")
@@ -3262,9 +3290,6 @@ async def get_monthly_punctuality_summary(
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
     month_prefix = f"{year:04d}-{month:02d}"
 
-    # Calculate total working days in this month
-    total_working_days = await calculate_month_working_days(year, month)
-
     # Batch-load all shifts & assignments
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
@@ -3274,7 +3299,7 @@ async def get_monthly_punctuality_summary(
     user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     # Batch-load all monthly records for all users in a single query
-    from app.services.attendance_golive import get_effective_start_date
+    from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start
     min_date = get_effective_start_date()
     num_days = calendar.monthrange(year, month)[1]
     start_date = max(min_date, f"{month_prefix}-01") if min_date else f"{month_prefix}-01"
@@ -3296,8 +3321,15 @@ async def get_monthly_punctuality_summary(
 
     for u in users:
         u_id = u.get("id")
+        employee_start = get_employee_attendance_start(u)
+        if employee_start > end_date:
+            continue
         u_name = u.get("full_name") or u.get("name", "User")
         u_dept = u.get("department")
+
+        total_working_days = await calculate_month_working_days(year, month, employee_start=employee_start)
+        if total_working_days <= 0:
+            continue
 
         assignment = user_assignment_map.get(u_id)
         assigned_shift_id = (assignment or {}).get("shift_id")
@@ -3309,7 +3341,10 @@ async def get_monthly_punctuality_summary(
                 raw_shift = std_shift
         shift_name = raw_shift.get("name", "Standard Shift") if raw_shift else "Standard Shift"
 
-        records = records_by_user.get(u_id, [])
+        records = [
+            r for r in records_by_user.get(u_id, [])
+            if str(r.get("date") or "") >= employee_start
+        ]
 
         daily_dicts = []
         for r in records:
@@ -3435,12 +3470,12 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
     user_name = user.get("full_name") or user.get("name", "User")
     department = user.get("department")
 
-    from app.services.attendance_golive import get_effective_start_date
-    min_date = get_effective_start_date()
+    from app.services.attendance_golive import get_employee_attendance_start
+    min_date = get_employee_attendance_start(user)
     if req.start_date < min_date:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Attendance and leave tracking starts on {min_date}.",
+            detail=f"Attendance and leave tracking for this employee starts on {min_date}.",
         )
 
     from app.services.workdays import load_off_day_index, parse_iso_date

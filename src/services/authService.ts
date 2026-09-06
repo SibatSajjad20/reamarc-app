@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { attendanceService } from './attendanceService';
 import type { AuthUser, LoginPayload, RegisterPayload, AuthResponse } from '../types/auth';
 
 export const authService = {
@@ -26,6 +27,8 @@ export const authService = {
 
   async logout(): Promise<void> {
     try {
+      // Clear all in-memory session caches
+      attendanceService.clearAllCaches();
       await apiClient.post('/auth/logout');
     } catch {
       // ignore

@@ -883,7 +883,7 @@ export const AttendancePoliciesSection: React.FC = () => {
               </div>
               <div className="p-2.5 rounded-xl bg-white/60 dark:bg-zinc-900/60 border border-indigo-100 dark:border-indigo-900/50">
                 <span className="font-bold block text-indigo-800 dark:text-indigo-300 mb-0.5">3. 8h Undertime = 1 Day</span>
-                Every <strong>8h (480 mins)</strong> of cumulative net undertime deficit automatically deducts <strong>1 Annual Leave</strong>. Exceeding 14 days shows negative quota for year-end settlement.
+                Every <strong>8h (480 mins)</strong> of cumulative net undertime deficit automatically deducts <strong>1 Annual Leave</strong> for <strong>contract</strong> employees. Probation employees are excluded from this leave-quota list (undertime is not deducted from leave). Exceeding 14 days shows negative quota for year-end settlement.
               </div>
             </div>
           </div>

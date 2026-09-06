@@ -189,7 +189,11 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
         resolve_shift_doc_for_date,
         apply_daily_calc_fields,
     )
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "department": 1})
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "department": 1, "employment_type": 1, "joining_date": 1})
+    # Probation: undertime does not deduct from leave quota (salary-side outside app).
+    if str((user_doc or {}).get("employment_type") or "contract").lower() == "probation":
+        return annual_approved, sick_approved, annual_pending, sick_pending, 0.0, 0.0, 0.0
+
     assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
@@ -198,10 +202,14 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
     dept = (user_doc or {}).get("department")
     raw_shift = shifts_by_id.get(assigned_shift_id) if assigned_shift_id else (hr_shift if str(dept).upper() == "HR" else std_shift)
 
+    from app.services.attendance_golive import get_employee_attendance_start
+    employee_start = get_employee_attendance_start(user_doc)
+    att_start = max(start, employee_start)
+
     att_cursor = db.attendance_records.find(
         {
             "user_id": user_id,
-            "date": {"$gte": start, "$lte": end},
+            "date": {"$gte": att_start, "$lte": end},
         },
         {"_id": 0},
     )
@@ -376,6 +384,9 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
 
     rows: List[LeaveBalanceResponse] = []
     for u in users:
+        # Probation employees are omitted from leave-quota admin list.
+        if str(u.get("employment_type") or "contract").lower() == "probation":
+            continue
         uid = u["id"]
         doc = bals_by_user.get(uid)
         if not doc:

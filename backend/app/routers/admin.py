@@ -14,7 +14,8 @@ from app.schemas.user import (
     ReminderRequest,
     ReminderResponse,
 )
-from app.models.user import UserRole
+from app.models.user import UserRole, EmploymentType
+from app.services.attendance_golive import purge_pre_joining_attendance
 from app.core.mongo_filters import exact_ci, contains_ci
 from app.schemas.admin import (
     WorkspaceCreate,
@@ -65,6 +66,12 @@ def _format_member_resp(doc: dict) -> dict:
     if role_val in (UserRole.ADMIN, UserRole.HR, UserRole.OPERATIONS):
         dept = "All"
 
+    raw_emp = str(doc.get("employment_type") or EmploymentType.CONTRACT.value).lower()
+    try:
+        employment_type = EmploymentType(raw_emp)
+    except ValueError:
+        employment_type = EmploymentType.CONTRACT
+
     return {
         "id": doc.get("id") or str(doc.get("_id")),
         "email": doc["email"],
@@ -72,6 +79,10 @@ def _format_member_resp(doc: dict) -> dict:
         "role": role_val,
         "phone": doc.get("phone"),
         "department": dept,
+        "joining_date": doc.get("joining_date"),
+        "employment_type": employment_type,
+        "probation_start_date": doc.get("probation_start_date"),
+        "probation_end_date": doc.get("probation_end_date"),
         "is_active": doc.get("is_active", True),
         "created_at": doc.get("created_at"),
     }
@@ -468,6 +479,10 @@ async def create_member(member_in: MemberCreate):
         "phone": member_in.phone.strip() if member_in.phone else None,
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
+        "joining_date": member_in.joining_date.strip(),
+        "employment_type": member_in.employment_type.value,
+        "probation_start_date": member_in.probation_start_date,
+        "probation_end_date": member_in.probation_end_date,
         "is_active": member_in.is_active,
         "created_at": now_iso,
         "updated_at": now_iso,
@@ -550,6 +565,45 @@ async def update_member(
             update_fields["department"] = member_in.department.strip()
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
+    if member_in.joining_date is not None:
+        update_fields["joining_date"] = member_in.joining_date.strip()
+    if member_in.employment_type is not None:
+        update_fields["employment_type"] = member_in.employment_type.value
+        if member_in.employment_type == EmploymentType.CONTRACT:
+            update_fields["probation_start_date"] = None
+            update_fields["probation_end_date"] = None
+        else:
+            start = (
+                member_in.probation_start_date
+                or member_in.joining_date
+                or existing_user.get("probation_start_date")
+                or existing_user.get("joining_date")
+            )
+            end = member_in.probation_end_date or existing_user.get("probation_end_date")
+            if not end:
+                raise HTTPException(
+                    status_code=400,
+                    detail="probation_end_date is required when employment_type is probation",
+                )
+            if start and end and str(start) > str(end):
+                raise HTTPException(
+                    status_code=400,
+                    detail="probation_start_date must be on or before probation_end_date",
+                )
+            update_fields["probation_start_date"] = start
+            update_fields["probation_end_date"] = end
+    else:
+        if member_in.probation_start_date is not None:
+            update_fields["probation_start_date"] = member_in.probation_start_date
+        if member_in.probation_end_date is not None:
+            update_fields["probation_end_date"] = member_in.probation_end_date
+        start = update_fields.get("probation_start_date", existing_user.get("probation_start_date"))
+        end = update_fields.get("probation_end_date", existing_user.get("probation_end_date"))
+        if start and end and str(start) > str(end):
+            raise HTTPException(
+                status_code=400,
+                detail="probation_start_date must be on or before probation_end_date",
+            )
 
     if not update_fields:
         return _format_member_resp(existing_user)
@@ -560,6 +614,11 @@ async def update_member(
         {"$set": update_fields},
         return_document=True,
     )
+
+    new_joining = update_fields.get("joining_date")
+    if new_joining and new_joining != existing_user.get("joining_date"):
+        await purge_pre_joining_attendance(user_id, new_joining)
+
     return _format_member_resp(updated_user)
 
 
