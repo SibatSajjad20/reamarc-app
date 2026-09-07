@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 import uuid
 import re
 import secrets
@@ -35,9 +36,14 @@ router = APIRouter(
 )
 
 
-def _wants_json_tokens(request: Request) -> bool:
+def _wants_json_tokens(request: Request, device_uuid: Optional[str] = None) -> bool:
     """Mobile clients need JWTs in the body; browsers use HttpOnly cookies only."""
-    return (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile"
+    if (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile":
+        return True
+    # Mobile login always sends device_uuid; treat that as a mobile client even if X-Client is stripped.
+    if device_uuid and str(device_uuid).strip():
+        return True
+    return False
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -150,7 +156,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
-    wants_json = _wants_json_tokens(request)
+    wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
         # Setting cookies for mobile pollutes Android's cookie jar and can trip CSRF on later logins.

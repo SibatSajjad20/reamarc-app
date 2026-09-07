@@ -7,18 +7,27 @@ const REFRESH_KEY = 'reamarc_refresh_token';
 
 export async function getOrCreateDeviceUuid(): Promise<string> {
   const existing = await SecureStore.getItemAsync(DEVICE_KEY);
-  if (existing) return existing;
-  const uuid = Crypto.randomUUID();
+  if (existing && typeof existing === 'string') return existing;
+  const generated =
+    typeof Crypto.randomUUID === 'function'
+      ? Crypto.randomUUID()
+      : `dev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+  const uuid = String(generated || '').trim();
+  if (!uuid) {
+    throw new Error('Could not create a device id for secure storage.');
+  }
   await SecureStore.setItemAsync(DEVICE_KEY, uuid);
   return uuid;
 }
 
-export async function saveTokens(access?: string | null, refresh?: string | null) {
-  if (access && typeof access === 'string') {
-    await SecureStore.setItemAsync(ACCESS_KEY, access);
+export async function saveTokens(access?: unknown, refresh?: unknown) {
+  const accessToken = typeof access === 'string' ? access.trim() : '';
+  const refreshToken = typeof refresh === 'string' ? refresh.trim() : '';
+  if (accessToken) {
+    await SecureStore.setItemAsync(ACCESS_KEY, accessToken);
   }
-  if (refresh && typeof refresh === 'string') {
-    await SecureStore.setItemAsync(REFRESH_KEY, refresh);
+  if (refreshToken) {
+    await SecureStore.setItemAsync(REFRESH_KEY, refreshToken);
   }
 }
 
