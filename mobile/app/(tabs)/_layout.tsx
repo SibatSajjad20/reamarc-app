@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/theme';
 import { useInbox } from '../../src/context/InboxContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { isAdmin as roleIsAdmin } from '../../src/lib/roles';
 
 function iconName(route: string, focused: boolean, isAdmin: boolean): keyof typeof Ionicons.glyphMap {
   if (route === 'index') {
@@ -22,7 +23,7 @@ function iconName(route: string, focused: boolean, isAdmin: boolean): keyof type
 export default function TabsLayout() {
   const { unreadCount } = useInbox();
   const { user } = useAuth();
-  const isAdmin = String(user?.role || '').toLowerCase() === 'admin' || String(user?.role || '').toLowerCase() === 'super_admin';
+  const isAdmin = roleIsAdmin(user?.role);
 
   return (
     <Tabs
@@ -66,7 +67,7 @@ export default function TabsLayout() {
     >
       <Tabs.Screen name="index" options={{ title: isAdmin ? 'Overview' : 'Punch' }} />
       <Tabs.Screen name="requests" options={{ title: isAdmin ? 'Approvals' : 'Requests' }} />
-      <Tabs.Screen name="alerts" options={{ title: isAdmin ? 'Announce' : 'Notifications' }} />
+      <Tabs.Screen name="alerts" options={{ title: isAdmin ? 'Announce' : 'Alerts' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />
     </Tabs>
   );

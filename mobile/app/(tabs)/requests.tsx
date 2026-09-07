@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
+import { isAdmin as roleIsAdmin, canReviewRequests } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { DateField, TimeField } from '../../src/ui/DateTimeField';
@@ -25,8 +26,17 @@ import { TruckLoader } from '../../src/ui/TruckLoader';
 import { formatDisplayDate, formatHours } from '../../src/ui/format';
 
 type RequestType = 'leave' | 'wfh' | 'short_leave' | 'regularization';
+type LeaveCategory = 'annual' | 'sick';
 type CorrectionTarget = 'both' | 'time_in' | 'time_out';
 type ScreenMode = 'apply' | 'mine' | 'review';
+
+type LeaveBalance = {
+  year: number;
+  annual_remaining: number;
+  sick_remaining: number;
+  annual_entitled?: number;
+  sick_entitled?: number;
+};
 
 type AttendanceRequest = {
   id: string;
@@ -36,12 +46,15 @@ type AttendanceRequest = {
   department?: string;
   request_type?: string;
   leave_type?: string;
+  leave_category?: string;
   start_date: string;
   end_date: string;
   reason: string;
   status: string;
   short_leave_hours?: number;
+  short_leave_duration_hours?: number;
   short_leave_start_time?: string;
+  short_leave_end_time?: string;
   correction_target?: CorrectionTarget;
   regularization_check_in?: string;
   regularization_check_out?: string;
@@ -78,18 +91,56 @@ const REVIEW_ROLES = new Set(['hr', 'admin', 'operations']);
 const STAFF_ROLES = new Set(['team_member', 'member', 'team_lead']);
 
 const TYPE_CHIPS: { id: RequestType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
-  { id: 'leave', label: 'Annual Leave', icon: 'sunny-outline' },
+  { id: 'leave', label: 'Full Leave', icon: 'sunny-outline' },
   { id: 'wfh', label: 'Work From Home', icon: 'home-outline' },
   { id: 'short_leave', label: 'Short Leave', icon: 'timer-outline' },
   { id: 'regularization', label: 'Correction', icon: 'create-outline' },
 ];
+
+const SHORT_LEAVE_DURATIONS = [1, 1.5, 2, 2.5, 3, 4] as const;
 
 function todayIso() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function getCurrentTimePkt() {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Karachi',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date());
+}
+
+function parseTimeToMinutes(hhmm?: string | null): number | null {
+  if (!hhmm) return null;
+  const match = /^([01]?\d|2[0-3]):([0-5]\d)/.exec(String(hhmm).trim());
+  if (!match) return null;
+  return Number(match[1]) * 60 + Number(match[2]);
+}
+
+function minutesToHhmm(total: number) {
+  const mins = ((Math.round(total) % (24 * 60)) + 24 * 60) % (24 * 60);
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+
+function inclusiveDayCount(start: string, end: string) {
+  const a = new Date(`${start}T00:00:00`);
+  const b = new Date(`${(end || start)}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 1;
+  const diff = Math.round((b.getTime() - a.getTime()) / 86400000);
+  return Math.max(1, diff + 1);
+}
+
 function typeLabel(r: AttendanceRequest) {
+  const lt = String(r.leave_type || r.leave_category || '').toLowerCase();
+  if (r.request_type === 'leave' || ['annual', 'sick', 'casual', 'unpaid'].includes(lt)) {
+    if (lt === 'sick') return 'Sick Leave';
+    if (lt === 'annual' || lt === 'casual') return 'Annual Leave';
+    if (lt === 'unpaid') return 'Unpaid Leave';
+    return 'Full Leave';
+  }
   const found = TYPE_CHIPS.find((t) => t.id === r.request_type || t.id === r.leave_type);
   if (found) return found.label;
   if (r.leave_type === 'missed_punch_regularization' || r.request_type === 'regularization') {
@@ -99,6 +150,14 @@ function typeLabel(r: AttendanceRequest) {
     return 'Overtime';
   }
   return (r.request_type || r.leave_type || 'Request').replace(/_/g, ' ');
+}
+
+function formatShortLeaveLine(r: AttendanceRequest) {
+  const hours = Number(r.short_leave_hours ?? r.short_leave_duration_hours) || 0;
+  const start = r.short_leave_start_time || '—';
+  const end = r.short_leave_end_time;
+  if (end) return `${start} → ${end} (${formatHours(hours)})`;
+  return `${formatHours(hours)} starting at ${start}`;
 }
 
 function formatCorrectionLine(r: AttendanceRequest): string {
@@ -135,19 +194,23 @@ export default function RequestsScreen() {
   const { user } = useAuth();
   const userRole = String(user?.role || '').toLowerCase();
   const params = useLocalSearchParams<{ form?: string }>();
-  const canReview = REVIEW_ROLES.has(userRole);
-  const isAdmin = userRole === 'admin' || userRole === 'super_admin';
+  const canReview = canReviewRequests(userRole) || REVIEW_ROLES.has(userRole);
+  const isAdmin = roleIsAdmin(userRole);
 
   const [mode, setMode] = useState<ScreenMode>(canReview ? 'review' : 'apply');
   const [tab, setTab] = useState<RequestType>('leave');
+  const [leaveCategory, setLeaveCategory] = useState<LeaveCategory>('annual');
+  const [isLeavingEarly, setIsLeavingEarly] = useState(true);
+  const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
+  const [shiftEndTime, setShiftEndTime] = useState('18:30');
   const [correctionTarget, setCorrectionTarget] = useState<CorrectionTarget>('both');
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [initialLoading, setInitialLoading] = useState(true);
   const [start, setStart] = useState(todayIso());
   const [end, setEnd] = useState(todayIso());
-  const [hours, setHours] = useState('1');
-  const [startTime, setStartTime] = useState('15:00');
+  const [shortLeaveDuration, setShortLeaveDuration] = useState(2);
+  const [startTime, setStartTime] = useState(getCurrentTimePkt());
   const [corrIn, setCorrIn] = useState('09:30');
   const [corrOut, setCorrOut] = useState('18:30');
   const [busy, setBusy] = useState(false);
@@ -204,6 +267,20 @@ export default function RequestsScreen() {
     }
   }, []);
 
+  const loadFormMeta = useCallback(async () => {
+    try {
+      const [balance, today] = await Promise.all([
+        api<LeaveBalance>('/leaves/balances/me').catch(() => null),
+        api<{ shift?: { end_time?: string } }>('/attendance/today').catch(() => null),
+      ]);
+      if (balance) setLeaveBalance(balance);
+      const endHhmm = today?.shift?.end_time?.substring(0, 5);
+      if (endHhmm) setShiftEndTime(endHhmm);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const loadPending = useCallback(async () => {
     if (!canReview) {
       setPending([]);
@@ -222,7 +299,7 @@ export default function RequestsScreen() {
       let alive = true;
       (async () => {
         try {
-          await Promise.all([loadMine(), loadPending()]);
+          await Promise.all([loadMine(), loadPending(), loadFormMeta()]);
         } finally {
           if (alive) setInitialLoading(false);
         }
@@ -230,8 +307,20 @@ export default function RequestsScreen() {
       return () => {
         alive = false;
       };
-    }, [loadMine, loadPending]),
+    }, [loadMine, loadPending, loadFormMeta]),
   );
+
+  const departureMinutes = parseTimeToMinutes(startTime);
+  const shiftEndMinutes = parseTimeToMinutes(shiftEndTime) ?? 18 * 60 + 30;
+  const earlyDepartureDiffMinutes =
+    departureMinutes !== null ? Math.max(0, shiftEndMinutes - departureMinutes) : 0;
+  const autoCalculatedHours = Math.round((earlyDepartureDiffMinutes / 60) * 100) / 100;
+  const midShiftReturnTime = minutesToHhmm(
+    (departureMinutes ?? 14 * 60) + Math.round(Number(shortLeaveDuration) * 60),
+  );
+  const finalShortLeaveHours = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
+  const finalShortLeaveEndTime = isLeavingEarly ? shiftEndTime : midShiftReturnTime;
+  const leaveDayCount = inclusiveDayCount(start, end);
 
   const openReviewModal = (req: AttendanceRequest, action: 'approved' | 'rejected' | 'needs_info') => {
     setSelectedReviewReq(req);
@@ -355,15 +444,41 @@ export default function RequestsScreen() {
     try {
       const payload: Record<string, unknown> = {
         request_type: tab,
-        leave_type: tab === 'leave' ? 'casual' : tab === 'regularization' ? 'missed_punch_regularization' : tab,
+        leave_type:
+          tab === 'leave'
+            ? leaveCategory
+            : tab === 'regularization'
+            ? 'missed_punch_regularization'
+            : tab,
         start_date: start,
         end_date: tab === 'leave' || tab === 'wfh' ? end : start,
         reason: reason.trim(),
       };
-      if (tab === 'leave') payload.leave_category = 'casual';
+      if (tab === 'leave') payload.leave_category = leaveCategory;
       if (tab === 'short_leave') {
-        payload.short_leave_hours = Number(hours);
+        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
+          setMessage('Departure time must be HH:MM (24-hour).');
+          setBusy(false);
+          return;
+        }
+        if (finalShortLeaveHours < 0.5) {
+          setMessage(
+            isLeavingEarly
+              ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
+              : 'Short leave duration must be at least 30 minutes (0.5h).',
+          );
+          setBusy(false);
+          return;
+        }
+        if (finalShortLeaveHours > 4) {
+          setMessage('Short leave cannot exceed 4 hours. Please apply for Full Leave.');
+          setBusy(false);
+          return;
+        }
+        payload.short_leave_hours = finalShortLeaveHours;
+        payload.short_leave_duration_hours = finalShortLeaveHours;
         payload.short_leave_start_time = startTime;
+        payload.short_leave_end_time = finalShortLeaveEndTime;
       }
       if (tab === 'regularization') {
         payload.regularization_date = start;
@@ -382,13 +497,41 @@ export default function RequestsScreen() {
       setReasonOpen(false);
       setMessage('Request submitted successfully.');
       setMode('mine');
-      await loadMine();
-      await loadPending();
+      await Promise.all([loadMine(), loadPending(), loadFormMeta()]);
     } catch (err: any) {
       setMessage(err.message || 'Could not submit request');
     } finally {
       setBusy(false);
     }
+  };
+
+  const openReasonModal = () => {
+    setMessage('');
+    if (tab === 'short_leave') {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(startTime)) {
+        setMessage('Departure time must be HH:MM (24-hour).');
+        return;
+      }
+      if (finalShortLeaveHours < 0.5) {
+        setMessage(
+          isLeavingEarly
+            ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
+            : 'Short leave duration must be at least 30 minutes (0.5h).',
+        );
+        return;
+      }
+      if (finalShortLeaveHours > 4) {
+        setMessage('Short leave cannot exceed 4 hours. Please apply for Full Leave.');
+        return;
+      }
+    }
+    if (tab === 'leave' && leaveCategory === 'sick' && leaveBalance && leaveBalance.sick_remaining < leaveDayCount) {
+      setMessage(
+        `Not enough sick leave remaining (${leaveBalance.sick_remaining} left, ${leaveDayCount} day(s) requested).`,
+      );
+      return;
+    }
+    setReasonOpen(true);
   };
 
   const filteredPending = useMemo(() => {
@@ -402,7 +545,9 @@ export default function RequestsScreen() {
           r.request_type === 'leave' ||
           r.leave_type === 'leave' ||
           r.leave_type === 'casual' ||
-          r.leave_type === 'annual',
+          r.leave_type === 'annual' ||
+          r.leave_type === 'sick' ||
+          r.leave_type === 'unpaid',
       );
     }
     if (filter === 'wfh') return pending.filter((r) => r.request_type === 'wfh' || r.leave_type === 'wfh');
@@ -628,11 +773,9 @@ export default function RequestsScreen() {
                         </View>
                       )}
 
-                      {r.request_type === 'short_leave' && (
+                      {(r.request_type === 'short_leave' || r.leave_type === 'short_leave') && (
                         <View style={styles.detailBox}>
-                          <Text style={styles.detailBoxText}>
-                            {formatHours(Number(r.short_leave_hours) || 0)} duration starting at {r.short_leave_start_time || '—'}
-                          </Text>
+                          <Text style={styles.detailBoxText}>{formatShortLeaveLine(r)}</Text>
                         </View>
                       )}
 
@@ -784,6 +927,88 @@ export default function RequestsScreen() {
                 ))}
               </ScrollView>
 
+              {tab === 'leave' ? (
+                <View style={styles.infoBanner}>
+                  {leaveBalance ? (
+                    <Text style={styles.infoBannerText}>
+                      Remaining {leaveBalance.year}: <Text style={styles.infoBannerStrong}>{leaveBalance.annual_remaining}</Text> annual /{' '}
+                      <Text style={styles.infoBannerStrong}>{leaveBalance.sick_remaining}</Text> sick
+                    </Text>
+                  ) : (
+                    <Text style={styles.infoBannerText}>
+                      Annual leave (14/year) or sick leave (8/year). Rest days & holidays are not deducted.
+                    </Text>
+                  )}
+                  <Text style={styles.fieldLabel}>Leave Category</Text>
+                  <View style={styles.targetRow}>
+                    <Pressable
+                      onPress={() => setLeaveCategory('annual')}
+                      style={[styles.targetChip, leaveCategory === 'annual' && styles.targetChipOn]}
+                    >
+                      <Text style={[styles.targetText, leaveCategory === 'annual' && styles.targetTextOn]}>
+                        Annual
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setLeaveCategory('sick')}
+                      style={[styles.targetChip, leaveCategory === 'sick' && styles.targetChipOn]}
+                    >
+                      <Text style={[styles.targetText, leaveCategory === 'sick' && styles.targetTextOn]}>
+                        Sick
+                      </Text>
+                    </Pressable>
+                  </View>
+                  {leaveCategory === 'annual' &&
+                    leaveBalance &&
+                    leaveBalance.annual_remaining < leaveDayCount && (
+                      <View style={styles.quotaWarnBox}>
+                        <Text style={styles.quotaWarnText}>
+                          This request needs {leaveDayCount} day(s) and exceeds your remaining{' '}
+                          {leaveBalance.annual_remaining} annual days. Balance can go negative and is settled at
+                          year-end.
+                        </Text>
+                      </View>
+                    )}
+                </View>
+              ) : null}
+
+              {tab === 'short_leave' ? (
+                <View style={styles.infoBanner}>
+                  <Text style={styles.infoBannerText}>
+                    Short leaves are approved for up to 4 hours. Hours not worked count as undertime. Every 8 hours of
+                    undertime deducts 1 annual leave day.
+                  </Text>
+                  <View style={styles.modeToggleRow}>
+                    <Pressable
+                      onPress={() => setIsLeavingEarly(true)}
+                      style={[styles.modeToggleChip, isLeavingEarly && styles.modeToggleChipOn]}
+                    >
+                      <Ionicons
+                        name="exit-outline"
+                        size={14}
+                        color={isLeavingEarly ? colors.indigo : colors.slate}
+                      />
+                      <Text style={[styles.modeToggleText, isLeavingEarly && styles.modeToggleTextOn]}>
+                        Leaving Early
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setIsLeavingEarly(false)}
+                      style={[styles.modeToggleChip, !isLeavingEarly && styles.modeToggleChipOn]}
+                    >
+                      <Ionicons
+                        name="walk-outline"
+                        size={14}
+                        color={!isLeavingEarly ? colors.indigo : colors.slate}
+                      />
+                      <Text style={[styles.modeToggleText, !isLeavingEarly && styles.modeToggleTextOn]}>
+                        Mid-Shift
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : null}
+
               <DateField
                 label={tab === 'leave' || tab === 'wfh' ? 'Start Date' : 'Target Date'}
                 value={start}
@@ -793,18 +1018,81 @@ export default function RequestsScreen() {
                 <DateField label="End Date" value={end} onChange={setEnd} />
               ) : null}
 
+              {tab === 'leave' || tab === 'wfh' ? (
+                <Text style={styles.helperMeta}>
+                  Requested span: <Text style={styles.infoBannerStrong}>{leaveDayCount} day(s)</Text>
+                  {tab === 'wfh' ? ' (WFH)' : ''}
+                </Text>
+              ) : null}
+
               {tab === 'short_leave' ? (
                 <>
-                  <TimeField label="Start Time" value={startTime} onChange={setStartTime} />
-                  <Text style={styles.fieldLabel}>Duration in Hours (0.5 – 4.0)</Text>
-                  <TextInput
-                    style={styles.note}
-                    value={hours}
-                    onChangeText={setHours}
-                    keyboardType="decimal-pad"
-                    placeholder="e.g. 1.5"
-                    placeholderTextColor="#A1A1AA"
-                  />
+                  <TimeField label="Departure Time" value={startTime} onChange={setStartTime} />
+                  {start === todayIso() ? (
+                    <Pressable
+                      onPress={() => setStartTime(getCurrentTimePkt())}
+                      style={styles.leaveNowBtn}
+                    >
+                      <Ionicons name="time-outline" size={13} color={colors.indigo} />
+                      <Text style={styles.leaveNowText}>Leave Now ({getCurrentTimePkt()})</Text>
+                    </Pressable>
+                  ) : null}
+
+                  {isLeavingEarly ? (
+                    <View style={styles.undertimeCard}>
+                      <Text style={styles.undertimeLabel}>
+                        Undertime until shift end ({shiftEndTime})
+                      </Text>
+                      <Text style={styles.undertimeValue}>
+                        {earlyDepartureDiffMinutes > 0 ? formatHours(autoCalculatedHours) : '0h'}
+                      </Text>
+                      <Text style={styles.undertimeHint}>
+                        Short leave authorizes departure. The shortfall counts as undertime toward the 8h = 1 annual
+                        day threshold.
+                      </Text>
+                      {departureMinutes !== null && departureMinutes >= shiftEndMinutes ? (
+                        <Text style={styles.undertimeWarn}>
+                          Departure time ({startTime}) is at or after shift end ({shiftEndTime}).
+                        </Text>
+                      ) : null}
+                      {autoCalculatedHours > 4 ? (
+                        <Text style={styles.undertimeWarn}>
+                          Short leave cannot exceed 4h. For longer absences, submit a Full Leave.
+                        </Text>
+                      ) : null}
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.fieldLabel}>Duration</Text>
+                      <View style={styles.durationRow}>
+                        {SHORT_LEAVE_DURATIONS.map((d) => (
+                          <Pressable
+                            key={d}
+                            onPress={() => setShortLeaveDuration(d)}
+                            style={[
+                              styles.durationChip,
+                              shortLeaveDuration === d && styles.durationChipOn,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.durationChipText,
+                                shortLeaveDuration === d && styles.durationChipTextOn,
+                              ]}
+                            >
+                              {d === 4 ? '4h (half)' : `${d}h`}
+                            </Text>
+                          </Pressable>
+                        ))}
+                      </View>
+                      <View style={styles.detailBox}>
+                        <Text style={styles.detailBoxText}>
+                          Expected return: {midShiftReturnTime} · adds {formatHours(Number(shortLeaveDuration))}{' '}
+                          undertime if not made up
+                        </Text>
+                      </View>
+                    </>
+                  )}
                 </>
               ) : null}
 
@@ -849,10 +1137,7 @@ export default function RequestsScreen() {
 
               <Pressable
                 style={[styles.btn, { marginTop: 14 }]}
-                onPress={() => {
-                  setMessage('');
-                  setReasonOpen(true);
-                }}
+                onPress={openReasonModal}
               >
                 <Text style={styles.btnText}>Submit Request</Text>
               </Pressable>
@@ -904,11 +1189,9 @@ export default function RequestsScreen() {
                         </View>
                       )}
 
-                      {r.request_type === 'short_leave' && (
+                      {(r.request_type === 'short_leave' || r.leave_type === 'short_leave') && (
                         <View style={styles.detailBox}>
-                          <Text style={styles.detailBoxText}>
-                            {formatHours(Number(r.short_leave_hours) || 0)} duration starting at {r.short_leave_start_time || '—'}
-                          </Text>
+                          <Text style={styles.detailBoxText}>{formatShortLeaveLine(r)}</Text>
                         </View>
                       )}
 
@@ -1040,7 +1323,7 @@ export default function RequestsScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>
                   {tab === 'leave'
-                    ? 'Annual Leave Reason'
+                    ? `${leaveCategory === 'sick' ? 'Sick' : 'Annual'} Leave Reason`
                     : tab === 'wfh'
                     ? 'Work From Home Reason'
                     : tab === 'short_leave'
@@ -1051,7 +1334,7 @@ export default function RequestsScreen() {
                   {tab === 'leave' || tab === 'wfh'
                     ? `${formatDisplayDate(start)}${start !== end ? ` to ${formatDisplayDate(end)}` : ''}`
                     : tab === 'short_leave'
-                    ? `${formatHours(Number(hours) || 0)} duration starting at ${startTime}`
+                    ? `${startTime} → ${finalShortLeaveEndTime} (${formatHours(finalShortLeaveHours)})`
                     : `${formatDisplayDate(start)} · ${
                         correctionTarget === 'both'
                           ? 'Both In & Out'
@@ -1102,6 +1385,8 @@ export default function RequestsScreen() {
                 <Text style={styles.modalSubmitBtnText}>Submit Request</Text>
               )}
             </Pressable>
+
+            {!!message && <Text style={[styles.msg, { marginTop: 8 }]}>{message}</Text>}
 
             <Pressable
               onPress={() => {
@@ -1642,6 +1927,79 @@ const styles = StyleSheet.create({
   targetText: { fontSize: 12, fontWeight: '700', color: colors.slate },
   targetTextOn: { color: colors.indigo, fontWeight: '800' },
   fieldLabel: { fontSize: 12, fontWeight: '700', color: colors.slate, marginBottom: 6, marginTop: 4 },
+  infoBanner: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    padding: 12,
+    marginBottom: 10,
+  },
+  infoBannerText: { fontSize: 12, color: '#1E3A8A', lineHeight: 17 },
+  infoBannerStrong: { fontWeight: '800', color: colors.text },
+  helperMeta: { fontSize: 11.5, color: colors.muted, marginBottom: 8, fontWeight: '600' },
+  quotaWarnBox: {
+    marginTop: 8,
+    backgroundColor: '#FFFBEB',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 10,
+  },
+  quotaWarnText: { fontSize: 11.5, color: '#92400E', lineHeight: 16 },
+  modeToggleRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+    backgroundColor: '#DBEAFE',
+    borderRadius: 12,
+    padding: 4,
+  },
+  modeToggleChip: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  modeToggleChipOn: { backgroundColor: '#FFFFFF' },
+  modeToggleText: { fontSize: 11.5, fontWeight: '700', color: colors.slate },
+  modeToggleTextOn: { color: colors.indigo, fontWeight: '800' },
+  leaveNowBtn: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+    marginTop: -2,
+  },
+  leaveNowText: { color: colors.indigo, fontWeight: '800', fontSize: 12 },
+  undertimeCard: {
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    padding: 12,
+    marginBottom: 8,
+  },
+  undertimeLabel: { fontSize: 11, fontWeight: '700', color: colors.muted },
+  undertimeValue: { fontSize: 22, fontWeight: '800', color: colors.amber, marginTop: 2 },
+  undertimeHint: { fontSize: 11.5, color: colors.slate, marginTop: 6, lineHeight: 16 },
+  undertimeWarn: { fontSize: 11.5, color: colors.rose, fontWeight: '700', marginTop: 6 },
+  durationRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 },
+  durationChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  durationChipOn: { backgroundColor: '#EEF2FF', borderColor: colors.indigo },
+  durationChipText: { fontSize: 12, fontWeight: '700', color: colors.slate },
+  durationChipTextOn: { color: colors.indigo, fontWeight: '800' },
   note: {
     backgroundColor: colors.card,
     borderWidth: 1,

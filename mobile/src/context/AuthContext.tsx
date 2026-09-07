@@ -4,6 +4,8 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
 import { api } from '../lib/api';
+import { clearDailyLogCaches } from '../lib/dailyLogCache';
+import { clearAttendanceCaches } from '../lib/attendanceCache';
 import { clearSession, getAccessToken, getOrCreateDeviceUuid, saveTokens } from '../lib/secure';
 
 export type AuthUser = {
@@ -105,6 +107,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           await registerPushToken(uuid);
         }
       } catch {
+        clearDailyLogCaches();
+        clearAttendanceCaches();
         await clearSession();
         setUser(null);
       } finally {
@@ -114,6 +118,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [refreshMe]);
 
   const login = async (email: string, password: string) => {
+    clearDailyLogCaches();
+    clearAttendanceCaches();
     const uuid = deviceUuid || (await getOrCreateDeviceUuid());
     setDeviceUuid(uuid);
     const data = await api<{ access_token?: string; refresh_token?: string; user: AuthUser }>(
@@ -138,6 +144,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     } catch {
       /* ignore */
     }
+    clearDailyLogCaches();
+    clearAttendanceCaches();
     await clearSession();
     setUser(null);
   };

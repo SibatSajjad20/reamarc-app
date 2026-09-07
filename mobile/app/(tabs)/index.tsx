@@ -24,12 +24,24 @@ import * as Location from 'expo-location';
 import * as LocalAuthentication from 'expo-local-authentication';
 import NetInfo from '@react-native-community/netinfo';
 import { api } from '../../src/lib/api';
+import {
+  getCachedMatrix,
+  getCachedPunchToday,
+  isAttendanceCacheStale,
+  setCachedMatrix,
+  setCachedPunchToday,
+} from '../../src/lib/attendanceCache';
 import { classifyGpsFix, haversineMeters } from '../../src/lib/geo';
+import { isAdmin } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
+import { OverviewAttendanceSkeleton } from '../../src/ui/Skeleton';
 import { TruckLoader } from '../../src/ui/TruckLoader';
-import { formatDisplayDate, formatLongDate, formatTime, prettyRole } from '../../src/ui/format';
+import { formatDisplayDate, formatTime, prettyRole } from '../../src/ui/format';
+
+const OVERVIEW_SETTLE_MS = 400;
+const OVERVIEW_POLL_MS = 45_000;
 
 type TodayPayload = {
   record: {
@@ -113,8 +125,13 @@ type Fix = {
 
 function PunchScreen() {
   const { user, deviceUuid } = useAuth();
-  const [today, setToday] = useState<TodayPayload | null>(null);
-  const [dayTarget, setDayTarget] = useState<DayTargetPayload | null>(null);
+  const punchCached = getCachedPunchToday();
+  const [today, setToday] = useState<TodayPayload | null>(
+    () => (punchCached?.data.today as TodayPayload | null) ?? null,
+  );
+  const [dayTarget, setDayTarget] = useState<DayTargetPayload | null>(
+    () => (punchCached?.data.dayTarget as DayTargetPayload | null) ?? null,
+  );
   const [fix, setFix] = useState<Fix | null>(null);
   const [online, setOnline] = useState(true);
   const [onWifi, setOnWifi] = useState(false);
@@ -123,10 +140,19 @@ function PunchScreen() {
   const [nowTick, setNowTick] = useState(Date.now());
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState('');
-  const [initialLoading, setInitialLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(() => !punchCached);
   const pulse = useRef(new Animated.Value(1)).current;
+  const didBlurRef = useRef(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts: { soft?: boolean } = {}) => {
+    const { soft = false } = opts;
+    const cached = getCachedPunchToday();
+    if (cached && soft && !isAttendanceCacheStale(cached, todayIso())) {
+      setToday(cached.data.today as TodayPayload);
+      setDayTarget((cached.data.dayTarget as DayTargetPayload | null) ?? null);
+      setInitialLoading(false);
+      return cached.data.today as TodayPayload;
+    }
     try {
       const [data, target] = await Promise.all([
         api<TodayPayload>('/attendance/today'),
@@ -134,8 +160,16 @@ function PunchScreen() {
       ]);
       setToday(data);
       if (target) setDayTarget(target);
+      setCachedPunchToday(data, target);
+      setInitialLoading(false);
       return data;
     } catch (err: any) {
+      if (cached) {
+        setToday(cached.data.today as TodayPayload);
+        setDayTarget((cached.data.dayTarget as DayTargetPayload | null) ?? null);
+        setInitialLoading(false);
+        return cached.data.today as TodayPayload;
+      }
       throw err;
     }
   }, []);
@@ -190,8 +224,8 @@ function PunchScreen() {
       }
     })();
     const poll = setInterval(() => {
-      load().catch(() => undefined);
-    }, 45000);
+      load({ soft: true }).catch(() => undefined);
+    }, OVERVIEW_POLL_MS);
     const tick = setInterval(() => setNowTick(Date.now()), 1000);
     return () => {
       alive = false;
@@ -199,6 +233,20 @@ function PunchScreen() {
       clearInterval(tick);
     };
   }, [load, captureGps]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!didBlurRef.current) {
+        return () => {
+          didBlurRef.current = true;
+        };
+      }
+      void load({ soft: true }).catch(() => undefined);
+      return () => {
+        didBlurRef.current = true;
+      };
+    }, [load]),
+  );
 
   const cin = today?.record?.check_in || today?.record?.punch_in || null;
   const cout = today?.record?.check_out || today?.record?.punch_out || null;
@@ -264,9 +312,27 @@ function PunchScreen() {
   const breakMins = scheduledBreakMinutes(today);
 
   const loggedHours = dayTarget?.logged_hours ?? 0;
-  const expectedHours = dayTarget?.expected_hours ?? today?.shift?.expected_hours ?? 8.0;
   const workedHours = dayTarget?.worked_hours ?? 0;
-  const remainingHoursToLog = Math.max(0, (cout ? workedHours : expectedHours) - loggedHours);
+
+  const timeAtWorkHours = useMemo(() => {
+    if (!cin) return 0;
+    if (cout) {
+      if (workedHours > 0) return workedHours;
+      const [inH, inM] = cin.split(':').map(Number);
+      const [outH, outM] = cout.split(':').map(Number);
+      let diffMins = outH * 60 + outM - (inH * 60 + inM);
+      if (diffMins < 0) diffMins += 24 * 60;
+      return Math.max(0, diffMins / 60);
+    }
+    const [inH, inM] = cin.split(':').map(Number);
+    const start = new Date();
+    start.setHours(inH, inM, 0, 0);
+    return Math.max(0, (nowTick - start.getTime()) / 3_600_000);
+  }, [cin, cout, nowTick, workedHours]);
+
+  // Gap = unlogged portion of time already worked (not remaining shift length).
+  const unloggedGapHours = Math.max(0, timeAtWorkHours - loggedHours);
+  const timeAtWorkFormatted = formatHoursAndMinutes(timeAtWorkHours);
 
   let trackerStatusLabel = 'Log Pending';
   let trackerStatusBg = '#FFF7ED';
@@ -277,21 +343,20 @@ function PunchScreen() {
       trackerStatusLabel = 'Log Complete';
       trackerStatusBg = '#ECFDF5';
       trackerStatusColor = colors.emerald;
-    } else if (loggedHours < workedHours) {
-      const diffFormatted = formatHoursAndMinutes(workedHours - loggedHours);
-      trackerStatusLabel = `${diffFormatted} missing`;
+    } else if (unloggedGapHours > 0) {
+      trackerStatusLabel = `${formatHoursAndMinutes(unloggedGapHours)} gap`;
       trackerStatusBg = '#FFF1F2';
       trackerStatusColor = colors.rose;
     }
   } else if (cin) {
-    if (loggedHours >= expectedHours && expectedHours > 0) {
-      trackerStatusLabel = 'Target Reached';
+    if (unloggedGapHours <= 0.02 && loggedHours > 0) {
+      trackerStatusLabel = 'Caught Up';
       trackerStatusBg = '#ECFDF5';
       trackerStatusColor = colors.emerald;
-    } else if (loggedHours > 0) {
-      trackerStatusLabel = `${formatHoursAndMinutes(loggedHours)} Logged`;
-      trackerStatusBg = '#EEF2FF';
-      trackerStatusColor = colors.indigo;
+    } else if (unloggedGapHours > 0) {
+      trackerStatusLabel = `${formatHoursAndMinutes(unloggedGapHours)} gap`;
+      trackerStatusBg = '#FFF7ED';
+      trackerStatusColor = colors.amber;
     } else {
       trackerStatusLabel = '0m Logged';
       trackerStatusBg = '#FFF7ED';
@@ -390,7 +455,8 @@ function PunchScreen() {
     btnIcon = 'finger-print';
   } else if (canOut) {
     btnLabel = 'Check Out';
-    btnColor = colors.emerald;
+    // Match web dashboard rose Check Out (bg-rose-600).
+    btnColor = colors.rose;
     btnDisabled = false;
     btnIcon = 'exit-outline';
   } else if (cout) {
@@ -405,7 +471,16 @@ function PunchScreen() {
     btnIcon = 'lock-closed';
   }
 
-  const roleLine = [prettyRole(user?.role), user?.department].filter(Boolean).join(' · ');
+  const identityBits = [user?.department, prettyRole(user?.role)].filter(Boolean);
+  const identityLine = identityBits.join(' ');
+  const shiftWindow =
+    today?.shift?.start_time || today?.shift?.end_time
+      ? `${formatTime(today?.shift?.start_time)} – ${formatTime(today?.shift?.end_time)}`
+      : null;
+  const shiftName = today?.shift?.name || 'Shift';
+  const contextLine = [identityLine || null, shiftWindow ? `${shiftName} (${shiftWindow})` : shiftName]
+    .filter(Boolean)
+    .join(' · ');
 
   if (initialLoading && !today) {
     return (
@@ -423,19 +498,11 @@ function PunchScreen() {
         <View style={styles.header}>
           <View style={{ flex: 1 }}>
             <Text style={styles.hi}>Hi {user?.name?.split(' ')[0] || 'there'} 👋</Text>
-            <View style={styles.metaRow}>
-              <View style={styles.dateChip}>
-                <Text style={styles.dateText}>{formatLongDate()}</Text>
-              </View>
-              {!!roleLine && (
-                <View style={styles.roleChip}>
-                  <Text style={styles.roleText}>{roleLine}</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.shift}>
-              {today?.shift?.name || 'Shift'} · {formatTime(today?.shift?.start_time)} – {formatTime(today?.shift?.end_time)}
-            </Text>
+            {!!contextLine && (
+              <Text style={styles.contextLine} numberOfLines={2}>
+                {contextLine}
+              </Text>
+            )}
           </View>
           <Avatar name={user?.name} size={48} />
         </View>
@@ -455,7 +522,6 @@ function PunchScreen() {
             <View style={styles.pills}>
               <VerifyPill ok={Boolean(gpsOk)} icon="location-outline" label={isWfh ? 'WFH' : 'Geofence'} />
               <VerifyPill ok={Boolean(wifiOk)} icon="wifi-outline" label={isWfh ? 'Remote' : 'Office Wi-Fi'} />
-              <VerifyPill ok={online} icon="sync-outline" label={online ? 'Server Sync' : 'Offline'} />
             </View>
 
             {cout ? (
@@ -514,12 +580,19 @@ function PunchScreen() {
         {cin && !isOffDay && String(user?.role || '').toLowerCase() !== 'operations' && (
           <View style={styles.trackerCard}>
             <View style={styles.trackerHead}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <View style={styles.trackerHeadLeft}>
                 <Ionicons name="timer-outline" size={16} color={colors.indigo} />
-                <Text style={styles.trackerHeadTitle}>Shift & Tasks Tracker</Text>
+                <Text style={styles.trackerHeadTitle} numberOfLines={1}>
+                  Shift & Tasks Tracker
+                </Text>
               </View>
-              <View style={[styles.statusBadge, { backgroundColor: trackerStatusBg }]}>
-                <Text style={[styles.statusText, { color: trackerStatusColor }]}>
+              <View style={[styles.statusBadge, styles.trackerStatusBadge, { backgroundColor: trackerStatusBg }]}>
+                <Text
+                  style={[styles.statusText, { color: trackerStatusColor }]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.85}
+                >
                   {trackerStatusLabel}
                 </Text>
               </View>
@@ -529,16 +602,18 @@ function PunchScreen() {
               <View style={styles.trackerCol}>
                 <View style={styles.trackerLabelWrap}>
                   <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    Total Hours
+                    Time at Work
                   </Text>
                 </View>
-                <Text style={styles.trackerValue} numberOfLines={1}>{shiftDurationFormatted}</Text>
+                <Text style={styles.trackerValue} numberOfLines={1}>
+                  {timeAtWorkFormatted}
+                </Text>
               </View>
               <View style={styles.trackerSep} />
               <View style={styles.trackerCol}>
                 <View style={styles.trackerLabelWrap}>
                   <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    Tasks Logged
+                    Logged
                   </Text>
                 </View>
                 <Text style={[styles.trackerValue, { color: colors.emerald }]} numberOfLines={1}>
@@ -549,14 +624,24 @@ function PunchScreen() {
               <View style={styles.trackerCol}>
                 <View style={styles.trackerLabelWrap}>
                   <Text style={styles.trackerLabel} numberOfLines={1} adjustsFontSizeToFit>
-                    {cout ? 'Net Deficit' : 'To Log'}
+                    Gap
                   </Text>
                 </View>
                 <Text
-                  style={[styles.trackerValue, { color: remainingHoursToLog > 0 ? colors.amber : colors.muted }]}
+                  style={[
+                    styles.trackerValue,
+                    {
+                      color:
+                        unloggedGapHours > 0
+                          ? unloggedGapHours >= 0.5
+                            ? colors.rose
+                            : colors.amber
+                          : colors.muted,
+                    },
+                  ]}
                   numberOfLines={1}
                 >
-                  {remainingHoursToLog > 0 ? `${formatHoursAndMinutes(remainingHoursToLog)} left` : 'Complete'}
+                  {unloggedGapHours > 0.02 ? formatHoursAndMinutes(unloggedGapHours) : '—'}
                 </Text>
               </View>
             </View>
@@ -774,77 +859,121 @@ function todayIso() {
 function AdminOverviewScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const [matrix, setMatrix] = useState<DailyMatrixResponse | null>(null);
-  const [pendingCount, setPendingCount] = useState<number>(0);
-  const [loading, setLoading] = useState(true);
+  const initialDate = todayIso();
+  const initialCached = getCachedMatrix(initialDate);
+  const [matrix, setMatrix] = useState<DailyMatrixResponse | null>(
+    () => (initialCached?.data.matrix as DailyMatrixResponse | null) ?? null,
+  );
+  const [pendingCount, setPendingCount] = useState<number>(
+    () => initialCached?.data.pendingCount ?? 0,
+  );
+  const [loading, setLoading] = useState(() => !initialCached);
   const [isFetchingDate, setIsFetchingDate] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<string>('all');
   const [lastUpdated, setLastUpdated] = useState('');
-  const [selectedDate, setSelectedDate] = useState<string>(todayIso());
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [draftDate, setDraftDate] = useState<Date>(new Date());
 
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const activeDateRef = useRef<string>(selectedDate);
+  const reqIdRef = useRef(0);
+  const didBlurRef = useRef(false);
+  const hasSettledOnce = useRef(false);
+  const matrixRef = useRef(matrix);
   activeDateRef.current = selectedDate;
+  matrixRef.current = matrix;
 
   const isToday = selectedDate === todayIso();
 
-  const executeFetch = useCallback(async (dateStr: string, isInitial = false) => {
-    activeDateRef.current = dateStr;
-    if (isInitial) {
-      setLoading(true);
+  const executeFetch = useCallback(
+    async (
+      dateStr: string,
+      opts: { force?: boolean; soft?: boolean; background?: boolean } = {},
+    ) => {
+      const { force = false, soft = false, background = false } = opts;
+      activeDateRef.current = dateStr;
+      const cached = getCachedMatrix(dateStr);
+      const stale = isAttendanceCacheStale(cached, dateStr);
+
+      if (cached && !force) {
+        setMatrix(cached.data.matrix as DailyMatrixResponse);
+        setPendingCount(cached.data.pendingCount);
+        setLoading(false);
+        setIsFetchingDate(false);
+        // Soft/settled navigation: skip network when fresh.
+        // Background poll: always refresh silently for live attendance.
+        if (!background && !stale) return;
+      }
+
+      // Blocking loader only on cache miss for user-driven loads (not poll/focus).
+      if (!cached && !soft && !background) {
+        const current = matrixRef.current;
+        if (!current || current.date !== dateStr) setIsFetchingDate(true);
+      }
+
+      const reqId = ++reqIdRef.current;
+
+      try {
+        const isDateToday = dateStr === todayIso();
+        const query = isDateToday ? '' : `?date=${dateStr}`;
+        const [matrixRes, pendingRes] = await Promise.all([
+          api<DailyMatrixResponse>(`/attendance/matrix${query}`),
+          api<any[]>('/leaves/pending').catch(() => []),
+        ]);
+
+        if (reqId !== reqIdRef.current || activeDateRef.current !== dateStr) return;
+
+        if (matrixRes) {
+          const pending = Array.isArray(pendingRes) ? pendingRes.length : 0;
+          setCachedMatrix(dateStr, matrixRes, pending);
+          setMatrix(matrixRes);
+          setPendingCount(pending);
+          const d = new Date();
+          setLastUpdated(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+        }
+      } catch (err: any) {
+        console.error('Failed to load matrix in admin overview:', err);
+      } finally {
+        if (reqId === reqIdRef.current && activeDateRef.current === dateStr) {
+          setLoading(false);
+          setIsFetchingDate(false);
+          setRefreshing(false);
+        }
+      }
+    },
+    [],
+  );
+
+  // Cache-first paint + settle debounce when selectedDate changes.
+  useEffect(() => {
+    const cached = getCachedMatrix(selectedDate);
+    if (cached) {
+      setMatrix(cached.data.matrix as DailyMatrixResponse);
+      setPendingCount(cached.data.pendingCount);
+      setIsFetchingDate(false);
+      setLoading(false);
     } else {
       setIsFetchingDate(true);
     }
 
-    try {
-      const isDateToday = dateStr === todayIso();
-      const query = isDateToday ? '' : `?date=${dateStr}`;
-      const [matrixRes, pendingRes] = await Promise.all([
-        api<DailyMatrixResponse>(`/attendance/matrix${query}`),
-        api<any[]>('/leaves/pending').catch(() => []),
-      ]);
-
-      // Only apply response if user is still on this target date
-      if (activeDateRef.current === dateStr) {
-        if (matrixRes) {
-          setMatrix(matrixRes);
-          setPendingCount(Array.isArray(pendingRes) ? pendingRes.length : 0);
-          const d = new Date();
-          setLastUpdated(d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
-        }
-      }
-    } catch (err: any) {
-      console.error('Failed to load matrix in admin overview:', err);
-    } finally {
-      if (activeDateRef.current === dateStr) {
-        setLoading(false);
-        setIsFetchingDate(false);
-        setRefreshing(false);
-      }
-    }
-  }, []);
-
-  const queueDateFetch = useCallback((newDate: string) => {
-    if (debounceTimer.current) {
-      clearTimeout(debounceTimer.current);
-    }
-    activeDateRef.current = newDate;
-    setIsFetchingDate(true);
-    // 250ms debounce waiting period to prevent network flooding while clicking dates
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    const delay = hasSettledOnce.current ? OVERVIEW_SETTLE_MS : 0;
+    hasSettledOnce.current = true;
     debounceTimer.current = setTimeout(() => {
-      executeFetch(newDate, false);
-    }, 250);
-  }, [executeFetch]);
+      void executeFetch(selectedDate, { force: false });
+    }, delay);
+
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
+  }, [selectedDate, executeFetch]);
 
   useEffect(() => {
     return () => {
-      if (debounceTimer.current) {
-        clearTimeout(debounceTimer.current);
-      }
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
   }, []);
 
@@ -857,24 +986,33 @@ function AdminOverviewScreen() {
     return () => clearTimeout(watchdog);
   }, [isFetchingDate]);
 
-  // Periodic refresh ONLY when viewing today (cleans up immediately when viewing historical dates)
+  // Silent live refresh while viewing today — never flips the loading UI.
   useEffect(() => {
     if (selectedDate !== todayIso()) return;
     const interval = setInterval(() => {
-      executeFetch(todayIso(), false);
-    }, 15000);
+      void executeFetch(todayIso(), { background: true });
+    }, OVERVIEW_POLL_MS);
     return () => clearInterval(interval);
   }, [selectedDate, executeFetch]);
 
+  // Soft revalidate on tab return — keep previous matrix on screen.
   useFocusEffect(
     useCallback(() => {
-      executeFetch(activeDateRef.current, false);
+      if (!didBlurRef.current) {
+        return () => {
+          didBlurRef.current = true;
+        };
+      }
+      void executeFetch(activeDateRef.current, { soft: true });
+      return () => {
+        didBlurRef.current = true;
+      };
     }, [executeFetch]),
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    executeFetch(selectedDate, false);
+    void executeFetch(selectedDate, { force: true });
   }, [executeFetch, selectedDate]);
 
   const handleShiftDay = (delta: number) => {
@@ -883,13 +1021,11 @@ function AdminOverviewScreen() {
     const nextIso = toIsoDate(cur);
     if (delta > 0 && nextIso > todayIso()) return;
     setSelectedDate(nextIso);
-    queueDateFetch(nextIso);
   };
 
   const handleSelectDate = (newDate: string) => {
     if (newDate > todayIso()) return;
     setSelectedDate(newDate);
-    queueDateFetch(newDate);
   };
 
   const rows = matrix?.rows || [];
@@ -983,7 +1119,7 @@ function AdminOverviewScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
+    <SafeAreaView style={styles.safe} edges={['top']}>
       <ScrollView
         contentContainerStyle={styles.adminScroll}
         showsVerticalScrollIndicator={false}
@@ -991,8 +1127,10 @@ function AdminOverviewScreen() {
       >
         {/* Executive Header */}
         <View style={styles.adminHeader}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.adminGreeting}>Hi {user?.name?.split(' ')[0] || 'Admin'} 👋</Text>
+          <View style={styles.adminHeaderText}>
+            <Text style={styles.adminGreeting} numberOfLines={1}>
+              Hi {user?.name?.split(' ')[0] || 'Admin'} 👋
+            </Text>
             <View style={styles.livePulseRow}>
               {isToday ? (
                 <>
@@ -1018,9 +1156,19 @@ function AdminOverviewScreen() {
               )}
             </View>
           </View>
-          <View style={styles.avatarWrap}>
-            <Avatar name={user?.name || 'Admin'} size={46} />
-          </View>
+          <Pressable
+            style={styles.logsHeaderBtn}
+            onPress={() =>
+              router.push({
+                pathname: '/daily-log',
+                params: { date: selectedDate },
+              })
+            }
+            hitSlop={6}
+          >
+            <Ionicons name="document-text-outline" size={16} color={colors.indigo} />
+            <Text style={styles.logsHeaderBtnText}>Logs</Text>
+          </Pressable>
         </View>
 
         {/* Date Selector Navigation Bar */}
@@ -1035,7 +1183,6 @@ function AdminOverviewScreen() {
 
           <Pressable
             style={styles.dateCenterBtn}
-            disabled={isFetchingDate}
             onPress={() => {
               setDraftDate(parseDate(selectedDate));
               setShowDatePicker(true);
@@ -1147,11 +1294,9 @@ function AdminOverviewScreen() {
           </Pressable>
         )}
 
-        {/* Dynamic Content: Show 3D Loader during date changes to avoid stale/inaccurate data */}
+        {/* Date miss only — poll/focus never set isFetchingDate */}
         {isFetchingDate ? (
-          <View style={styles.dateLoadingCard}>
-            <TruckLoader label={`Syncing attendance for ${formatDisplayDate(selectedDate)}...`} />
-          </View>
+          <OverviewAttendanceSkeleton employeeRows={5} />
         ) : (
           <>
             {/* 4 Executive Metric Cards in Clean 2x2 Grid (No whitespace on right!) */}
@@ -1376,7 +1521,20 @@ function AdminOverviewScreen() {
             }
 
             return (
-              <View key={emp.user_id} style={styles.empCard}>
+              <Pressable
+                key={emp.user_id}
+                style={styles.empCard}
+                onPress={() =>
+                  router.push({
+                    pathname: '/daily-log',
+                    params: {
+                      date: selectedDate,
+                      userId: emp.user_id,
+                      name: emp.employee_name,
+                    },
+                  })
+                }
+              >
                 <View style={styles.empCardMain}>
                   <Avatar name={emp.employee_name} size={38} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
@@ -1392,6 +1550,7 @@ function AdminOverviewScreen() {
                     </View>
                     <Text style={styles.empDept}>{emp.department || 'General'} · {prettyRole(emp.role || 'employee')}</Text>
                   </View>
+                  <Ionicons name="chevron-forward" size={16} color={colors.muted} style={{ marginLeft: 4 }} />
                 </View>
 
                 {/* Timings row */}
@@ -1422,7 +1581,7 @@ function AdminOverviewScreen() {
                     </View>
                   ) : null}
                 </View>
-              </View>
+              </Pressable>
             );
           })
         )}
@@ -1435,11 +1594,8 @@ function AdminOverviewScreen() {
 
 export default function PunchOrOverviewScreen() {
   const { user } = useAuth();
-  const isAdmin =
-    String(user?.role || '').toLowerCase() === 'admin' ||
-    String(user?.role || '').toLowerCase() === 'super_admin';
 
-  if (isAdmin) {
+  if (isAdmin(user?.role)) {
     return <AdminOverviewScreen />;
   }
   return <PunchScreen />;
@@ -1456,12 +1612,13 @@ const styles = StyleSheet.create({
   scroll: { padding: 20, paddingBottom: 120 },
   header: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 18 },
   hi: { fontSize: 28, fontWeight: '800', color: colors.text },
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
-  dateChip: { backgroundColor: colors.card, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: colors.line },
-  dateText: { fontSize: 12, fontWeight: '700', color: colors.slate },
-  roleChip: { backgroundColor: '#EEF2FF', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 5 },
-  roleText: { fontSize: 12, fontWeight: '800', color: colors.indigo },
-  shift: { color: colors.muted, marginTop: 8, fontSize: 13 },
+  contextLine: {
+    marginTop: 6,
+    fontSize: 13.5,
+    fontWeight: '600',
+    color: colors.slate,
+    lineHeight: 19,
+  },
   verifyLabel: { fontSize: 12, fontWeight: '800', color: colors.slate, marginBottom: 8, letterSpacing: 0.3 },
   pills: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 22 },
   pill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 999 },
@@ -1482,7 +1639,7 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   heroText: { color: '#fff', fontSize: 16, fontWeight: '800', marginTop: 8, textAlign: 'center' },
-  heroTimer: { color: '#ECFDF5', fontWeight: '700', marginTop: 6 },
+  heroTimer: { color: 'rgba(255,255,255,0.9)', fontWeight: '700', marginTop: 6 },
   restCard: {
     backgroundColor: '#EEF2FF',
     borderRadius: 18,
@@ -1570,17 +1727,31 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#E2E8F0',
+    overflow: 'hidden',
   },
   trackerHead: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
+    gap: 8,
+  },
+  trackerHeadLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
   },
   trackerHeadTitle: {
+    flexShrink: 1,
     fontWeight: '800',
     color: colors.text,
     fontSize: 14,
+  },
+  trackerStatusBadge: {
+    flexShrink: 1,
+    maxWidth: '46%',
   },
   trackerRow: {
     flexDirection: 'row',
@@ -1682,25 +1853,51 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   adminScroll: {
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingTop: 8,
     paddingBottom: 130,
   },
   adminHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    gap: 12,
+    marginBottom: 18,
+  },
+  adminHeaderText: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 4,
+  },
+  logsHeaderBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#EEF2FF',
+    borderWidth: 1,
+    borderColor: '#C7D2FE',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginTop: 2,
+    flexShrink: 0,
+  },
+  logsHeaderBtnText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.indigo,
   },
   adminGreeting: {
-    fontSize: 26,
+    fontSize: 24,
     fontWeight: '800',
     color: colors.text,
+    letterSpacing: -0.3,
   },
   livePulseRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginTop: 4,
+    marginTop: 6,
   },
   liveDot: {
     width: 8,
@@ -1712,12 +1909,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: '#059669',
-  },
-  avatarWrap: {
-    borderRadius: 999,
-    padding: 2,
-    borderWidth: 2,
-    borderColor: colors.indigo,
   },
   pendingActionBanner: {
     backgroundColor: '#EEF2FF',
@@ -2060,15 +2251,5 @@ const styles = StyleSheet.create({
     height: 330,
     width: '100%',
     backgroundColor: '#FFFFFF',
-  },
-  dateLoadingCard: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: colors.card,
-    borderRadius: 16,
-    paddingVertical: 56,
-    borderWidth: 1,
-    borderColor: colors.line,
-    marginTop: 8,
   },
 });

@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
 import { useInbox } from '../../src/context/InboxContext';
 import { useAuth } from '../../src/context/AuthContext';
+import { canBroadcast as roleCanBroadcast } from '../../src/lib/roles';
 import { colors } from '../../src/theme';
 import { isMissedAlert, relativeTime } from '../../src/ui/format';
 import { getClearedNotificationsCutoff, setClearedNotificationsCutoff } from '../../src/lib/secure';
@@ -86,10 +87,7 @@ export default function AlertsScreen() {
   const [sendingBroadcast, setSendingBroadcast] = useState(false);
   const [broadcastMessage, setBroadcastMessage] = useState('');
 
-  const canBroadcast =
-    String(user?.role || '').toLowerCase() === 'admin' ||
-    String(user?.role || '').toLowerCase() === 'super_admin' ||
-    String(user?.role || '').toLowerCase() === 'hr';
+  const canBroadcast = roleCanBroadcast(user?.role);
 
   const load = useCallback(async (spin = false) => {
     if (spin) setLoading(true);
@@ -167,7 +165,7 @@ export default function AlertsScreen() {
       >
         <View style={styles.head}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.title}>{canBroadcast ? 'Broadcasts & Alerts' : 'Notifications'}</Text>
+            <Text style={styles.title}>{canBroadcast ? 'Broadcasts & Alerts' : 'Alerts'}</Text>
             <Text style={styles.muted}>
               {canBroadcast
                 ? 'Company announcements, executive notices & team alerts.'
