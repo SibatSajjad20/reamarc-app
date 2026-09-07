@@ -30,7 +30,13 @@ async function tryRefresh(): Promise<boolean> {
   if (!refresh) return false;
   const res = await fetch(`${API_URL}/auth/refresh`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Client': 'mobile', Accept: 'application/json' },
+    credentials: 'omit',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+      'X-Client': 'mobile',
+      'X-Requested-With': 'XMLHttpRequest',
+    },
     body: JSON.stringify({ refresh_token: refresh }),
   });
   if (!res.ok) {
@@ -61,6 +67,8 @@ export async function api<T>(
   const headers: Record<string, string> = {
     Accept: 'application/json',
     'X-Client': 'mobile',
+    // Satisfies production CSRF custom-header check if a prior Set-Cookie is replayed.
+    'X-Requested-With': 'XMLHttpRequest',
     ...(options.body ? { 'Content-Type': 'application/json' } : {}),
     ...(options.headers as Record<string, string> | undefined),
   };
@@ -72,7 +80,8 @@ export async function api<T>(
   const timeout = timeoutSignal(35000);
   let res: Response;
   try {
-    res = await fetch(url, { ...options, headers, signal: timeout.signal });
+    // Mobile auth is Bearer-only; never send cookie jars (Android may store Set-Cookie).
+    res = await fetch(url, { ...options, headers, credentials: 'omit', signal: timeout.signal });
   } catch (err: any) {
     const name = String(err?.name || '');
     if (name === 'TimeoutError' || name === 'AbortError' || /network request timed out/i.test(String(err?.message))) {
@@ -93,6 +102,7 @@ export async function api<T>(
         const retry = await fetch(`${API_URL}${path}`, {
           ...options,
           headers: retryHeaders,
+          credentials: 'omit',
           signal: retryTimeout.signal,
         });
         if (!retry.ok) throw new Error(await parseError(retry));

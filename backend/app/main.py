@@ -143,8 +143,11 @@ async def csrf_protection_middleware(request: Request, call_next):
         has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
         has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
         is_mobile = (request.headers.get("x-client") or "").strip().lower() == "mobile"
+        content_type = (request.headers.get("content-type") or "").lower()
+        is_json_body = "application/json" in content_type
 
-        if has_auth_cookie and not has_bearer and not is_mobile:
+        # Native / JSON API clients are not forgeable via classic HTML forms.
+        if has_auth_cookie and not has_bearer and not is_mobile and not is_json_body:
             origin = (request.headers.get("origin") or "").strip()
             custom_header = (
                 (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest"

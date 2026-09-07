@@ -150,9 +150,13 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
-    _set_auth_cookies(response, access_token, refresh_token)
+    wants_json = _wants_json_tokens(request)
+    if not wants_json:
+        # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
+        # Setting cookies for mobile pollutes Android's cookie jar and can trip CSRF on later logins.
+        _set_auth_cookies(response, access_token, refresh_token)
 
-    return _token_payload(access_token, refresh_token, user_doc, _wants_json_tokens(request))
+    return _token_payload(access_token, refresh_token, user_doc, wants_json)
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -194,9 +198,11 @@ async def refresh_token(request: Request, response: Response):
     }
     new_access_token = create_access_token(claims)
     new_refresh_token = create_refresh_token(claims)
-    _set_auth_cookies(response, new_access_token, new_refresh_token)
+    wants_json = _wants_json_tokens(request)
+    if not wants_json:
+        _set_auth_cookies(response, new_access_token, new_refresh_token)
 
-    return _token_payload(new_access_token, new_refresh_token, user_doc, _wants_json_tokens(request))
+    return _token_payload(new_access_token, new_refresh_token, user_doc, wants_json)
 
 
 from app.schemas.user import UserProfileUpdate
