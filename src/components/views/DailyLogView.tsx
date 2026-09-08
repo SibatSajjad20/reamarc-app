@@ -21,7 +21,6 @@ import {
   CalendarRange,
   Paperclip,
   Download,
-  Clock,
   ClipboardList,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
@@ -490,57 +489,6 @@ export const DailyLogView: React.FC = () => {
     dailyLogService.getDayTarget(bannerDate).then(setDayTarget).catch(() => setDayTarget(null));
   }, [canSubmitLogs, bannerDate, entries]);
 
-  const liveLoggedHours = useMemo(() => {
-    const uid = user?.id;
-    const uname = (user?.full_name || user?.name || '').trim().toLowerCase();
-    return entries
-      .filter((e) => {
-        if (e.date !== bannerDate) return false;
-        if (uid && e.user_id === uid) return true;
-        if (uname && (e.resource_name || '').trim().toLowerCase() === uname) return true;
-        return false;
-      })
-      .reduce((sum, e) => sum + (Number(e.hours_utilized) || 0), 0);
-  }, [entries, bannerDate, user]);
-
-  const hoursChip = useMemo(() => {
-    if (!viewingSingleDay || !canSubmitLogs || !dayTarget || dayTarget.is_full_leave) return null;
-    const logged = formatHours(liveLoggedHours);
-    const worked = formatHours(dayTarget.worked_hours || 0);
-    const stillIn = Boolean(dayTarget.has_checkin && !dayTarget.has_checkout);
-    const gap = (dayTarget.worked_hours || 0) - liveLoggedHours;
-    const short = dayTarget.compare_ready && gap > 0.25;
-    const over = dayTarget.compare_ready && gap < -0.25;
-    const severeShort = dayTarget.compare_ready && liveLoggedHours <= 2 && (dayTarget.worked_hours || 0) > 2;
-
-    let tone: 'ok' | 'warn' | 'alert' = 'ok';
-    if (severeShort) tone = 'alert';
-    else if (short || over) tone = 'warn';
-
-    const extras = [
-      dayTarget.is_wfh ? 'WFH' : '',
-      dayTarget.is_full_leave ? 'on leave' : '',
-    ].filter(Boolean);
-
-    let label = `${logged} / ${worked}`;
-    let title = `Logged ${logged} / ${worked} at work`;
-    if (stillIn) {
-      label = `${logged} · in`;
-      title = `Logged ${logged} · still checked in — comparison waits until check-out`;
-    } else if (short) {
-      title = `Logged ${logged} / ${worked} at work — ${formatHours(gap)} short`;
-    } else if (over) {
-      title = `Logged ${logged} / ${worked} at work — ${formatHours(-gap)} over`;
-    } else if (dayTarget.compare_ready) {
-      title = `Logged ${logged} / ${worked} at work — matches time in/out`;
-    } else {
-      title = `Logged ${logged} / ${worked} at work — waiting on check-out`;
-    }
-    if (extras.length) title += ` · ${extras.join(' · ')}`;
-
-    return { label, title, tone };
-  }, [viewingSingleDay, canSubmitLogs, dayTarget, liveLoggedHours]);
-
   const followUps = useMemo(() => {
     const list = [...(dayTarget?.follow_ups || [])] as DayTargetFollowUp[];
     list.sort((a, b) => String(a.date || '').localeCompare(String(b.date || '')));
@@ -913,6 +861,29 @@ export const DailyLogView: React.FC = () => {
     return opts;
   }, [departments, isAdmin, isHR, isOperations, userDept]);
 
+  const modalCurrentUser = useMemo(
+    () =>
+      user
+        ? {
+            name: user.name,
+            full_name: user.full_name,
+            role: user.role,
+            department: user.department,
+          }
+        : null,
+    [user?.name, user?.full_name, user?.role, user?.department],
+  );
+
+  const modalExistingEntries = useMemo(() => {
+    const uid = user?.id;
+    const uname = (user?.full_name || user?.name || '').trim().toLowerCase();
+    return entries.filter((e) => {
+      if (uid && e.user_id === uid) return true;
+      if (uname && (e.resource_name || '').trim().toLowerCase() === uname) return true;
+      return false;
+    });
+  }, [entries, user?.id, user?.full_name, user?.name]);
+
   const getDatePresetLabel = () => {
     if (datePreset === 'today') return "Today's Data";
     if (datePreset === 'week') return 'This Week (Mon - Sat)';
@@ -947,22 +918,6 @@ export const DailyLogView: React.FC = () => {
               </button>
             )}
           </div>
-
-          {hoursChip && (
-            <div
-              title={hoursChip.title}
-              className={`flex items-center gap-1.5 shrink-0 px-2.5 py-2 rounded-xl border text-xs font-bold shadow-2xs ${
-                hoursChip.tone === 'alert'
-                  ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/50 text-rose-800 dark:text-rose-200'
-                  : hoursChip.tone === 'warn'
-                    ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/50 text-amber-800 dark:text-amber-200'
-                    : 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/50 text-emerald-800 dark:text-emerald-200'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5 shrink-0 opacity-80" />
-              <span className="whitespace-nowrap tabular-nums">{hoursChip.label}</span>
-            </div>
-          )}
 
           {/* Enhanced 4-Preset Date Filter Popover */}
           <div className="relative" ref={dateDropdownRef}>
@@ -1116,10 +1071,22 @@ export const DailyLogView: React.FC = () => {
             <button
               type="button"
               onClick={handleOpenCreateModal}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
+              disabled={isLoading || isEntryModalOpen}
+              title={
+                isLoading
+                  ? 'Wait for the sheet to finish loading'
+                  : isEntryModalOpen
+                    ? 'Finish or close the open entry form first'
+                    : 'Add a daily log entry'
+              }
+              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 disabled:hover:bg-indigo-400 disabled:hover:translate-y-0 disabled:shadow-none disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
             >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Add Entry</span>
+              {isLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+              )}
+              <span>{isLoading ? 'Updating sheet…' : 'Add Entry'}</span>
             </button>
           )}
         </div>
@@ -1995,23 +1962,8 @@ export const DailyLogView: React.FC = () => {
         prefilledDate={prefilledDate}
         columns={columns}
         activeSheet={activeSheet}
-        currentUser={
-          user
-            ? {
-                name: user.name,
-                full_name: user.full_name,
-                role: user.role,
-                department: user.department,
-              }
-            : null
-        }
-        existingEntries={entries.filter((e) => {
-          const uid = user?.id;
-          const uname = (user?.full_name || user?.name || '').trim().toLowerCase();
-          if (uid && e.user_id === uid) return true;
-          if (uname && (e.resource_name || '').trim().toLowerCase() === uname) return true;
-          return false;
-        })}
+        currentUser={modalCurrentUser}
+        existingEntries={modalExistingEntries}
         onClose={() => {
           setIsEntryModalOpen(false);
           setPrefilledDate(undefined);

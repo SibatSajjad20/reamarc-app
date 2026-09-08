@@ -249,6 +249,7 @@ async def get_day_target(
         person_day_is_leave,
         live_day_hours,
         format_hours_hm,
+        compute_time_at_work_hours,
     )
 
     user_role = current_user.get("role", "team_member")
@@ -295,6 +296,18 @@ async def get_day_target(
     )
 
     remaining = round(max(0.0, worked - logged), 2) if compare_ready else 0.0
+    check_in = punch.get("check_in")
+    check_out = punch.get("check_out")
+    time_at_work = compute_time_at_work_hours(
+        date_str=date_str,
+        check_in=check_in,
+        check_out=check_out,
+        work_hours=float(punch.get("work_hours") or 0),
+        has_checkin=has_checkin,
+        has_checkout=has_checkout,
+        is_wfh=is_wfh,
+        expected_hours=float(target.get("expected_hours") or 0),
+    )
     pending_action = None
     pending_message = None
     follow_ups = []
@@ -369,6 +382,9 @@ async def get_day_target(
         "has_checkin": has_checkin,
         "has_checkout": has_checkout,
         "compare_ready": compare_ready,
+        "check_in": check_in,
+        "check_out": check_out,
+        "time_at_work_hours": time_at_work,
         "shift_name": target.get("shift_name"),
         "shift_start": target.get("shift_start"),
         "shift_end": target.get("shift_end"),

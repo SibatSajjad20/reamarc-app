@@ -25,7 +25,8 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
-import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
+import { ShiftTasksTracker } from './ShiftTasksTracker';
+import type { DailyLogEntry, DailyLogColumn, DayTarget } from '../../types/dailyLog';
 import { findDuplicate, formatHours, isLogDateExpired, isLogDateNotStarted, getOldestOpenLogDate } from '../../utils/logTimeChecks';
 
 interface DailyLogModalProps {
@@ -116,6 +117,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   const [hoursUtilized, setHoursUtilized] = useState<string>('1.0');
   const [remarks, setRemarks] = useState<string>('');
   const [customFields, setCustomFields] = useState<Record<string, any>>({});
+  const [dayTarget, setDayTarget] = useState<DayTarget | null>(null);
+  const [dayTargetLoading, setDayTargetLoading] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -143,13 +146,29 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     return lines.length > 0 ? lines : [''];
   };
 
-  // Sync form state when modal opens or initialData changes
+  // Hydrate form once per open session. Parent re-renders after save/filter
+  // refresh must NOT wipe in-progress edits (unstable currentUser / workspaces refs).
+  const hydrateSessionRef = useRef<string | null>(null);
+
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      hydrateSessionRef.current = null;
+      return;
+    }
+
+    const sessionKey =
+      mode === 'edit' && initialData?.id
+        ? `edit:${initialData.id}:v${initialData.version ?? 0}`
+        : `create:${prefilledDate || ''}`;
+
+    if (hydrateSessionRef.current === sessionKey) return;
+    hydrateSessionRef.current = sessionKey;
 
     setErrorMessage(null);
     setUploadError(null);
     setIsOccConflict(false);
+    setDayTarget(null);
+    setDayTargetLoading(false);
 
     if (mode === 'edit' && initialData) {
       setDate(initialData.date || getTodayIso());
@@ -236,6 +255,34 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     () => existingEntries.filter((e) => e.date === date),
     [existingEntries, date],
   );
+
+  useEffect(() => {
+    if (!isOpen || !date) {
+      setDayTarget(null);
+      setDayTargetLoading(false);
+      return;
+    }
+    let cancelled = false;
+    const controller = new AbortController();
+    setDayTargetLoading(true);
+    dailyLogService
+      .getDayTarget(date, { signal: controller.signal })
+      .then((target) => {
+        if (!cancelled) {
+          setDayTarget(target);
+          setDayTargetLoading(false);
+        }
+      })
+      .catch((err) => {
+        if (cancelled || err?.name === 'AbortError' || err?.status === 499) return;
+        setDayTarget(null);
+        setDayTargetLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [isOpen, date]);
 
   const duplicateHit = useMemo(
     () =>
@@ -476,12 +523,12 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/40 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 bg-zinc-50/50 dark:bg-zinc-900/40 shrink-0">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
               <FileText className="w-4 h-4" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
                 {mode === 'create' ? 'Add Daily Log Entry' : 'Edit Daily Log Entry'}
               </h2>
@@ -492,13 +539,19 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <ShiftTasksTracker
+              dayTarget={dayTarget}
+              loading={dayTargetLoading}
+            />
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body Form */}

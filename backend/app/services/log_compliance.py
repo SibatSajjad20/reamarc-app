@@ -89,6 +89,80 @@ def signed_hours_gap(logged_hours: float, worked_hours: float) -> float:
     return round(float(logged_hours or 0) - float(worked_hours or 0), 2)
 
 
+def _parse_hhmm(value: Optional[str]) -> Optional[Tuple[int, int]]:
+    if not value:
+        return None
+    raw = str(value).strip()
+    parts = raw.split(":")
+    if len(parts) < 2:
+        return None
+    try:
+        hour = int(parts[0])
+        minute = int(parts[1])
+    except (TypeError, ValueError):
+        return None
+    if hour < 0 or minute < 0 or minute >= 60:
+        return None
+    return hour, minute
+
+
+def compute_time_at_work_hours(
+    *,
+    date_str: str,
+    check_in: Optional[str],
+    check_out: Optional[str],
+    work_hours: float,
+    has_checkin: bool,
+    has_checkout: bool,
+    is_wfh: bool,
+    expected_hours: float,
+    now: Optional[datetime] = None,
+) -> float:
+    """
+    Hours already spent at work for the tracker banner.
+    - After checkout: settled attendance work_hours (raw in→out fallback).
+    - Still checked in: live PKT elapsed since date + check_in.
+    - WFH with no punch: shift expected_hours.
+    """
+    if has_checkout:
+        if float(work_hours or 0) > 0:
+            return round(float(work_hours), 2)
+        cin = _parse_hhmm(check_in)
+        cout = _parse_hhmm(check_out)
+        if cin and cout:
+            in_m = cin[0] * 60 + cin[1]
+            out_m = cout[0] * 60 + cout[1]
+            if out_m < in_m:
+                out_m += 24 * 60
+            return round(max(0, out_m - in_m) / 60.0, 2)
+        return 0.0
+
+    if has_checkin and check_in:
+        cin = _parse_hhmm(check_in)
+        if not cin:
+            return 0.0
+        now_pkt = now or datetime.now(PKT)
+        if now_pkt.tzinfo is None:
+            now_pkt = now_pkt.replace(tzinfo=PKT)
+        try:
+            start = datetime.strptime(
+                f"{date_str} {cin[0]:02d}:{cin[1]:02d}",
+                "%Y-%m-%d %H:%M",
+            ).replace(tzinfo=PKT)
+        except ValueError:
+            return 0.0
+        # Overnight open punch: if "now" is before check-in on this calendar date,
+        # the punch started the previous day.
+        if now_pkt < start:
+            start = start - timedelta(days=1)
+        return round(max(0.0, (now_pkt - start).total_seconds() / 3600.0), 2)
+
+    if is_wfh and not has_checkin:
+        return round(float(expected_hours or 0), 2)
+
+    return 0.0
+
+
 def format_hours_hm(hours: float) -> str:
     """Duration as Xh Ym (e.g. 79h 48m). Omits zero parts."""
     total = int(round(max(0.0, float(hours or 0)) * 60))

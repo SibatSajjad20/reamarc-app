@@ -126,6 +126,16 @@ export interface DayTarget {
   has_checkin?: boolean;
   has_checkout?: boolean;
   compare_ready?: boolean;
+  /** HH:MM punch-in when present */
+  check_in?: string | null;
+  /** HH:MM punch-out when present */
+  check_out?: string | null;
+  /**
+   * Hours already spent at work for the tracker banner.
+   * Live elapsed while still checked in; settled work_hours after checkout;
+   * expected_hours for WFH with no punch.
+   */
+  time_at_work_hours?: number;
   shift_name?: string;
   shift_start?: string;
   shift_end?: string;
