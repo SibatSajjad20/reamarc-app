@@ -307,6 +307,12 @@ async def get_day_target(
         has_checkout=has_checkout,
         is_wfh=is_wfh,
         expected_hours=float(target.get("expected_hours") or 0),
+        shift_start=target.get("shift_start"),
+        shift_end=target.get("shift_end"),
+        break_duration_minutes=int(target.get("break_duration_minutes") or 0),
+        break_start_time=target.get("break_start_time"),
+        break_end_time=target.get("break_end_time"),
+        is_night_shift=bool(target.get("is_night_shift")),
     )
     pending_action = None
     pending_message = None
@@ -388,6 +394,10 @@ async def get_day_target(
         "shift_name": target.get("shift_name"),
         "shift_start": target.get("shift_start"),
         "shift_end": target.get("shift_end"),
+        "break_duration_minutes": int(target.get("break_duration_minutes") or 0),
+        "break_start_time": target.get("break_start_time"),
+        "break_end_time": target.get("break_end_time"),
+        "is_night_shift": bool(target.get("is_night_shift")),
         "is_full_leave": on_leave,
         "is_wfh": is_wfh,
         "status": status,

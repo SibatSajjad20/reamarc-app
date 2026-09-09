@@ -1,7 +1,13 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { DayTarget } from '../../types/dailyLog';
 import { formatHours } from '../../utils/logTimeChecks';
+import {
+  formatNowHhMm,
+  LOG_GAP_MATCH_HOURS,
+  provisionalNetWorkHours,
+  signedLogGapHours,
+} from '../../utils/liveNetWorkHours';
 
 export interface ShiftTasksTrackerProps {
   dayTarget: DayTarget | null | undefined;
@@ -16,35 +22,13 @@ export interface ShiftTasksTrackerProps {
   className?: string;
 }
 
-function parseHhMm(value?: string | null): { h: number; m: number } | null {
-  if (!value) return null;
-  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})/);
-  if (!match) return null;
-  const h = Number(match[1]);
-  const m = Number(match[2]);
-  if (!Number.isFinite(h) || !Number.isFinite(m) || m >= 60 || h < 0) return null;
-  return { h, m };
-}
-
-function liveElapsedHours(dateStr: string, checkIn: string, nowMs: number): number {
-  const cin = parseHhMm(checkIn);
-  if (!cin) return 0;
-  const [y, mo, d] = dateStr.split('-').map(Number);
-  if (!y || !mo || !d) return 0;
-  let start = new Date(y, mo - 1, d, cin.h, cin.m, 0, 0).getTime();
-  if (nowMs < start) {
-    start -= 24 * 60 * 60 * 1000;
-  }
-  return Math.max(0, (nowMs - start) / 3_600_000);
-}
-
 function formatTrackerHours(hours: number): string {
   if (hours <= 0) return '0m';
   return formatHours(hours);
 }
 
 /**
- * Compact header pill: Time at Work · Logged · Gap.
+ * Compact header pill: Time at Work · Logged · Gap (signed under / over).
  * Returns null when there is nothing useful to show (unless loading).
  */
 export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
@@ -65,24 +49,6 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
     (hasCheckin || isWfh);
 
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const liveBaseRef = useRef<{ atMs: number; hours: number } | null>(null);
-
-  useEffect(() => {
-    if (!visible || !stillIn || !dayTarget) {
-      liveBaseRef.current = null;
-      return;
-    }
-    // Prefer server PKT baseline so the live clock is timezone-safe.
-    const apiHours = Number(dayTarget.time_at_work_hours);
-    const baseHours =
-      Number.isFinite(apiHours) && apiHours >= 0
-        ? apiHours
-        : dayTarget.check_in && dayTarget.date
-          ? liveElapsedHours(dayTarget.date, dayTarget.check_in, Date.now())
-          : 0;
-    liveBaseRef.current = { atMs: Date.now(), hours: baseHours };
-    setNowTick(Date.now());
-  }, [visible, stillIn, dayTarget?.date, dayTarget?.check_in, dayTarget?.time_at_work_hours]);
 
   useEffect(() => {
     if (!visible || !stillIn) return;
@@ -99,14 +65,17 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
 
   const timeAtWorkHours = useMemo(() => {
     if (!dayTarget) return 0;
-    if (stillIn) {
-      const base = liveBaseRef.current;
-      if (base) {
-        return Math.max(0, base.hours + (nowTick - base.atMs) / 3_600_000);
-      }
-      if (dayTarget.check_in && dayTarget.date) {
-        return liveElapsedHours(dayTarget.date, dayTarget.check_in, nowTick);
-      }
+    if (stillIn && dayTarget.check_in) {
+      return provisionalNetWorkHours({
+        checkIn: dayTarget.check_in,
+        checkOut: formatNowHhMm(new Date(nowTick)),
+        shiftStart: dayTarget.shift_start,
+        shiftEnd: dayTarget.shift_end,
+        breakDurationMinutes: dayTarget.break_duration_minutes ?? 60,
+        breakStart: dayTarget.break_start_time,
+        breakEnd: dayTarget.break_end_time,
+        isNightShift: Boolean(dayTarget.is_night_shift),
+      });
     }
     const fromApi = Number(dayTarget.time_at_work_hours);
     if (Number.isFinite(fromApi) && fromApi > 0) return fromApi;
@@ -116,7 +85,11 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
     return 0;
   }, [dayTarget, stillIn, nowTick, isWfh, hasCheckin]);
 
-  const gapHours = Math.max(0, timeAtWorkHours - loggedHours);
+  const signedGap = signedLogGapHours(loggedHours, timeAtWorkHours);
+  const absGap = Math.abs(signedGap);
+  const isMatched = absGap <= LOG_GAP_MATCH_HOURS;
+  const isOver = signedGap > LOG_GAP_MATCH_HOURS;
+  const isUnder = signedGap < -LOG_GAP_MATCH_HOURS;
 
   if (loading) {
     return (
@@ -137,25 +110,37 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
 
   if (!visible || !dayTarget) return null;
 
-  const gapTone =
-    gapHours > 0.02
-      ? gapHours >= 0.5
+  const gapTone = isOver
+    ? absGap >= 0.5
+      ? 'text-rose-600 dark:text-rose-400'
+      : 'text-amber-600 dark:text-amber-400'
+    : isUnder
+      ? absGap >= 0.5
         ? 'text-rose-600 dark:text-rose-400'
         : 'text-amber-600 dark:text-amber-400'
       : 'text-zinc-400 dark:text-zinc-500';
 
-  const shellTone =
-    gapHours > 0.02
-      ? gapHours >= 0.5
+  const shellTone = isOver
+    ? absGap >= 0.5
+      ? 'border-rose-200/80 dark:border-rose-800/40 bg-rose-50/60 dark:bg-rose-950/20'
+      : 'border-amber-200/80 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-950/20'
+    : isUnder
+      ? absGap >= 0.5
         ? 'border-rose-200/80 dark:border-rose-800/40 bg-rose-50/60 dark:bg-rose-950/20'
         : 'border-amber-200/80 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-950/20'
       : loggedHours > 0
         ? 'border-emerald-200/80 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20'
         : 'border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-900/80';
 
-  const title = `Time at work ${formatTrackerHours(timeAtWorkHours)} · Logged ${
+  const gapLabel = isOver
+    ? `${formatTrackerHours(absGap)} over`
+    : isUnder
+      ? `${formatTrackerHours(absGap)} gap`
+      : 'caught up';
+
+  const title = `Time at work ${formatTrackerHours(timeAtWorkHours)} (excludes unpaid break) · Logged ${
     loggedHours > 0 ? formatTrackerHours(loggedHours) : '0m'
-  } · Gap ${gapHours > 0.02 ? formatTrackerHours(gapHours) : 'none'}`;
+  } · ${gapLabel}`;
 
   return (
     <div
@@ -175,9 +160,7 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
       <span className="text-zinc-300 dark:text-zinc-600 select-none" aria-hidden>
         ·
       </span>
-      <span className={`${gapTone} whitespace-nowrap`}>
-        {gapHours > 0.02 ? `${formatTrackerHours(gapHours)} gap` : 'caught up'}
-      </span>
+      <span className={`${gapTone} whitespace-nowrap`}>{gapLabel}</span>
     </div>
   );
 };

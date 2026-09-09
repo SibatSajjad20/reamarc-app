@@ -39,6 +39,12 @@ import { Avatar } from '../../src/ui/Avatar';
 import { OverviewAttendanceSkeleton } from '../../src/ui/Skeleton';
 import { TruckLoader } from '../../src/ui/TruckLoader';
 import { formatDisplayDate, formatTime, prettyRole } from '../../src/ui/format';
+import {
+  formatNowHhMm,
+  LOG_GAP_MATCH_HOURS,
+  provisionalNetWorkHours,
+  signedLogGapHours,
+} from '../../src/lib/liveNetWorkHours';
 
 const OVERVIEW_SETTLE_MS = 400;
 const OVERVIEW_POLL_MS = 45_000;
@@ -61,6 +67,9 @@ type TodayPayload = {
     end_time: string;
     shift_type?: string;
     break_duration_minutes?: number;
+    break_start_time?: string | null;
+    break_end_time?: string | null;
+    is_night_shift?: boolean;
     expected_hours?: number;
   };
   is_wfh_approved: boolean;
@@ -86,6 +95,13 @@ type DayTargetPayload = {
   has_checkin: boolean;
   has_checkout: boolean;
   status: string;
+  time_at_work_hours?: number;
+  shift_start?: string;
+  shift_end?: string;
+  break_duration_minutes?: number;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  is_night_shift?: boolean;
 };
 
 function formatHoursAndMinutes(hours: number): string {
@@ -96,6 +112,13 @@ function formatHoursAndMinutes(hours: number): string {
   if (h === 0) return `${m}m`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
+}
+
+function formatOnShiftNet(hours: number): string {
+  const totalMins = Math.max(0, Math.round(hours * 60));
+  const hh = String(Math.floor(totalMins / 60)).padStart(2, '0');
+  const mm = String(totalMins % 60).padStart(2, '0');
+  return `${hh}h : ${mm}m`;
 }
 
 function scheduledBreakMinutes(today: TodayPayload | null): number {
@@ -271,35 +294,6 @@ function PunchScreen() {
     return () => loop.stop();
   }, [canOut, pulse]);
 
-  const shiftDurationFormatted = useMemo(() => {
-    if (!cin) return '00:00';
-    const [inH, inM] = cin.split(':').map(Number);
-    if (cout) {
-      if (today?.record?.work_duration_formatted) {
-        return today.record.work_duration_formatted;
-      }
-      const [outH, outM] = cout.split(':').map(Number);
-      let diffMins = (outH * 60 + outM) - (inH * 60 + inM);
-      if (diffMins < 0) diffMins += 24 * 60;
-      const hh = Math.floor(diffMins / 60);
-      const mm = diffMins % 60;
-      if (hh === 0) return `${mm}m`;
-      if (mm === 0) return `${hh}h`;
-      return `${hh}h ${mm}m`;
-    }
-    const start = new Date();
-    start.setHours(inH, inM, 0, 0);
-    const diffSec = Math.max(0, Math.floor((nowTick - start.getTime()) / 1000));
-    const hh = String(Math.floor(diffSec / 3600)).padStart(2, '0');
-    const mm = String(Math.floor((diffSec % 3600) / 60)).padStart(2, '0');
-    return `${hh}h : ${mm}m`;
-  }, [cin, cout, nowTick, today?.record?.work_duration_formatted]);
-
-  const elapsed = useMemo(() => {
-    if (!cin || cout) return null;
-    return shiftDurationFormatted;
-  }, [cin, cout, shiftDurationFormatted]);
-
   const gpsOk = isWfh || fix?.quality === 'in_range';
   const ipRequired = today?.enforce_ip_whitelist !== false;
   const wifiOk =
@@ -314,24 +308,76 @@ function PunchScreen() {
   const loggedHours = dayTarget?.logged_hours ?? 0;
   const workedHours = dayTarget?.worked_hours ?? 0;
 
+  const netShiftOpts = useMemo(() => {
+    const unpaid =
+      dayTarget?.break_duration_minutes ??
+      today?.shift?.break_duration_minutes ??
+      scheduledBreakMinutes(today);
+    const kind = `${today?.shift?.shift_type || ''} ${today?.shift?.name || ''}`.toLowerCase();
+    const isNight =
+      Boolean(dayTarget?.is_night_shift) ||
+      Boolean(today?.shift?.is_night_shift) ||
+      kind.includes('night');
+    let breakStart = dayTarget?.break_start_time ?? today?.shift?.break_start_time ?? null;
+    let breakEnd = dayTarget?.break_end_time ?? today?.shift?.break_end_time ?? null;
+    // Sensible defaults when API/cache omits explicit window but duration is set.
+    if (unpaid > 0 && !breakStart && !breakEnd) {
+      if (isNight) {
+        breakStart = '01:00';
+        breakEnd = '02:00';
+      } else if (!kind.includes('afternoon')) {
+        breakStart = '13:00';
+        breakEnd = '14:00';
+      }
+    }
+    return {
+      shiftStart: dayTarget?.shift_start || today?.shift?.start_time || '09:30',
+      shiftEnd: dayTarget?.shift_end || today?.shift?.end_time || '18:30',
+      breakDurationMinutes: unpaid,
+      breakStart,
+      breakEnd,
+      isNightShift: isNight,
+    };
+  }, [dayTarget, today]);
+
   const timeAtWorkHours = useMemo(() => {
     if (!cin) return 0;
     if (cout) {
       if (workedHours > 0) return workedHours;
-      const [inH, inM] = cin.split(':').map(Number);
-      const [outH, outM] = cout.split(':').map(Number);
-      let diffMins = outH * 60 + outM - (inH * 60 + inM);
-      if (diffMins < 0) diffMins += 24 * 60;
-      return Math.max(0, diffMins / 60);
+      return provisionalNetWorkHours({
+        checkIn: cin,
+        checkOut: cout,
+        ...netShiftOpts,
+      });
     }
-    const [inH, inM] = cin.split(':').map(Number);
-    const start = new Date();
-    start.setHours(inH, inM, 0, 0);
-    return Math.max(0, (nowTick - start.getTime()) / 3_600_000);
-  }, [cin, cout, nowTick, workedHours]);
+    return provisionalNetWorkHours({
+      checkIn: cin,
+      checkOut: formatNowHhMm(new Date(nowTick)),
+      ...netShiftOpts,
+    });
+  }, [cin, cout, nowTick, workedHours, netShiftOpts]);
 
-  // Gap = unlogged portion of time already worked (not remaining shift length).
-  const unloggedGapHours = Math.max(0, timeAtWorkHours - loggedHours);
+  const shiftDurationFormatted = useMemo(() => {
+    if (!cin) return '00:00';
+    if (cout) {
+      if (today?.record?.work_duration_formatted) {
+        return today.record.work_duration_formatted;
+      }
+      return formatHoursAndMinutes(timeAtWorkHours);
+    }
+    return formatOnShiftNet(timeAtWorkHours);
+  }, [cin, cout, today?.record?.work_duration_formatted, timeAtWorkHours]);
+
+  const elapsed = useMemo(() => {
+    if (!cin || cout) return null;
+    return shiftDurationFormatted;
+  }, [cin, cout, shiftDurationFormatted]);
+
+  const signedGapHours = signedLogGapHours(loggedHours, timeAtWorkHours);
+  const absGapHours = Math.abs(signedGapHours);
+  const isGapMatched = absGapHours <= LOG_GAP_MATCH_HOURS;
+  const isOverLogged = signedGapHours > LOG_GAP_MATCH_HOURS;
+  const isUnderLogged = signedGapHours < -LOG_GAP_MATCH_HOURS;
   const timeAtWorkFormatted = formatHoursAndMinutes(timeAtWorkHours);
 
   let trackerStatusLabel = 'Log Pending';
@@ -339,22 +385,30 @@ function PunchScreen() {
   let trackerStatusColor = colors.amber;
 
   if (cout) {
-    if (loggedHours >= workedHours && workedHours > 0) {
+    if (isGapMatched && workedHours > 0 && loggedHours > 0) {
       trackerStatusLabel = 'Log Complete';
       trackerStatusBg = '#ECFDF5';
       trackerStatusColor = colors.emerald;
-    } else if (unloggedGapHours > 0) {
-      trackerStatusLabel = `${formatHoursAndMinutes(unloggedGapHours)} gap`;
+    } else if (isOverLogged) {
+      trackerStatusLabel = `${formatHoursAndMinutes(absGapHours)} over`;
+      trackerStatusBg = '#FFF1F2';
+      trackerStatusColor = colors.rose;
+    } else if (isUnderLogged) {
+      trackerStatusLabel = `${formatHoursAndMinutes(absGapHours)} gap`;
       trackerStatusBg = '#FFF1F2';
       trackerStatusColor = colors.rose;
     }
   } else if (cin) {
-    if (unloggedGapHours <= 0.02 && loggedHours > 0) {
+    if (isGapMatched && loggedHours > 0) {
       trackerStatusLabel = 'Caught Up';
       trackerStatusBg = '#ECFDF5';
       trackerStatusColor = colors.emerald;
-    } else if (unloggedGapHours > 0) {
-      trackerStatusLabel = `${formatHoursAndMinutes(unloggedGapHours)} gap`;
+    } else if (isOverLogged) {
+      trackerStatusLabel = `${formatHoursAndMinutes(absGapHours)} over`;
+      trackerStatusBg = '#FFF1F2';
+      trackerStatusColor = colors.rose;
+    } else if (isUnderLogged) {
+      trackerStatusLabel = `${formatHoursAndMinutes(absGapHours)} gap`;
       trackerStatusBg = '#FFF7ED';
       trackerStatusColor = colors.amber;
     } else {
@@ -632,8 +686,8 @@ function PunchScreen() {
                     styles.trackerValue,
                     {
                       color:
-                        unloggedGapHours > 0
-                          ? unloggedGapHours >= 0.5
+                        isOverLogged || isUnderLogged
+                          ? absGapHours >= 0.5
                             ? colors.rose
                             : colors.amber
                           : colors.muted,
@@ -641,10 +695,15 @@ function PunchScreen() {
                   ]}
                   numberOfLines={1}
                 >
-                  {unloggedGapHours > 0.02 ? formatHoursAndMinutes(unloggedGapHours) : '—'}
+                  {isOverLogged
+                    ? `${formatHoursAndMinutes(absGapHours)} over`
+                    : isUnderLogged
+                      ? formatHoursAndMinutes(absGapHours)
+                      : '—'}
                 </Text>
               </View>
             </View>
+            <Text style={styles.trackerHint}>Excludes unpaid break · match Time at Work in your daily log</Text>
           </View>
         )}
 
@@ -1787,6 +1846,14 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.text,
     textAlign: 'center',
+  },
+  trackerHint: {
+    marginTop: 10,
+    fontSize: 11,
+    color: colors.muted,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 15,
   },
   trackerSep: {
     width: 1,

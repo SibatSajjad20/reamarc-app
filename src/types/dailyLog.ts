@@ -132,13 +132,17 @@ export interface DayTarget {
   check_out?: string | null;
   /**
    * Hours already spent at work for the tracker banner.
-   * Live elapsed while still checked in; settled work_hours after checkout;
-   * expected_hours for WFH with no punch.
+   * Live net work hours while still checked in (break excluded, early punch clipped);
+   * settled work_hours after checkout; expected_hours for WFH with no punch.
    */
   time_at_work_hours?: number;
   shift_name?: string;
   shift_start?: string;
   shift_end?: string;
+  break_duration_minutes?: number;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  is_night_shift?: boolean;
   is_full_leave: boolean;
   is_wfh: boolean;
   status: 'green' | 'amber' | 'red' | string;

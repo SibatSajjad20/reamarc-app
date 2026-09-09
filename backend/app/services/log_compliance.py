@@ -117,12 +117,22 @@ def compute_time_at_work_hours(
     is_wfh: bool,
     expected_hours: float,
     now: Optional[datetime] = None,
+    shift_start: Optional[str] = None,
+    shift_end: Optional[str] = None,
+    break_duration_minutes: Optional[int] = None,
+    break_start_time: Optional[str] = None,
+    break_end_time: Optional[str] = None,
+    is_night_shift: bool = False,
 ) -> float:
     """
-    Hours already spent at work for the tracker banner.
+    Hours already spent at work for the tracker banner / daily-log pill.
+
     - After checkout: settled attendance work_hours (raw in→out fallback).
-    - Still checked in: live PKT elapsed since date + check_in.
+    - Still checked in: provisional net work hours (same rules as checkout —
+      early punch clipped to shift start; unpaid break overlap excluded).
     - WFH with no punch: shift expected_hours.
+
+    Punch timestamps themselves are never rewritten; only the hour total is net.
     """
     if has_checkout:
         if float(work_hours or 0) > 0:
@@ -155,7 +165,28 @@ def compute_time_at_work_hours(
         # the punch started the previous day.
         if now_pkt < start:
             start = start - timedelta(days=1)
-        return round(max(0.0, (now_pkt - start).total_seconds() / 3600.0), 2)
+        if now_pkt < start:
+            return 0.0
+
+        from app.services.attendance_calculator import calculate_daily_attendance
+
+        provisional_out = f"{now_pkt.hour:02d}:{now_pkt.minute:02d}"
+        unpaid = (
+            int(break_duration_minutes)
+            if break_duration_minutes is not None
+            else int(_HARD_FALLBACK_SHIFT["break_duration_minutes"])
+        )
+        result = calculate_daily_attendance(
+            check_in_time=check_in,
+            check_out_time=provisional_out,
+            shift_start=shift_start or str(_HARD_FALLBACK_SHIFT["start_time"]),
+            shift_end=shift_end or str(_HARD_FALLBACK_SHIFT["end_time"]),
+            break_duration_minutes=max(0, unpaid),
+            break_start_time=break_start_time,
+            break_end_time=break_end_time,
+            is_night_shift=bool(is_night_shift),
+        )
+        return round(float(result.work_hours or 0), 2)
 
     if is_wfh and not has_checkin:
         return round(float(expected_hours or 0), 2)
@@ -494,12 +525,16 @@ async def get_expected_log_hours(
     if not is_full_leave and short_leave_hours > 0:
         expected = max(0.0, round(expected - short_leave_hours, 2))
 
+    night = bool(getattr(shift, "is_night_shift", False) or getattr(shift, "is_cross_midnight", False))
     return {
         "expected_hours": expected,
         "shift_name": getattr(shift, "name", "Standard Shift"),
         "shift_start": getattr(shift, "start_time", "09:30"),
         "shift_end": getattr(shift, "end_time", "18:30"),
         "break_duration_minutes": int(getattr(shift, "break_duration_minutes", 60) or 0),
+        "break_start_time": getattr(shift, "break_start_time", None),
+        "break_end_time": getattr(shift, "break_end_time", None),
+        "is_night_shift": night,
         "is_full_leave": is_full_leave,
         "is_wfh": is_wfh,
         "short_leave_hours": short_leave_hours,
@@ -545,6 +580,9 @@ _HARD_FALLBACK_SHIFT = {
     "start_time": "09:30",
     "end_time": "18:30",
     "break_duration_minutes": 60,
+    "break_start_time": "13:00",
+    "break_end_time": "14:00",
+    "is_night_shift": False,
     "expected_hours": 8.0,
 }
 
@@ -587,12 +625,19 @@ def _target_from_shift_and_leaves(
     expected = 0.0 if is_full_leave else float(shift.get("expected_hours") or 8.0)
     if not is_full_leave and short_leave_hours > 0:
         expected = max(0.0, round(expected - short_leave_hours, 2))
+    raw_break = shift.get("break_duration_minutes", 60)
+    if raw_break is None:
+        raw_break = 60
+    night = bool(shift.get("is_night_shift") or shift.get("is_cross_midnight"))
     return {
         "expected_hours": expected,
         "shift_name": shift.get("name") or "Standard Shift",
         "shift_start": shift.get("start_time") or "09:30",
         "shift_end": shift.get("end_time") or "18:30",
-        "break_duration_minutes": int(shift.get("break_duration_minutes") or 60),
+        "break_duration_minutes": max(0, int(raw_break)),
+        "break_start_time": shift.get("break_start_time"),
+        "break_end_time": shift.get("break_end_time"),
+        "is_night_shift": night,
         "is_full_leave": is_full_leave,
         "is_wfh": is_wfh,
         "short_leave_hours": short_leave_hours,
