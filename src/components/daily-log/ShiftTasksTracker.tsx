@@ -87,7 +87,6 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
 
   const signedGap = signedLogGapHours(loggedHours, timeAtWorkHours);
   const absGap = Math.abs(signedGap);
-  const isMatched = absGap <= LOG_GAP_MATCH_HOURS;
   const isOver = signedGap > LOG_GAP_MATCH_HOURS;
   const isUnder = signedGap < -LOG_GAP_MATCH_HOURS;
 
