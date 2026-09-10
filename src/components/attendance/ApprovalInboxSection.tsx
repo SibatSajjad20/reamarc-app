@@ -34,6 +34,11 @@ import {
   canEditLeaveStatus,
   reviewScopeHint,
 } from '../../utils/leaveRequestAccess';
+import {
+  isClarifiedPending,
+  requestActivityAt,
+  requestReasonPreview,
+} from '../../utils/leaveClarificationDisplay';
 
 interface ApprovalInboxSectionProps {
   requests: AttendanceRequest[];
@@ -106,7 +111,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
 
   // Filtered Requests
   const filteredRequests = useMemo(() => {
-    return requests.filter((req) => {
+    const filtered = requests.filter((req) => {
       const matchesType =
         typeFilter === 'All' ||
         (typeFilter === 'leave' && req.request_type === 'leave') ||
@@ -123,10 +128,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         !term ||
         req.user_name.toLowerCase().includes(term) ||
         req.department.toLowerCase().includes(term) ||
-        req.reason.toLowerCase().includes(term);
+        req.reason.toLowerCase().includes(term) ||
+        (req.clarification_response || '').toLowerCase().includes(term) ||
+        (req.clarification_prompt || '').toLowerCase().includes(term);
 
       return matchesType && matchesStatus && matchesSearch;
     });
+
+    return [...filtered].sort((a, b) => requestActivityAt(b).localeCompare(requestActivityAt(a)));
   }, [requests, typeFilter, statusFilter, searchTerm]);
 
   // KPI counters
@@ -354,8 +363,16 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
     }
   };
 
-  const renderStatusBadge = (status: RequestStatus) => {
-    switch (status) {
+  const renderStatusBadge = (req: Pick<AttendanceRequest, 'status' | 'clarification_response'>) => {
+    if (isClarifiedPending(req)) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 animate-pulse">
+          <MessageSquare className="w-3 h-3" /> Clarified
+        </span>
+      );
+    }
+
+    switch (req.status) {
       case 'approved':
         return (
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300">
@@ -715,11 +732,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 max-w-xs">
                         <div className="space-y-1">
                           <p className="line-clamp-2 text-zinc-800 dark:text-zinc-200">
-                            {req.reason}
+                            {requestReasonPreview(req)}
                           </p>
 
                           {/* Extra info banners */}
-                          {req.clarification_prompt && (
+                          {req.clarification_prompt && !isClarifiedPending(req) && (
                             <div className="flex items-center gap-1 text-[10px] text-blue-600 dark:text-blue-400 font-semibold truncate">
                               <HelpCircle className="w-3 h-3 shrink-0" />
                               <span className="truncate">HR: {req.clarification_prompt}</span>
@@ -744,7 +761,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       {/* Status */}
                       <td className="py-3.5 px-4 whitespace-nowrap">
                         <div className="space-y-0.5">
-                          {renderStatusBadge(req.status)}
+                          {renderStatusBadge(req)}
                           {isPendingOrAppealed && !canReviewThis && scopeHint && (
                             <p className="text-[10px] text-zinc-400 max-w-[10rem] truncate" title={scopeHint}>
                               {scopeHint}
@@ -973,7 +990,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       </p>
                     </div>
                   </div>
-                  <div>{renderStatusBadge(selectedDetailItem.status)}</div>
+                  <div>{renderStatusBadge(selectedDetailItem)}</div>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 pt-2.5 border-t border-zinc-200 dark:border-zinc-800/80 text-[11px]">

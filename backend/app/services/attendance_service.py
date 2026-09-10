@@ -4294,12 +4294,21 @@ async def review_leave_request(
         update_fields["clarification_prompt"] = review_data.clarification_prompt
         update_fields["clarification_requested_at"] = now_iso
 
+    update_op: Dict[str, Any] = {
+        "$set": update_fields,
+        "$push": {"status_history": history_entry},
+    }
+    if new_status == LeaveStatus.NEEDS_INFO:
+        # Drop the previous employee reply so a new question is not paired with a stale answer.
+        # Full history remains in status_history.
+        update_op["$unset"] = {
+            "clarification_response": "",
+            "clarification_submitted_at": "",
+        }
+
     result = await db.leave_requests.find_one_and_update(
         {"id": request_id},
-        {
-            "$set": update_fields,
-            "$push": {"status_history": history_entry},
-        },
+        update_op,
         projection={"_id": 0},
         return_document=True,
     )

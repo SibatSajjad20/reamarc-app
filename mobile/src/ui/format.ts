@@ -78,6 +78,12 @@ export function alertKindMeta(kind?: string | null) {
   if (key.includes('pre_shift') || key.includes('shift') || key.includes('checkout')) {
     return { label: 'Shift Reminder', icon: 'alarm-outline' as const };
   }
+  if (key.includes('leave_clarified') || key.includes('clarif')) {
+    return { label: 'Clarification', icon: 'chatbubble-ellipses-outline' as const };
+  }
+  if (key.includes('leave_needs_info') || key.includes('needs_info')) {
+    return { label: 'Needs Info', icon: 'help-circle-outline' as const };
+  }
   if (key.includes('test')) return { label: 'Test', icon: 'pulse-outline' as const };
   return { label: 'Announcement', icon: 'megaphone-outline' as const };
 }

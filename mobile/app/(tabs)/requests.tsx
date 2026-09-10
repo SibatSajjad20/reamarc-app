@@ -74,6 +74,8 @@ type AttendanceRequest = {
   clarification_response?: string;
   clarification_requested_at?: string;
   clarification_submitted_at?: string;
+  created_at?: string;
+  updated_at?: string;
   has_appealed?: boolean;
   appeal_reason?: string;
   appealed_at?: string;
@@ -89,6 +91,21 @@ type AttendanceRequest = {
 
 const REVIEW_ROLES = new Set(['hr', 'admin', 'operations']);
 const STAFF_ROLES = new Set(['team_member', 'member', 'team_lead']);
+
+function isClarifiedPending(req: AttendanceRequest): boolean {
+  return req.status === 'pending' && Boolean(req.clarification_response?.trim());
+}
+
+function requestReasonPreview(req: AttendanceRequest): string {
+  if (isClarifiedPending(req) && req.clarification_response) {
+    return req.clarification_response.trim();
+  }
+  return req.reason || '';
+}
+
+function requestActivityAt(req: AttendanceRequest): string {
+  return req.clarification_submitted_at || req.updated_at || req.created_at || '';
+}
 
 const TYPE_CHIPS: { id: RequestType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { id: 'leave', label: 'Full Leave', icon: 'sunny-outline' },
@@ -535,12 +552,13 @@ export default function RequestsScreen() {
   };
 
   const filteredPending = useMemo(() => {
-    if (filter === 'all') return pending;
-    if (filter === 'pending') return pending.filter((r) => r.status === 'pending');
-    if (filter === 'appealed') return pending.filter((r) => r.status === 'appealed');
-    if (filter === 'needs_info') return pending.filter((r) => r.status === 'needs_info');
-    if (filter === 'leave') {
-      return pending.filter(
+    let list: AttendanceRequest[];
+    if (filter === 'all') list = pending;
+    else if (filter === 'pending') list = pending.filter((r) => r.status === 'pending');
+    else if (filter === 'appealed') list = pending.filter((r) => r.status === 'appealed');
+    else if (filter === 'needs_info') list = pending.filter((r) => r.status === 'needs_info');
+    else if (filter === 'leave') {
+      list = pending.filter(
         (r) =>
           r.request_type === 'leave' ||
           r.leave_type === 'leave' ||
@@ -549,20 +567,21 @@ export default function RequestsScreen() {
           r.leave_type === 'sick' ||
           r.leave_type === 'unpaid',
       );
-    }
-    if (filter === 'wfh') return pending.filter((r) => r.request_type === 'wfh' || r.leave_type === 'wfh');
-    if (filter === 'short_leave') {
-      return pending.filter((r) => r.request_type === 'short_leave' || r.leave_type === 'short_leave');
-    }
-    if (filter === 'correction') {
-      return pending.filter(
+    } else if (filter === 'wfh') {
+      list = pending.filter((r) => r.request_type === 'wfh' || r.leave_type === 'wfh');
+    } else if (filter === 'short_leave') {
+      list = pending.filter((r) => r.request_type === 'short_leave' || r.leave_type === 'short_leave');
+    } else if (filter === 'correction') {
+      list = pending.filter(
         (r) => r.request_type === 'regularization' || r.leave_type === 'missed_punch_regularization',
       );
+    } else if (filter === 'overtime') {
+      list = pending.filter((r) => r.request_type === 'overtime' || r.leave_type === 'overtime');
+    } else {
+      list = pending;
     }
-    if (filter === 'overtime') {
-      return pending.filter((r) => r.request_type === 'overtime' || r.leave_type === 'overtime');
-    }
-    return pending;
+
+    return [...list].sort((a, b) => requestActivityAt(b).localeCompare(requestActivityAt(a)));
   }, [pending, filter]);
 
   if (initialLoading) {
@@ -754,7 +773,7 @@ export default function RequestsScreen() {
                             {r.end_date && r.end_date !== r.start_date ? ` → ${formatDisplayDate(r.end_date)}` : ''}
                           </Text>
                         </View>
-                        <StatusBadge status={r.status} />
+                        <StatusBadge status={r.status} clarified={isClarifiedPending(r)} />
                       </View>
 
                       {/* Detail Chips for Special Types */}
@@ -786,9 +805,9 @@ export default function RequestsScreen() {
                           style={styles.body}
                           numberOfLines={isExpanded ? undefined : 3}
                         >
-                          {r.reason}
+                          {requestReasonPreview(r)}
                         </Text>
-                        {r.reason && r.reason.length > 90 && (
+                        {requestReasonPreview(r).length > 90 && (
                           <Pressable onPress={() => toggleExpand(r.id)} style={{ marginTop: 4 }}>
                             <Text style={styles.expandLink}>
                               {isExpanded ? 'Show less ▲' : 'Show full thread & details ▼'}
@@ -1171,7 +1190,7 @@ export default function RequestsScreen() {
                             {r.end_date && r.end_date !== r.start_date ? ` → ${formatDisplayDate(r.end_date)}` : ''}
                           </Text>
                         </View>
-                        <StatusBadge status={r.status} />
+                        <StatusBadge status={r.status} clarified={isClarifiedPending(r)} />
                       </View>
 
                       {(r.request_type === 'regularization' || r.leave_type === 'missed_punch_regularization') && (
@@ -1202,9 +1221,9 @@ export default function RequestsScreen() {
                           style={styles.body}
                           numberOfLines={isExpanded ? undefined : 3}
                         >
-                          {r.reason}
+                          {requestReasonPreview(r)}
                         </Text>
-                        {r.reason && r.reason.length > 90 && (
+                        {requestReasonPreview(r).length > 90 && (
                           <Pressable onPress={() => toggleExpand(r.id)} style={{ marginTop: 4 }}>
                             <Text style={styles.expandLink}>
                               {isExpanded ? 'Show less ▲' : 'Show full reason & thread ▼'}
