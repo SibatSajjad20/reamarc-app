@@ -225,8 +225,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
         reason: overrideReason.trim() || 'HR Attendance Override',
       };
 
-      await attendanceService.overrideAttendance(targetId, payload);
-      addToast('Attendance Updated', `Record for ${editingRow.employee_name} was adjusted.`, 'success');
+      const updated = await attendanceService.overrideAttendance(targetId, payload);
+      if (updated.quota_warning) {
+        addToast('Attendance Updated', updated.quota_warning, 'warning');
+      } else {
+        addToast('Attendance Updated', `Record for ${editingRow.employee_name} was adjusted.`, 'success');
+      }
       setEditingRow(null);
       onRefresh();
     } catch (err: any) {

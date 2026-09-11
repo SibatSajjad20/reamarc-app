@@ -1421,6 +1421,63 @@ LEAVE_LOCK_STATUSES = {
     AttendanceStatus.WEEKEND_OFF.value,
 }
 
+# Full-day leave rows must not be rewritten to holiday by calendar/matrix heals.
+HOLIDAY_PRESERVE_LEAVE_STATUSES = {
+    AttendanceStatus.ON_LEAVE.value,
+    AttendanceStatus.SICK_LEAVE.value,
+    AttendanceStatus.CASUAL_LEAVE.value,
+    AttendanceStatus.ANNUAL_LEAVE.value,
+    AttendanceStatus.UNPAID_LEAVE.value,
+}
+
+QUOTA_LEAVE_REQUEST_TYPES = {
+    "annual",
+    "sick",
+    "casual",
+    "annual_leave",
+    "sick_leave",
+    "casual_leave",
+}
+
+OVERRIDE_CLEARS_LEAVE_STATUSES = {
+    AttendanceStatus.PRESENT.value,
+    AttendanceStatus.LATE.value,
+    AttendanceStatus.ABSENT.value,
+}
+
+
+def _quota_override_warning_message(
+    final_status: str,
+    covering_request: Optional[dict],
+    date_str: str,
+) -> Optional[str]:
+    """Soft warning when HR clears leave on the timesheet but an approved request still covers the day."""
+    if not covering_request:
+        return None
+    if str(final_status or "") not in OVERRIDE_CLEARS_LEAVE_STATUSES:
+        return None
+    lt = str(covering_request.get("leave_type") or "leave").replace("_", " ")
+    return (
+        f"Attendance was updated, but an approved {lt} leave request still covers {date_str} "
+        "and will keep counting toward the quota. Cancel or edit that request if this day should not be deducted."
+    )
+
+
+async def _find_covering_quota_request(user_id: str, date_str: str) -> Optional[dict]:
+    db = get_database()
+    if db is None or not user_id or not date_str:
+        return None
+    return await db.leave_requests.find_one(
+        {
+            "user_id": user_id,
+            "status": {"$in": [LeaveStatus.APPROVED.value, "approved"]},
+            "leave_type": {"$in": list(QUOTA_LEAVE_REQUEST_TYPES)},
+            "start_date": {"$lte": date_str},
+            "end_date": {"$gte": date_str},
+        },
+        {"_id": 0, "id": 1, "leave_type": 1, "start_date": 1, "end_date": 1},
+    )
+
 
 def _record_has_punch(rec: Optional[Dict[str, Any]]) -> bool:
     if not rec:
@@ -1891,6 +1948,14 @@ async def process_check_in(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Attendance already recorded for {date_str}. Check-in: {existing_record.get('check_in')}"
         )
+    if existing_record:
+        existing_status = str(existing_record.get("status") or "")
+        if existing_status in LEAVE_LOCK_STATUSES:
+            label = existing_status.replace("_", " ")
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Check-in is not available. This day is marked as {label}.",
+            )
 
     # 2. Punch allows remote check-in for approved WFH requests and WFH shift schedules.
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
@@ -3068,13 +3133,13 @@ async def get_daily_matrix(
                 is_late_alert = False
                 late_minutes = 0
 
-                if is_holiday:
+                if is_holiday and raw_status not in HOLIDAY_PRESERVE_LEAVE_STATUSES:
                     status_enum = AttendanceStatus.HOLIDAY
                     # Auto-heal database record if it was previously marked absent/wfh or has undertime penalty
                     if db is not None and u_id and (raw_status != AttendanceStatus.HOLIDAY.value or float(rec.get("undertime_hours") or 0.0) > 0 or bool(rec.get("is_absent"))):
                         h_title = calendar_event.get("title") if calendar_event else "Public Holiday"
                         asyncio.create_task(db.attendance_records.update_one(
-                            {"user_id": u_id, "date": target_date},
+                            {"user_id": u_id, "date": target_date, "status": {"$nin": list(HOLIDAY_PRESERVE_LEAVE_STATUSES)}},
                             {"$set": {
                                 "status": AttendanceStatus.HOLIDAY.value,
                                 "shift_name": h_title,
@@ -3095,6 +3160,8 @@ async def get_daily_matrix(
                                 "updated_at": datetime.now(timezone.utc).isoformat(),
                             }}
                         ))
+                elif is_holiday and raw_status in HOLIDAY_PRESERVE_LEAVE_STATUSES:
+                    status_enum = AttendanceStatus(raw_status)
                 elif is_sunday and not rec.get("punch_in") and not rec.get("check_in"):
                     status_enum = AttendanceStatus.SUNDAY_OFF
                 elif is_first_sat and not rec.get("punch_in") and not rec.get("check_in"):
@@ -4917,7 +4984,15 @@ async def admin_manual_attendance_entry(
         except Exception:
             logger.exception("Failed to recompute daily log score after attendance override")
 
-    return AttendanceRecordResponse(**record_doc)
+    quota_warning = None
+    if final_status in OVERRIDE_CLEARS_LEAVE_STATUSES:
+        covering = await _find_covering_quota_request(user_id, date_str)
+        quota_warning = _quota_override_warning_message(final_status, covering, date_str)
+
+    response = AttendanceRecordResponse(**record_doc)
+    if quota_warning:
+        response = response.model_copy(update={"quota_warning": quota_warning})
+    return response
 
 
 async def override_attendance_record(
@@ -5031,7 +5106,12 @@ async def create_calendar_event(event_in: CalendarEventCreate) -> CalendarEventR
         h_title = event_dict.get("title") or "Public Holiday"
         try:
             await db.attendance_records.update_many(
-                {"date": event_dict["date"], "punch_in": None, "check_in": None},
+                {
+                    "date": event_dict["date"],
+                    "punch_in": None,
+                    "check_in": None,
+                    "status": {"$nin": list(HOLIDAY_PRESERVE_LEAVE_STATUSES)},
+                },
                 {"$set": {
                     "status": AttendanceStatus.HOLIDAY.value,
                     "shift_name": h_title,

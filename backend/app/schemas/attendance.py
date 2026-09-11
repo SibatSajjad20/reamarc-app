@@ -141,6 +141,10 @@ class AttendanceRecordResponse(BaseModel):
     notes: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    quota_warning: Optional[str] = Field(
+        default=None,
+        description="Soft warning when an approved leave request still covers this date after an HR override",
+    )
 
     @classmethod
     def from_mongo(cls, data: Dict[str, Any]) -> "AttendanceRecordResponse":

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import HTTPException, status
 
@@ -55,6 +55,17 @@ EXCLUDED_UNDERTIME_STATUSES = {
 }
 HALF_DAY_SHORT_LEAVE_HOURS = 2.0
 
+ORPHAN_ANNUAL_STATUSES = {"annual_leave", "casual_leave", "on_leave"}
+ORPHAN_SICK_STATUSES = {"sick_leave"}
+ANNUAL_REQUEST_TYPES = {
+    LeaveType.ANNUAL.value,
+    LeaveType.CASUAL.value,
+    "annual_leave",
+    "casual_leave",
+}
+SICK_REQUEST_TYPES = {LeaveType.SICK.value, "sick_leave"}
+QUOTA_REQUEST_TYPES = ANNUAL_REQUEST_TYPES | SICK_REQUEST_TYPES
+
 
 def _current_year() -> int:
     return datetime.now(timezone.utc).year
@@ -93,6 +104,74 @@ def _usage_from_request(
         # Short leaves do not directly deduct days; their shortfall counts as undertime.
         return 0.0, 0.0
     return 0.0, 0.0
+
+
+def _quota_dates_from_request(
+    doc: Dict[str, Any],
+    *,
+    start: str,
+    end: str,
+    off_index: Optional[Any] = None,
+) -> Tuple[Set[str], Set[str]]:
+    """Workdays in this request that fall inside [start, end], split by quota bucket."""
+    annual_dates: Set[str] = set()
+    sick_dates: Set[str] = set()
+    lt = str(doc.get("leave_type") or doc.get("leave_category") or "").lower()
+    if lt not in QUOTA_REQUEST_TYPES:
+        return annual_dates, sick_dates
+    for day in _iter_dates(doc.get("start_date") or "", doc.get("end_date")):
+        if day < start or day > end:
+            continue
+        if off_index is not None and not off_index.is_workday_iso(day):
+            continue
+        if lt in ANNUAL_REQUEST_TYPES:
+            annual_dates.add(day)
+        else:
+            sick_dates.add(day)
+    return annual_dates, sick_dates
+
+
+def _orphan_usage_from_attendance(
+    att_docs: List[Dict[str, Any]],
+    request_docs: List[Dict[str, Any]],
+    off_index: Optional[Any],
+    start: str,
+    end: str,
+) -> Tuple[float, float]:
+    """
+    Count HR-overridden leave days that have no covering leave request.
+
+    annual_leave / casual_leave / on_leave → annual used
+    sick_leave → sick used
+    Unpaid, WFH, short leave, weekends, and holidays are skipped.
+    A covering approved/pending annual|casual (or sick) request for that date
+    suppresses the orphan so approved request days are not double-counted.
+    """
+    annual_covered: Set[str] = set()
+    sick_covered: Set[str] = set()
+    for doc in request_docs:
+        ann, sck = _quota_dates_from_request(doc, start=start, end=end, off_index=off_index)
+        annual_covered.update(ann)
+        sick_covered.update(sck)
+
+    annual_orphan = 0.0
+    sick_orphan = 0.0
+    seen_annual: Set[str] = set()
+    seen_sick: Set[str] = set()
+    for rec in att_docs:
+        day = str(rec.get("date") or "")
+        if not day or day < start or day > end:
+            continue
+        if off_index is not None and not off_index.is_workday_iso(day):
+            continue
+        st = str(rec.get("status") or "").lower()
+        if st in ORPHAN_ANNUAL_STATUSES and day not in annual_covered and day not in seen_annual:
+            annual_orphan += 1.0
+            seen_annual.add(day)
+        elif st in ORPHAN_SICK_STATUSES and day not in sick_covered and day not in seen_sick:
+            sick_orphan += 1.0
+            seen_sick.add(day)
+    return annual_orphan, sick_orphan
 
 
 async def _ensure_balance_doc(user: Dict[str, Any], year: int) -> Dict[str, Any]:
@@ -170,6 +249,30 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
             annual_approved += annual_d
             sick_approved += sick_d
 
+    from app.services.attendance_golive import get_employee_attendance_start
+    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "department": 1, "employment_type": 1, "joining_date": 1})
+    employee_start = get_employee_attendance_start(user_doc)
+    att_start = max(start, employee_start)
+
+    att_cursor = db.attendance_records.find(
+        {
+            "user_id": user_id,
+            "date": {"$gte": att_start, "$lte": end},
+        },
+        {"_id": 0},
+    )
+    att_docs = await att_cursor.to_list(1000)
+
+    orphan_annual, orphan_sick = _orphan_usage_from_attendance(
+        att_docs, docs, off_index, att_start, end,
+    )
+    annual_approved += orphan_annual
+    sick_approved += orphan_sick
+
+    # Probation: undertime does not deduct from leave quota (salary-side outside app).
+    if str((user_doc or {}).get("employment_type") or "contract").lower() == "probation":
+        return annual_approved, sick_approved, annual_pending, sick_pending, 0.0, 0.0, 0.0
+
     # Monthly net-variance tracking from attendance records
     EXCLUDED_UNDERTIME_STATUSES = {
         "absent",
@@ -189,11 +292,6 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
         resolve_shift_doc_for_date,
         apply_daily_calc_fields,
     )
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "department": 1, "employment_type": 1, "joining_date": 1})
-    # Probation: undertime does not deduct from leave quota (salary-side outside app).
-    if str((user_doc or {}).get("employment_type") or "contract").lower() == "probation":
-        return annual_approved, sick_approved, annual_pending, sick_pending, 0.0, 0.0, 0.0
-
     assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
     all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
@@ -201,19 +299,6 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
     assigned_shift_id = (assignment or {}).get("shift_id")
     dept = (user_doc or {}).get("department")
     raw_shift = shifts_by_id.get(assigned_shift_id) if assigned_shift_id else (hr_shift if str(dept).upper() == "HR" else std_shift)
-
-    from app.services.attendance_golive import get_employee_attendance_start
-    employee_start = get_employee_attendance_start(user_doc)
-    att_start = max(start, employee_start)
-
-    att_cursor = db.attendance_records.find(
-        {
-            "user_id": user_id,
-            "date": {"$gte": att_start, "$lte": end},
-        },
-        {"_id": 0},
-    )
-    att_docs = await att_cursor.to_list(1000)
 
     monthly_data: Dict[str, Dict[str, int]] = {}
     for r in att_docs:
@@ -328,7 +413,6 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
     from zoneinfo import ZoneInfo
     now_pk = datetime.now(ZoneInfo("Asia/Karachi"))
     current_ym = now_pk.strftime("%Y-%m")
-    current_m_start = f"{current_ym}-01"
 
     # Concurrently batch-query off_day_index, leave balances, in-app requests, attendance records, shifts, and shift assignments
     off_task = load_off_day_index(start_d, end_d)
@@ -343,7 +427,7 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
         {"_id": 0},
     ).to_list(2000)
     att_task = db.attendance_records.find(
-        {"date": {"$gte": start_str, "$lt": current_m_start}},
+        {"date": {"$gte": start_str, "$lte": end_str}},
         {
             "_id": 0,
             "user_id": 1,
@@ -401,9 +485,11 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
                 "sick_used_opening": 0.0,
             }
 
-        # Calculate in-app leave usage
+        # Calculate in-app leave usage (requests + orphan HR leave overrides)
+        user_reqs = reqs_by_user.get(uid, [])
+        user_att = att_by_user.get(uid, [])
         annual_approved = sick_approved = annual_pending = sick_pending = 0.0
-        for r in reqs_by_user.get(uid, []):
+        for r in user_reqs:
             ann, sck = _usage_from_request(r, off_index)
             st = str(r.get("status") or "").lower()
             if st == LeaveStatus.PENDING.value:
@@ -413,6 +499,12 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
                 annual_approved += ann
                 sick_approved += sck
 
+        orphan_annual, orphan_sick = _orphan_usage_from_attendance(
+            user_att, user_reqs, off_index, start_str, end_str,
+        )
+        annual_approved += orphan_annual
+        sick_approved += orphan_sick
+
         # Calculate monthly net variance (overtime - undertime) for closed past months only
         assignment = user_assignment_map.get(uid)
         assigned_shift_id = (assignment or {}).get("shift_id")
@@ -420,7 +512,7 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
         raw_shift = shifts_by_id.get(assigned_shift_id) if assigned_shift_id else (hr_shift if str(dept).upper() == "HR" else std_shift)
 
         monthly_data: Dict[str, Dict[str, int]] = {}
-        for a in att_by_user.get(uid, []):
+        for a in user_att:
             d = str(a.get("date") or "")
             if len(d) >= 7:
                 ym = d[:7]

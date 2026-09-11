@@ -86,6 +86,7 @@ export interface AttendanceRecord {
   variance_category?: string | null;
   created_at?: string;
   updated_at?: string;
+  quota_warning?: string | null;
 }
 
 export interface DailyMatrixEmployeeRow {

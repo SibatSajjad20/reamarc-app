@@ -882,7 +882,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                     <th className="text-left font-bold px-3 py-3" title="Opening baseline taken before system go-live">Sick taken</th>
                     <th className="text-left font-bold px-3 py-3">Annual quota</th>
                     <th className="text-left font-bold px-3 py-3">Sick quota</th>
-                    <th className="text-left font-bold px-3 py-3" title="Approved in-app requests">In-app used</th>
+                    <th className="text-left font-bold px-3 py-3" title="Approved in-app requests plus HR leave overrides that have no matching leave request">In-app used</th>
                     <th className="text-left font-bold px-3 py-3" title="Days deducted from 8h cumulative undertime deficit">UT deducted</th>
                     <th className="text-left font-bold px-3 py-3" title="Carried undertime deficit towards next 8h cut">Carried deficit</th>
                     <th className="text-left font-bold px-3 py-3">Annual left</th>
