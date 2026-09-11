@@ -31,7 +31,7 @@ import {
   ChevronRight,
   RefreshCw,
 } from 'lucide-react';
-import { getDeptBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
+import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getInitials } from '../../utils/badgeStyles';
 import { formatHours } from '../../utils/logTimeChecks';
 import { useOffDays } from '../../hooks/useOffDays';
 import { OffDayBanner } from '../ui/OffDayBanner';
@@ -226,15 +226,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   {user?.email}
                 </span>
                 <span className="text-zinc-400 dark:text-zinc-500">•</span>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 text-zinc-700 dark:bg-white/10 dark:text-zinc-200 border border-zinc-200 dark:border-white/10">
+                <span className={getRoleBadgeClass(user?.role)}>
                   {getRoleLabel(user?.role)}
                 </span>
                 {user?.department && (
-                  <span
-                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${getDeptBadgeClass(
-                      user.department
-                    )}`}
-                  >
+                  <span className={getDeptBadgeClass(user.department)}>
                     {user.department}
                   </span>
                 )}

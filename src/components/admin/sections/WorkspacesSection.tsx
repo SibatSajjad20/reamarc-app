@@ -5,23 +5,20 @@ import {
   Search,
   Edit2,
   Layers,
-  HeartPulse,
-  Flame,
   Calendar,
   Paperclip,
   Download,
   User,
   Mail,
   Phone,
-  ShieldAlert,
   CreditCard,
-  Sparkles,
   CheckCircle2,
   XCircle,
 } from 'lucide-react';
 import type { Workspace } from '../../../types';
 import type { AdAccount } from '../../../types/admin';
 import { downloadFileAttachment } from '../../../utils/fileUrl';
+import { HealthBadge, PriorityBadge } from '../../ui/WorkspaceBadges';
 
 interface WorkspacesSectionProps {
   workspaces: Workspace[];
@@ -81,65 +78,6 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
       return matchesQuery && matchesFilter;
     });
   }, [workspaces, searchQuery, activeFilter]);
-
-  const getHealthBadge = (health?: string) => {
-    switch (health) {
-      case 'Emergency':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 animate-pulse">
-            <ShieldAlert className="w-3 h-3 text-rose-500" />
-            <span>Emergency</span>
-          </span>
-        );
-      case 'Moderate':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
-            <HeartPulse className="w-3 h-3 text-amber-500" />
-            <span>Moderate</span>
-          </span>
-        );
-      case 'Excellent':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-            <HeartPulse className="w-3 h-3 text-emerald-500" />
-            <span>Excellent</span>
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30">
-            <HeartPulse className="w-3 h-3 text-blue-500" />
-            <span>Good</span>
-          </span>
-        );
-    }
-  };
-
-  const getPriorityBadge = (priority?: string) => {
-    switch (priority) {
-      case 'High':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30 whitespace-nowrap shrink-0">
-            <Flame className="w-3 h-3 text-rose-500 shrink-0" />
-            <span>High Priority</span>
-          </span>
-        );
-      case 'Low':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-600 dark:text-sky-400 border border-sky-500/30 whitespace-nowrap shrink-0">
-            <Sparkles className="w-3 h-3 text-sky-500 shrink-0" />
-            <span>Low Priority</span>
-          </span>
-        );
-      default:
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 whitespace-nowrap shrink-0">
-            <Flame className="w-3 h-3 text-amber-500 shrink-0" />
-            <span>Medium Priority</span>
-          </span>
-        );
-    }
-  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
@@ -290,13 +228,13 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                               {ws.project_cycle || 'Retainer'}
                             </span>
                             <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                            {getPriorityBadge(ws.priority)}
+                            <PriorityBadge priority={ws.priority} showSuffix />
                           </div>
                         </div>
                       </div>
 
                       <div className="flex flex-col items-end gap-1.5 shrink-0">
-                        {getHealthBadge(ws.health)}
+                        <HealthBadge health={ws.health} />
 
                         {/* Active / Inactive Status Badge */}
                         {canManageWorkspaces && onToggleStatus ? (

@@ -121,11 +121,11 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onSave
             </h2>
             <p className="text-xs text-zinc-500 mt-1 truncate">{user?.email}</p>
             <div className="flex flex-wrap items-center justify-center gap-2 mt-3">
-              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getRoleBadgeClass(user?.role)}`}>
+              <span className={getRoleBadgeClass(user?.role)}>
                 {getRoleLabel(user?.role)}
               </span>
               {user?.department && (
-                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${getDeptBadgeClass(user.department)}`}>
+                <span className={getDeptBadgeClass(user.department)}>
                   {user.department}
                 </span>
               )}

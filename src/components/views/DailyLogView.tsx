@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   Plus,
   Filter,
@@ -344,6 +345,12 @@ export const DailyLogView: React.FC = () => {
     } catch (e) {}
     return {};
   });
+
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const tableInnerRef = useRef<HTMLDivElement>(null);
+  const resizeGuideRef = useRef<HTMLDivElement>(null);
+  const resizeTooltipRef = useRef<HTMLDivElement>(null);
+  const currentResizingWidthRef = useRef<number>(150);
 
   const buildFilterParams = useCallback((): GetDailyLogEntriesParams => {
     const params: GetDailyLogEntriesParams = {};
@@ -749,22 +756,55 @@ export const DailyLogView: React.FC = () => {
     e.stopPropagation();
     const startX = e.clientX;
     const startWidth = columnWidths[colKey] || 150;
+    currentResizingWidthRef.current = startWidth;
+
+    const handleElement = e.currentTarget as HTMLElement;
+    const innerRect = tableInnerRef.current?.getBoundingClientRect();
+    const initialHandleLeft = innerRect ? handleElement.getBoundingClientRect().right - innerRect.left : 0;
+
+    if (resizeGuideRef.current) {
+      resizeGuideRef.current.style.display = 'block';
+      resizeGuideRef.current.style.transform = `translateX(${initialHandleLeft}px)`;
+      if (resizeTooltipRef.current) {
+        resizeTooltipRef.current.textContent = `${startWidth}px`;
+      }
+    }
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = moveEvent.clientX - startX;
       const newWidth = Math.max(90, Math.min(600, startWidth + delta));
-      setColumnWidths((prev) => {
-        const next = { ...prev, [colKey]: Math.round(newWidth) };
-        try {
-          localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
-        } catch (e) {}
-        return next;
-      });
+      const roundedWidth = Math.round(newWidth);
+      currentResizingWidthRef.current = roundedWidth;
+
+      if (resizeGuideRef.current) {
+        const currentLeft = initialHandleLeft + (roundedWidth - startWidth);
+        resizeGuideRef.current.style.transform = `translateX(${currentLeft}px)`;
+        if (resizeTooltipRef.current) {
+          resizeTooltipRef.current.textContent = `${roundedWidth}px`;
+        }
+      }
     };
 
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      if (resizeGuideRef.current) {
+        resizeGuideRef.current.style.display = 'none';
+      }
+
+      const finalWidth = currentResizingWidthRef.current;
+      setColumnWidths((prev) => {
+        const next = { ...prev, [colKey]: finalWidth };
+        try {
+          localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
+        } catch (e) {}
+        return next;
+      });
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -844,6 +884,21 @@ export const DailyLogView: React.FC = () => {
 
     return result;
   }, [entries, searchQuery, columnFilters, columns]);
+
+  const rowVirtualizer = useVirtualizer({
+    count: filteredEntries.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: (index) => rowHeights[filteredEntries[index]?.id] || DEFAULT_ROW_HEIGHT,
+    overscan: 10,
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalVirtualSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start ?? 0 : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalVirtualSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+      : 0;
 
   const totalTableWidth = useMemo(() => {
     return 56 + columns.reduce((sum, col) => sum + (columnWidths[col.key] || 150), 0) + 72;
@@ -1375,15 +1430,31 @@ export const DailyLogView: React.FC = () => {
       )}
 
       {/* ─── Grid Canvas Table ─── */}
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
+      <div
+        ref={tableContainerRef}
+        className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col"
+      >
         <div
+          ref={tableInnerRef}
           style={{
             width: `${totalTableWidth}px`,
             minWidth: `${totalTableWidth}px`,
           }}
-          className="min-w-full flex flex-col"
+          className="min-w-full flex flex-col relative"
         >
-            <table
+          {/* Column Resize Visual Guide */}
+          <div
+            ref={resizeGuideRef}
+            style={{ display: 'none', left: 0 }}
+            className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-40 pointer-events-none"
+          >
+            <div
+              ref={resizeTooltipRef}
+              className="absolute top-2 -left-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
+            />
+          </div>
+
+          <table
               className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
               style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
             >
@@ -1571,30 +1642,40 @@ export const DailyLogView: React.FC = () => {
                     </td>
                   </tr>
                 ) : (
-                  filteredEntries.map((row, idx) => {
-                    const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
-                    const rowFollowUp = canEditEntry(row) ? followUpByDate.get(row.date) : undefined;
+                  <>
+                    {paddingTop > 0 && (
+                      <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
+                        <td colSpan={columns.length + 2} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
+                      </tr>
+                    )}
+                    {virtualRows.map((virtualRow) => {
+                      const row = filteredEntries[virtualRow.index];
+                      if (!row) return null;
+                      const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
+                      const rowFollowUp = canEditEntry(row) ? followUpByDate.get(row.date) : undefined;
 
-                    return (
-                      <tr
-                        key={row.id}
-                        style={{ height: `${rowH}px` }}
-                        onDoubleClick={(e) => {
-                          const target = e.target as HTMLElement;
-                          if (target && target.closest('button, a, input, select')) return;
-                          if (canEditEntry(row)) {
-                            handleOpenEditModal(row);
-                          }
-                        }}
-                        className={`hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group ${
-                          canEditEntry(row) ? 'cursor-pointer' : ''
-                        } ${rowFollowUp ? 'bg-amber-50/50 dark:bg-amber-950/15' : ''}`}
-                        title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
-                      >
-                        {/* Row Index */}
-                        <td className="p-2 text-center font-numeric text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
-                          {idx + 1}
-                        </td>
+                      return (
+                        <tr
+                          key={row.id}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          style={{ height: `${rowH}px` }}
+                          onDoubleClick={(e) => {
+                            const target = e.target as HTMLElement;
+                            if (target && target.closest('button, a, input, select')) return;
+                            if (canEditEntry(row)) {
+                              handleOpenEditModal(row);
+                            }
+                          }}
+                          className={`hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group ${
+                            canEditEntry(row) ? 'cursor-pointer' : ''
+                          } ${rowFollowUp ? 'bg-amber-50/50 dark:bg-amber-950/15' : ''}`}
+                          title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
+                        >
+                          {/* Row Index */}
+                          <td className="p-2 text-center font-numeric text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
+                            {virtualRow.index + 1}
+                          </td>
 
                         {/* Column Cells */}
                         {columns.map((col) => {
@@ -1673,11 +1754,7 @@ export const DailyLogView: React.FC = () => {
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold border ${getTaskTypeBadgeClass(
-                                    typeStr
-                                  )}`}
-                                >
+                                <span className={getTaskTypeBadgeClass(typeStr)}>
                                   {typeStr}
                                 </span>
                               </td>
@@ -1809,11 +1886,7 @@ export const DailyLogView: React.FC = () => {
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getRoleBadgeClass(
-                                    roleStr
-                                  )}`}
-                                >
+                                <span className={getRoleBadgeClass(roleStr)}>
                                   {roleStr}
                                 </span>
                               </td>
@@ -1838,11 +1911,7 @@ export const DailyLogView: React.FC = () => {
                                 key={col.key}
                                 className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
                               >
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${getDeptBadgeClass(
-                                    deptStr
-                                  )}`}
-                                >
+                                <span className={getDeptBadgeClass(deptStr)}>
                                   {deptStr}
                                 </span>
                               </td>
@@ -1917,8 +1986,14 @@ export const DailyLogView: React.FC = () => {
                         </td>
                       </tr>
                     );
-                  })
-                )}
+                  })}
+                  {paddingBottom > 0 && (
+                    <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
+                      <td colSpan={columns.length + 2} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                </>
+              )}
               </tbody>
             </table>
           </div>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   BellRing,
   Mail,
@@ -13,18 +13,21 @@ import {
   ShieldAlert,
   ArrowDown,
   ArrowUp,
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
 } from 'lucide-react';
 import type { MemberActivity } from '../../../types/admin';
 import type { OperatingSnapshot } from '../../../types/dailyLog';
 import { DEPARTMENTS } from '../AddMemberModal';
 import { CustomSelect } from '../../ui/CustomSelect';
-import { CustomDatePicker } from '../../ui/CustomDatePicker';
+import { DateRangeCalendarPicker } from '../../daily-log/DateRangeCalendarPicker';
+import { EmployeeComplianceDrawer } from './EmployeeComplianceDrawer';
 import { useOffDays } from '../../../hooks/useOffDays';
 import { logExceptionService } from '../../../services/logExceptionService';
 import {
   formatHours,
   formatSignedHours,
-  isLogDateExpired,
   pluralize,
   gapTone,
   GAP_NEUTRAL_HOURS,
@@ -35,6 +38,36 @@ import { useToast } from '../../../context/ToastContext';
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const formatIso = (date: Date): string => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const getMonday = (d: Date): Date => {
+  const date = new Date(d);
+  const day = date.getDay(); // 0 Sun, 1 Mon, ..., 6 Sat
+  const diff = (day === 0 ? -6 : 1) - day;
+  date.setDate(date.getDate() + diff);
+  date.setHours(0, 0, 0, 0);
+  return date;
+};
+
+const getSaturday = (monday: Date): Date => {
+  const sat = new Date(monday);
+  sat.setDate(monday.getDate() + 5);
+  sat.setHours(23, 59, 59, 999);
+  return sat;
+};
+
+const formatShortDisplay = (isoStr: string): string => {
+  if (!isoStr) return '';
+  const [y, m, d] = isoStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
 type PersonStatus = 'submitted' | 'missing' | 'in_shift' | 'not_started' | 'on_leave';
@@ -113,19 +146,88 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   const [searchQuery, setSearchQuery] = useState('');
   const [departmentFilter, setDepartmentFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'missing' | 'logged'>('all');
-  const [range, setRange] = useState<'today' | 'week' | 'date'>('today');
-  const [pickedDate, setPickedDate] = useState(todayIso);
+  const [range, setRange] = useState<'today' | 'week' | 'range'>('today');
+  const [weekAnchor, setWeekAnchor] = useState<Date>(() => new Date());
+  const [customStartDate, setCustomStartDate] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 6);
+    return formatIso(d);
+  });
+  const [customEndDate, setCustomEndDate] = useState(todayIso);
+  const [isRangePickerOpen, setIsRangePickerOpen] = useState(false);
+  const [selectedEmployee, setSelectedEmployee] = useState<MemberActivity | null>(null);
+  const rangePickerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isRangePickerOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (rangePickerRef.current && !rangePickerRef.current.contains(e.target as Node)) {
+        setIsRangePickerOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [isRangePickerOpen]);
+
+  const currentWeekMonday = useMemo(() => getMonday(new Date()), []);
+  const selectedMonday = useMemo(() => getMonday(weekAnchor), [weekAnchor]);
+  const selectedSaturday = useMemo(() => getSaturday(selectedMonday), [selectedMonday]);
+
+  const selectedMondayIso = useMemo(() => formatIso(selectedMonday), [selectedMonday]);
+  const selectedSaturdayIso = useMemo(() => formatIso(selectedSaturday), [selectedSaturday]);
+
+  const isCurrentWeek = useMemo(
+    () => formatIso(selectedMonday) === formatIso(currentWeekMonday),
+    [selectedMonday, currentWeekMonday],
+  );
+
+  const canGoNextWeek = useMemo(
+    () => formatIso(selectedMonday) < formatIso(currentWeekMonday),
+    [selectedMonday, currentWeekMonday],
+  );
+
+  const weekLabel = useMemo(() => {
+    const startFmt = formatShortDisplay(selectedMondayIso);
+    const endFmt = formatShortDisplay(selectedSaturdayIso);
+    return `${startFmt} – ${endFmt}`;
+  }, [selectedMondayIso, selectedSaturdayIso]);
+
+  const handlePrevWeek = () => {
+    setWeekAnchor((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() - 7);
+      return d;
+    });
+  };
+
+  const handleNextWeek = () => {
+    if (!canGoNextWeek) return;
+    setWeekAnchor((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + 7);
+      return d;
+    });
+  };
+
+  const activeStartDate = useMemo(() => {
+    if (range === 'today') return todayIso();
+    if (range === 'week') return selectedMondayIso;
+    return customStartDate;
+  }, [range, selectedMondayIso, customStartDate]);
+
+  const activeEndDate = useMemo(() => {
+    if (range === 'today') return todayIso();
+    if (range === 'week') return selectedSaturdayIso;
+    return customEndDate;
+  }, [range, selectedSaturdayIso, customEndDate]);
+
   const [snap, setSnap] = useState<OperatingSnapshot | null>(null);
   const [snapLoading, setSnapLoading] = useState(true);
   const [gapSortDir, setGapSortDir] = useState<'deficit' | 'surplus'>('deficit');
-  const { getOffDay, holidays, workingSaturdays } = useOffDays();
-  const viewingOff = range === 'date' ? getOffDay(pickedDate) : range === 'today' ? getOffDay(todayIso()) : { isOff: false, label: 'Working day' as const };
-  const isDateExpired = (dateStr?: string | null) => {
-    if (!dateStr) return false;
-    return isLogDateExpired(dateStr, holidays, workingSaturdays);
-  };
-  const isSelectedDateExpired = range === 'date' ? isDateExpired(pickedDate) : false;
-  // Hide Remind entirely once the log window has closed (past dates beyond 48 working hours).
+  const { getOffDay } = useOffDays();
+  const viewingOff = range === 'today' ? getOffDay(todayIso()) : { isOff: false, label: 'Working day' as const };
+  const isSelectedDateExpired = range === 'week' ? !isCurrentWeek : range === 'range' ? customEndDate < todayIso() : false;
+  // Hide Remind entirely once the log window has closed (past dates/weeks).
   const showRemindColumn = !isSelectedDateExpired;
 
   const [customReminderUser, setCustomReminderUser] = useState<MemberActivity | null>(null);
@@ -136,10 +238,25 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   useEffect(() => {
     let cancelled = false;
     setSnapLoading(true);
-    const dateArg = range === 'date' ? pickedDate : undefined;
-    const rangeArg = range === 'week' ? 'week' : 'today';
+    let dateArg: string | undefined = undefined;
+    let rangeArg: 'today' | 'week' | 'range' = 'today';
+    let sDate: string | undefined = undefined;
+    let eDate: string | undefined = undefined;
+
+    if (range === 'today') {
+      dateArg = todayIso();
+      rangeArg = 'today';
+    } else if (range === 'week') {
+      dateArg = selectedMondayIso;
+      rangeArg = 'week';
+    } else {
+      rangeArg = 'range';
+      sDate = customStartDate;
+      eDate = customEndDate;
+    }
+
     logExceptionService
-      .getSnapshot(dateArg, rangeArg)
+      .getSnapshot(dateArg, rangeArg, sDate, eDate)
       .then((data) => {
         if (!cancelled) setSnap(data);
       })
@@ -155,7 +272,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
     return () => {
       cancelled = true;
     };
-  }, [range, pickedDate, addToast]);
+  }, [range, selectedMondayIso, customStartDate, customEndDate, addToast]);
 
   const activityList = useMemo(() => Object.values(activities), [activities]);
   const monitoredMembers = useMemo(
@@ -316,38 +433,95 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
             Who logged, hours at work vs logged, and reminders for missing logs
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {(['today', 'week', 'date'] as const).map((id) => (
+        <div className="flex items-center gap-2 flex-wrap">
+          {(['today', 'week'] as const).map((id) => (
             <button
               key={id}
               type="button"
-              onClick={() => setRange(id)}
-              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer ${
+              onClick={() => {
+                setRange(id);
+                setIsRangePickerOpen(false);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition ${
                 range === id
                   ? 'bg-indigo-600 text-white border-indigo-600'
-                  : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300'
+                  : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
               }`}
             >
-              {id === 'today' ? 'Today' : id === 'week' ? 'This week' : 'Pick a date'}
+              {id === 'today' ? 'Today' : 'This week'}
             </button>
           ))}
-          {range === 'date' && (
-            <div className="w-40">
-              <CustomDatePicker
-                value={pickedDate}
-                onChange={(val) => setPickedDate(val || todayIso())}
-                maxDate={todayIso()}
-                offDayMode="mark"
-              />
+
+          {range === 'week' && (
+            <div className="flex items-center gap-1 bg-zinc-100 dark:bg-zinc-900 p-0.5 rounded-xl border border-zinc-200 dark:border-zinc-800">
+              <button
+                type="button"
+                onClick={handlePrevWeek}
+                title="Previous week (Mon-Sat)"
+                className="p-1 rounded-lg hover:bg-white dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+              </button>
+              <span className="text-[11px] font-bold px-2 text-zinc-800 dark:text-zinc-200 tabular-nums">
+                {weekLabel}
+              </span>
+              <button
+                type="button"
+                onClick={handleNextWeek}
+                disabled={!canGoNextWeek}
+                title={canGoNextWeek ? 'Next week (Mon-Sat)' : 'Current week (latest)'}
+                className="p-1 rounded-lg hover:bg-white dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed transition cursor-pointer"
+              >
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           )}
-          {viewingOff.isOff && (
+
+          <div className="relative" ref={rangePickerRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setIsRangePickerOpen((o) => !o);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-bold border cursor-pointer transition ${
+                range === 'range'
+                  ? 'bg-indigo-600 text-white border-indigo-600'
+                  : 'border-zinc-200 dark:border-zinc-700 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>
+                {range === 'range'
+                  ? `${formatShortDisplay(customStartDate)} – ${formatShortDisplay(customEndDate)}`
+                  : 'Date Range'}
+              </span>
+            </button>
+
+            {isRangePickerOpen && (
+              <div className="absolute right-0 top-full mt-2 z-50">
+                <DateRangeCalendarPicker
+                  initialStartDate={customStartDate}
+                  initialEndDate={customEndDate}
+                  onApply={({ startDate, endDate }) => {
+                    setCustomStartDate(startDate);
+                    setCustomEndDate(endDate);
+                    setRange('range');
+                    setIsRangePickerOpen(false);
+                  }}
+                  onCancel={() => setIsRangePickerOpen(false)}
+                />
+              </div>
+            )}
+          </div>
+
+          {viewingOff.isOff && range === 'today' && (
             <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-xs font-semibold">
               <Coffee className="w-3.5 h-3.5 shrink-0" />
               <span>{viewingOff.label}</span>
             </div>
           )}
-          {!isSelectedDateExpired && missingTodayCount > 0 && !viewingOff.isOff && (
+
+          {showRemindColumn && missingTodayCount > 0 && !viewingOff.isOff && (
             <button
               type="button"
               onClick={handleBatchReminder}
@@ -402,7 +576,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
               No Compliance Monitoring Required
             </h3>
             <p className="mt-2 text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 max-w-lg mx-auto leading-relaxed">
-              {range === 'date' ? pickedDate : 'Today'} is a scheduled non-working day ({viewingOff.label}). Employee
+              Today is a scheduled non-working day ({viewingOff.label}). Employee
               shifts, check-ins, and daily task logs are not enforced, and compliance reminders are suspended.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
@@ -534,10 +708,16 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                         return (
                           <tr
                             key={act.user_id}
-                            className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-800/30 transition-colors ${rowTint}`}
+                            onClick={() => setSelectedEmployee(act)}
+                            className={`hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20 cursor-pointer transition-colors ${rowTint}`}
+                            title="Click to view full compliance breakdown and tasks"
                           >
                             <td className="py-3 px-4">
-                              <div className="font-bold">{act.full_name}</div>
+                              <div className="font-bold text-zinc-900 dark:text-zinc-100 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+                                <span className="hover:underline underline-offset-2">
+                                  {act.full_name}
+                                </span>
+                              </div>
                               <div className="text-[11px] text-zinc-400">{act.email}</div>
                             </td>
                             <td className="py-3 px-4">{act.department || '—'}</td>
@@ -599,10 +779,13 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                                 {hasOpen ? (
                                   <span className="text-[11px] text-zinc-400 font-semibold">Lead already asked</span>
                                 ) : canRemind ? (
-                                  <div className="flex items-center justify-end gap-1.5">
+                                  <div className="flex items-center justify-end gap-1.5" onClick={(e) => e.stopPropagation()}>
                                     <button
                                       type="button"
-                                      onClick={() => onSendReminder(act.user_id, 'email')}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSendReminder(act.user_id, 'email');
+                                      }}
                                       disabled={isSending}
                                       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-xs font-bold cursor-pointer disabled:opacity-50 transition-colors"
                                     >
@@ -616,6 +799,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                                         )}`}
                                         target="_blank"
                                         rel="noreferrer"
+                                        onClick={(e) => e.stopPropagation()}
                                         className="p-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-colors"
                                       >
                                         <MessageSquare className="w-3.5 h-3.5" />
@@ -623,7 +807,8 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                                     )}
                                     <button
                                       type="button"
-                                      onClick={() => {
+                                      onClick={(e) => {
+                                        e.stopPropagation();
                                         setCustomReminderUser(act);
                                         setCustomMessage(`Hi ${act.full_name}, please log your tasks.`);
                                       }}
@@ -674,6 +859,17 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
           </div>
         </div>
       )}
+
+      <EmployeeComplianceDrawer
+        isOpen={Boolean(selectedEmployee)}
+        onClose={() => setSelectedEmployee(null)}
+        member={selectedEmployee}
+        startDate={activeStartDate}
+        endDate={activeEndDate}
+        onSendReminder={onSendReminder}
+        isSendingReminder={selectedEmployee ? Boolean(isSendingReminder[selectedEmployee.user_id]) : false}
+        canRemind={showRemindColumn}
+      />
     </div>
   );
 };

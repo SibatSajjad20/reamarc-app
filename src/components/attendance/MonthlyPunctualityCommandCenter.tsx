@@ -361,11 +361,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Department & Shift */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex flex-col gap-1">
-                            <span
-                              className={`inline-flex items-center px-2.5 py-0.5 rounded-lg text-xs font-bold border w-fit ${getDeptBadgeClass(
-                                row.department
-                              )}`}
-                            >
+                            <span className={getDeptBadgeClass(row.department)}>
                               {row.department || 'General'}
                             </span>
                             <span className="text-[10px] text-zinc-400 font-medium">

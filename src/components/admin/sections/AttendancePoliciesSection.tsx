@@ -30,7 +30,7 @@ import { ToggleSwitch } from '../../ui/ToggleSwitch';
 import { getAttendanceMinDate } from '../../../constants/attendance';
 import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
 import { ShiftPatternModal } from './ShiftPatternModal';
-import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal } from '../../../utils/shiftAssignment';
+import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal, weekdayKeyFromIso } from '../../../utils/shiftAssignment';
 import { formatHours } from '../../../utils/logTimeChecks';
 
 const timeToMinutes = (value?: string | null) => {
@@ -205,8 +205,8 @@ export const AttendancePoliciesSection: React.FC = () => {
         const map: Record<string, string> = {};
         const docs: Record<string, ShiftAssignment> = {};
         fetchedAssignments.value.forEach((a) => {
-          if (a.user_id && a.shift_id) {
-            map[a.user_id] = a.shift_id;
+          if (a.user_id) {
+            if (a.shift_id) map[a.user_id] = a.shift_id;
             docs[a.user_id] = a;
           }
         });
@@ -391,15 +391,107 @@ export const AttendancePoliciesSection: React.FC = () => {
   };
 
   const filteredMembers = useMemo(() => {
-    if (!searchMemberQuery.trim()) return members;
-    const q = searchMemberQuery.toLowerCase();
-    return members.filter(
-      (m) =>
-        (m.full_name || (m as any).name || '').toLowerCase().includes(q) ||
-        (m.email || '').toLowerCase().includes(q) ||
-        (m.department || '').toLowerCase().includes(q)
-    );
+    let list = members;
+    if (searchMemberQuery.trim()) {
+      const q = searchMemberQuery.toLowerCase();
+      list = members.filter(
+        (m) =>
+          (m.full_name || (m as any).name || '').toLowerCase().includes(q) ||
+          (m.email || '').toLowerCase().includes(q) ||
+          (m.department || '').toLowerCase().includes(q)
+      );
+    }
+    return [...list].sort((a, b) => {
+      const deptA = (a.department || '').trim().toLowerCase();
+      const deptB = (b.department || '').trim().toLowerCase();
+      if (deptA !== deptB) {
+        if (!deptA) return 1;
+        if (!deptB) return -1;
+        return deptA.localeCompare(deptB);
+      }
+      const nameA = (a.full_name || (a as any).name || '').trim().toLowerCase();
+      const nameB = (b.full_name || (b as any).name || '').trim().toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
   }, [members, searchMemberQuery]);
+
+  const shiftUserMap = useMemo(() => {
+    const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const assignedMap: Record<string, { memberName: string; scheduleLabel: string }[]> = {};
+    const todayMap: Record<string, string[]> = {};
+
+    shifts.forEach((s) => {
+      assignedMap[s.id] = [];
+      todayMap[s.id] = [];
+    });
+
+    members.forEach((member) => {
+      const defaultShiftId = memberDefaultShiftId(member);
+      const currentShiftId = shiftAssignments[member.id] || defaultShiftId;
+      const assignment = assignmentDocs[member.id];
+      const weekdayRules = assignment?.weekday_rules || {};
+
+      const memberName = member.full_name || (member as any).name || member.email || 'User';
+
+      // Check which shifts this member is scheduled for across the 7 days of the week (0=Mon ... 6=Sun)
+      const dayMatchesPerShift: Record<string, number[]> = {};
+      shifts.forEach((s) => {
+        dayMatchesPerShift[s.id] = [];
+      });
+
+      for (let dayIndex = 0; dayIndex < 7; dayIndex++) {
+        const key = String(dayIndex);
+        const rule = weekdayRules[key];
+        const assignedDayShiftId =
+          rule?.shift_id && rule.shift_id.trim() ? rule.shift_id.trim() : currentShiftId;
+
+        shifts.forEach((s) => {
+          if (assignedDayShiftId === s.id || (s.code && assignedDayShiftId === s.code)) {
+            dayMatchesPerShift[s.id].push(dayIndex);
+          }
+        });
+      }
+
+      // Register member to all shifts they regularly work in weekly pattern / default (no one-off date overrides)
+      shifts.forEach((s) => {
+        const matchedDays = dayMatchesPerShift[s.id] || [];
+
+        if (matchedDays.length > 0) {
+          let scheduleLabel = '';
+          if (matchedDays.length === 7) {
+            scheduleLabel = 'Full week';
+          } else if (matchedDays.length === 1 && matchedDays[0] === 5) {
+            scheduleLabel = 'Saturdays';
+          } else if (matchedDays.length === 5 && matchedDays.every((d, i) => d === i)) {
+            scheduleLabel = 'Mon–Fri';
+          } else {
+            scheduleLabel = matchedDays.map((d) => DAY_NAMES[d]).join(', ');
+          }
+
+          if (!assignedMap[s.id]) assignedMap[s.id] = [];
+          assignedMap[s.id].push({
+            memberName,
+            scheduleLabel,
+          });
+        }
+      });
+
+      // Today's recurring shift resolution (no one-off date overrides)
+      const todayWeekday = weekdayKeyFromIso(todayIsoLocal());
+      const todayRule = weekdayRules[todayWeekday];
+      const todayShiftId =
+        todayRule?.shift_id && todayRule.shift_id.trim() ? todayRule.shift_id.trim() : currentShiftId;
+
+      shifts.forEach((s) => {
+        if (todayShiftId === s.id || (s.code && todayShiftId === s.code)) {
+          if (!todayMap[s.id]) todayMap[s.id] = [];
+          todayMap[s.id].push(memberName);
+        }
+      });
+    });
+
+    return { assignedMap, todayMap };
+  }, [shifts, members, shiftAssignments, assignmentDocs]);
 
   // ─── Shift Template Handlers ───
   const handleOpenAddShift = () => {
@@ -611,103 +703,138 @@ export const AttendancePoliciesSection: React.FC = () => {
         {activeTab === 'shifts' && (
         <div className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {shifts.map((shift) => (
-              <div
-                key={shift.id || shift.name}
-                className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-3 flex flex-col justify-between"
-              >
-                <div>
-                  <div className="flex items-center justify-between">
-                    <span className="px-2.5 py-0.5 rounded-md text-[10px] font-numeric font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 uppercase">
-                      {shift.code || 'SHIFT'}
-                    </span>
-                    {shift.is_cross_midnight && (
-                      <span className="text-[10px] font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" /> Night Shift
-                      </span>
-                    )}
-                  </div>
-                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 mt-2">
-                    {shift.name}
-                  </h3>
-                </div>
+            {shifts.map((shift) => {
+              const assignedUsers = shiftUserMap.assignedMap[shift.id] || [];
+              const assignedCount = assignedUsers.length;
+              const tooltipText =
+                assignedCount > 0
+                  ? `Assigned employees (${assignedCount}):\n` +
+                    assignedUsers.map((u) => `• ${u.memberName} (${u.scheduleLabel})`).join('\n')
+                  : 'No employees assigned to this shift';
 
-                <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+              return (
+                <div
+                  key={shift.id || shift.name}
+                  className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-3 flex flex-col justify-between"
+                >
                   <div>
-                    <span className="text-zinc-400">Shift Timings:</span>
-                    <p className="font-numeric font-bold text-zinc-800 dark:text-zinc-200">
-                      {shift.start_time} &mdash; {shift.end_time}
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Grace Period:</span>
-                    <p className="font-bold font-numeric text-emerald-600 dark:text-emerald-400">
-                      {shift.grace_period_minutes}m buffer
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Meal Break:</span>
-                    <p className="font-bold font-numeric text-zinc-700 dark:text-zinc-300">
-                      {shift.break_duration_minutes} mins
-                    </p>
-                  </div>
-                  <div>
-                    <span className="text-zinc-400">Expected Work:</span>
-                    <p className="font-bold font-numeric text-indigo-600 dark:text-indigo-400">
-                      {formatHours(shift.expected_hours ?? shift.expected_work_hours ?? 8)} /day
-                    </p>
-                  </div>
-                </div>
+                    <div className="flex items-start justify-between gap-2">
+                      <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                        {shift.name}
+                      </h3>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {shift.is_cross_midnight && (
+                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                            <Sparkles className="w-3 h-3" /> Night Shift
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditShift(shift)}
+                          className="p-1 rounded-lg text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                          title="Edit Shift"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setShiftToDelete(shift)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-xs font-semibold text-rose-600 dark:text-rose-400 cursor-pointer transition-colors"
-                    title="Delete Shift Template"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Delete</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleOpenEditShift(shift)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 cursor-pointer transition-colors"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                    <span>Edit Shift</span>
-                  </button>
+                    {/* Condensed User Count Line */}
+                    <div
+                      title={tooltipText}
+                      className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 pt-1 select-none"
+                    >
+                      <div className="flex items-center gap-1.5 font-semibold text-zinc-800 dark:text-zinc-200">
+                        <Users className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500" />
+                        <span>{assignedCount} Total</span>
+                      </div>
+
+                      {assignedCount === 1 &&
+                        assignedUsers[0]?.scheduleLabel &&
+                        assignedUsers[0].scheduleLabel !== 'Full week' && (
+                          <>
+                            <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-normal">
+                              {assignedUsers[0].scheduleLabel}
+                            </span>
+                          </>
+                        )}
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+                    <div>
+                      <span className="text-zinc-400">Shift Timings:</span>
+                      <p className="font-numeric font-bold text-zinc-800 dark:text-zinc-200">
+                        {shift.start_time} &mdash; {shift.end_time}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400">Grace Period:</span>
+                      <p className="font-bold font-numeric text-emerald-600 dark:text-emerald-400">
+                        {shift.grace_period_minutes}m buffer
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400">Meal Break:</span>
+                      <p className="font-bold font-numeric text-zinc-700 dark:text-zinc-300">
+                        {shift.break_duration_minutes === 60 ? '1h' : `${shift.break_duration_minutes || 0}m`}
+                      </p>
+                    </div>
+                    <div>
+                      <span className="text-zinc-400">Expected Work:</span>
+                      <p className="font-bold font-numeric text-indigo-600 dark:text-indigo-400">
+                        {formatHours(shift.expected_hours ?? shift.expected_work_hours ?? 8)}/day
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800/60">
+                    <button
+                      type="button"
+                      onClick={() => setShiftToDelete(shift)}
+                      className="text-xs text-zinc-400 hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400 font-medium transition-colors cursor-pointer"
+                    >
+                      Delete shift
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenEditShift(shift)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-xs font-semibold text-white transition-all shadow-xs shadow-indigo-600/20 cursor-pointer"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>Edit Shift</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* ─── Employee Shift Assignment Table ─── */}
           <div className="rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs overflow-hidden mt-6">
-            <div className="p-4 sm:p-5 border-b border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-4">
-              <div>
+            <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-zinc-200 dark:border-zinc-800/80">
+              <div className="flex items-center justify-between gap-4">
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                   <Users className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                   Employee Shift Assignments
                 </h3>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                  Assign a default shift, or a weekday pattern (auto WFH Mon–Fri is editable). Today’s shift is what late and Daily Log use.
-                </p>
-              </div>
 
-              {/* Search */}
-              <div className="flex items-center gap-2">
-                <div className="relative">
+                {/* Search */}
+                <div className="relative w-56 sm:w-64">
                   <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
                   <input
                     type="text"
                     placeholder="Search employee..."
                     value={searchMemberQuery}
                     onChange={(e) => setSearchMemberQuery(e.target.value)}
-                    className="pl-8 pr-3 py-1.5 rounded-xl text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
                   />
                 </div>
               </div>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                Assign a default shift, or a weekday pattern (auto WFH Mon–Fri is editable). Today’s shift is what late and Daily Log use.
+              </p>
             </div>
 
             {/* Table */}
@@ -715,12 +842,12 @@ export const AttendancePoliciesSection: React.FC = () => {
               <table className="w-full text-xs text-left">
                 <thead className="bg-zinc-50 dark:bg-[#0c0d12] border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 font-semibold">
                   <tr>
-                    <th className="py-3 px-4">Employee</th>
-                    <th className="py-3 px-4">Department</th>
-                    <th className="py-3 px-4">Role</th>
-                    <th className="py-3 px-4">Default Shift</th>
-                    <th className="py-3 px-4">Today</th>
-                    <th className="py-3 px-4">Pattern</th>
+                    <th className="py-2 px-4">Employee</th>
+                    <th className="py-2 px-4">Department</th>
+                    <th className="py-2 px-4">Role</th>
+                    <th className="py-2 px-4">Default Shift</th>
+                    <th className="py-2 px-4">Today</th>
+                    <th className="py-2 px-4">Pattern</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
@@ -755,24 +882,27 @@ export const AttendancePoliciesSection: React.FC = () => {
 
                       return (
                         <tr key={member.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
-                          <td className="py-3 px-4">
-                            <div className="font-bold text-zinc-900 dark:text-zinc-100">
+                          <td className="py-2 px-4">
+                            <div
+                              className="font-semibold text-gray-900 dark:text-zinc-100 truncate"
+                              title={member.email || undefined}
+                            >
                               {member.full_name || (member as any).name || 'User'}
                             </div>
-                            <div className="text-[11px] text-zinc-400 font-sans">{member.email}</div>
                           </td>
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] font-bold border ${getDeptBadgeClass(member.department)}`}>
+                          <td className="py-2 px-4 whitespace-nowrap">
+                            <span className={getDeptBadgeClass(member.department)}>
                               {member.department || 'General'}
                             </span>
                           </td>
-                          <td className="py-3 px-4 whitespace-nowrap">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border capitalize ${getRoleBadgeClass(member.role)}`}>
+                          <td className="py-2 px-4 whitespace-nowrap">
+                            <span className={`${getRoleBadgeClass(member.role)} capitalize`}>
                               {member.role?.replace('_', ' ')}
                             </span>
                           </td>
-                          <td className="py-3 px-4 min-w-[220px]">
+                          <td className="py-2 px-4 min-w-[220px]">
                             <CustomSelect
+                              size="sm"
                               value={currentShiftId}
                               disabled={isAssigning[member.id]}
                               onChange={(val) => handleInitiateShiftChange(member, val)}
@@ -782,22 +912,22 @@ export const AttendancePoliciesSection: React.FC = () => {
                               }))}
                             />
                           </td>
-                          <td className="py-3 px-4 whitespace-nowrap">
+                          <td className="py-2 px-4 whitespace-nowrap">
                             <div className="font-numeric font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">
                               {todayShift
                                 ? `${todayShift.start_time} — ${todayShift.end_time}`
                                 : '09:30 — 18:30'}
                             </div>
                             {todayResolved.auto_wfh && (
-                              <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400 mt-0.5">Auto WFH</div>
+                              <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400">Auto WFH</div>
                             )}
                           </td>
-                          <td className="py-3 px-4">
+                          <td className="py-2 px-4 whitespace-nowrap">
                             <button
                               type="button"
                               disabled={isAssigning[member.id]}
                               onClick={() => setPatternMember(member)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
                             >
                               {patterned ? 'Edit pattern' : 'Set pattern'}
                             </button>

@@ -1,5 +1,11 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
+  useVirtualizer,
+  observeElementOffset,
+  observeElementRect,
+  elementScroll,
+} from '@tanstack/react-virtual';
+import {
   TrendingUp,
   Loader2,
   RefreshCcw,
@@ -16,6 +22,7 @@ import {
   Search,
   X,
   Calendar as CalendarIcon,
+  SlidersHorizontal,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
@@ -129,6 +136,10 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date(selectedDate || Date.now()));
   const calendarDropdownRef = useRef<HTMLDivElement>(null);
 
+  // View Options Popover State
+  const [isViewOptionsMenuOpen, setIsViewOptionsMenuOpen] = useState(false);
+  const viewOptionsMenuRef = useRef<HTMLDivElement>(null);
+
   // Synchronize calendar view date with selectedDate
   useEffect(() => {
     if (selectedDate) {
@@ -147,6 +158,9 @@ export const PerformanceMarketing: React.FC<Props> = ({
       }
       if (calendarDropdownRef.current && !calendarDropdownRef.current.contains(event.target as Node)) {
         setIsCalendarOpen(false);
+      }
+      if (viewOptionsMenuRef.current && !viewOptionsMenuRef.current.contains(event.target as Node)) {
+        setIsViewOptionsMenuOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -218,28 +232,73 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return DEFAULT_ROW_HEIGHT;
   });
 
-  // ── Column & Row Resizing Handlers — exact DailyLog pattern ──────────────
+  // ── DOM Refs for Resizing & Virtualization ───────────────────────────────
+  const tableContainerRef = useRef<HTMLDivElement>(null);
+  const tableInnerRef = useRef<HTMLDivElement>(null);
+  const resizeGuideRef = useRef<HTMLDivElement>(null);
+  const resizeTooltipRef = useRef<HTMLDivElement>(null);
+  const currentResizingWidthRef = useRef<number>(100);
+  const rowResizeGuideRef = useRef<HTMLDivElement>(null);
+  const rowResizeTooltipRef = useRef<HTMLDivElement>(null);
+  const currentResizingHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
+
+  // ── Column & Row Resizing Handlers — optimized with guide refs & deferred commit ──
   const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
     const startX = e.clientX;
     const startWidth = columnWidths[colKey] || 100;
+    currentResizingWidthRef.current = startWidth;
+
+    const handleElement = e.currentTarget as HTMLElement;
+    const innerRect = tableInnerRef.current?.getBoundingClientRect();
+    const initialHandleLeft = innerRect
+      ? (handleElement.getBoundingClientRect().right - innerRect.left) * (100 / zoomLevel)
+      : 0;
+
+    if (resizeGuideRef.current) {
+      resizeGuideRef.current.style.display = 'block';
+      resizeGuideRef.current.style.transform = `translateX(${initialHandleLeft}px)`;
+      if (resizeTooltipRef.current) {
+        resizeTooltipRef.current.textContent = `${startWidth}px`;
+      }
+    }
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = (moveEvent.clientX - startX) * (100 / zoomLevel);
       const newWidth = Math.max(35, Math.min(800, startWidth + delta));
-      setColumnWidths((prev) => {
-        const next = { ...prev, [colKey]: Math.round(newWidth) };
-        try {
-          localStorage.setItem('reamarc_perf_col_widths', JSON.stringify(next));
-        } catch (err) {}
-        return next;
-      });
+      const roundedWidth = Math.round(newWidth);
+      currentResizingWidthRef.current = roundedWidth;
+
+      if (resizeGuideRef.current) {
+        const currentLeft = initialHandleLeft + (roundedWidth - startWidth);
+        resizeGuideRef.current.style.transform = `translateX(${currentLeft}px)`;
+        if (resizeTooltipRef.current) {
+          resizeTooltipRef.current.textContent = `${roundedWidth}px`;
+        }
+      }
     };
 
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      if (resizeGuideRef.current) {
+        resizeGuideRef.current.style.display = 'none';
+      }
+
+      const finalWidth = currentResizingWidthRef.current;
+      setColumnWidths((prev) => {
+        const next = { ...prev, [colKey]: finalWidth };
+        try {
+          localStorage.setItem('reamarc_perf_col_widths', JSON.stringify(next));
+        } catch (err) {}
+        return next;
+      });
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -250,22 +309,57 @@ export const PerformanceMarketing: React.FC<Props> = ({
     e.preventDefault();
     e.stopPropagation();
     const startY = e.clientY;
+    currentResizingHeightRef.current = currentH;
+
+    const handleElement = e.currentTarget as HTMLElement;
+    const innerRect = tableInnerRef.current?.getBoundingClientRect();
+    const initialHandleTop = innerRect
+      ? (handleElement.getBoundingClientRect().bottom - innerRect.top) * (100 / zoomLevel)
+      : 0;
+
+    if (rowResizeGuideRef.current) {
+      rowResizeGuideRef.current.style.display = 'block';
+      rowResizeGuideRef.current.style.transform = `translateY(${initialHandleTop}px)`;
+      if (rowResizeTooltipRef.current) {
+        rowResizeTooltipRef.current.textContent = `${currentH}px`;
+      }
+    }
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = (moveEvent.clientY - startY) * (100 / zoomLevel);
       const newHeight = Math.max(24, Math.min(180, currentH + delta));
-      setRowHeights((prev) => {
-        const next = { ...prev, [rowId]: Math.round(newHeight) };
-        try {
-          localStorage.setItem('reamarc_perf_row_heights', JSON.stringify(next));
-        } catch (err) {}
-        return next;
-      });
+      const roundedHeight = Math.round(newHeight);
+      currentResizingHeightRef.current = roundedHeight;
+
+      if (rowResizeGuideRef.current) {
+        const currentTop = initialHandleTop + (roundedHeight - currentH);
+        rowResizeGuideRef.current.style.transform = `translateY(${currentTop}px)`;
+        if (rowResizeTooltipRef.current) {
+          rowResizeTooltipRef.current.textContent = `${roundedHeight}px`;
+        }
+      }
     };
 
     const onMouseUp = () => {
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+
+      if (rowResizeGuideRef.current) {
+        rowResizeGuideRef.current.style.display = 'none';
+      }
+
+      const finalHeight = currentResizingHeightRef.current;
+      setRowHeights((prev) => {
+        const next = { ...prev, [rowId]: finalHeight };
+        try {
+          localStorage.setItem('reamarc_perf_row_heights', JSON.stringify(next));
+        } catch (err) {}
+        return next;
+      });
     };
 
     document.addEventListener('mousemove', onMouseMove);
@@ -320,16 +414,47 @@ export const PerformanceMarketing: React.FC<Props> = ({
     });
   }, [rows]);
 
-  // ── Progressive Batch Loading (Default 50, +50 Load More, Show All) ───────
-  const [visibleLimit, setVisibleLimit] = useState<number>(50);
+  // ── Row Virtualization via @tanstack/react-virtual (Zoom-Compensated) ────────
+  const zoomLevelRef = useRef(zoomLevel);
+  zoomLevelRef.current = zoomLevel;
+
+  const rowVirtualizer = useVirtualizer({
+    count: sortedRows.length,
+    getScrollElement: () => tableContainerRef.current,
+    estimateSize: (index) => rowHeights[sortedRows[index]?.campaign_id] || defaultRowHeight,
+    overscan: 10,
+    observeElementOffset: (instance, cb) => {
+      return observeElementOffset(instance, (offset, isScrolling) => {
+        const scale = (zoomLevelRef.current || 100) / 100;
+        cb(offset / scale, isScrolling);
+      });
+    },
+    observeElementRect: (instance, cb) => {
+      return observeElementRect(instance, (rect) => {
+        const scale = (zoomLevelRef.current || 100) / 100;
+        cb({
+          width: Math.round(rect.width / scale),
+          height: Math.round(rect.height / scale),
+        });
+      });
+    },
+    scrollToFn: (offset, options, instance) => {
+      const scale = (zoomLevelRef.current || 100) / 100;
+      elementScroll(offset * scale, options, instance);
+    },
+  });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const totalVirtualSize = rowVirtualizer.getTotalSize();
+  const paddingTop = virtualRows.length > 0 ? virtualRows[0]?.start ?? 0 : 0;
+  const paddingBottom =
+    virtualRows.length > 0
+      ? totalVirtualSize - (virtualRows[virtualRows.length - 1]?.end ?? 0)
+      : 0;
 
   useEffect(() => {
-    setVisibleLimit(50);
-  }, [selectedWorkspace?.id, selectedDate]);
-
-  const visibleRows = useMemo(() => {
-    return sortedRows.slice(0, visibleLimit);
-  }, [sortedRows, visibleLimit]);
+    rowVirtualizer.measure();
+  }, [defaultRowHeight, zoomLevel, rowVirtualizer]);
 
   const syncPollIntervalRef = useRef<any>(null);
   useEffect(() => {
@@ -422,10 +547,12 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
   return (
     <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden performance-marketing-view">
-      {/* Top Toolbar Bar — matching DailyLogView styling & layout */}
-      <div className="px-6 py-3.5 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3.5 shadow-xs shrink-0">
-        {/* Left: Ad Account Switcher & Live KPI Counters */}
-        <div className="flex flex-wrap items-center gap-3">
+      {/* Top Toolbar Bar */}
+      <div className="px-6 py-3 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-col gap-2.5 shadow-xs shrink-0">
+        {/* Row 1: Global Context & Actions */}
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          {/* Left: Ad Account Switcher & Live KPI Counters */}
+          <div className="flex items-center gap-3 flex-wrap">
           {/* Ad Account Dropdown Trigger */}
           <div className="relative" ref={accountMenuRef}>
             <button
@@ -629,136 +756,43 @@ export const PerformanceMarketing: React.FC<Props> = ({
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
               <span>Errors: {statusCounts.Error + statusCounts.Stopped}</span>
             </span>
-            <span className="text-xs text-zinc-400 dark:text-zinc-500 ml-1 font-medium hidden sm:inline">
-              • Showing {rows.length} Campaigns {hiddenCount > 0 && !showInactive ? `(${hiddenCount} Hidden)` : ''}
-            </span>
           </div>
         </div>
 
-        {/* Right Controls — Zoom, Row, Reset, Calendar, Sync, Credentials */}
+        {/* Right: Global Actions (Credentials & Sync Ads API) */}
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Show Paused Toggle */}
-          <button
-            type="button"
-            onClick={toggleShowInactive}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors cursor-pointer select-none shadow-2xs ${
-              showInactive
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
-                : 'bg-zinc-50 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
-            }`}
-          >
-            <span
-              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors ${
-                showInactive ? 'bg-amber-500' : 'bg-zinc-300 dark:bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transform transition-transform ${
-                  showInactive ? 'translate-x-3' : 'translate-x-0'
-                }`}
-              />
-            </span>
-            <span className="text-xs font-bold">Show Paused</span>
-            {hiddenCount > 0 && !showInactive && (
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30">
-                +{hiddenCount}
-              </span>
-            )}
-          </button>
-
-          {/* Row Height Controls */}
-          <div
-            className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
-            title="Row Height"
-          >
-            <span className="text-[11px] font-bold text-zinc-500 dark:text-zinc-400 pl-1.5 pr-0.5 flex items-center gap-1">
-              <MoveVertical className="w-3.5 h-3.5 text-indigo-500" />
-              <span className="hidden xl:inline">Row:</span>
-            </span>
+          {/* Ad Credentials Trigger (Admin Only) */}
+          {role === 'admin' && (
             <button
               type="button"
-              onClick={() => {
-                const next = Math.max(24, defaultRowHeight - 4);
-                setDefaultRowHeight(next);
-                try {
-                  localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                } catch (e) {}
-              }}
-              className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
-              title="Decrease row height"
+              onClick={() => setIsCredsModalOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
+              title="Configure API credentials & Pixel IDs"
             >
-              -
+              <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Credentials</span>
             </button>
-            <span className="text-xs font-numeric font-bold px-1 min-w-[34px] text-center text-zinc-900 dark:text-zinc-100">
-              {defaultRowHeight}px
-            </span>
+          )}
+
+          {/* Sync Ads API Button */}
+          {(role === 'admin' || role === 'member') && (
             <button
               type="button"
-              onClick={() => {
-                const next = Math.min(100, defaultRowHeight + 4);
-                setDefaultRowHeight(next);
-                try {
-                  localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                } catch (e) {}
-              }}
-              className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
-              title="Increase row height"
+              onClick={handleManualSync}
+              disabled={isSyncing}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
             >
-              +
+              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
+              <span>{isSyncing ? 'Syncing...' : 'Sync Ads API'}</span>
             </button>
-          </div>
+          )}
+        </div>
+      </div>
 
-          {/* Zoom Level Controls — exact match with DailyLogView */}
-          <div
-            className="flex items-center bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
-            title="Canvas Zoom Level"
-          >
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.max(MIN_ZOOM, zoomLevel - 5);
-                setZoomLevel(next);
-                try {
-                  localStorage.setItem('reamarc_perf_zoom', String(next));
-                } catch (e) {}
-              }}
-              disabled={zoomLevel <= MIN_ZOOM}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom Out"
-            >
-              <ZoomOut className="w-3.5 h-3.5" />
-            </button>
-            <span className="px-2.5 text-xs font-numeric font-bold text-zinc-700 dark:text-zinc-300 min-w-[48px] text-center select-none">
-              {zoomLevel}%
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                const next = Math.min(MAX_ZOOM, zoomLevel + 5);
-                setZoomLevel(next);
-                try {
-                  localStorage.setItem('reamarc_perf_zoom', String(next));
-                } catch (e) {}
-              }}
-              disabled={zoomLevel >= MAX_ZOOM}
-              className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-              title="Zoom In"
-            >
-              <ZoomIn className="w-3.5 h-3.5" />
-            </button>
-          </div>
-
-          {/* Reset Layout Button — exact match with DailyLogView */}
-          <button
-            type="button"
-            onClick={handleResetLayout}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-            title="Reset column widths, row heights (32px), and zoom (80%)"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-            <span className="hidden sm:inline">Reset Layout</span>
-          </button>
-
+      {/* Row 2: Table Controls (Date Navigator, Show Paused Toggle, View Options) */}
+      <div className="flex items-center justify-between gap-4 flex-wrap pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
+        {/* Left: Date Navigator & Clean Show Paused Toggle */}
+        <div className="flex items-center gap-2.5 flex-wrap">
           {/* Custom Calendar Date Navigator */}
           <div
             className="relative flex items-center gap-1 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
@@ -807,7 +841,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
             {/* Custom Interactive Calendar Popover */}
             {isCalendarOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-50 w-72 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
+              <div className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
                 {/* Month and Year Header */}
                 <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
                   <button
@@ -920,47 +954,209 @@ export const PerformanceMarketing: React.FC<Props> = ({
             )}
           </div>
 
-          {/* Sync Ads API Button */}
-          {(role === 'admin' || role === 'member') && (
-            <button
-              type="button"
-              onClick={handleManualSync}
-              disabled={isSyncing}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
+          {/* Clean Show Paused Toggle */}
+          <button
+            type="button"
+            onClick={toggleShowInactive}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors cursor-pointer select-none shadow-2xs ${
+              showInactive
+                ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
+                : 'bg-zinc-50 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
+            }`}
+          >
+            <span
+              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors ${
+                showInactive ? 'bg-amber-500' : 'bg-zinc-300 dark:bg-zinc-700'
+              }`}
             >
-              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
-              <span>{isSyncing ? 'Syncing...' : 'Sync Ads API'}</span>
-            </button>
-          )}
+              <span
+                className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transform transition-transform ${
+                  showInactive ? 'translate-x-3' : 'translate-x-0'
+                }`}
+              />
+            </span>
+            <span className="text-xs font-bold">Show Paused</span>
+          </button>
+        </div>
 
-          {/* Ad Credentials Trigger (Admin Only) */}
-          {role === 'admin' && (
+        {/* Right: View Options Dropdown */}
+        <div className="flex items-center gap-2">
+          <div className="relative" ref={viewOptionsMenuRef}>
             <button
               type="button"
-              onClick={() => setIsCredsModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-              title="Configure API credentials & Pixel IDs"
+              onClick={() => setIsViewOptionsMenuOpen(!isViewOptionsMenuOpen)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none ${
+                isViewOptionsMenuOpen
+                  ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100'
+                  : 'bg-zinc-50 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300'
+              }`}
+              title="View Options"
             >
-              <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Credentials</span>
+              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-500" />
+              <span>View Options</span>
+              <ChevronDown
+                className={`w-3 h-3 text-zinc-400 transition-transform duration-150 ${
+                  isViewOptionsMenuOpen ? 'rotate-180 text-indigo-500' : ''
+                }`}
+              />
             </button>
-          )}
+
+            {/* View Options Popover Menu */}
+            {isViewOptionsMenuOpen && (
+              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
+                <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
+                  Display Settings
+                </div>
+
+                {/* Row Height Control */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    <MoveVertical className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Row Height</span>
+                  </div>
+                  <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(24, defaultRowHeight - 4);
+                        setDefaultRowHeight(next);
+                        try {
+                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                        } catch (e) {}
+                      }}
+                      className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors cursor-pointer"
+                      title="Decrease row height"
+                    >
+                      -
+                    </button>
+                    <span className="text-xs font-numeric font-bold px-1.5 min-w-[34px] text-center text-zinc-900 dark:text-zinc-100">
+                      {defaultRowHeight}px
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(100, defaultRowHeight + 4);
+                        setDefaultRowHeight(next);
+                        try {
+                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                        } catch (e) {}
+                      }}
+                      className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors cursor-pointer"
+                      title="Increase row height"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Zoom Level Control */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
+                    <ZoomIn className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Zoom</span>
+                  </div>
+                  <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 rounded-lg p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.max(MIN_ZOOM, zoomLevel - 5);
+                        setZoomLevel(next);
+                        try {
+                          localStorage.setItem('reamarc_perf_zoom', String(next));
+                        } catch (e) {}
+                      }}
+                      disabled={zoomLevel <= MIN_ZOOM}
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
+                      title="Zoom Out"
+                    >
+                      <ZoomOut className="w-3.5 h-3.5" />
+                    </button>
+                    <span className="text-xs font-numeric font-bold px-1.5 min-w-[42px] text-center text-zinc-900 dark:text-zinc-100">
+                      {zoomLevel}%
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = Math.min(MAX_ZOOM, zoomLevel + 5);
+                        setZoomLevel(next);
+                        try {
+                          localStorage.setItem('reamarc_perf_zoom', String(next));
+                        } catch (e) {}
+                      }}
+                      disabled={zoomLevel >= MAX_ZOOM}
+                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
+                      title="Zoom In"
+                    >
+                      <ZoomIn className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Reset Layout to Default Button */}
+                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={handleResetLayout}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-colors cursor-pointer"
+                    title="Reset column widths, row heights (32px), and zoom (80%)"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Reset Layout to Default</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
+    </div>
 
-      {/* Grid Canvas Wrapper with Scaled Zoom & Progressive Batch Rendering */}
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col">
+      {/* Grid Canvas Wrapper with Scaled Zoom & Virtualized Rendering */}
+      <div
+        ref={tableContainerRef}
+        className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col"
+      >
         <div
+          ref={tableInnerRef}
           style={{
             zoom: `${zoomLevel}%`,
             width: `${totalTableWidth}px`,
             minWidth: `${totalTableWidth}px`,
-          }}
-          className="min-w-full flex flex-col flex-1"
+            '--pm-row-height': `${defaultRowHeight}px`,
+          } as React.CSSProperties}
+          className="min-w-full flex flex-col flex-1 relative"
         >
+          {/* Column Resize Visual Guide */}
+          <div
+            ref={resizeGuideRef}
+            style={{ display: 'none', left: 0 }}
+            className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-40 pointer-events-none"
+          >
+            <div
+              ref={resizeTooltipRef}
+              className="absolute top-2 -left-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
+            />
+          </div>
+
+          {/* Row Resize Visual Guide */}
+          <div
+            ref={rowResizeGuideRef}
+            style={{ display: 'none', top: 0 }}
+            className="absolute left-0 right-0 h-0.5 bg-indigo-500 z-40 pointer-events-none"
+          >
+            <div
+              ref={rowResizeTooltipRef}
+              className="absolute left-2 -top-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
+            />
+          </div>
+
           <table
             className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
-            style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
+            style={{
+              width: `${totalTableWidth}px`,
+              minWidth: `${totalTableWidth}px`,
+              '--pm-row-height': `${defaultRowHeight}px`,
+            } as React.CSSProperties}
           >
             <thead className="sticky top-0 z-30 shadow-2xs">
               <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
@@ -1003,7 +1199,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
               {isLoading ? (
                 Array.from({ length: 20 }).map((_, idx) => (
-                  <tr key={`pm-skeleton-${idx}`} className="animate-pulse" style={{ height: `${defaultRowHeight}px` }}>
+                  <tr key={`pm-skeleton-${idx}`} className="animate-pulse h-[var(--pm-row-height)]">
                     <td
                       style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
                       className="p-2 text-center border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40"
@@ -1070,30 +1266,40 @@ export const PerformanceMarketing: React.FC<Props> = ({
                   </td>
                 </tr>
               ) : (
-                visibleRows.map((row, idx) => {
+                <>
+                  {paddingTop > 0 && (
+                    <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
+                      <td colSpan={DEFAULT_COLUMNS.length + 1} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
+                    </tr>
+                  )}
+                  {virtualRows.map((virtualRow) => {
+                    const row = sortedRows[virtualRow.index];
+                    if (!row) return null;
                     const isWarning = row.status === 'Stopped' || row.status === 'Error';
-                    const rHeight = rowHeights[row.campaign_id] || defaultRowHeight;
+                    const customH = rowHeights[row.campaign_id];
                     const spendVal = Number(row.ad_spend) || 0;
                     const leadsVal = Number(row.leads_conversions) || 0;
-                    const rowNumber = idx + 1;
+                    const rowNumber = virtualRow.index + 1;
 
                     return (
                       <tr
                         key={row.campaign_id}
-                        style={{ height: `${rHeight}px` }}
-                        className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer ${
+                        ref={rowVirtualizer.measureElement}
+                        data-index={virtualRow.index}
+                        style={customH ? ({ '--pm-row-height': `${customH}px` } as React.CSSProperties) : undefined}
+                        className={`h-[var(--pm-row-height)] hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer ${
                           isWarning ? 'bg-rose-500/5 dark:bg-rose-900/10' : ''
                         }`}
                       >
                         {/* Serial Number */}
                         <td
-                          style={{ width: '44px', minWidth: '44px', maxWidth: '44px', height: `${rHeight}px` }}
-                          className="p-2 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative"
+                          style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
+                          className="h-[var(--pm-row-height)] p-2 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative"
                         >
                           <span>{rowNumber}</span>
                           {/* Row Height Resize Handle */}
                           <div
-                            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, rHeight)}
+                            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, customH || defaultRowHeight)}
                             className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-indigo-500/80 z-20"
                             title="Drag to adjust row height"
                           />
@@ -1108,8 +1314,8 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           return (
                             <td
                               key={col.key}
-                              style={{ width: `${colW}px`, minWidth: `${colW}px`, height: `${rHeight}px` }}
-                              className={`p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text overflow-hidden ${alignClass}`}
+                              style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                              className={`h-[var(--pm-row-height)] p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text overflow-hidden ${alignClass}`}
                             >
                               {col.key === 'workspace_name' ? (
                                 <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate block">
@@ -1213,66 +1419,42 @@ export const PerformanceMarketing: React.FC<Props> = ({
                         })}
                       </tr>
                     );
-                  })
-                )}
-              </tbody>
-            </table>
-
-            {/* Table Footer with Progressive Batch Loading Controls */}
-            {!isLoading && !error && sortedRows.length > 0 && (
-              <div
-                style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-                className="px-5 py-3.5 bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-4 text-xs select-none sticky bottom-0 z-20 shadow-xs"
-              >
-                <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400 font-medium">
-                  <span>
-                    Showing <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{visibleRows.length}</strong> of{' '}
-                    <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{sortedRows.length}</strong> campaigns
-                  </span>
-                  {hiddenCount > 0 && !showInactive && (
-                    <span className="text-zinc-400 dark:text-zinc-500 text-[11px]">
-                      ({hiddenCount} paused hidden)
-                    </span>
+                  })}
+                  {paddingBottom > 0 && (
+                    <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
+                      <td colSpan={DEFAULT_COLUMNS.length + 1} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+                    </tr>
                   )}
-                </div>
+                </>
+              )}
+            </tbody>
+          </table>
 
-                <div className="flex items-center gap-2">
-                  {visibleLimit < sortedRows.length ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => setVisibleLimit((prev) => Math.min(sortedRows.length, prev + 50))}
-                        className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-bold text-xs transition-all shadow-2xs hover:shadow-xs cursor-pointer flex items-center gap-1.5 select-none"
-                      >
-                        <span>+ Load 50 More</span>
-                        <span className="text-[10px] opacity-80 font-numeric">({sortedRows.length - visibleLimit} left)</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVisibleLimit(sortedRows.length)}
-                        className="px-3 py-1.5 rounded-xl bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 active:bg-zinc-400 dark:active:bg-zinc-600 text-zinc-800 dark:text-zinc-200 font-bold text-xs transition cursor-pointer select-none"
-                      >
-                        Show All ({sortedRows.length})
-                      </button>
-                    </>
-                  ) : sortedRows.length > 50 ? (
-                    <div className="flex items-center gap-2.5">
-                      <span className="text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center gap-1">
-                        <Check className="w-3.5 h-3.5" />
-                        <span>All {sortedRows.length} campaigns loaded</span>
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setVisibleLimit(50)}
-                        className="px-2.5 py-1 rounded-lg text-[11px] bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-medium transition cursor-pointer select-none"
-                      >
-                        Collapse to Top 50
-                      </button>
-                    </div>
-                  ) : null}
-                </div>
+          {/* Table Footer with Virtualization Metrics */}
+          {!isLoading && !error && sortedRows.length > 0 && (
+            <div
+              style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
+              className="px-5 py-3 bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-4 text-xs select-none sticky bottom-0 z-20 shadow-xs"
+            >
+              <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400 font-medium">
+                <span>
+                  Showing <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{sortedRows.length}</strong> campaigns
+                </span>
+                {hiddenCount > 0 && !showInactive && (
+                  <span className="text-zinc-400 dark:text-zinc-500 text-[11px]">
+                    ({hiddenCount} paused hidden)
+                  </span>
+                )}
               </div>
-            )}
+
+              <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-zinc-500 font-medium">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60 font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
+                  Virtualized ({virtualRows.length} rendered)
+                </span>
+              </div>
+            </div>
+          )}
           </div>
         </div>
 

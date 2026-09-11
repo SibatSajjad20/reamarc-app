@@ -61,6 +61,7 @@ docs/google_ads_integration_guide.md
 !README.md
 !backend/README.md
 !mobile/README.md
+!REAMARC_UI_SPEC.md
 docs/
 *.xlsx
 *.xls

@@ -219,6 +219,8 @@ export interface SnapshotDepartment {
 export interface OperatingSnapshot {
   date: string;
   range?: string;
+  start_date?: string;
+  end_date?: string;
   employees_expected: number;
   logs_submitted: number;
   compliance_pct: number;
@@ -252,6 +254,56 @@ export interface SubmissionWindowResponse {
   window_end_formatted?: string;
   error?: string | null;
 }
+
+export interface DailyTaskItem {
+  id?: string;
+  task_description: string;
+  client_project?: string | null;
+  task_type?: string | null;
+  task_status?: string | null;
+  hours_utilized: number;
+  progress_percentage?: number | null;
+  blockers?: string | null;
+}
+
+export interface DayComplianceDetail {
+  date: string;
+  day_name: string;
+  is_workday: boolean;
+  is_off_day: boolean;
+  off_day_label?: string | null;
+  is_leave: boolean;
+  status: 'submitted' | 'missing' | 'in_shift' | 'not_started' | 'on_leave';
+  check_in?: string | null;
+  check_out?: string | null;
+  worked_hours: number;
+  logged_hours: number;
+  gap_hours: number;
+  signed_gap_hours: number;
+  due: boolean;
+  tasks: DailyTaskItem[];
+  member_reason?: string | null;
+  action_status?: string | null;
+  action_type?: string | null;
+}
+
+export interface EmployeeComplianceDetailResponse {
+  user_id: string;
+  full_name: string;
+  email?: string | null;
+  department?: string | null;
+  role: string;
+  start_date: string;
+  end_date: string;
+  total_worked_hours: number;
+  total_logged_hours: number;
+  total_signed_gap_hours: number;
+  days_expected: number;
+  days_logged: number;
+  days_missing: number;
+  days: DayComplianceDetail[];
+}
+
 
 
 

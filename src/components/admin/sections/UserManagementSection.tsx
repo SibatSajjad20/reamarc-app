@@ -11,6 +11,12 @@ import {
 } from 'lucide-react';
 import type { AdminMember } from '../../../types/admin';
 import { CustomSelect } from '../../ui/CustomSelect';
+import {
+  getDeptBadgeClass,
+  getRoleBadgeClass,
+  getRoleLabel,
+  getInitials,
+} from '../../../utils/badgeStyles';
 
 export const SYSTEM_DEPARTMENTS = [
   'Website',
@@ -90,101 +96,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       ...SYSTEM_ROLES.map((r) => ({ value: r.id, label: r.label })),
     ];
   }, []);
-
-  const getRoleBadge = (role: string) => {
-    const norm = role.toLowerCase();
-    if (norm === 'admin') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30">
-          <Shield className="w-3.5 h-3.5" />
-          <span>Super Admin</span>
-        </span>
-      );
-    }
-    if (norm === 'hr') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-blue-500/15 text-blue-700 dark:text-blue-300 border border-blue-500/30">
-          <span>HR</span>
-        </span>
-      );
-    }
-    if (norm === 'operations' || norm === 'ops') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
-          <Shield className="w-3.5 h-3.5" />
-          <span>Operations</span>
-        </span>
-      );
-    }
-    if (norm === 'team_lead' || norm === 'lead') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
-          <span>Team Lead</span>
-        </span>
-      );
-    }
-    if (norm === 'client') {
-      return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-rose-500/15 text-rose-700 dark:text-rose-300 border border-rose-500/30">
-          <span>Client</span>
-        </span>
-      );
-    }
-    return (
-      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-        <span>Team Member</span>
-      </span>
-    );
-  };
-
-  const getDeptBadge = (dept?: string, isGlobal?: boolean) => {
-    if (!dept && !isGlobal) {
-      return <span className="text-zinc-400 italic text-[11px]">—</span>;
-    }
-    const display = isGlobal ? 'All' : dept || 'All';
-    const nd = display.toLowerCase();
-
-    let colorClass = 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
-    if (isGlobal || nd === 'all') {
-      colorClass = 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-    } else if (nd.includes('website')) {
-      colorClass = 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-    } else if (nd.includes('creative')) {
-      colorClass = 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-    } else if (nd.includes('content')) {
-      colorClass = 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-    } else if (nd.includes('seo')) {
-      colorClass = 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-    } else if (nd.includes('performance') || nd.includes('marketing')) {
-      colorClass = 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-    } else if (nd.includes('ai')) {
-      colorClass = 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
-    } else if (nd.includes('software') || nd.includes('dev')) {
-      colorClass = 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-    } else if (nd.includes('hr')) {
-      colorClass = 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-    }
-
-    return (
-      <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold border ${colorClass}`}>
-        <span>{display}</span>
-      </span>
-    );
-  };
-
-  const getInitials = (name?: string, email?: string) => {
-    if (name && name.trim()) {
-      const parts = name.trim().split(' ');
-      if (parts.length >= 2) {
-        return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-      }
-      return parts[0].substring(0, 2).toUpperCase();
-    }
-    if (email && email.trim()) {
-      return email.trim().substring(0, 2).toUpperCase();
-    }
-    return 'U';
-  };
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
@@ -340,11 +251,21 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       </td>
 
                       {/* Role */}
-                      <td className="py-3.5 px-4">{getRoleBadge(m.role)}</td>
+                      <td className="py-3.5 px-4">
+                        <span className={getRoleBadgeClass(m.role)}>
+                          {getRoleLabel(m.role)}
+                        </span>
+                      </td>
 
                       {/* Department */}
                       <td className="py-3.5 px-4">
-                        {getDeptBadge(m.department, isGlobalRole)}
+                        {!m.department && !isGlobalRole ? (
+                          <span className="text-zinc-400 italic text-[11px]">—</span>
+                        ) : (
+                          <span className={getDeptBadgeClass(m.department)}>
+                            {isGlobalRole ? 'All' : m.department || 'All'}
+                          </span>
+                        )}
                       </td>
 
                       {/* Contact Phone */}

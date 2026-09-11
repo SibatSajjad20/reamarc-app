@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timezone
 import uuid
 
@@ -14,6 +14,9 @@ from app.schemas.log_exception import (
     SnapshotResponse,
     SnapshotPerson,
     SnapshotDepartment,
+    DailyTaskItem,
+    DayComplianceDetail,
+    EmployeeComplianceDetailResponse,
 )
 from app.services.log_compliance import (
     LOGGERS_ROLES,
@@ -588,16 +591,55 @@ async def submit_member_reason(
 @router.get("/snapshot", response_model=SnapshotResponse, dependencies=[Depends(require_management_role)])
 async def get_operating_snapshot(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today PKT"),
-    range: str = Query("today", description="today | week"),
+    range: str = Query("today", description="today | week | range"),
+    start_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom start date"),
+    end_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom end date"),
     current_user: dict = Depends(require_management_role),
 ):
     db = get_database()
     date_str = date or pkt_today()
-    range_key = "week" if str(range).lower() == "week" else "today"
-    window = await recent_company_workdays(7, start_date=SYSTEM_START_DATE) if range_key == "week" else [date_str]
+    range_lower = str(range).lower()
+    range_key = "range" if (range_lower == "range" or (start_date and end_date)) else ("week" if range_lower == "week" else "today")
+
+    from datetime import timedelta
+    computed_start: Optional[str] = None
+    computed_end: Optional[str] = None
+
+    if range_key == "range" and start_date and end_date:
+        try:
+            s_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+            e_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            if s_dt > e_dt:
+                s_dt, e_dt = e_dt, s_dt
+            delta = min((e_dt - s_dt).days, 90)
+            window = [(s_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(delta + 1)]
+            computed_start = s_dt.strftime("%Y-%m-%d")
+            computed_end = (s_dt + timedelta(days=delta)).strftime("%Y-%m-%d")
+        except Exception:
+            window = [date_str]
+            computed_start = date_str
+            computed_end = date_str
+    elif range_key == "week":
+        try:
+            anchor_dt = datetime.strptime(date_str, "%Y-%m-%d").date()
+            # Week is strictly Monday to Saturday (6 days)
+            monday = anchor_dt - timedelta(days=anchor_dt.weekday())
+            saturday = monday + timedelta(days=5)
+            window = [(monday + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6)]
+            computed_start = monday.strftime("%Y-%m-%d")
+            computed_end = saturday.strftime("%Y-%m-%d")
+        except Exception:
+            window = [date_str]
+            computed_start = date_str
+            computed_end = date_str
+    else:
+        window = [date_str]
+        computed_start = date_str
+        computed_end = date_str
+
     parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
     off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
-    empty = SnapshotResponse(date=date_str, range=range_key)
+    empty = SnapshotResponse(date=date_str, range=range_key, start_date=computed_start, end_date=computed_end)
     if db is None:
         return empty
 
@@ -761,7 +803,7 @@ async def get_operating_snapshot(
         dept = user.get("department") or "Unassigned"
         logged_h = round(hours_by_user.get(uid, 0.0), 2)
         worked_h = round(worked_by_user.get(uid, 0.0), 2)
-        did_log = bool(days_logged_by_user.get(uid) if range_key == "week" else uid in submitted_ids)
+        did_log = bool(days_logged_by_user.get(uid) if range_key in ("week", "range") else uid in submitted_ids)
         has_checkin = bool(checkin_by_user.get(uid))
         has_checkout = bool(checkout_by_user.get(uid))
         compare_ready = has_checkout or worked_h > 0
@@ -801,7 +843,12 @@ async def get_operating_snapshot(
     due_count = sum(1 for p in people if p.due)
     exception_count = len(open_scores) + missing_count
     compliance = round((logs_submitted / due_count) * 100, 1) if due_count else 100.0
-    noun = "this week" if range_key == "week" else ("today" if date_str == pkt_today() else f"on {date_str}")
+    if range_key == "week":
+        noun = f"for week ({computed_start} to {computed_end})"
+    elif range_key == "range":
+        noun = f"from {computed_start} to {computed_end}"
+    else:
+        noun = "today" if date_str == pkt_today() else f"on {date_str}"
     if range_key == "today" and date_str == pkt_today() and due_count == 0:
         summary = (
             f"Today's shift has not started yet. {employees_expected} {people_noun(employees_expected)} expected — "
@@ -869,6 +916,8 @@ async def get_operating_snapshot(
     return SnapshotResponse(
         date=date_str,
         range=range_key,
+        start_date=computed_start,
+        end_date=computed_end,
         employees_expected=employees_expected,
         logs_submitted=logs_submitted,
         compliance_pct=compliance,
@@ -889,4 +938,187 @@ async def get_operating_snapshot(
         people=people,
         open_request_user_ids=open_request_ids,
     )
+
+
+@router.get("/employee-detail", response_model=EmployeeComplianceDetailResponse, dependencies=[Depends(require_management_role)])
+async def get_employee_compliance_detail(
+    user_id: str = Query(..., description="Target employee user ID"),
+    start_date: str = Query(..., description="Start date YYYY-MM-DD"),
+    end_date: str = Query(..., description="End date YYYY-MM-DD"),
+    current_user: dict = Depends(require_management_role),
+):
+    """Returns day-by-day attendance and daily log breakdown for an employee across a date window."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    member = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
+    if not member:
+        raise HTTPException(status_code=404, detail="Employee not found.")
+
+    try:
+        s_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+        e_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+        if s_dt > e_dt:
+            s_dt, e_dt = e_dt, s_dt
+        from datetime import timedelta
+        delta = min((e_dt - s_dt).days, 90)
+        date_list = [(s_dt + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(delta + 1)]
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected YYYY-MM-DD.")
+
+    parsed_days = [parse_iso_date(d) for d in date_list if parse_iso_date(d)]
+    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
+
+    targets = await batch_expected_targets([member], date_list)
+    att_records = await db.attendance_records.find(
+        {"user_id": user_id, "date": {"$in": date_list}},
+        {"_id": 0},
+    ).to_list(len(date_list) + 10)
+    att_by_date = {rec.get("date"): rec for rec in att_records if rec.get("date")}
+
+    entries = await db.daily_log_entries.find(
+        {"user_id": user_id, "date": {"$in": date_list}},
+        {"_id": 0},
+    ).to_list(2000)
+    entries_by_date: Dict[str, list] = {}
+    for entry in entries:
+        d = entry.get("date")
+        if d:
+            entries_by_date.setdefault(d, []).append(entry)
+
+    scores = await db.daily_log_day_scores.find(
+        {"user_id": user_id, "date": {"$in": date_list}},
+        {"_id": 0},
+    ).to_list(len(date_list) + 10)
+    scores_by_date = {s.get("date"): s for s in scores if s.get("date")}
+
+    day_details: List[DayComplianceDetail] = []
+    total_worked = 0.0
+    total_logged = 0.0
+    days_expected = 0
+    days_logged = 0
+    days_missing = 0
+
+    today_pkt = pkt_today()
+
+    for d_str in date_list:
+        cur_dt = datetime.strptime(d_str, "%Y-%m-%d")
+        day_name = cur_dt.strftime("%A")
+
+        target = targets.get((user_id, d_str)) or {}
+        att = att_by_date.get(d_str) or {}
+        score = scores_by_date.get(d_str) or {}
+        day_entries = entries_by_date.get(d_str) or []
+
+        is_workday_flag = True
+        is_off_day_flag = False
+        off_label = None
+        if off_idx is not None:
+            try:
+                is_workday_flag = off_idx.is_workday_iso(d_str)
+                off_info = off_idx.get_off_day(cur_dt.date())
+                is_off_day_flag = not is_workday_flag
+                off_label = off_info.label if off_info and off_info.is_off else ("Off Day" if not is_workday_flag else None)
+            except Exception:
+                is_workday_flag = cur_dt.weekday() < 6
+                is_off_day_flag = not is_workday_flag
+        else:
+            is_workday_flag = cur_dt.weekday() < 6
+            is_off_day_flag = not is_workday_flag
+
+        is_leave_flag = person_day_is_leave(target, att)
+
+        try:
+            w_hrs = float(att.get("work_hours") or 0.0)
+        except (TypeError, ValueError):
+            w_hrs = 0.0
+
+        l_hrs = sum(float(e.get("hours_utilized") or 0.0) for e in day_entries)
+
+        has_checkin = bool(att.get("check_in") or att.get("punch_in"))
+        has_checkout = bool(att.get("check_out") or att.get("punch_out"))
+        compare_ready = has_checkout or w_hrs > 0
+
+        signed_gap = signed_hours_gap(l_hrs, w_hrs) if compare_ready else 0.0
+        gap_h = abs(signed_gap)
+
+        due_flag = is_workday_flag and not is_leave_flag and (has_checkout or w_hrs > 0 or d_str < today_pkt)
+        did_log_day = len(day_entries) > 0
+
+        if is_leave_flag:
+            st = "on_leave"
+        elif did_log_day:
+            st = "submitted"
+        elif due_flag:
+            st = "missing"
+        elif has_checkin:
+            st = "in_shift"
+        else:
+            st = "not_started"
+
+        if is_workday_flag and not is_leave_flag:
+            days_expected += 1
+            if did_log_day:
+                days_logged += 1
+            elif due_flag:
+                days_missing += 1
+
+        total_worked += w_hrs
+        total_logged += l_hrs
+
+        tasks = [
+            DailyTaskItem(
+                id=e.get("id"),
+                task_description=e.get("task_description") or "",
+                client_project=e.get("client_project"),
+                task_type=e.get("task_type"),
+                task_status=e.get("task_status"),
+                hours_utilized=float(e.get("hours_utilized") or 0.0),
+                progress_percentage=e.get("progress_percentage"),
+                blockers=e.get("blockers"),
+            )
+            for e in day_entries
+        ]
+
+        day_details.append(DayComplianceDetail(
+            date=d_str,
+            day_name=day_name,
+            is_workday=is_workday_flag,
+            is_off_day=is_off_day_flag,
+            off_day_label=off_label,
+            is_leave=is_leave_flag,
+            status=st,
+            check_in=att.get("check_in") or att.get("punch_in"),
+            check_out=att.get("check_out") or att.get("punch_out"),
+            worked_hours=round(w_hrs, 2),
+            logged_hours=round(l_hrs, 2),
+            gap_hours=round(gap_h, 2),
+            signed_gap_hours=round(signed_gap, 2),
+            due=due_flag,
+            tasks=tasks,
+            member_reason=score.get("member_reason"),
+            action_status=score.get("action_status"),
+            action_type=score.get("action_type"),
+        ))
+
+    total_signed_gap = round(total_logged - total_worked, 2)
+
+    return EmployeeComplianceDetailResponse(
+        user_id=user_id,
+        full_name=member.get("full_name") or member.get("name") or "User",
+        email=member.get("email"),
+        department=member.get("department"),
+        role=str(member.get("role") or "team_member"),
+        start_date=start_date,
+        end_date=end_date,
+        total_worked_hours=round(total_worked, 2),
+        total_logged_hours=round(total_logged, 2),
+        total_signed_gap_hours=total_signed_gap,
+        days_expected=days_expected,
+        days_logged=days_logged,
+        days_missing=days_missing,
+        days=day_details,
+    )
+
 

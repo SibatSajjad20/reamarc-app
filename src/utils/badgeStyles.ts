@@ -1,63 +1,18 @@
 /** Shared department, role, and task-type badge classes. */
 
-export function getDeptBadgeClass(dept?: string): string {
-  const nd = (dept || '').toLowerCase().trim();
-  if (nd.includes('software') || nd.includes('dev')) {
-    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-  }
-  if (nd.includes('website')) {
-    return 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border-indigo-500/30';
-  }
-  if (nd.includes('creative') || nd.includes('design')) {
-    return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-  }
-  if (nd.includes('content')) {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  if (nd.includes('seo')) {
-    return 'bg-cyan-500/15 text-cyan-700 dark:text-cyan-300 border-cyan-500/30';
-  }
-  if (nd.includes('performance') || nd.includes('marketing')) {
-    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-  }
-  if (nd === 'ai' || nd.includes('artificial intelligence') || nd.includes('ai')) {
-    return 'bg-violet-500/15 text-violet-700 dark:text-violet-300 border-violet-500/30';
-  }
-  if (nd.includes('hr') || nd.includes('human resources')) {
-    return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-  }
-  if (nd.includes('operations') || nd === 'ops') {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+export const NEUTRAL_METADATA_BADGE_CLASS =
+  'inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700';
+
+export function getDeptBadgeClass(_dept?: string): string {
+  return NEUTRAL_METADATA_BADGE_CLASS;
 }
 
-export function getRoleBadgeClass(role?: string): string {
-  const r = (role || '').toLowerCase().replace(/[_-]+/g, ' ').trim();
-  if (r === 'admin' || r.includes('super admin')) {
-    return 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/30';
-  }
-  if (r === 'hr' || r.includes('hr manager') || r === 'human resources') {
-    return 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30';
-  }
-  if (r === 'operations' || r === 'ops' || r.includes('operations lead')) {
-    return 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30';
-  }
-  if (r === 'team lead' || r === 'lead' || r === 'team_lead') {
-    return 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30';
-  }
-  if (r === 'client') {
-    return 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30';
-  }
-  return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
+export function getRoleBadgeClass(_role?: string): string {
+  return NEUTRAL_METADATA_BADGE_CLASS;
 }
 
-export function getTaskTypeBadgeClass(taskType?: string): string {
-  const t = (taskType || '').toLowerCase();
-  if (t.includes('runtime')) {
-    return 'bg-transparent text-violet-700 dark:text-violet-300 border-violet-300 dark:border-violet-700';
-  }
-  return 'bg-transparent text-cyan-700 dark:text-cyan-300 border-cyan-300 dark:border-cyan-700';
+export function getTaskTypeBadgeClass(_taskType?: string): string {
+  return NEUTRAL_METADATA_BADGE_CLASS;
 }
 
 export function getRoleLabel(role?: string): string {

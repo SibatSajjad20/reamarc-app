@@ -1,5 +1,5 @@
 import { apiClient } from './apiClient';
-import type { LogExceptionItem, OperatingSnapshot } from '../types/dailyLog';
+import type { LogExceptionItem, OperatingSnapshot, EmployeeComplianceDetailResponse } from '../types/dailyLog';
 
 export const logExceptionService = {
   async getInbox(date?: string): Promise<LogExceptionItem[]> {
@@ -18,11 +18,32 @@ export const logExceptionService = {
     return apiClient.post('/log-exceptions/my-reason', { date, reason });
   },
 
-  async getSnapshot(date?: string, range: 'today' | 'week' = 'today'): Promise<OperatingSnapshot> {
+  async getSnapshot(
+    date?: string,
+    range: 'today' | 'week' | 'range' = 'today',
+    startDate?: string,
+    endDate?: string,
+  ): Promise<OperatingSnapshot> {
     const params = new URLSearchParams();
     if (date) params.set('date', date);
     if (range) params.set('range', range);
+    if (startDate) params.set('start_date', startDate);
+    if (endDate) params.set('end_date', endDate);
     const q = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get<OperatingSnapshot>(`/log-exceptions/snapshot${q}`);
   },
+
+  async getEmployeeComplianceDetail(
+    userId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<EmployeeComplianceDetailResponse> {
+    const params = new URLSearchParams({
+      user_id: userId,
+      start_date: startDate,
+      end_date: endDate,
+    });
+    return apiClient.get<EmployeeComplianceDetailResponse>(`/log-exceptions/employee-detail?${params.toString()}`);
+  },
 };
+

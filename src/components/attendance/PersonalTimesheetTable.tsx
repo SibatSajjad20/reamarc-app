@@ -252,7 +252,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
         );
       case 'holiday':
         return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-yellow-100 dark:bg-yellow-950/40 text-yellow-800 dark:text-yellow-300 border border-yellow-300 dark:border-yellow-700">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
             Public Holiday
           </span>
         );

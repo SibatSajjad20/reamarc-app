@@ -99,6 +99,8 @@ class SnapshotDepartment(BaseModel):
 class SnapshotResponse(BaseModel):
     date: str
     range: str = "today"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
     employees_expected: int = 0
     logs_submitted: int = 0
     compliance_pct: float = 0.0
@@ -118,3 +120,53 @@ class SnapshotResponse(BaseModel):
     departments: List[SnapshotDepartment] = []
     people: List[SnapshotPerson] = []
     open_request_user_ids: List[str] = []
+
+
+class DailyTaskItem(BaseModel):
+    id: Optional[str] = None
+    task_description: str = ""
+    client_project: Optional[str] = None
+    task_type: Optional[str] = None
+    task_status: Optional[str] = None
+    hours_utilized: float = 0.0
+    progress_percentage: Optional[int] = None
+    blockers: Optional[str] = None
+
+
+class DayComplianceDetail(BaseModel):
+    date: str
+    day_name: str
+    is_workday: bool = True
+    is_off_day: bool = False
+    off_day_label: Optional[str] = None
+    is_leave: bool = False
+    status: str = "not_started"
+    check_in: Optional[str] = None
+    check_out: Optional[str] = None
+    worked_hours: float = 0.0
+    logged_hours: float = 0.0
+    gap_hours: float = 0.0
+    signed_gap_hours: float = 0.0
+    due: bool = False
+    tasks: List[DailyTaskItem] = []
+    member_reason: Optional[str] = None
+    action_status: Optional[str] = None
+    action_type: Optional[str] = None
+
+
+class EmployeeComplianceDetailResponse(BaseModel):
+    user_id: str
+    full_name: str
+    email: Optional[str] = None
+    department: Optional[str] = None
+    role: str = "team_member"
+    start_date: str
+    end_date: str
+    total_worked_hours: float = 0.0
+    total_logged_hours: float = 0.0
+    total_signed_gap_hours: float = 0.0
+    days_expected: int = 0
+    days_logged: int = 0
+    days_missing: int = 0
+    days: List[DayComplianceDetail] = []
+
