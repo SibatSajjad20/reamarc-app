@@ -1783,6 +1783,51 @@ async def get_active_attendance_record(user_id: str) -> Optional[dict]:
 # 4. CHECK-IN & CHECK-OUT FLOWS
 # ──────────────────────────────────────────────────────────
 
+def _check_in_alert_body(
+    user_name: str,
+    time_str: str,
+    is_late: bool,
+    late_minutes: int,
+    is_wfh: bool,
+) -> str:
+    parts = [f"{user_name} checked in at {time_str}"]
+    if is_wfh:
+        parts.append("WFH")
+    if is_late:
+        parts.append(f"LATE ({max(0, int(late_minutes))} min)")
+    if len(parts) == 1:
+        return parts[0] + "."
+    return parts[0] + " · " + " · ".join(parts[1:]) + "."
+
+
+async def _notify_staff_punch_event(
+    user: dict,
+    *,
+    kind: str,
+    title: str,
+    body: str,
+) -> None:
+    """Best-effort staff push for check-in / check-out. Never raises."""
+    try:
+        recipients = await push_service.resolve_attendance_alert_recipients(
+            subject_user_id=user.get("id"),
+            subject_role=user.get("role"),
+        )
+        if not recipients:
+            return
+        await push_service.dispatch_to_users(
+            user_ids=recipients,
+            title=title,
+            body=body,
+            kind=kind,
+            sender_id=user.get("id"),
+            sender_name=user.get("full_name") or user.get("name"),
+            sender_role=user.get("role"),
+        )
+    except Exception as exc:
+        logger.warning("Failed to dispatch attendance staff push (%s): %s", kind, exc)
+
+
 async def process_check_in(
     user: dict,
     check_in_req: CheckInRequest,
@@ -1973,6 +2018,19 @@ async def process_check_in(
             detail=f"Attendance already recorded for {date_str}.",
         )
 
+    await _notify_staff_punch_event(
+        user=user,
+        kind="attendance_check_in",
+        title=f"{user_name} checked in",
+        body=_check_in_alert_body(
+            user_name=user_name,
+            time_str=time_str,
+            is_late=bool(calc_res.is_late),
+            late_minutes=int(calc_res.late_minutes or 0),
+            is_wfh=is_wfh,
+        ),
+    )
+
     return AttendanceRecordResponse.from_mongo(record_doc)
 
 
@@ -2155,6 +2213,14 @@ async def process_check_out(
         await recompute_day_score(user_id, date_str)
     except Exception:
         logger.exception("Failed to recompute daily log score after check-out")
+
+    user_name = user.get("full_name") or user.get("name") or "Employee"
+    await _notify_staff_punch_event(
+        user=user,
+        kind="attendance_check_out",
+        title=f"{user_name} checked out",
+        body=f"{user_name} checked out at {time_str}.",
+    )
 
     return AttendanceRecordResponse.from_mongo(result)
 

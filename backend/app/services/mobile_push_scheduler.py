@@ -38,6 +38,14 @@ def _in_window(now: datetime, target: datetime, before_minutes: int = 0, after_m
     return lo <= now <= hi
 
 
+def _grace_minutes(shift) -> int:
+    try:
+        value = int(getattr(shift, "grace_period_minutes", 30) or 30)
+    except (TypeError, ValueError):
+        value = 30
+    return max(0, value)
+
+
 async def _on_approved_full_leave(db, user_id: str, date_str: str) -> bool:
     doc = await db.leave_requests.find_one(
         {
@@ -74,6 +82,53 @@ async def _still_checked_in(db, user_id: str, date_str: str) -> bool:
     return bool(cin) and not cout
 
 
+async def _late_personal_already_sent(uid: str, date_str: str) -> bool:
+    """Compat: treat legacy missed_checkin receipt as already sent for late_checkin."""
+    if await push_service.already_sent(uid, date_str, "late_checkin"):
+        return True
+    return await push_service.already_sent(uid, date_str, "missed_checkin")
+
+
+async def _notify_late_at_grace(user, shift, start, today: str, grace: int) -> None:
+    uid = user["id"]
+    name = user.get("full_name") or user.get("name") or "there"
+    display = name.split()[0] if name else "there"
+    start_label = getattr(shift, "start_time", None) or start.strftime("%H:%M")
+
+    if not await _late_personal_already_sent(uid, today):
+        await push_service.dispatch_to_users(
+            [uid],
+            "You are late",
+            (
+                f"Hi {display}, your shift started at {start_label}. "
+                f"The {grace}-minute grace period has ended. "
+                "Open Reamarc to check in, or submit leave / WFH if you are not working today."
+            ),
+            kind="late_checkin",
+        )
+        await push_service.mark_sent(uid, today, "late_checkin")
+
+    if await push_service.already_sent(uid, today, "employee_late_staff"):
+        return
+
+    recipients = await push_service.resolve_attendance_alert_recipients(
+        subject_user_id=uid,
+        subject_role=user.get("role"),
+    )
+    if recipients:
+        full_name = user.get("full_name") or user.get("name") or "An employee"
+        await push_service.dispatch_to_users(
+            recipients,
+            f"{full_name} is late",
+            (
+                f"{full_name} has not checked in after the {grace}-minute grace period "
+                f"(shift {start_label})."
+            ),
+            kind="employee_late",
+        )
+    await push_service.mark_sent(uid, today, "employee_late_staff")
+
+
 async def run_mobile_reminder_tick() -> None:
     db = get_database()
     if db is None:
@@ -106,6 +161,7 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
     is_workday_today = await is_workday_for_date(today)
     shift = await attendance_service.get_shift_for_user(uid, user.get("department"), today)
     start, end = shift_bounds(shift, now)
+    grace = _grace_minutes(shift)
 
     if not on_leave_today and is_workday_today:
         if _in_window(now, start - timedelta(minutes=10), before_minutes=1, after_minutes=1):
@@ -119,16 +175,9 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
                     )
                     await push_service.mark_sent(uid, today, "pre_shift")
 
-        if _in_window(now, start + timedelta(minutes=30), before_minutes=1, after_minutes=2):
-            if not await push_service.already_sent(uid, today, "missed_checkin"):
-                if not await _has_check_in(db, uid, today):
-                    await push_service.dispatch_to_users(
-                        [uid],
-                        "You have not checked in",
-                        "Open Reamarc to check in, or submit leave / WFH if you are not working today.",
-                        kind="missed_checkin",
-                    )
-                    await push_service.mark_sent(uid, today, "missed_checkin")
+        if _in_window(now, start + timedelta(minutes=grace), before_minutes=1, after_minutes=2):
+            if not await _has_check_in(db, uid, today):
+                await _notify_late_at_grace(user, shift, start, today, grace)
 
         if _in_window(now, end, before_minutes=1, after_minutes=2):
             if not await push_service.already_sent(uid, today, "checkout"):

@@ -89,5 +89,7 @@ export function alertKindMeta(kind?: string | null) {
 }
 
 export function isMissedAlert(kind?: string | null) {
-  return /missed/i.test(String(kind || ''));
+  const key = String(kind || '').toLowerCase();
+  // Personal late / missed prompts only — not staff fan-out kinds.
+  return key === 'late_checkin' || key.includes('missed');
 }

@@ -1,6 +1,6 @@
 """Expo Push sender + in-app notification feed."""
 from datetime import datetime, timezone
-from typing import Iterable, List, Optional
+from typing import FrozenSet, Iterable, List, Optional
 import logging
 import uuid
 
@@ -127,8 +127,33 @@ async def dispatch_to_users(
     sender_name: Optional[str] = None,
     sender_role: Optional[str] = None,
 ) -> dict:
+    # Empty list must not fall through to "broadcast all devices" (falsy [] in active_devices).
+    if user_ids is not None and len(user_ids) == 0:
+        return {
+            "sent": 0,
+            "skipped": 0,
+            "in_app": 0,
+            "message": "No recipients.",
+        }
+
     devices = await active_devices(user_ids)
-    if not devices:
+    tokens = []
+    device_user_ids = set()
+    for dev in devices:
+        uid = dev.get("user_id")
+        token = (dev.get("push_token") or "").strip()
+        if token:
+            tokens.append(token)
+        if uid:
+            device_user_ids.add(uid)
+
+    # Targeted sends: write inbox for every requested user, even without a bound phone.
+    if user_ids is not None:
+        inbox_ids = list(dict.fromkeys(uid for uid in user_ids if uid))
+    else:
+        inbox_ids = list(device_user_ids)
+
+    if not inbox_ids and not tokens:
         return {
             "sent": 0,
             "skipped": 0,
@@ -136,27 +161,19 @@ async def dispatch_to_users(
             "message": "No bound phones. The employee must log in on the mobile app first.",
         }
 
-    tokens = []
-    notified_users = set()
-    for dev in devices:
-        uid = dev.get("user_id")
-        token = (dev.get("push_token") or "").strip()
-        if token:
-            tokens.append(token)
-        if uid and uid not in notified_users:
-            await store_notification(
-                user_id=uid,
-                title=title,
-                body=body,
-                kind=kind,
-                sender_id=sender_id,
-                sender_name=sender_name,
-                sender_role=sender_role,
-            )
-            notified_users.add(uid)
+    for uid in inbox_ids:
+        await store_notification(
+            user_id=uid,
+            title=title,
+            body=body,
+            kind=kind,
+            sender_id=sender_id,
+            sender_name=sender_name,
+            sender_role=sender_role,
+        )
 
     sent = await send_expo_push(tokens, title, body)
-    in_app = len(notified_users)
+    in_app = len(inbox_ids)
     skipped = max(0, in_app - sent)
     return {
         "sent": sent,
@@ -200,15 +217,67 @@ async def mark_sent(user_id: str, date_str: str, kind: str) -> None:
     )
 
 
-async def get_hr_and_ops_user_ids() -> List[str]:
-    """Fetch user IDs of active HR and Operations users (strictly excluding admin)."""
+ADMIN_ROLES = frozenset({"admin", "super_admin"})
+HR_OPS_ROLES = frozenset({"hr", "operations"})
+ATTENDANCE_STAFF_ROLES = frozenset({"hr", "operations", "admin", "super_admin"})
+
+
+def staff_roles_for_subject(subject_role: Optional[str]) -> Optional[FrozenSet[str]]:
+    """
+    Which staff roles should receive attendance alerts about this subject.
+
+    - Regular employee → HR + Operations + Admin
+    - HR / Operations → Admin only (no peer HR/Ops noise)
+    - Admin / super_admin → no staff fan-out
+    """
+    role = (subject_role or "").strip().lower()
+    if role in ADMIN_ROLES:
+        return None
+    if role in HR_OPS_ROLES:
+        return ADMIN_ROLES
+    return ATTENDANCE_STAFF_ROLES
+
+
+async def _user_ids_by_roles(roles: Iterable[str]) -> List[str]:
     db = get_database()
     if db is None:
         return []
+    role_list = list(roles)
+    if not role_list:
+        return []
     cursor = db.users.find(
-        {"role": {"$in": ["hr", "operations"]}, "is_active": {"$ne": False}},
+        {"role": {"$in": role_list}, "is_active": {"$ne": False}},
         {"id": 1, "_id": 0},
     )
-    docs = await cursor.to_list(100)
+    docs = await cursor.to_list(200)
     return [d["id"] for d in docs if d.get("id")]
+
+
+async def get_hr_and_ops_user_ids() -> List[str]:
+    """Fetch user IDs of active HR and Operations users (strictly excluding admin)."""
+    return await _user_ids_by_roles(HR_OPS_ROLES)
+
+
+async def get_admin_user_ids() -> List[str]:
+    """Active admin / super_admin user IDs."""
+    return await _user_ids_by_roles(ADMIN_ROLES)
+
+
+async def get_attendance_staff_user_ids() -> List[str]:
+    """Active HR + Operations + Admin user IDs for attendance staff alerts."""
+    return await _user_ids_by_roles(ATTENDANCE_STAFF_ROLES)
+
+
+async def resolve_attendance_alert_recipients(
+    subject_user_id: Optional[str],
+    subject_role: Optional[str],
+) -> List[str]:
+    """Staff recipients for check-in / check-out / late alerts about subject."""
+    roles = staff_roles_for_subject(subject_role)
+    if roles is None:
+        return []
+    recipients = await _user_ids_by_roles(roles)
+    if subject_user_id:
+        recipients = [uid for uid in recipients if uid != subject_user_id]
+    return recipients
 

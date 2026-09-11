@@ -38,6 +38,24 @@ type Item = {
 
 function getNotificationMeta(n: Item) {
   const key = String(n.kind || 'custom').toLowerCase();
+  if (key === 'late_checkin' || key === 'employee_late') {
+    return {
+      label: 'Late',
+      sender: 'Attendance System',
+      icon: 'time-outline' as const,
+      color: colors.rose,
+      bg: '#FFF1F2',
+    };
+  }
+  if (key === 'attendance_check_in' || key === 'attendance_check_out' || key.includes('attendance_check')) {
+    return {
+      label: 'Attendance',
+      sender: 'Attendance System',
+      icon: 'checkmark-circle-outline' as const,
+      color: colors.indigo,
+      bg: '#EEF2FF',
+    };
+  }
   if (key.includes('missed')) {
     return {
       label: 'Missed Punch',
