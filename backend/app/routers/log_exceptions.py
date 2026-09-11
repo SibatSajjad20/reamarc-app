@@ -33,6 +33,7 @@ from app.services.log_compliance import (
     apply_accepted_gap_state,
     format_hours_hm,
     people_noun,
+    compute_time_at_work_hours,
 )
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
 from app.services.workdays import load_off_day_index, parse_iso_date, recent_company_workdays
@@ -591,24 +592,27 @@ async def submit_member_reason(
 @router.get("/snapshot", response_model=SnapshotResponse, dependencies=[Depends(require_management_role)])
 async def get_operating_snapshot(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today PKT"),
-    range: str = Query("today", description="today | week | range"),
+    range_mode: str = Query("today", alias="range", description="today | week | range"),
     start_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom start date"),
     end_date: Optional[str] = Query(None, description="YYYY-MM-DD, custom end date"),
     current_user: dict = Depends(require_management_role),
 ):
     db = get_database()
     date_str = date or pkt_today()
-    range_lower = str(range).lower()
-    range_key = "range" if (range_lower == "range" or (start_date and end_date)) else ("week" if range_lower == "week" else "today")
+    range_lower = str(range_mode).lower()
+    s_clean = start_date if isinstance(start_date, str) and start_date.strip() else None
+    e_clean = end_date if isinstance(end_date, str) and end_date.strip() else None
+    has_custom_dates = bool(s_clean and e_clean)
+    range_key = "range" if (range_lower == "range" or has_custom_dates) else ("week" if range_lower == "week" else "today")
 
     from datetime import timedelta
     computed_start: Optional[str] = None
     computed_end: Optional[str] = None
 
-    if range_key == "range" and start_date and end_date:
+    if range_key == "range" and s_clean and e_clean:
         try:
-            s_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            e_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+            s_dt = datetime.strptime(s_clean, "%Y-%m-%d").date()
+            e_dt = datetime.strptime(e_clean, "%Y-%m-%d").date()
             if s_dt > e_dt:
                 s_dt, e_dt = e_dt, s_dt
             delta = min((e_dt - s_dt).days, 90)
@@ -720,9 +724,11 @@ async def get_operating_snapshot(
     else:
         logs_submitted = sum(1 for u in expected_people if days_logged_by_user.get(u.get("id")))
 
+    today_iso = pkt_today()
     worked_by_user: dict = {uid: 0.0 for uid in logger_ids}
     checkin_by_user: dict = {uid: False for uid in logger_ids}
     checkout_by_user: dict = {uid: False for uid in logger_ids}
+    active_shift_by_user: dict = {uid: False for uid in logger_ids}
     worked_hours = 0.0
     for (uid, day), rec in att_by_key.items():
         if uid not in worked_by_user:
@@ -733,12 +739,37 @@ async def get_operating_snapshot(
             hrs = float(rec.get("work_hours") or 0)
         except (TypeError, ValueError):
             hrs = 0.0
+
+        cin = rec.get("check_in") or rec.get("punch_in")
+        cout = rec.get("check_out") or rec.get("punch_out")
+        if cin:
+            checkin_by_user[uid] = True
+        if cout:
+            checkout_by_user[uid] = True
+
+        if day == today_iso and cin and not cout:
+            active_shift_by_user[uid] = True
+            tgt = targets.get((uid, day)) or {}
+            live_h = compute_time_at_work_hours(
+                date_str=day,
+                check_in=cin,
+                check_out=cout,
+                work_hours=hrs,
+                has_checkin=True,
+                has_checkout=False,
+                is_wfh=bool(tgt.get("is_wfh") or rec.get("is_wfh")),
+                expected_hours=float(tgt.get("expected_hours") or 0),
+                shift_start=tgt.get("shift_start"),
+                shift_end=tgt.get("shift_end"),
+                break_duration_minutes=int(tgt.get("break_duration_minutes") or 0),
+                break_start_time=tgt.get("break_start_time"),
+                break_end_time=tgt.get("break_end_time"),
+                is_night_shift=bool(tgt.get("is_night_shift")),
+            )
+            hrs = max(hrs, live_h)
+
         worked_hours += hrs
         worked_by_user[uid] += hrs
-        if rec.get("check_in") or rec.get("punch_in"):
-            checkin_by_user[uid] = True
-        if rec.get("check_out") or rec.get("punch_out"):
-            checkout_by_user[uid] = True
 
     unallocated = round(max(0.0, worked_hours - logged_hours), 2)
 
@@ -775,7 +806,7 @@ async def get_operating_snapshot(
         if s.get("user_id") and (s.get("action_status") or "open") in ("waiting_on_employee", "waiting_on_reviewer")
     })
 
-    past_days = [day for day in window if day < date_str]
+    past_days = [day for day in window if day < today_iso]
     past_expected_ids = set()
     for user in expected_people:
         uid = user.get("id")
@@ -804,7 +835,7 @@ async def get_operating_snapshot(
         logged_h = round(hours_by_user.get(uid, 0.0), 2)
         worked_h = round(worked_by_user.get(uid, 0.0), 2)
         did_log = bool(days_logged_by_user.get(uid) if range_key in ("week", "range") else uid in submitted_ids)
-        has_checkin = bool(checkin_by_user.get(uid))
+        has_active_shift = bool(active_shift_by_user.get(uid))
         has_checkout = bool(checkout_by_user.get(uid))
         compare_ready = has_checkout or worked_h > 0
         signed = signed_hours_gap(logged_h, worked_h) if compare_ready else 0.0
@@ -813,6 +844,7 @@ async def get_operating_snapshot(
             for day in window
         )
         due = (not on_leave) and bool(did_log or has_checkout or worked_h > 0 or uid in past_expected_ids)
+        in_shift_flag = has_active_shift if (range_key == "today" or today_iso in window) else False
         if dept not in dept_map:
             dept_map[dept] = {"name": dept, "total": 0, "logged": 0, "missing": 0, "worked_hours": 0.0, "logged_hours": 0.0}
         dept_map[dept]["total"] += 1
@@ -833,7 +865,7 @@ async def get_operating_snapshot(
             gap_hours=abs(signed),
             signed_gap_hours=signed,
             has_open_request=uid in open_request_ids,
-            has_checkin=has_checkin,
+            has_checkin=in_shift_flag,
             has_checkout=has_checkout,
             due=due,
             is_full_leave=on_leave,
@@ -909,7 +941,7 @@ async def get_operating_snapshot(
             except Exception:
                 continue
             if day not in logged_set:
-                if day == date_str and uid not in due_ids:
+                if day == today_iso and uid not in due_ids:
                     continue
                 missed_workdays += 1
 
@@ -1036,8 +1068,32 @@ async def get_employee_compliance_detail(
 
         l_hrs = sum(float(e.get("hours_utilized") or 0.0) for e in day_entries)
 
-        has_checkin = bool(att.get("check_in") or att.get("punch_in"))
-        has_checkout = bool(att.get("check_out") or att.get("punch_out"))
+        cin = att.get("check_in") or att.get("punch_in")
+        cout = att.get("check_out") or att.get("punch_out")
+        has_checkin = bool(cin)
+        has_checkout = bool(cout)
+
+        is_live_shift = False
+        if d_str == today_pkt and has_checkin and not has_checkout:
+            is_live_shift = True
+            live_h = compute_time_at_work_hours(
+                date_str=d_str,
+                check_in=cin,
+                check_out=cout,
+                work_hours=w_hrs,
+                has_checkin=True,
+                has_checkout=False,
+                is_wfh=bool(target.get("is_wfh") or att.get("is_wfh")),
+                expected_hours=float(target.get("expected_hours") or 0),
+                shift_start=target.get("shift_start"),
+                shift_end=target.get("shift_end"),
+                break_duration_minutes=int(target.get("break_duration_minutes") or 0),
+                break_start_time=target.get("break_start_time"),
+                break_end_time=target.get("break_end_time"),
+                is_night_shift=bool(target.get("is_night_shift")),
+            )
+            w_hrs = max(w_hrs, live_h)
+
         compare_ready = has_checkout or w_hrs > 0
 
         signed_gap = signed_hours_gap(l_hrs, w_hrs) if compare_ready else 0.0
@@ -1052,7 +1108,7 @@ async def get_employee_compliance_detail(
             st = "submitted"
         elif due_flag:
             st = "missing"
-        elif has_checkin:
+        elif has_checkin and d_str == today_pkt:
             st = "in_shift"
         else:
             st = "not_started"
@@ -1089,8 +1145,8 @@ async def get_employee_compliance_detail(
             off_day_label=off_label,
             is_leave=is_leave_flag,
             status=st,
-            check_in=att.get("check_in") or att.get("punch_in"),
-            check_out=att.get("check_out") or att.get("punch_out"),
+            check_in=cin,
+            check_out=cout,
             worked_hours=round(w_hrs, 2),
             logged_hours=round(l_hrs, 2),
             gap_hours=round(gap_h, 2),
@@ -1100,6 +1156,7 @@ async def get_employee_compliance_detail(
             member_reason=score.get("member_reason"),
             action_status=score.get("action_status"),
             action_type=score.get("action_type"),
+            is_live=is_live_shift,
         ))
 
     total_signed_gap = round(total_logged - total_worked, 2)

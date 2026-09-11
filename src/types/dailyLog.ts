@@ -285,6 +285,7 @@ export interface DayComplianceDetail {
   member_reason?: string | null;
   action_status?: string | null;
   action_type?: string | null;
+  is_live?: boolean;
 }
 
 export interface EmployeeComplianceDetailResponse {

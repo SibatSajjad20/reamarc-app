@@ -252,6 +252,11 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                     <span className="text-base font-extrabold text-zinc-900 dark:text-zinc-100">
                       {formatHours(data.total_worked_hours)}
                     </span>
+                    {data.days.some((d) => d.is_live) && (
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded">
+                        live
+                      </span>
+                    )}
                   </div>
                   <span className="text-[10px] text-zinc-400 mt-0.5 block">Attendance punches</span>
                 </div>
@@ -402,6 +407,11 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                                 </span>
                                 <span>
                                   Work Duration: <strong className="text-zinc-900 dark:text-zinc-100">{formatHours(day.worked_hours)}</strong>
+                                  {day.is_live && (
+                                    <span className="ml-1 text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1.5 py-0.5 rounded">
+                                      live
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                             </div>

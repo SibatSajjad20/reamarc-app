@@ -77,11 +77,13 @@ function HoursCompareBar({
   worked,
   comparable,
   missing,
+  inShift,
 }: {
   logged: number;
   worked: number;
   comparable: boolean;
   missing: boolean;
+  inShift?: boolean;
 }) {
   if (!comparable) {
     return (
@@ -119,7 +121,14 @@ function HoursCompareBar({
           <>
             <span className="font-semibold text-zinc-700 dark:text-zinc-300">{formatHours(logged)}</span>
             {' logged · '}
-            <span>{formatHours(worked)} at work</span>
+            <span>
+              {formatHours(worked)} at work
+              {inShift && (
+                <span className="ml-1 text-[9px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 px-1 py-0.2 rounded">
+                  live
+                </span>
+              )}
+            </span>
           </>
         )}
       </div>
@@ -319,9 +328,9 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
     if (hours?.onLeave) return 'on_leave';
     if (hours?.logged) return 'submitted';
     if (hours?.due) return 'missing';
-    if (hours?.hasCheckin) return 'in_shift';
+    if (hours?.hasCheckin && !isSelectedDateExpired) return 'in_shift';
     return 'not_started';
-  }, [hoursByUser]);
+  }, [hoursByUser, isSelectedDateExpired]);
 
   const openRequestIds = useMemo(() => new Set(snap?.open_request_user_ids || []), [snap]);
 
@@ -757,6 +766,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                                 worked={hours?.worked || 0}
                                 comparable={comparable}
                                 missing={status === 'missing'}
+                                inShift={status === 'in_shift'}
                               />
                             </td>
                             <td className="py-3 px-4 font-bold tabular-nums">

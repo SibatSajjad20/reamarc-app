@@ -152,6 +152,7 @@ class DayComplianceDetail(BaseModel):
     member_reason: Optional[str] = None
     action_status: Optional[str] = None
     action_type: Optional[str] = None
+    is_live: bool = False
 
 
 class EmployeeComplianceDetailResponse(BaseModel):
