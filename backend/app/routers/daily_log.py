@@ -478,7 +478,7 @@ async def get_entries(
     client_project: Optional[str] = Query(None, description="Filter by client / project"),
     task_status: Optional[str] = Query(None, description="Filter by task status"),
     task_type: Optional[str] = Query(None, description="Filter by task type"),
-    limit: int = Query(300, ge=1, le=2000, description="Max entries to return"),
+    limit: int = Query(2000, ge=1, le=10000, description="Max entries to return"),
     skip: int = Query(0, ge=0, description="Number of entries to skip for pagination"),
     current_user: dict = Depends(get_current_user),
 ):

@@ -397,7 +397,7 @@ export const DailyLogView: React.FC = () => {
       const [sheets, cols, logs, activity] = await Promise.all([
         dailyLogService.getSheets({ signal: controller.signal }),
         dailyLogService.getColumns({ signal: controller.signal }),
-        dailyLogService.getEntries(params, { signal: controller.signal }),
+        dailyLogService.getAllEntries(params, { signal: controller.signal }),
         dailyLogService.getMyLogActivity(7, { signal: controller.signal }).catch(() => null),
       ]);
 

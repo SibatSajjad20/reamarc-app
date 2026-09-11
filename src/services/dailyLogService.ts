@@ -43,18 +43,21 @@ export const dailyLogService = {
     return apiClient.get<DailyLogEntry[]>(`/daily-log/entries${queryString}`, options);
   },
 
-  async getAllEntries(params?: GetDailyLogEntriesParams): Promise<DailyLogEntry[]> {
+  async getAllEntries(params?: GetDailyLogEntriesParams, options?: { signal?: AbortSignal }): Promise<DailyLogEntry[]> {
     const pageSize = 2000;
     const hardCap = 20000;
     const all: DailyLogEntry[] = [];
     let skip = 0;
 
     while (all.length < hardCap) {
+      if (options?.signal?.aborted) {
+        throw new DOMException('Aborted', 'AbortError');
+      }
       const page = await dailyLogService.getEntries({
         ...params,
         limit: pageSize,
         skip,
-      });
+      }, options);
       if (!page || page.length === 0) break;
       all.push(...page);
       if (page.length < pageSize) break;
