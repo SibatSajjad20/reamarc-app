@@ -72,6 +72,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   const { addToast } = useToast();
   const { isOffDay, lastWorkday, getOffDay, holidays, workingSaturdays } = useOffDays();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const taskDescRef = useRef<HTMLTextAreaElement>(null);
 
   const getTodayIso = () => {
     const d = new Date();
@@ -121,6 +122,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
   const [dayTargetLoading, setDayTargetLoading] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
+  const [isSubmittingAnother, setIsSubmittingAnother] = useState<boolean>(false);
+  const isBusy = isSubmitting || isSubmittingAnother;
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
 
@@ -389,9 +392,8 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isSubmitting) return;
+  const handleSave = async (addAnother: boolean = false) => {
+    if (isBusy) return;
 
     if (!date.trim()) {
       setErrorMessage('Please provide a valid date.');
@@ -437,7 +439,11 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 
     setErrorMessage(null);
     setIsOccConflict(false);
-    setIsSubmitting(true);
+    if (addAnother) {
+      setIsSubmittingAnother(true);
+    } else {
+      setIsSubmitting(true);
+    }
 
     try {
       // Build revisions string formatted as bullet points
@@ -471,7 +477,37 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 
         const created = await dailyLogService.createEntry(payload);
         onSaved(created);
-        onClose();
+
+        if (addAnother) {
+          addToast('Log added', 'Task saved! You can now log your next task.', 'success');
+          // Reset task-specific inputs
+          setTaskDescription('');
+          setRevisionPoints(['']);
+          setAttachedFiles([]);
+          setDeliverableUrl('');
+          setHoursUtilized('1.0');
+          setRemarks('');
+          setCustomFields({});
+          setTaskStatus('Incomplete');
+          setErrorMessage(null);
+
+          // Refresh day target for remaining hours tracker
+          if (date) {
+            setDayTargetLoading(true);
+            dailyLogService
+              .getDayTarget(date.trim())
+              .then(setDayTarget)
+              .catch(() => {})
+              .finally(() => setDayTargetLoading(false));
+          }
+
+          // Return focus to task description for fast continuous entry
+          setTimeout(() => {
+            taskDescRef.current?.focus();
+          }, 50);
+        } else {
+          onClose();
+        }
       } else if (mode === 'edit' && initialData) {
         const payload = {
           version: initialData.version,
@@ -510,13 +546,18 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
       }
     } finally {
       setIsSubmitting(false);
+      setIsSubmittingAnother(false);
     }
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    handleSave(false);
   };
 
   return (
     <div
       className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto"
-      onClick={onClose}
     >
       <div
         className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150"
@@ -741,6 +782,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
               Task Description <span className="text-rose-500">*</span>
             </label>
             <textarea
+              ref={taskDescRef}
               required
               rows={3}
               placeholder="Describe the objectives and work executed in detail..."
@@ -990,30 +1032,53 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            disabled={isSubmitting}
+            disabled={isBusy}
             className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
           >
             Cancel
           </button>
 
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting || isDateInvalid}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer disabled:cursor-not-allowed select-none"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>{mode === 'create' ? 'Adding Log...' : 'Saving Changes...'}</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>{mode === 'create' ? 'Add Log Entry' : 'Save Changes'}</span>
-              </>
+          <div className="flex items-center gap-2">
+            {mode === 'create' && (
+              <button
+                type="button"
+                onClick={() => handleSave(true)}
+                disabled={isBusy || isDateInvalid}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl border border-indigo-600/60 dark:border-indigo-500/60 hover:border-indigo-600 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed select-none"
+              >
+                {isSubmittingAnother ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
+                    <span>Save & Add Another</span>
+                  </>
+                )}
+              </button>
             )}
-          </button>
+
+            <button
+              type="button"
+              onClick={() => handleSave(false)}
+              disabled={isBusy || isDateInvalid}
+              className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer disabled:cursor-not-allowed select-none"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>{mode === 'create' ? 'Adding Log...' : 'Saving Changes...'}</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="w-3.5 h-3.5" />
+                  <span>{mode === 'create' ? 'Add Log Entry' : 'Save Changes'}</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>
