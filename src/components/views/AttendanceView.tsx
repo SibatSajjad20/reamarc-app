@@ -35,17 +35,27 @@ import { MonthlyPunctualityCommandCenter } from '../attendance/MonthlyPunctualit
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { ApprovalInboxSection } from '../attendance/ApprovalInboxSection';
 import { MissedCheckoutResponseModal } from '../attendance/MissedCheckoutResponseModal';
-type AdminAttendanceSubTab =
+import type { AttendanceSubSection } from '../../types/attendance';
+
+export type AdminAttendanceSubTab =
   | 'daily-matrix'
   | 'punctuality-hub'
   | 'employee-timesheets'
   | 'approvals';
 
-type EmployeeAttendanceSubTab =
+export type EmployeeAttendanceSubTab =
   | 'timesheet'
   | 'requests';
 
-export const AttendanceView: React.FC = () => {
+export interface AttendanceViewProps {
+  activeSection?: AttendanceSubSection;
+  onSectionChange?: (section: AttendanceSubSection) => void;
+}
+
+export const AttendanceView: React.FC<AttendanceViewProps> = ({
+  activeSection,
+  onSectionChange,
+}) => {
   const { user } = useAuth();
   const { addToast } = useToast();
 
@@ -57,10 +67,20 @@ export const AttendanceView: React.FC = () => {
   const isManagementRole = isAdmin || isHR || isOperations;
 
   // Active Sub-Tab for Management
-  const [activeTab, setActiveTab] = useState<AdminAttendanceSubTab>('daily-matrix');
+  const [activeTab, setActiveTab] = useState<AdminAttendanceSubTab>(() => {
+    if (activeSection && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals'].includes(activeSection)) {
+      return activeSection as AdminAttendanceSubTab;
+    }
+    return 'daily-matrix';
+  });
 
   // Active Sub-Tab for Employee (Team Lead, Team Member)
-  const [employeeTab, setEmployeeTab] = useState<EmployeeAttendanceSubTab>('timesheet');
+  const [employeeTab, setEmployeeTab] = useState<EmployeeAttendanceSubTab>(() => {
+    if (activeSection && ['timesheet', 'requests'].includes(activeSection)) {
+      return activeSection as EmployeeAttendanceSubTab;
+    }
+    return 'timesheet';
+  });
 
   // Date and Filter State
   const today = useMemo(() => new Date(), []);
@@ -618,6 +638,67 @@ export const AttendanceView: React.FC = () => {
     }
   };
 
+  const handleSelectManagementTab = useCallback(
+    (tab: AdminAttendanceSubTab) => {
+      setActiveTab(tab);
+      onSectionChange?.(tab);
+      if (tab === 'daily-matrix') {
+        const cached = attendanceService.getCachedDailyMatrix(
+          matrixDate,
+          selectedDepartment !== 'All' ? selectedDepartment : undefined
+        );
+        if (cached) {
+          setMatrixData(cached.data);
+          setIsLoadingMatrix(false);
+        }
+      } else if (tab === 'punctuality-hub') {
+        const cached = attendanceService.getCachedMonthlySummary(
+          selectedYear,
+          selectedMonth,
+          selectedDepartment !== 'All' ? selectedDepartment : undefined
+        );
+        if (cached) {
+          setMonthlySummaryData(cached.data);
+          setIsLoadingMonthlySummary(false);
+        }
+      } else if (tab === 'employee-timesheets') {
+        if (selectedEmployeeId) {
+          const cached = attendanceService.getCachedEmployeeTimesheet(
+            selectedEmployeeId,
+            selectedYear,
+            selectedMonth
+          );
+          if (cached) {
+            setEmployeeTimesheet(cached.data);
+            setIsLoadingTimesheet(false);
+          }
+        }
+      }
+    },
+    [matrixDate, selectedDepartment, selectedYear, selectedMonth, selectedEmployeeId, onSectionChange]
+  );
+
+  const handleSelectEmployeeTab = useCallback(
+    (tab: EmployeeAttendanceSubTab) => {
+      setEmployeeTab(tab);
+      onSectionChange?.(tab);
+    },
+    [onSectionChange]
+  );
+
+  useEffect(() => {
+    if (!activeSection) return;
+    if (isManagementRole) {
+      if (['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals'].includes(activeSection)) {
+        handleSelectManagementTab(activeSection as AdminAttendanceSubTab);
+      }
+    } else {
+      if (['timesheet', 'requests'].includes(activeSection)) {
+        handleSelectEmployeeTab(activeSection as EmployeeAttendanceSubTab);
+      }
+    }
+  }, [activeSection, isManagementRole, handleSelectManagementTab, handleSelectEmployeeTab]);
+
   // Filter requests for non-admin to show only their own requests
   const myRequests = useMemo(() => {
     if (isManagementRole) return requests;
@@ -695,17 +776,7 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 1: Daily Matrix */}
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('daily-matrix');
-                const cached = attendanceService.getCachedDailyMatrix(
-                  matrixDate,
-                  selectedDepartment !== 'All' ? selectedDepartment : undefined
-                );
-                if (cached) {
-                  setMatrixData(cached.data);
-                  setIsLoadingMatrix(false);
-                }
-              }}
+              onClick={() => handleSelectManagementTab('daily-matrix')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'daily-matrix'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -713,24 +784,13 @@ export const AttendanceView: React.FC = () => {
               }`}
             >
               <Grid className="w-4 h-4" />
-              <span>Daily Matrix (Live Register)</span>
+              <span>Daily Attendance</span>
             </button>
 
             {/* Tab 2: Punctuality Hub */}
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('punctuality-hub');
-                const cached = attendanceService.getCachedMonthlySummary(
-                  selectedYear,
-                  selectedMonth,
-                  selectedDepartment !== 'All' ? selectedDepartment : undefined
-                );
-                if (cached) {
-                  setMonthlySummaryData(cached.data);
-                  setIsLoadingMonthlySummary(false);
-                }
-              }}
+              onClick={() => handleSelectManagementTab('punctuality-hub')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'punctuality-hub'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -738,26 +798,13 @@ export const AttendanceView: React.FC = () => {
               }`}
             >
               <BarChart3 className="w-4 h-4" />
-              <span>Punctuality Command Center</span>
+              <span>Punctuality Reports</span>
             </button>
 
             {/* Tab 3: Individual employee timesheets */}
             <button
               type="button"
-              onClick={() => {
-                setActiveTab('employee-timesheets');
-                if (selectedEmployeeId) {
-                  const cached = attendanceService.getCachedEmployeeTimesheet(
-                    selectedEmployeeId,
-                    selectedYear,
-                    selectedMonth
-                  );
-                  if (cached) {
-                    setEmployeeTimesheet(cached.data);
-                    setIsLoadingTimesheet(false);
-                  }
-                }
-              }}
+              onClick={() => handleSelectManagementTab('employee-timesheets')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'employee-timesheets'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -765,13 +812,13 @@ export const AttendanceView: React.FC = () => {
               }`}
             >
               <Users className="w-4 h-4" />
-              <span>Employee Timesheets</span>
+              <span>Timesheets</span>
             </button>
 
-            {/* Tab 4: Approvals & Requests */}
+            {/* Tab 4: Approvals */}
             <button
               type="button"
-              onClick={() => setActiveTab('approvals')}
+              onClick={() => handleSelectManagementTab('approvals')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 activeTab === 'approvals'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -779,7 +826,7 @@ export const AttendanceView: React.FC = () => {
               }`}
             >
               <Inbox className="w-4 h-4" />
-              <span>Approvals & Requests</span>
+              <span>Approvals</span>
               {pendingRequestsCount > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
                   {pendingRequestsCount}
@@ -793,7 +840,7 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 1: Monthly Attendance Timesheet */}
             <button
               type="button"
-              onClick={() => setEmployeeTab('timesheet')}
+              onClick={() => handleSelectEmployeeTab('timesheet')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 employeeTab === 'timesheet'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
@@ -807,7 +854,7 @@ export const AttendanceView: React.FC = () => {
             {/* Tab 2: My Requests & Appeals */}
             <button
               type="button"
-              onClick={() => setEmployeeTab('requests')}
+              onClick={() => handleSelectEmployeeTab('requests')}
               className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
                 employeeTab === 'requests'
                   ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'

@@ -565,6 +565,10 @@ async def update_member(
             update_fields["department"] = member_in.department.strip()
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
+    if member_in.crm_enabled is not None:
+        update_fields["crm_enabled"] = bool(member_in.crm_enabled)
+    if member_in.crm_paused is not None:
+        update_fields["crm_paused"] = bool(member_in.crm_paused)
     if member_in.joining_date is not None:
         update_fields["joining_date"] = member_in.joining_date.strip()
     if member_in.employment_type is not None:

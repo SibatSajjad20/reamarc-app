@@ -49,6 +49,7 @@ const DEPARTMENTS = [
   'software development',
   'operations',
   'HR',
+  'sales',
 ];
 
 export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({

@@ -21,6 +21,13 @@ function formatApiErrorMessage(data: any, status: number): string {
     return data.detail;
   }
 
+  if (data?.detail && typeof data.detail === 'object' && !Array.isArray(data.detail)) {
+    const msg = data.detail.message || data.detail.claimed_by;
+    if (typeof msg === 'string' && msg.trim()) {
+      return msg;
+    }
+  }
+
   if (Array.isArray(data?.detail)) {
     const fieldLabels: Record<string, string> = {
       email: 'Work Email',
@@ -53,6 +60,10 @@ function formatApiErrorMessage(data: any, status: number): string {
 
   if (typeof data?.message === 'string' && data.message.trim()) {
     return data.message;
+  }
+
+  if (status === 429) {
+    return 'Rate limit reached. Please wait a moment before trying again.';
   }
 
   return `API Request failed with status ${status}`;
@@ -187,9 +198,16 @@ class ApiClient {
       clearTimeout(timeoutId);
 
       let data: any = null;
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
+      if (response.status !== 204) {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const text = await response.text();
+            data = text && text.trim() ? JSON.parse(text) : null;
+          } catch {
+            data = null;
+          }
+        }
       }
 
       if (!response.ok) {
@@ -258,9 +276,16 @@ class ApiClient {
       clearTimeout(timeoutId);
 
       let data: any = null;
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        data = await response.json();
+      if (response.status !== 204) {
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          try {
+            const text = await response.text();
+            data = text && text.trim() ? JSON.parse(text) : null;
+          } catch {
+            data = null;
+          }
+        }
       }
 
       if (!response.ok) {
@@ -343,7 +368,12 @@ class ApiClient {
       credentials: 'include',
     });
 
-    const data = await response.json();
+    let data: any = null;
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
     if (!response.ok) {
       if (response.status === 401) {
         const refreshed = await this.tryRefreshSession();

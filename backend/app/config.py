@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     GEOFENCE_RADIUS_METERS: float = 500.0
     MAX_GPS_ACCURACY_METERS: float = 500.0
 
+    # CRM Meta Lead Ads (Reamarc Page only — not client ad accounts)
+    CRM_META_PAGE_ID: str = ""
+    CRM_META_PAGE_ACCESS_TOKEN: str = ""
+    CRM_META_WEBHOOK_VERIFY_TOKEN: str = ""
+    CRM_META_APP_SECRET: str = ""
+    CRM_META_FORM_IDS: str = ""  # comma-separated form ids for poll backup
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -120,6 +127,28 @@ class Settings(BaseSettings):
                 "OFFICE_PUBLIC_IPS must be set in production (comma-separated office WAN IPs). "
                 "Refusing to start with an empty office IP allow-list."
             )
+
+        # Meta CRM webhook: if any Meta CRM credential is set in production, require the full set.
+        meta_bits = [
+            (self.CRM_META_PAGE_ACCESS_TOKEN or "").strip(),
+            (self.CRM_META_WEBHOOK_VERIFY_TOKEN or "").strip(),
+            (self.CRM_META_APP_SECRET or "").strip(),
+            (self.CRM_META_PAGE_ID or "").strip(),
+        ]
+        if self.IS_PRODUCTION and any(meta_bits):
+            missing = []
+            if not meta_bits[0]:
+                missing.append("CRM_META_PAGE_ACCESS_TOKEN")
+            if not meta_bits[1]:
+                missing.append("CRM_META_WEBHOOK_VERIFY_TOKEN")
+            if not meta_bits[2]:
+                missing.append("CRM_META_APP_SECRET")
+            if not meta_bits[3]:
+                missing.append("CRM_META_PAGE_ID")
+            if missing:
+                raise ValueError(
+                    "Production Meta CRM ingest is partially configured. Set: " + ", ".join(missing)
+                )
 
         if not self.OPENROUTER_API_KEY and not self.GROQ_API_KEY and not self.GEMINI_API_KEY:
             logger.warning(

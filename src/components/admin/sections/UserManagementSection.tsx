@@ -27,6 +27,7 @@ export const SYSTEM_DEPARTMENTS = [
   'AI',
   'Software Development',
   'HR',
+  'Sales',
 ];
 
 export const SYSTEM_ROLES = [

@@ -397,3 +397,37 @@ class EmailService:
         except Exception as e:
             logger.error(f"SMTP dispatch fallback error for {recipient_email}: {e}")
             return False
+
+    @staticmethod
+    async def send_html_email(
+        recipient_email: str,
+        subject: str,
+        html: str,
+        recipient_name: Optional[str] = None,
+    ) -> bool:
+        if not recipient_email:
+            return False
+        target_name = recipient_name or "there"
+        if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
+            try:
+                if await _send_brevo_http(recipient_email, target_name, subject, html):
+                    return True
+            except Exception as e:
+                logger.warning(f"Brevo dispatch failed for {recipient_email}, attempting fallback: {e}")
+        if settings.RESEND_API_KEY and settings.RESEND_API_KEY.strip():
+            try:
+                if await _send_resend_http(recipient_email, subject, html):
+                    return True
+            except Exception as e:
+                logger.warning(f"Resend dispatch failed for {recipient_email}, attempting fallback: {e}")
+        if settings.SENDGRID_API_KEY and settings.SENDGRID_API_KEY.strip():
+            try:
+                if await _send_sendgrid_http(recipient_email, subject, html):
+                    return True
+            except Exception as e:
+                logger.warning(f"SendGrid dispatch failed for {recipient_email}, attempting fallback: {e}")
+        try:
+            return await asyncio.to_thread(_send_smtp_sync, recipient_email, subject, html)
+        except Exception as e:
+            logger.error(f"SMTP dispatch fallback error for {recipient_email}: {e}")
+            return False

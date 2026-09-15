@@ -15,7 +15,7 @@ export const getBackendFileUrl = (url?: string): string => {
 };
 
 /** Extract `/uploads/...` path from a relative or absolute backend URL. */
-const extractUploadsPath = (url: string): string | null => {
+export const extractUploadsPath = (url: string): string | null => {
   const raw = url.trim();
   if (!raw) return null;
 
@@ -34,6 +34,86 @@ const extractUploadsPath = (url: string): string | null => {
   }
 
   return null;
+};
+
+/**
+ * Opens an attachment in a new browser tab for viewing.
+ * For viewable formats (PDFs, images), fetches via authenticated session and creates an object URL
+ * so it renders in the browser tab with the native PDF/image viewer regardless of third-party cookie restrictions.
+ * If fetch is unavailable, navigates directly to the backend upload URL.
+ */
+export const openFileAttachment = async (url: string, filename?: string) => {
+  if (!url) return;
+
+  const lower = url.trim().toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('vbscript:')) {
+    console.error('Refusing to open unsafe URL scheme:', url);
+    return;
+  }
+
+  if (url.startsWith('blob:') || url.startsWith('data:')) {
+    window.open(url, '_blank', 'noopener,noreferrer');
+    return;
+  }
+
+  // Pre-open window synchronously during user gesture to avoid popup blockers
+  const newTab = window.open('about:blank', '_blank');
+
+  const uploadsPath = extractUploadsPath(url);
+  const cleanKey = uploadsPath ? uploadsPath.replace(/^\/?uploads\//, '') : url.replace(/^\/?uploads\//, '');
+
+  const candidateUrls: string[] = [];
+  if (uploadsPath) {
+    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}`);
+    candidateUrls.push(`/uploads/${cleanKey}`);
+    candidateUrls.push(
+      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`
+    );
+    candidateUrls.push(
+      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`
+    );
+  } else {
+    candidateUrls.push(getBackendFileUrl(url));
+  }
+
+  for (const targetUrl of candidateUrls) {
+    try {
+      const response = await fetch(targetUrl, {
+        method: 'GET',
+        credentials: 'include',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+      });
+
+      if (response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        const blob = await response.blob();
+
+        let finalBlob = blob;
+        const lowerName = (filename || url).toLowerCase();
+        if (lowerName.endsWith('.pdf') && !contentType.includes('pdf')) {
+          finalBlob = new Blob([blob], { type: 'application/pdf' });
+        }
+
+        const blobUrl = window.URL.createObjectURL(finalBlob);
+        if (newTab && !newTab.closed) {
+          newTab.location.href = blobUrl;
+        } else {
+          window.open(blobUrl, '_blank');
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn(`Fetch open failed for ${targetUrl}:`, err);
+    }
+  }
+
+  // Fallback to direct backend URL navigation
+  const directUrl = getBackendFileUrl(url);
+  if (newTab && !newTab.closed) {
+    newTab.location.href = directUrl;
+  } else {
+    window.open(directUrl, '_blank');
+  }
 };
 
 /**
@@ -68,8 +148,11 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
 
   const candidateUrls: string[] = [];
   const uploadsPath = extractUploadsPath(url);
+  const cleanKey = uploadsPath ? uploadsPath.replace(/^\/?uploads\//, '') : url.replace(/^\/?uploads\//, '');
 
   if (uploadsPath) {
+    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}?download=true`);
+    candidateUrls.push(`/uploads/${cleanKey}?download=true`);
     candidateUrls.push(
       `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`
     );
@@ -84,6 +167,7 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
   ) {
     candidateUrls.push(url);
   } else {
+    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}?download=true`);
     candidateUrls.push(
       `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(url)}`
     );

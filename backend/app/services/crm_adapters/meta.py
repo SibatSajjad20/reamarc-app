@@ -1,0 +1,20 @@
+"""Meta Lead Ads adapter (Facebook & Instagram)."""
+from __future__ import annotations
+
+from typing import Any, Dict, Optional
+
+from app.services import crm_ingest
+from app.services.crm_adapters.base import BaseLeadAdapter
+
+
+class MetaLeadAdapter(BaseLeadAdapter):
+    platform_name = "meta"
+
+    async def process_payload(
+        self,
+        payload: Dict[str, Any],
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return await crm_ingest.process_meta_webhook_payload(payload)

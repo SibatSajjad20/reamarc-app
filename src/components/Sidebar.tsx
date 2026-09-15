@@ -4,6 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { dailyLogService } from '../services/dailyLogService';
 const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
 import { getInitials, getRoleLabel } from '../utils/badgeStyles';
+import { canAccessCrm, canAssignCrmLeads } from '../utils/crmAccess';
+import type { CrmSubSection } from '../types/crm';
+import type { AttendanceSubSection } from '../types/attendance';
+import type { AdminSectionType } from './admin/AdminSidebarNav';
 import {
   LogOut,
   PanelLeftClose,
@@ -18,6 +22,21 @@ import {
   LayoutDashboard,
   Inbox,
   Building2,
+  Contact,
+  ChevronDown,
+  ChevronRight,
+  LayoutGrid,
+  List,
+  MessageSquareText,
+  Webhook,
+  SlidersHorizontal,
+  Users,
+  BarChart3,
+  Calendar,
+  BellRing,
+  FolderKanban,
+  Briefcase,
+  Smartphone,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -26,6 +45,12 @@ interface SidebarProps {
   onSignOut: () => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
+  activeCrmSection?: CrmSubSection;
+  onSelectCrmSection?: (section: CrmSubSection) => void;
+  activeAttendanceSection?: AttendanceSubSection;
+  onSelectAttendanceSection?: (section: AttendanceSubSection) => void;
+  activeAdminSection?: AdminSectionType;
+  onSelectAdminSection?: (section: AdminSectionType) => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -34,9 +59,36 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSignOut,
   theme,
   onToggleTheme,
+  activeCrmSection = 'board',
+  onSelectCrmSection,
+  activeAttendanceSection,
+  onSelectAttendanceSection,
+  activeAdminSection = 'directory',
+  onSelectAdminSection,
 }) => {
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      return saved !== null ? saved === 'true' : false;
+    } catch {
+      return false;
+    }
+  });
+
+  const toggleSidebar = () => {
+    setIsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const [isCrmExpanded, setIsCrmExpanded] = useState(true);
+  const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(true);
+  const [isAdminExpanded, setIsAdminExpanded] = useState(true);
   const [requestCount, setRequestCount] = useState(0);
 
   useEffect(() => {
@@ -69,6 +121,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isLead = user?.role === 'team_lead';
   const canSeeExceptions = isLead || isHR;
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
+  const canSeeCrm = canAccessCrm(user);
+  const canAssign = canAssignCrmLeads(user);
+  const isManagementRole = isAdmin || isHR || isOperations;
+
+  const crmSubItems = [
+    { id: 'board' as CrmSubSection, label: 'Pipeline', icon: LayoutGrid },
+    { id: 'deals' as CrmSubSection, label: 'Deals', icon: Briefcase },
+    { id: 'list' as CrmSubSection, label: 'All Leads', icon: List },
+    { id: 'followup' as CrmSubSection, label: 'Follow-ups', icon: Clock },
+    { id: 'templates' as CrmSubSection, label: 'Templates', icon: MessageSquareText },
+    ...(canAssign
+      ? [
+          { id: 'ingest' as CrmSubSection, label: 'Ingest Sources', icon: Webhook },
+          { id: 'rules' as CrmSubSection, label: 'Rules & Team', icon: SlidersHorizontal },
+        ]
+      : []),
+  ];
+
+  const attendanceSubItems = isManagementRole
+    ? [
+        { id: 'daily-matrix' as AttendanceSubSection, label: 'Daily Attendance', icon: LayoutGrid },
+        { id: 'punctuality-hub' as AttendanceSubSection, label: 'Punctuality Reports', icon: BarChart3 },
+        { id: 'employee-timesheets' as AttendanceSubSection, label: 'Timesheets', icon: Users },
+        { id: 'approvals' as AttendanceSubSection, label: 'Approvals', icon: Inbox },
+      ]
+    : [
+        { id: 'timesheet' as AttendanceSubSection, label: 'My Timesheet', icon: Calendar },
+        { id: 'requests' as AttendanceSubSection, label: 'My Requests', icon: Inbox },
+      ];
+
+  const adminSubItems = [
+    { id: 'directory' as AdminSectionType, label: 'Team Directory', icon: Users, visible: true },
+    { id: 'compliance' as AdminSectionType, label: 'Log Compliance', icon: BellRing, visible: isAdmin },
+    { id: 'attendance_policies' as AdminSectionType, label: 'Attendance Policies', icon: Clock, visible: isAdmin || isHR },
+    { id: 'mobile_ops' as AdminSectionType, label: 'Mobile & Alerts', icon: Smartphone, visible: isAdmin || isHR },
+    { id: 'workspaces' as AdminSectionType, label: 'Workspaces', icon: FolderKanban, visible: isAdmin || isOperations },
+    { id: 'ad_accounts' as AdminSectionType, label: 'Ad Accounts', icon: Briefcase, visible: isAdmin },
+  ].filter((item) => item.visible);
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -96,6 +186,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'active-clients' as ViewType,
             label: 'Active Clients',
             icon: Building2,
+          },
+        ]
+      : []),
+    ...(canSeeCrm
+      ? [
+          {
+            id: 'crm' as ViewType,
+            label: 'Sales Pipeline',
+            icon: Contact,
           },
         ]
       : []),
@@ -177,7 +276,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         <button
           type="button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
+          onClick={toggleSidebar}
           className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-400 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
           title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
         >
@@ -195,28 +294,168 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id;
+          const isCrm = item.id === 'crm';
+          const isAttendance = item.id === 'attendance';
+          const isAdminItem = item.id === 'admin';
+          const hasSubItems = isCrm || isAttendance || isAdminItem;
+          const isExpanded = isCrm ? isCrmExpanded : isAttendance ? isAttendanceExpanded : isAdminItem ? isAdminExpanded : false;
+
           return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => onSelectView(item.id)}
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 cursor-pointer ${
-                isActive
-                  ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/60'
-              } ${isCollapsed ? 'justify-center px-0' : ''}`}
-              title={isCollapsed ? item.label : undefined}
-            >
-              <div className="flex items-center gap-3">
-                <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
-                {!isCollapsed && <span>{item.label}</span>}
-              </div>
-              {!isCollapsed && requestCount > 0 && (item.id === 'daily-log' || item.id === 'dashboard') && (
-                <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>
-                  {requestCount}
-                </span>
+            <div key={item.id} className="space-y-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  onSelectView(item.id);
+                  if (isCrm) {
+                    if (currentView === 'crm') {
+                      setIsCrmExpanded(!isCrmExpanded);
+                    } else {
+                      setIsCrmExpanded(true);
+                    }
+                  } else if (isAttendance) {
+                    if (currentView === 'attendance') {
+                      setIsAttendanceExpanded(!isAttendanceExpanded);
+                    } else {
+                      setIsAttendanceExpanded(true);
+                    }
+                  } else if (isAdminItem) {
+                    if (currentView === 'admin') {
+                      setIsAdminExpanded(!isAdminExpanded);
+                    } else {
+                      setIsAdminExpanded(true);
+                    }
+                  }
+                }}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 cursor-pointer ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
+                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/60'
+                } ${isCollapsed ? 'justify-center px-0' : ''}`}
+                title={isCollapsed ? item.label : undefined}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
+                  {!isCollapsed && <span className="truncate">{item.label}</span>}
+                </div>
+                {!isCollapsed && hasSubItems && (
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (isCrm) setIsCrmExpanded(!isCrmExpanded);
+                      if (isAttendance) setIsAttendanceExpanded(!isAttendanceExpanded);
+                      if (isAdminItem) setIsAdminExpanded(!isAdminExpanded);
+                    }}
+                    className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+                  >
+                    {isExpanded ? (
+                      <ChevronDown className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
+                    ) : (
+                      <ChevronRight className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
+                    )}
+                  </div>
+                )}
+                {!isCollapsed && !hasSubItems && requestCount > 0 && (item.id === 'daily-log' || item.id === 'dashboard') && (
+                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>
+                    {requestCount}
+                  </span>
+                )}
+              </button>
+
+              {/* Expandable Sub-items for Sales Pipeline */}
+              {!isCollapsed && isCrm && isCrmExpanded && (
+                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
+                  {crmSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive = currentView === 'crm' && (activeCrmSection === sub.id || (!activeCrmSection && sub.id === 'board'));
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          if (currentView !== 'crm') {
+                            onSelectView('crm');
+                          }
+                          onSelectCrmSection?.(sub.id);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
+                          isSubActive
+                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
+                        }`}
+                      >
+                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
-            </button>
+
+              {/* Expandable Sub-items for Attendance */}
+              {!isCollapsed && isAttendance && isAttendanceExpanded && (
+                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
+                  {attendanceSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const defaultActiveId = isManagementRole ? 'daily-matrix' : 'timesheet';
+                    const isSubActive =
+                      currentView === 'attendance' &&
+                      (activeAttendanceSection === sub.id || (!activeAttendanceSection && sub.id === defaultActiveId));
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          if (currentView !== 'attendance') {
+                            onSelectView('attendance');
+                          }
+                          onSelectAttendanceSection?.(sub.id);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
+                          isSubActive
+                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
+                        }`}
+                      >
+                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Expandable Sub-items for Admin Panel */}
+              {!isCollapsed && isAdminItem && isAdminExpanded && (
+                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
+                  {adminSubItems.map((sub) => {
+                    const SubIcon = sub.icon;
+                    const isSubActive =
+                      currentView === 'admin' &&
+                      (activeAdminSection === sub.id || (!activeAdminSection && sub.id === 'directory'));
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => {
+                          if (currentView !== 'admin') {
+                            onSelectView('admin');
+                          }
+                          onSelectAdminSection?.(sub.id);
+                        }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
+                          isSubActive
+                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
+                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
+                        }`}
+                      >
+                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
+                        <span className="truncate">{sub.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           );
         })}
 

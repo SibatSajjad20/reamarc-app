@@ -5,11 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../src/theme';
 import { useInbox } from '../../src/context/InboxContext';
 import { useAuth } from '../../src/context/AuthContext';
-import { isAdmin as roleIsAdmin } from '../../src/lib/roles';
+import { isAdmin as roleIsAdmin, canAccessCrm } from '../../src/lib/roles';
 
 function iconName(route: string, focused: boolean, isAdmin: boolean): keyof typeof Ionicons.glyphMap {
   if (route === 'index') {
     return isAdmin ? (focused ? 'pie-chart' : 'pie-chart-outline') : focused ? 'finger-print' : 'time-outline';
+  }
+  if (route === 'pipeline') {
+    return focused ? 'funnel' : 'funnel-outline';
   }
   if (route === 'requests') {
     return isAdmin ? (focused ? 'shield-checkmark' : 'shield-checkmark-outline') : focused ? 'send' : 'document-text-outline';
@@ -24,6 +27,7 @@ export default function TabsLayout() {
   const { unreadCount } = useInbox();
   const { user } = useAuth();
   const isAdmin = roleIsAdmin(user?.role);
+  const isCrmEligible = canAccessCrm(user);
 
   return (
     <Tabs
@@ -32,7 +36,14 @@ export default function TabsLayout() {
         tabBarShowLabel: true,
         tabBarActiveTintColor: colors.indigo,
         tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginBottom: 2 },
+        tabBarLabelStyle: {
+          fontSize: 10,
+          fontWeight: '700',
+          marginBottom: Platform.OS === 'ios' ? 0 : 2,
+        },
+        tabBarItemStyle: {
+          paddingTop: 2,
+        },
         tabBarIcon: ({ focused, color }) => (
           <View>
             <Ionicons name={iconName(route.name, focused, isAdmin)} size={22} color={color} />
@@ -66,6 +77,13 @@ export default function TabsLayout() {
       })}
     >
       <Tabs.Screen name="index" options={{ title: isAdmin ? 'Overview' : 'Punch' }} />
+      <Tabs.Screen
+        name="pipeline"
+        options={{
+          title: 'Pipeline',
+          href: isCrmEligible ? '/pipeline' : null,
+        }}
+      />
       <Tabs.Screen name="requests" options={{ title: isAdmin ? 'Approvals' : 'Requests' }} />
       <Tabs.Screen name="alerts" options={{ title: isAdmin ? 'Announce' : 'Alerts' }} />
       <Tabs.Screen name="profile" options={{ title: 'Profile' }} />

@@ -94,6 +94,8 @@ def _build_user_response(user_doc: dict) -> dict:
         "employment_type": user_doc.get("employment_type") or "contract",
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
+        "crm_enabled": user_doc.get("crm_enabled"),
+        "crm_paused": user_doc.get("crm_paused"),
     }
 
 

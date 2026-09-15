@@ -74,6 +74,8 @@ class MemberUpdate(BaseModel):
     probation_start_date: Optional[str] = None
     probation_end_date: Optional[str] = None
     is_active: Optional[bool] = None
+    crm_enabled: Optional[bool] = None
+    crm_paused: Optional[bool] = None
 
     @field_validator("joining_date")
     @classmethod

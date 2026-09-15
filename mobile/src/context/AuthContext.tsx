@@ -15,6 +15,7 @@ export type AuthUser = {
   role: string;
   department?: string | null;
   designation?: string | null;
+  crm_enabled?: boolean | null;
 };
 
 type AuthContextValue = {

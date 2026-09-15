@@ -20,6 +20,7 @@ export const DEFAULT_DEPARTMENTS: string[] = [
   'AI',
   'Software Development',
   'HR',
+  'Sales',
 ];
 
 export const DEFAULT_ROLES: SystemRole[] = [

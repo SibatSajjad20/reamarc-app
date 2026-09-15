@@ -10,11 +10,16 @@ import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ProfileSettingsView } from './components/views/ProfileSettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
+import { CrmView } from './components/views/CrmView';
+import type { CrmSubSection } from './types/crm';
+import type { AttendanceSubSection } from './types/attendance';
+import type { AdminSectionType } from './components/admin/AdminSidebarNav';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import { canAccessCrm } from './utils/crmAccess';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 
@@ -39,8 +44,9 @@ function AppInner() {
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = user?.role === 'team_lead' || isHR;
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
+  const canSeeCrm = canAccessCrm(user);
 
-  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions'];
+  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm'];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'marketing';
@@ -57,6 +63,12 @@ function AppInner() {
       ? 'attendance'
       : 'dashboard';
   });
+
+  const [activeCrmSection, setActiveCrmSection] = useState<CrmSubSection>('board');
+  const [activeAttendanceSection, setActiveAttendanceSection] = useState<AttendanceSubSection>(() => {
+    return isAdmin || isHR || isOperations ? 'daily-matrix' : 'timesheet';
+  });
+  const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionType>('directory');
 
   // Route guard effect to enforce V1.0 module boundaries & URL path redirects
   useEffect(() => {
@@ -122,6 +134,16 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'crm' || currentPath === 'leads') {
+        if (canSeeCrm) {
+          setCurrentView('crm');
+          localStorage.setItem('reamarc_active_view', 'crm');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'exceptions') {
         if (canSeeExceptions) {
           setCurrentView('exceptions');
@@ -163,6 +185,11 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'crm' && !canSeeCrm) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'marketing' && !canSeeMarketing) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -190,7 +217,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
@@ -198,6 +225,7 @@ function AppInner() {
       allowedViews.push('dashboard');
     }
     if (canSeeActiveClients) allowedViews.push('active-clients');
+    if (canSeeCrm) allowedViews.push('crm');
     if (!isClient) {
       allowedViews.push('attendance');
       allowedViews.push('daily-log');
@@ -303,6 +331,27 @@ function AppInner() {
         onSignOut={handleSignOut}
         theme={theme}
         onToggleTheme={handleToggleTheme}
+        activeCrmSection={activeCrmSection}
+        onSelectCrmSection={(section) => {
+          setActiveCrmSection(section);
+          if (currentView !== 'crm') {
+            handleSelectView('crm');
+          }
+        }}
+        activeAttendanceSection={activeAttendanceSection}
+        onSelectAttendanceSection={(section) => {
+          setActiveAttendanceSection(section);
+          if (currentView !== 'attendance') {
+            handleSelectView('attendance');
+          }
+        }}
+        activeAdminSection={activeAdminSection}
+        onSelectAdminSection={(section) => {
+          setActiveAdminSection(section);
+          if (currentView !== 'admin') {
+            handleSelectView('admin');
+          }
+        }}
       />
 
       {/* Main View Display Area */}
@@ -329,6 +378,15 @@ function AppInner() {
           </div>
         )}
 
+        {currentView === 'crm' && canSeeCrm && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <CrmView
+              activeSection={activeCrmSection}
+              onSectionChange={setActiveCrmSection}
+            />
+          </div>
+        )}
+
         {currentView === 'marketing' && canSeeMarketing && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
@@ -343,7 +401,10 @@ function AppInner() {
 
         {currentView === 'attendance' && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <AttendanceView />
+            <AttendanceView
+              activeSection={activeAttendanceSection}
+              onSectionChange={setActiveAttendanceSection}
+            />
           </div>
         )}
 
@@ -361,7 +422,10 @@ function AppInner() {
 
         {currentView === 'admin' && canSeeAdmin && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <AdminPanel />
+            <AdminPanel
+              activeSection={activeAdminSection}
+              onSectionChange={setActiveAdminSection}
+            />
           </div>
         )}
 

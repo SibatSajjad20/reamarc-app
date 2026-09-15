@@ -26,6 +26,7 @@ async def store_notification(
     sender_id: Optional[str] = None,
     sender_name: Optional[str] = None,
     sender_role: Optional[str] = None,
+    data: Optional[dict] = None,
 ) -> None:
     db = get_database()
     if db is None:
@@ -40,6 +41,7 @@ async def store_notification(
             "sender_id": sender_id,
             "sender_name": sender_name,
             "sender_role": sender_role,
+            "data": data or {},
             "read": False,
             "created_at": _now_iso(),
         }
@@ -77,7 +79,7 @@ async def list_notifications(user_id: str, limit: int = 50) -> list:
     return docs
 
 
-async def send_expo_push(tokens: Iterable[str], title: str, body: str) -> int:
+async def send_expo_push(tokens: Iterable[str], title: str, body: str, data: Optional[dict] = None) -> int:
     messages = [
         {
             "to": token,
@@ -87,6 +89,7 @@ async def send_expo_push(tokens: Iterable[str], title: str, body: str) -> int:
             "priority": "high",
             "channelId": "reamarc_alerts_v2",
             "_displayInForeground": True,
+            **({"data": data} if data else {}),
         }
         for token in tokens
         if token and str(token).startswith("ExponentPushToken")
@@ -126,6 +129,7 @@ async def dispatch_to_users(
     sender_id: Optional[str] = None,
     sender_name: Optional[str] = None,
     sender_role: Optional[str] = None,
+    data: Optional[dict] = None,
 ) -> dict:
     # Empty list must not fall through to "broadcast all devices" (falsy [] in active_devices).
     if user_ids is not None and len(user_ids) == 0:
@@ -170,9 +174,10 @@ async def dispatch_to_users(
             sender_id=sender_id,
             sender_name=sender_name,
             sender_role=sender_role,
+            data=data,
         )
 
-    sent = await send_expo_push(tokens, title, body)
+    sent = await send_expo_push(tokens, title, body, data=data)
     in_app = len(inbox_ids)
     skipped = max(0, in_app - sent)
     return {

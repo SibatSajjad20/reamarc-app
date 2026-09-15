@@ -27,7 +27,15 @@ import type {
 } from '../../types/admin';
 import type { Workspace } from '../../types';
 
-export const AdminPanel: React.FC = () => {
+export interface AdminPanelProps {
+  activeSection?: AdminSectionType;
+  onSectionChange?: (section: AdminSectionType) => void;
+}
+
+export const AdminPanel: React.FC<AdminPanelProps> = ({
+  activeSection: propActiveSection,
+  onSectionChange,
+}) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
@@ -37,8 +45,16 @@ export const AdminPanel: React.FC = () => {
   const canManageWorkspaces = isAdmin || isOperations;
   const canManageAdAccounts = isAdmin;
 
-  const [activeSection, setActiveSection] = useState<AdminSectionType>('directory');
+  const [activeSection, setActiveSection] = useState<AdminSectionType>(() => {
+    return propActiveSection || 'directory';
+  });
   const [policiesVisited, setPoliciesVisited] = useState(false);
+
+  useEffect(() => {
+    if (propActiveSection && propActiveSection !== activeSection) {
+      setActiveSection(propActiveSection);
+    }
+  }, [propActiveSection]);
 
   useEffect(() => {
     if (isHR && (activeSection === 'compliance' || activeSection === 'workspaces' || activeSection === 'ad_accounts')) {
@@ -84,6 +100,7 @@ export const AdminPanel: React.FC = () => {
   const handleSelectSection = (section: AdminSectionType) => {
     if (section === 'attendance_policies') setPoliciesVisited(true);
     setActiveSection(section);
+    onSectionChange?.(section);
   };
 
   const fetchActivities = useCallback(async () => {

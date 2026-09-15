@@ -27,6 +27,7 @@ export const DEPARTMENTS = [
   'AI',
   'Software Development',
   'HR',
+  'Sales',
 ] as const;
 
 export const ROLES: { id: UserRole; label: string; description: string }[] = [

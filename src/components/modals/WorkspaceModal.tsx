@@ -19,6 +19,7 @@ import {
   Phone,
   Clock,
   ExternalLink,
+  Download,
   CreditCard,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
@@ -26,7 +27,7 @@ import type { WorkspaceCreatePayload, WorkspaceUpdatePayload } from '../../servi
 import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
-import { downloadFileAttachment } from '../../utils/fileUrl';
+import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 
 interface WorkspaceModalProps {
   isOpen: boolean;
@@ -706,14 +707,22 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
+                    className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg transition cursor-pointer"
+                    title="View Proposal in Browser"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                  </button>
                   <button
                     type="button"
                     onClick={() => downloadFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
                     className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg transition cursor-pointer"
-                    title="Download / View Proposal"
+                    title="Download Proposal Document"
                   >
-                    <ExternalLink className="w-4 h-4" />
+                    <Download className="w-4 h-4" />
                   </button>
                   <button
                     type="button"

@@ -14,10 +14,11 @@ import {
   CreditCard,
   CheckCircle2,
   XCircle,
+  ExternalLink,
 } from 'lucide-react';
 import type { Workspace } from '../../../types';
 import type { AdAccount } from '../../../types/admin';
-import { downloadFileAttachment } from '../../../utils/fileUrl';
+import { downloadFileAttachment, openFileAttachment } from '../../../utils/fileUrl';
 import { HealthBadge, PriorityBadge } from '../../ui/WorkspaceBadges';
 
 interface WorkspacesSectionProps {
@@ -304,26 +305,44 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                       </div>
                     )}
 
-                    {/* Proposal Document Download Chip */}
+                    {/* Proposal Document Chip */}
                     {ws.proposal_url && (
                       <div className="pt-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            downloadFileAttachment(
-                              ws.proposal_url!,
-                              ws.proposal_name || `${ws.name}_Proposal`
-                            )
-                          }
-                          className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-indigo-50/70 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/50 border border-indigo-200/70 dark:border-indigo-800/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition cursor-pointer group/proposal"
-                          title="Click to Download Proposal Attachment"
-                        >
+                        <div className="w-full flex items-center justify-between p-2.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                           <div className="flex items-center gap-2 min-w-0">
                             <Paperclip className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
                             <span className="truncate">{ws.proposal_name || 'Client Proposal Document'}</span>
                           </div>
-                          <Download className="w-3.5 h-3.5 text-indigo-500 shrink-0 group-hover/proposal:translate-y-0.5 transition-transform" />
-                        </button>
+                          <div className="flex items-center gap-1 shrink-0 ml-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                openFileAttachment(
+                                  ws.proposal_url!,
+                                  ws.proposal_name || `${ws.name}_Proposal`
+                                )
+                              }
+                              className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-semibold flex items-center gap-1 transition cursor-pointer shadow-2xs"
+                              title="View Proposal in Browser"
+                            >
+                              <span>View</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                downloadFileAttachment(
+                                  ws.proposal_url!,
+                                  ws.proposal_name || `${ws.name}_Proposal`
+                                )
+                              }
+                              className="p-1 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 transition cursor-pointer"
+                              title="Download Proposal Document"
+                            >
+                              <Download className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     )}
 

@@ -25,6 +25,8 @@ class UserResponse(BaseModel):
     employment_type: Optional[str] = "contract"
     is_active: bool = True
     workspace_ids: List[str] = []
+    crm_enabled: Optional[bool] = None
+    crm_paused: Optional[bool] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

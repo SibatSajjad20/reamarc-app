@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import io
 import logging
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -20,6 +21,21 @@ from pymongo.errors import PyMongoError
 logger = logging.getLogger(__name__)
 
 _GRIDFS_BUCKET = "uploads"
+VIEWABLE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".svg", ".gif", ".txt"}
+
+
+def _guess_media_type(filename: str, fallback_meta: Optional[str] = None) -> str:
+    if fallback_meta and fallback_meta != "application/octet-stream":
+        return fallback_meta
+    guessed, _ = mimetypes.guess_type(filename)
+    if guessed:
+        return guessed
+    ext = Path(filename).suffix.lower()
+    if ext == ".pdf":
+        return "application/pdf"
+    if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+        return f"image/{ext.lstrip('.')}"
+    return "application/octet-stream"
 
 
 def uploads_root() -> Path:
@@ -222,11 +238,14 @@ async def migrate_disk_uploads_to_gridfs(db) -> Tuple[int, int]:
     return migrated, skipped
 
 
-async def open_upload_response(db, file_path: str) -> StreamingResponse | FileResponse:
-    """Return a download response from GridFS first, then disk cache."""
+async def open_upload_response(db, file_path: str, download: bool = False) -> StreamingResponse | FileResponse:
+    """Return an inline view or download response from GridFS first, then disk cache."""
     relative = normalize_upload_key(file_path)
     display = _display_name(Path(relative).name)
-    headers = {"Content-Disposition": f'attachment; filename="{display}"'}
+    ext = Path(display).suffix.lower()
+    is_viewable = ext in VIEWABLE_EXTENSIONS
+    disposition = "attachment" if (download or not is_viewable) else "inline"
+    headers = {"Content-Disposition": f'{disposition}; filename="{display}"'}
 
     # 1) Durable GridFS (source of truth — survives Render ephemeral disk)
     if db is not None:
@@ -236,7 +255,15 @@ async def open_upload_response(db, file_path: str) -> StreamingResponse | FileRe
             meta = getattr(grid_out, "metadata", None) or {}
             if isinstance(meta, dict) and meta.get("original_name"):
                 display = _display_name(str(meta["original_name"]))
-                headers = {"Content-Disposition": f'attachment; filename="{display}"'}
+                ext = Path(display).suffix.lower()
+                is_viewable = ext in VIEWABLE_EXTENSIONS
+                disposition = "attachment" if (download or not is_viewable) else "inline"
+                headers = {"Content-Disposition": f'{disposition}; filename="{display}"'}
+
+            media_type = _guess_media_type(
+                display,
+                meta.get("content_type") if isinstance(meta, dict) else None,
+            )
 
             async def _iter() -> AsyncIterator[bytes]:
                 try:
@@ -253,8 +280,7 @@ async def open_upload_response(db, file_path: str) -> StreamingResponse | FileRe
 
             return StreamingResponse(
                 _iter(),
-                media_type=(meta.get("content_type") if isinstance(meta, dict) else None)
-                or "application/octet-stream",
+                media_type=media_type,
                 headers=headers,
             )
         except Exception:
@@ -266,10 +292,11 @@ async def open_upload_response(db, file_path: str) -> StreamingResponse | FileRe
     try:
         full.relative_to(base)
         if full.is_file():
+            media_type = _guess_media_type(display)
             return FileResponse(
                 path=str(full),
                 filename=display,
-                media_type="application/octet-stream",
+                media_type=media_type,
                 headers=headers,
             )
     except ValueError:

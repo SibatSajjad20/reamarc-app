@@ -2,7 +2,7 @@ import logging
 import json
 import os
 from datetime import datetime, timezone
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Query, Depends
 from fastapi.responses import JSONResponse
 import re
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,8 +11,10 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.core.limiter import limiter
+from app.core.uploads import open_upload_response
+from app.core.security import get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -95,12 +97,20 @@ async def lifespan(app: FastAPI):
     from app.services.log_reminder_scheduler import start_automated_log_reminder_scheduler
     reminder_task = asyncio.create_task(start_automated_log_reminder_scheduler())
 
+    from app.services.crm_sla_scheduler import start_crm_sla_scheduler
+    sla_task = asyncio.create_task(start_crm_sla_scheduler())
+
+    from app.services.crm_lead_processor import start_crm_lead_queue_scheduler
+    lead_queue_task = asyncio.create_task(start_crm_lead_queue_scheduler())
+
     sync_task = asyncio.create_task(periodic_marketing_sync())
 
     yield
 
     cleanup_task.cancel()
     reminder_task.cancel()
+    sla_task.cancel()
+    lead_queue_task.cancel()
     sync_task.cancel()
     shutdown_attendance_scheduler()
     await close_mongo_connection()
@@ -190,10 +200,28 @@ async def add_security_headers(request: Request, call_next):
     return response
 
 
-# Uploads are served only via authenticated download routes (not public StaticFiles).
+# Uploads are served only via authenticated routes (not public StaticFiles / directory listings).
 UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 os.makedirs(os.path.join(UPLOAD_DIR, "deliverables"), exist_ok=True)
+
+
+@app.get("/uploads/{file_path:path}")
+@app.get(f"{settings.API_V1_STR}/uploads/{{file_path:path}}")
+async def serve_upload(
+    file_path: str,
+    request: Request,
+    download: bool = Query(False, description="Force download attachment"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Authenticated upload server for proposals and deliverables.
+    Streams directly from MongoDB GridFS with local disk fallback.
+    Supports inline browser viewing for PDFs/images, or attachment download.
+    """
+    db = get_database()
+    return await open_upload_response(db, file_path, download=download)
+
 
 # Include Active V1.0 Routers
 app.include_router(auth.router, prefix=settings.API_V1_STR)
@@ -207,6 +235,8 @@ app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(leaves.router, prefix=settings.API_V1_STR)
 app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(mobile.router, prefix=settings.API_V1_STR)
+app.include_router(crm.router, prefix=settings.API_V1_STR)
+app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 
 
 

@@ -73,7 +73,7 @@ async def get_current_user(
     request: Request,
     token_from_header: Optional[str] = Depends(oauth2_scheme)
 ) -> dict:
-    token = token_from_header or request.cookies.get("access_token")
+    token = token_from_header or request.cookies.get("access_token") or request.query_params.get("token")
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -132,6 +132,8 @@ async def get_current_user(
         "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
+        "crm_enabled": user_doc.get("crm_enabled"),
+        "crm_paused": user_doc.get("crm_paused"),
     }
 
 

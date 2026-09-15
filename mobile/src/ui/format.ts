@@ -93,3 +93,86 @@ export function isMissedAlert(kind?: string | null) {
   // Personal late / missed prompts only — not staff fan-out kinds.
   return key === 'late_checkin' || key.includes('missed');
 }
+
+/** Display names for pipeline stages — avoids reusing “Contacted” for outreach. */
+const CRM_STAGE_LABELS: Record<string, string> = {
+  new: 'New',
+  contacted: 'Reached',
+  qualified: 'Qualified',
+  session_booked: 'Meeting booked',
+  session_done: 'Meeting done',
+  opportunity_created: 'Opportunity',
+  requirement_confirmed: 'Requirements',
+  proposal_sent: 'Proposal sent',
+  negotiation: 'Negotiation',
+  verbal_approval: 'Verbal yes',
+  contract_sent: 'Contract sent',
+  contract_signed: 'Signed',
+  payment_pending: 'Payment pending',
+  payment_done: 'Paid',
+};
+
+export function titleCaseName(name?: string | null): string {
+  const raw = String(name || '').trim();
+  if (!raw) return '';
+  return raw
+    .split(/\s+/)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function formatCrmStage(stage?: string | null): string {
+  const key = String(stage || '').toLowerCase();
+  if (CRM_STAGE_LABELS[key]) return CRM_STAGE_LABELS[key];
+  if (!key) return '—';
+  return key.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+export function formatPhoneDisplay(phone?: string | null): string {
+  if (!phone) return '—';
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('92')) {
+    return `+92 ${digits.slice(2, 5)} ${digits.slice(5)}`;
+  }
+  if (digits.length === 11 && digits.startsWith('0')) {
+    return `${digits.slice(0, 4)} ${digits.slice(4)}`;
+  }
+  if (phone.startsWith('+') && digits.length > 8) {
+    return `+${digits}`;
+  }
+  return phone;
+}
+
+export type OutreachTone = 'muted' | 'amber' | 'emerald';
+
+export function getOutreachStatus(lead: {
+  contacted?: boolean;
+  whatsapp_opened_at?: string | null;
+}): { label: string; tone: OutreachTone } {
+  if (lead.contacted) return { label: 'Contacted', tone: 'emerald' };
+  if (lead.whatsapp_opened_at) return { label: 'WhatsApp opened', tone: 'amber' };
+  return { label: 'Uncontacted', tone: 'muted' };
+}
+
+export function formatFollowUp(iso?: string | null): string {
+  if (!iso) return 'Not set';
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return 'Not set';
+  const diffMs = then - Date.now();
+  const mins = Math.round(diffMs / 60000);
+  if (Math.abs(mins) < 60) {
+    if (mins <= 0) return 'Due now';
+    return `In ${mins} min`;
+  }
+  const hours = Math.round(mins / 60);
+  if (Math.abs(hours) < 48) {
+    if (hours < 0) return `${Math.abs(hours)}h overdue`;
+    return `In ${hours}h`;
+  }
+  return new Date(iso).toLocaleString('en-GB', {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}

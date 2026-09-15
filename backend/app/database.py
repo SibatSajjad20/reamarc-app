@@ -136,6 +136,68 @@ async def _create_indexes_background():
             logger.warning(f"Could not create unique shift id index: {e}")
         await db_instance.db.shifts.create_index([("is_active", 1)], name="idx_shift_active")
 
+        # CRM lead assignment (web module)
+        try:
+            await db_instance.db.crm_leads.create_index([("id", 1)], unique=True, name="idx_crm_lead_id")
+            await db_instance.db.crm_leads.create_index([("phone_e164", 1)], name="idx_crm_phone_e164")
+            # Sparse unique indexes still index explicit nulls — strip nulls and use a partial
+            # filter so only real external_id strings are unique (manual leads omit the field).
+            try:
+                await db_instance.db.crm_leads.update_many(
+                    {"$or": [{"external_id": None}, {"external_id": ""}]},
+                    {"$unset": {"external_id": ""}},
+                )
+            except Exception as scrub_err:
+                logger.warning(f"Could not scrub null CRM external_id values: {scrub_err}")
+            try:
+                await db_instance.db.crm_leads.drop_index("idx_crm_external_id")
+            except Exception:
+                pass
+            await db_instance.db.crm_leads.create_index(
+                [("external_id", 1)],
+                unique=True,
+                name="idx_crm_external_id",
+                partialFilterExpression={
+                    "external_id": {"$exists": True, "$type": "string", "$gt": ""},
+                },
+            )
+            await db_instance.db.crm_leads.create_index([("assigned_to", 1), ("contacted", 1)], name="idx_crm_assignee_contacted")
+            await db_instance.db.crm_leads.create_index([("stage", 1)], name="idx_crm_stage")
+            await db_instance.db.crm_leads.create_index([("outcome", 1)], name="idx_crm_outcome")
+            await db_instance.db.crm_leads.create_index([("created_at", -1)], name="idx_crm_created")
+            await db_instance.db.crm_leads.create_index([("next_follow_up_at", 1)], name="idx_crm_followup")
+            await db_instance.db.crm_activities.create_index([("lead_id", 1), ("created_at", -1)], name="idx_crm_act_lead")
+            await db_instance.db.crm_pipeline.create_index([("id", 1)], unique=True, name="idx_crm_pipeline_id")
+            await db_instance.db.crm_assignment_rules.create_index([("id", 1)], unique=True, name="idx_crm_rule_id")
+            await db_instance.db.crm_assignment_rules.create_index([("enabled", 1), ("priority", 1)], name="idx_crm_rule_priority")
+            await db_instance.db.crm_leads.create_index(
+                [("outcome", 1), ("contacted", 1), ("whatsapp_opened_at", 1)],
+                name="idx_crm_sla",
+            )
+            await db_instance.db.crm_templates.create_index([("id", 1)], unique=True, name="idx_crm_tpl_id")
+            await db_instance.db.crm_templates.create_index([("is_default", 1)], name="idx_crm_tpl_default")
+            await db_instance.db.crm_leads.create_index(
+                [("next_follow_up_at", 1), ("outcome", 1)],
+                name="idx_crm_followup_due",
+            )
+            await db_instance.db.crm_leads.create_index([("email", 1)], name="idx_crm_email")
+            await db_instance.db.crm_ingest_sources.create_index(
+                [("id", 1)], unique=True, name="idx_crm_ingest_id"
+            )
+            await db_instance.db.crm_ingest_sources.create_index(
+                [("token_hash", 1)], unique=True, name="idx_crm_ingest_token"
+            )
+            await db_instance.db.crm_ingest_sources.create_index(
+                [("enabled", 1)], name="idx_crm_ingest_enabled"
+            )
+            await db_instance.db.crm_deals.create_index([("id", 1)], unique=True, name="idx_crm_deal_id")
+            await db_instance.db.crm_deals.create_index([("lead_id", 1), ("created_at", -1)], name="idx_crm_deal_lead")
+            await db_instance.db.crm_deals.create_index([("status", 1)], name="idx_crm_deal_status")
+            await db_instance.db.crm_deals.create_index([("stage", 1), ("status", 1)], name="idx_crm_deal_stage_status")
+            await db_instance.db.crm_deals.create_index([("updated_at", -1)], name="idx_crm_deal_updated")
+        except Exception as e:
+            logger.warning(f"Could not create CRM indexes: {e}")
+
         try:
             await db_instance.db.mobile_devices.create_index(
                 [("device_uuid", 1), ("is_active", 1)],

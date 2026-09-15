@@ -75,6 +75,16 @@ function getNotificationMeta(n: Item) {
     };
   }
 
+  if (key === 'crm_lead' || key.includes('crm')) {
+    return {
+      label: 'Sales Pipeline',
+      sender: 'Sales Lead Alert',
+      icon: 'funnel-outline' as const,
+      color: '#059669',
+      bg: '#ECFDF5',
+    };
+  }
+
   const rawRole = (n.sender_role || 'admin').toLowerCase();
   let roleLabel = 'Admin';
   if (rawRole === 'hr') roleLabel = 'HR';
@@ -250,6 +260,22 @@ export default function AlertsScreen() {
                     onPress={() => router.push({ pathname: '/(tabs)/requests', params: { form: 'regularization' } })}
                   >
                     <Text style={styles.ctaText}>Submit Correction</Text>
+                    <Ionicons name="arrow-forward" size={14} color={colors.indigo} />
+                  </Pressable>
+                ) : null}
+                {n.kind === 'crm_lead' || String(n.kind).includes('crm') ? (
+                  <Pressable
+                    style={styles.cta}
+                    onPress={() => {
+                      const data = (n as any).data;
+                      if (data?.lead_id) {
+                        router.push({ pathname: '/pipeline/lead/[id]', params: { id: data.lead_id } });
+                      } else {
+                        router.push('/(tabs)/pipeline');
+                      }
+                    }}
+                  >
+                    <Text style={styles.ctaText}>Open in Sales Pipeline</Text>
                     <Ionicons name="arrow-forward" size={14} color={colors.indigo} />
                   </Pressable>
                 ) : null}

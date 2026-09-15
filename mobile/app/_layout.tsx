@@ -50,6 +50,16 @@ function Gate({ children }: { children: React.ReactNode }) {
     if (user && onLogin) router.replace('/(tabs)');
   }, [user, loading, segments, router]);
 
+  React.useEffect(() => {
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response?.notification?.request?.content?.data;
+      if (data?.type === 'crm_lead' && data?.lead_id) {
+        router.push({ pathname: '/pipeline/lead/[id]', params: { id: String(data.lead_id) } });
+      }
+    });
+    return () => sub.remove();
+  }, [router]);
+
   if (loading) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg }}>
@@ -76,6 +86,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false }}>
             <Stack.Screen name="login" />
             <Stack.Screen name="(tabs)" />
+            <Stack.Screen name="pipeline" />
             <Stack.Screen name="daily-log" />
           </Stack>
         </Gate>

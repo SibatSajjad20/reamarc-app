@@ -4,6 +4,14 @@
 
 export type ShiftType = 'standard' | 'hr' | 'afternoon' | 'night' | 'custom' | string;
 
+export type AttendanceSubSection =
+  | 'daily-matrix'
+  | 'punctuality-hub'
+  | 'employee-timesheets'
+  | 'approvals'
+  | 'timesheet'
+  | 'requests';
+
 export interface ShiftTemplate {
   id: string;
   name: string;

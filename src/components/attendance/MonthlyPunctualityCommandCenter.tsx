@@ -53,6 +53,7 @@ const DEPARTMENTS = [
   'Website',
   'Operations',
   'HR',
+  'Sales',
 ];
 
 export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommandCenterProps> = ({

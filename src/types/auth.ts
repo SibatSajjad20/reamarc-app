@@ -8,7 +8,9 @@ export type DepartmentType =
   | 'performance marketing'
   | 'AI'
   | 'software development'
-  | 'Software Development';
+  | 'Software Development'
+  | 'sales'
+  | 'Sales';
 
 export interface AuthUser {
   id: string;
@@ -22,6 +24,8 @@ export interface AuthUser {
   joining_date?: string | null;
   employment_type?: 'probation' | 'contract';
   is_active?: boolean;
+  crm_enabled?: boolean;
+  crm_paused?: boolean;
 }
 
 export interface LoginPayload {
