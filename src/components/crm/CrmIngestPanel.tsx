@@ -146,7 +146,10 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
   const absoluteUrl = (path: string) => {
     if (path.startsWith('http')) return path;
     const base = API_BASE_URL.replace(/\/$/, '');
-    const suffix = path.startsWith('/') ? path : `/${path}`;
+    let suffix = path.startsWith('/') ? path : `/${path}`;
+    if (base.endsWith('/api/v1') && suffix.startsWith('/api/v1/')) {
+      suffix = suffix.slice('/api/v1'.length);
+    }
     return `${base}${suffix}`;
   };
 

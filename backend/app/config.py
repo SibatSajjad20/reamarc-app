@@ -128,27 +128,17 @@ class Settings(BaseSettings):
                 "Refusing to start with an empty office IP allow-list."
             )
 
-        # Meta CRM webhook: if any Meta CRM credential is set in production, require the full set.
-        meta_bits = [
-            (self.CRM_META_PAGE_ACCESS_TOKEN or "").strip(),
-            (self.CRM_META_WEBHOOK_VERIFY_TOKEN or "").strip(),
-            (self.CRM_META_APP_SECRET or "").strip(),
-            (self.CRM_META_PAGE_ID or "").strip(),
-        ]
-        if self.IS_PRODUCTION and any(meta_bits):
-            missing = []
-            if not meta_bits[0]:
-                missing.append("CRM_META_PAGE_ACCESS_TOKEN")
-            if not meta_bits[1]:
-                missing.append("CRM_META_WEBHOOK_VERIFY_TOKEN")
-            if not meta_bits[2]:
-                missing.append("CRM_META_APP_SECRET")
-            if not meta_bits[3]:
-                missing.append("CRM_META_PAGE_ID")
-            if missing:
-                raise ValueError(
-                    "Production Meta CRM ingest is partially configured. Set: " + ", ".join(missing)
-                )
+        # Meta CRM webhook: verify token and app secret are needed for webhook handshake and signature verification.
+        # Page ID and Page Access Token can either be set here in .env or dynamically via the UI (crm_meta_pages).
+        if self.IS_PRODUCTION:
+            has_webhook = bool((self.CRM_META_WEBHOOK_VERIFY_TOKEN or "").strip())
+            has_secret = bool((self.CRM_META_APP_SECRET or "").strip())
+            if has_webhook and not has_secret:
+                raise ValueError("CRM_META_APP_SECRET must be set when CRM_META_WEBHOOK_VERIFY_TOKEN is configured.")
+            has_page_token = bool((self.CRM_META_PAGE_ACCESS_TOKEN or "").strip())
+            has_page_id = bool((self.CRM_META_PAGE_ID or "").strip())
+            if has_page_token and not has_page_id:
+                raise ValueError("CRM_META_PAGE_ID must be set when CRM_META_PAGE_ACCESS_TOKEN is configured.")
 
         if not self.OPENROUTER_API_KEY and not self.GROQ_API_KEY and not self.GEMINI_API_KEY:
             logger.warning(
