@@ -1407,7 +1407,6 @@ def _shift_id(shift: Any) -> Optional[str]:
 
 
 LEAVE_LOCK_STATUSES = {
-    AttendanceStatus.WFH.value,
     AttendanceStatus.SHORT_LEAVE.value,
     AttendanceStatus.SICK_LEAVE.value,
     AttendanceStatus.CASUAL_LEAVE.value,
@@ -1514,7 +1513,11 @@ async def persist_auto_absent(
     )
     if _record_has_punch(existing):
         return existing
-    if existing and str(existing.get("status") or "") in LEAVE_LOCK_STATUSES:
+    if existing and (
+        str(existing.get("status") or "") in LEAVE_LOCK_STATUSES
+        or existing.get("is_wfh")
+        or str(existing.get("status") or "") == AttendanceStatus.WFH.value
+    ):
         return existing
 
     approved_leave = await get_approved_leave_for_date(user_id, date_str)
