@@ -24,6 +24,25 @@ export interface CrmPipelineStage {
   order: number;
 }
 
+export interface CrmMeetingDetails {
+  event_id?: string | null;
+  invitee_id?: string | null;
+  event_name?: string | null;
+  date?: string | null;
+  slot_time?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  timezone?: string | null;
+  join_url?: string | null;
+  status?: 'scheduled' | 'rescheduled' | 'canceled' | string;
+  host_name?: string | null;
+  host_email?: string | null;
+  questions_and_answers?: Array<{ question: string; answer: string }>;
+  rescheduled?: boolean;
+  canceled_at?: string | null;
+  cancellation_reason?: string | null;
+}
+
 export interface CrmLead {
   id: string;
   name: string;
@@ -57,6 +76,7 @@ export interface CrmLead {
   next_follow_up_at?: string | null;
   tags: string[];
   converted_workspace_id?: string | null;
+  meeting?: CrmMeetingDetails | null;
   created_at: string;
   updated_at: string;
 }

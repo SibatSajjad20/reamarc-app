@@ -103,6 +103,9 @@ async def lifespan(app: FastAPI):
     from app.services.crm_lead_processor import start_crm_lead_queue_scheduler
     lead_queue_task = asyncio.create_task(start_crm_lead_queue_scheduler())
 
+    from app.services.crm_meeting_reminder_scheduler import start_crm_meeting_reminder_scheduler
+    meeting_reminder_task = asyncio.create_task(start_crm_meeting_reminder_scheduler())
+
     sync_task = asyncio.create_task(periodic_marketing_sync())
 
     yield
@@ -111,6 +114,7 @@ async def lifespan(app: FastAPI):
     reminder_task.cancel()
     sla_task.cancel()
     lead_queue_task.cancel()
+    meeting_reminder_task.cancel()
     sync_task.cancel()
     shutdown_attendance_scheduler()
     await close_mongo_connection()
@@ -237,6 +241,7 @@ app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(mobile.router, prefix=settings.API_V1_STR)
 app.include_router(crm.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router, prefix=settings.API_V1_STR)
+app.include_router(crm_public.router)
 
 
 

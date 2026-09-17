@@ -282,4 +282,12 @@ export const crmService = {
   getQueueStats(): Promise<CrmQueueStats> {
     return apiClient.get('/crm/ingest/queue-stats');
   },
+
+  getSchedulerSettings(): Promise<any> {
+    return apiClient.get('/crm/scheduler/settings');
+  },
+
+  updateSchedulerSettings(payload: Record<string, any>): Promise<any> {
+    return apiClient.patch('/crm/scheduler/settings', payload);
+  },
 };

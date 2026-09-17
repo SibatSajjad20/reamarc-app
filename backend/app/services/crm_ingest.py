@@ -42,6 +42,7 @@ _COMPANY_KEYS = ("company", "company_name", "business_name", "organisation", "or
 _CITY_KEYS = ("city", "town", "location")
 _SERVICE_KEYS = ("service", "product", "interest", "looking_for")
 _BUDGET_KEYS = ("budget", "monthly_budget", "ad_budget")
+_WEBSITE_KEYS = ("website", "website_url", "site", "web_url", "url")
 
 
 def _now() -> str:
@@ -151,6 +152,7 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         *_CITY_KEYS,
         *_SERVICE_KEYS,
         *_BUDGET_KEYS,
+        *_WEBSITE_KEYS,
         "campaign",
         "campaign_name",
         "utm_campaign",
@@ -177,6 +179,7 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "phone_valid": valid,
         "email": email[:200] if email else None,
         "company": _clip_str(_first_str(raw, _COMPANY_KEYS), 160),
+        "website": _clip_str(_first_str(raw, _WEBSITE_KEYS), 200),
         "city": _clip_str(_first_str(raw, _CITY_KEYS), 80),
         "service": _clip_str(_first_str(raw, _SERVICE_KEYS), 120),
         "budget": _clip_str(_first_str(raw, _BUDGET_KEYS), 80),
@@ -460,19 +463,29 @@ async def ingest_lead(
     raw_payload: Optional[Dict[str, Any]] = None,
     ingest_source_id: Optional[str] = None,
     attribution: Optional[Dict[str, Any]] = None,
+    initial_stage: Optional[str] = None,
+    meeting: Optional[Dict[str, Any]] = None,
+    next_follow_up_at: Optional[str] = None,
+    skip_duplicate_merge: bool = False,
 ) -> Dict[str, Any]:
-    """Create or attach-to-duplicate a lead, then run the assignment engine."""
+    """Create or attach-to-duplicate a lead, then run the assignment engine.
+
+    Public scheduler bookings must pass skip_duplicate_merge=True so an anonymous
+    caller cannot mutate an existing lead by matching email/phone.
+    """
     db = _db()
     normalized = normalize_ingest_fields(fields)
     ext = external_id or normalized.get("external_id")
     if ext:
         ext = str(ext).strip()[:200] or None
 
-    existing = await find_recent_duplicate(
-        phone_e164=normalized.get("phone_e164"),
-        email=normalized.get("email"),
-        external_id=ext,
-    )
+    existing = None
+    if not skip_duplicate_merge:
+        existing = await find_recent_duplicate(
+            phone_e164=normalized.get("phone_e164"),
+            email=normalized.get("email"),
+            external_id=ext,
+        )
     if existing:
         await append_activity(
             existing["id"],
@@ -498,6 +511,7 @@ async def ingest_lead(
         "id": f"ld_{uuid.uuid4().hex[:12]}",
         "name": normalized["name"],
         "company": normalized.get("company"),
+        "website": normalized.get("website"),
         "email": normalized.get("email"),
         "phone_raw": normalized.get("phone_raw"),
         "phone_e164": normalized.get("phone_e164"),
@@ -507,7 +521,7 @@ async def ingest_lead(
         "budget": normalized.get("budget"),
         "source": (source_label or "ingest").strip().lower()[:80],
         "campaign": campaign or normalized.get("campaign"),
-        "stage": "new",
+        "stage": (initial_stage or "new").strip().lower()[:80],
         "outcome": None,
         "disqualify_reason": None,
         "assigned_to": None,
@@ -517,7 +531,8 @@ async def ingest_lead(
         "contacted_at": None,
         "whatsapp_opened_at": None,
         "last_activity_at": now,
-        "next_follow_up_at": None,
+        "next_follow_up_at": next_follow_up_at,
+        "meeting": meeting,
         "tags": [],
         "custom_fields": normalized.get("custom_fields") or {},
         "raw_payload": _truncate_raw_payload(raw_payload or fields),
@@ -555,6 +570,15 @@ async def ingest_lead(
         SYSTEM_ACTOR,
         {"ingest_source_id": ingest_source_id, "external_id": ext},
     )
+    if meeting:
+        host_str = f" with {meeting.get('host_name')}" if meeting.get("host_name") else ""
+        await append_activity(
+            doc["id"],
+            "meeting_scheduled",
+            f"Meeting scheduled{host_str}: {meeting.get('event_name', 'Consultancy Session')} on {meeting.get('start_time', 'scheduled time')}.",
+            SYSTEM_ACTOR,
+            meeting,
+        )
     note = normalized.get("note")
     if note:
         await append_activity(doc["id"], "note", str(note)[:4000], SYSTEM_ACTOR)
@@ -830,3 +854,6 @@ async def poll_configured_meta_forms() -> Dict[str, Any]:
     for form_id in form_ids:
         results.append(await poll_meta_form_leads(form_id))
     return {"forms": results}
+
+
+

@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import {
   Activity,
+  Calendar,
   CheckCircle2,
+  Clock,
+  Code,
   Copy,
+  ExternalLink,
   Globe,
   Loader2,
   Plus,
   RefreshCw,
+  Sparkles,
   Trash2,
   Webhook,
   X,
@@ -19,7 +24,7 @@ interface CrmIngestPanelProps {
   onClose: () => void;
 }
 
-type TabKey = 'sources' | 'meta' | 'queue';
+type TabKey = 'sources' | 'meta' | 'scheduler' | 'queue';
 
 export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('sources');
@@ -47,6 +52,33 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
   const [metaAppSecret, setMetaAppSecret] = useState('');
   const [savingPage, setSavingPage] = useState(false);
 
+  // Reamarc native scheduler WordPress embed state
+  const [activeEmbedType, setActiveEmbedType] = useState<'iframe' | 'button' | 'link'>('iframe');
+
+  // Scheduler Configuration Settings state
+  const [schedulerConfig, setSchedulerConfig] = useState({
+    title: 'Digital Services Consultancy Session',
+    description: (
+      "Hi! thanks for showing interest.\n" +
+      "Our upcoming 30-minute meeting will provide an excellent opportunity for us to get better acquainted. " +
+      "During our conversation, we'll explore the challenges you're currently encountering and brainstorm ways in which " +
+      "we can collaborate effectively to address them and meet your specific requirements.\n" +
+      "I'm eagerly looking forward to our discussion. Thanks once again!"
+    ),
+    host_name: 'Muhammad Faizan Khan',
+    host_email: 'faizan@reamarc.com',
+    duration_minutes: 30,
+    buffer_minutes: 0,
+    working_days: [1, 2, 3, 4, 5, 6],
+    start_hour: '11:00',
+    end_hour: '23:00',
+    meeting_link: 'https://meet.google.com/lookup/reamarc-strategy',
+    timezone: 'Asia/Karachi',
+  });
+  const [savingSchedulerConfig, setSavingSchedulerConfig] = useState(false);
+  const [schedulerConfigSuccess, setSchedulerConfigSuccess] = useState(false);
+  const [customProductionDomain, setCustomProductionDomain] = useState('');
+
   const loadSources = async () => {
     try {
       setSources(await crmService.listIngestSources());
@@ -71,11 +103,51 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
     }
   };
 
+  const loadSchedulerConfig = async () => {
+    try {
+      const data = await crmService.getSchedulerSettings();
+      if (data) {
+        setSchedulerConfig((prev) => ({ ...prev, ...data }));
+      }
+    } catch {
+      // Non-critical: company defaults persist
+    }
+  };
+
+  const handleSaveSchedulerConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingSchedulerConfig(true);
+    setError(null);
+    setSchedulerConfigSuccess(false);
+    try {
+      const updated = await crmService.updateSchedulerSettings(schedulerConfig);
+      if (updated) {
+        setSchedulerConfig((prev) => ({ ...prev, ...updated }));
+      }
+      setSchedulerConfigSuccess(true);
+      setTimeout(() => setSchedulerConfigSuccess(false), 3500);
+    } catch (err: any) {
+      setError(err?.message || 'Could not save scheduler settings.');
+    } finally {
+      setSavingSchedulerConfig(false);
+    }
+  };
+
+  const toggleWorkingDay = (dayNum: number) => {
+    setSchedulerConfig((prev) => {
+      const exists = prev.working_days.includes(dayNum);
+      const updated = exists
+        ? prev.working_days.filter((d) => d !== dayNum)
+        : [...prev.working_days, dayNum].sort();
+      return { ...prev, working_days: updated };
+    });
+  };
+
   const loadAll = async () => {
     setLoading(true);
     setError(null);
     try {
-      await Promise.all([loadSources(), loadMetaPages(), loadQueueStats()]);
+      await Promise.all([loadSources(), loadMetaPages(), loadQueueStats(), loadSchedulerConfig()]);
     } finally {
       setLoading(false);
     }
@@ -132,6 +204,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
       setSavingPage(false);
     }
   };
+
 
   const copyText = async (text: string) => {
     try {
@@ -199,6 +272,21 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
           >
             <Webhook className="w-3.5 h-3.5" />
             <span>Meta Pages (FB/IG)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('scheduler');
+              void loadSchedulerConfig();
+            }}
+            className={`pb-2.5 px-3 text-xs font-semibold border-b-2 transition flex items-center gap-1.5 cursor-pointer ${
+              activeTab === 'scheduler'
+                ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+            }`}
+          >
+            <Calendar className="w-3.5 h-3.5" />
+            <span>Meeting Scheduler &amp; WordPress</span>
           </button>
           <button
             type="button"
@@ -512,6 +600,389 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
               </div>
             </div>
           )}
+
+          {/* TAB: REAMARC NATIVE MEETING SCHEDULER & WORDPRESS */}
+          {activeTab === 'scheduler' && (() => {
+            const effectiveBaseUrl = customProductionDomain.trim().replace(/\/$/, '') || window.location.origin;
+
+            return (
+              <div className="space-y-4">
+                {/* Native Scheduler Info Card */}
+                <div className="rounded-2xl border border-blue-500/30 bg-blue-50/40 dark:bg-blue-950/20 p-4 space-y-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider bg-blue-500/15 text-blue-700 dark:text-blue-400 border border-blue-500/30 mb-1">
+                        <Sparkles className="w-3 h-3" />
+                        100% Native In-House Scheduler
+                      </div>
+                      <p className="text-xs text-zinc-600 dark:text-zinc-300 max-w-xl">
+                        Zero third-party fees, zero middlemen ($0/month). Automatically generates availability, prevents double-booking, creates leads in <strong className="text-blue-700 dark:text-blue-300">"Meeting Booked"</strong> stage, and generates Google Calendar &amp; Outlook .ics invites.
+                      </p>
+                    </div>
+                    <a
+                      href="/book"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="shrink-0 px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold transition flex items-center gap-1.5 shadow-md shadow-blue-600/20 cursor-pointer"
+                    >
+                      <span>Open Live Booking Page</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+
+                  <div className="rounded-xl border border-blue-300 dark:border-blue-800 bg-white dark:bg-zinc-900 p-3 space-y-2">
+                    <p className="text-[11px] font-bold text-blue-900 dark:text-blue-200">
+                      Your Public Booking Page Link:
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <code className="flex-1 break-all text-[11px] font-mono text-zinc-800 dark:text-zinc-200 bg-zinc-100 dark:bg-zinc-800/80 p-2 rounded-lg">
+                        {`${effectiveBaseUrl}/book`}
+                      </code>
+                      <button
+                        type="button"
+                        onClick={() => void copyText(`${effectiveBaseUrl}/book`)}
+                        className="px-3 py-2 text-xs font-semibold rounded-lg bg-blue-100 dark:bg-blue-900/60 hover:bg-blue-200 text-blue-800 dark:text-blue-200 flex items-center gap-1.5 transition cursor-pointer shrink-0"
+                      >
+                        <Copy className="w-3.5 h-3.5" />
+                        <span>{copied ? 'Copied!' : 'Copy Link'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* WordPress Integration (Embed Snippet Generator) */}
+                <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                      <Code className="w-3.5 h-3.5 text-blue-500" />
+                      WordPress Embed Generator (Elementor &amp; Gutenberg Ready)
+                    </h4>
+                    <span className="text-[11px] text-zinc-400">
+                      Copy &amp; paste into WordPress Custom HTML
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 pt-1 border-b border-zinc-100 dark:border-zinc-800 pb-2">
+                    <button
+                      type="button"
+                      onClick={() => setActiveEmbedType('iframe')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        activeEmbedType === 'iframe'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
+                      }`}
+                    >
+                      Inline iFrame Embed (Recommended)
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveEmbedType('button')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        activeEmbedType === 'button'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
+                      }`}
+                    >
+                      CTA Button Code
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveEmbedType('link')}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold cursor-pointer transition ${
+                        activeEmbedType === 'link'
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
+                      }`}
+                    >
+                      Tracking URL (UTM Ad Link)
+                    </button>
+                  </div>
+
+                  {activeEmbedType === 'iframe' && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-zinc-500">
+                        In WordPress, edit your page in <strong>Elementor</strong> or <strong>Gutenberg</strong>, add a <strong>Custom HTML</strong> block, and paste this snippet:
+                      </p>
+                      <div className="relative">
+                        <pre className="p-3 rounded-xl bg-zinc-900 text-zinc-200 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap">
+{`<!-- Reamarc Native Scheduler Embed for WordPress -->
+<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 16px;">
+  <iframe 
+    src="${effectiveBaseUrl}/book?embed=true" 
+    style="width: 100%; height: 750px; border: none; overflow: hidden;"
+    loading="lazy"
+    title="Reamarc Strategy Session Scheduler">
+  </iframe>
+</div>`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => void copyText(`<!-- Reamarc Native Scheduler Embed for WordPress -->\n<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 16px;">\n  <iframe src="${effectiveBaseUrl}/book?embed=true" style="width: 100%; height: 750px; border: none; overflow: hidden;" loading="lazy" title="Reamarc Strategy Session Scheduler"></iframe>\n</div>`)}
+                          className="absolute top-2 right-2 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Code</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeEmbedType === 'button' && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-zinc-500">
+                        Add a styled booking CTA button to your WordPress header, footer, or navigation menu:
+                      </p>
+                      <div className="relative">
+                        <pre className="p-3 rounded-xl bg-zinc-900 text-zinc-200 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap">
+{`<!-- Reamarc Booking CTA Button for WordPress -->
+<a href="${effectiveBaseUrl}/book" 
+   target="_blank" 
+   rel="noopener noreferrer"
+   style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.25);">
+  📅 Book a Strategy Session
+</a>`}
+                        </pre>
+                        <button
+                          type="button"
+                          onClick={() => void copyText(`<!-- Reamarc Booking CTA Button for WordPress -->\n<a href="${effectiveBaseUrl}/book" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.25);">\n  📅 Book a Strategy Session\n</a>`)}
+                          className="absolute top-2 right-2 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>Copy Code</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {activeEmbedType === 'link' && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-zinc-500">
+                        Direct booking link with pre-built UTM tracking parameters for Meta/Google Ads, WhatsApp, or Instagram bio:
+                      </p>
+                      <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900 p-2 rounded-xl border border-zinc-200 dark:border-zinc-800">
+                        <code className="flex-1 break-all text-[11px] font-mono text-zinc-800 dark:text-zinc-200">
+                          {`${effectiveBaseUrl}/book?utm_source=wordpress_website&utm_medium=cta_button&utm_campaign=sales_pipeline`}
+                        </code>
+                        <button
+                          type="button"
+                          onClick={() => void copyText(`${effectiveBaseUrl}/book?utm_source=wordpress_website&utm_medium=cta_button&utm_campaign=sales_pipeline`)}
+                          className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-500 text-white flex items-center gap-1 cursor-pointer shrink-0"
+                        >
+                          <Copy className="w-3.5 h-3.5" />
+                          <span>Copy URL</span>
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Configurable Operating Schedule & Timings Form */}
+                <form onSubmit={handleSaveSchedulerConfig} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-4 sm:p-5 space-y-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
+                    <div>
+                      <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-blue-500" />
+                        Scheduler Timing &amp; Working Hours Configuration
+                      </h4>
+                      <p className="text-[11px] text-zinc-500 mt-0.5">
+                        Adjust available booking days, start &amp; end hours, session durations, and host information.
+                      </p>
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={savingSchedulerConfig}
+                      className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-md shadow-blue-600/20 cursor-pointer disabled:opacity-50"
+                    >
+                      {savingSchedulerConfig ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving…</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>Save Settings</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {schedulerConfigSuccess && (
+                    <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 flex items-center gap-2 animate-in fade-in">
+                      <CheckCircle2 className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      <span className="font-semibold">Scheduler settings successfully updated! New slots and timings are live.</span>
+                    </div>
+                  )}
+
+                  {/* Active Days of the Week */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block">
+                      Active Booking Days (Click to toggle):
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 1, label: 'Monday' },
+                        { id: 2, label: 'Tuesday' },
+                        { id: 3, label: 'Wednesday' },
+                        { id: 4, label: 'Thursday' },
+                        { id: 5, label: 'Friday' },
+                        { id: 6, label: 'Saturday' },
+                        { id: 7, label: 'Sunday' },
+                      ].map((day) => {
+                        const active = schedulerConfig.working_days.includes(day.id);
+                        return (
+                          <button
+                            key={day.id}
+                            type="button"
+                            onClick={() => toggleWorkingDay(day.id)}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition cursor-pointer border ${
+                              active
+                                ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                                : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200'
+                            }`}
+                          >
+                            {day.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-zinc-400">
+                      Default: Monday to Saturday active. Days not selected will appear closed on the public calendar.
+                    </p>
+                  </div>
+
+                  {/* Timing & Duration Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Start Time (Opening)
+                      </label>
+                      <input
+                        type="time"
+                        value={schedulerConfig.start_hour}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, start_hour: e.target.value })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        End Time (Closing)
+                      </label>
+                      <input
+                        type="time"
+                        value={schedulerConfig.end_hour}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, end_hour: e.target.value })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Session Duration
+                      </label>
+                      <select
+                        value={schedulerConfig.duration_minutes}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, duration_minutes: Number(e.target.value) })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      >
+                        <option value={15}>15 Minutes</option>
+                        <option value={30}>30 Minutes (Default)</option>
+                        <option value={45}>45 Minutes</option>
+                        <option value={60}>60 Minutes</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Timezone
+                      </label>
+                      <input
+                        type="text"
+                        value={schedulerConfig.timezone}
+                        readOnly
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-100 dark:bg-zinc-800 text-xs text-zinc-500 cursor-not-allowed"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Host & Meeting Details */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Host Name
+                      </label>
+                      <input
+                        type="text"
+                        value={schedulerConfig.host_name}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, host_name: e.target.value })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Host Email
+                      </label>
+                      <input
+                        type="email"
+                        value={schedulerConfig.host_email}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, host_email: e.target.value })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                        Meeting / Google Meet Link
+                      </label>
+                      <input
+                        type="url"
+                        value={schedulerConfig.meeting_link}
+                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, meeting_link: e.target.value })}
+                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Public Greeting / Description */}
+                  <div>
+                    <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
+                      Public Greeting &amp; Description (Displayed to leads on booking page)
+                    </label>
+                    <textarea
+                      rows={4}
+                      value={schedulerConfig.description}
+                      onChange={(e) => setSchedulerConfig({ ...schedulerConfig, description: e.target.value })}
+                      className="w-full p-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-none font-sans leading-relaxed"
+                    />
+                  </div>
+
+                  {/* Custom Production Domain Override (for Vercel & Render) */}
+                  <div className="p-3 rounded-xl bg-zinc-50/70 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 text-xs space-y-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <label className="font-semibold text-zinc-800 dark:text-zinc-200">
+                        Custom Production Domain URL (optional for WordPress Embed)
+                      </label>
+                      <span className="text-[11px] text-zinc-400">
+                        Current host: <code className="font-mono text-zinc-600 dark:text-zinc-300">{window.location.origin}</code>
+                      </span>
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="e.g. https://crm.reamarc.com (leave empty to auto-detect current domain)"
+                      value={customProductionDomain}
+                      onChange={(e) => setCustomProductionDomain(e.target.value)}
+                      className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 font-mono focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                    <p className="text-[11px] text-zinc-400">
+                      When deployed to Vercel/Render, the embed code will automatically use your live domain. You can also paste your production domain here to generate copy-paste code ahead of time.
+                    </p>
+                  </div>
+                </form>
+              </div>
+            );
+          })()}
 
           {/* TAB 3: RELIABILITY & EVENT QUEUE */}
           {activeTab === 'queue' && (

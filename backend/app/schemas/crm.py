@@ -233,6 +233,8 @@ class CrmLeadResponse(BaseModel):
     created_at: str
     updated_at: str
     attribution: Optional[CrmAttribution] = None
+    meeting: Optional[Dict[str, Any]] = None
+    custom_fields: Dict[str, Any] = Field(default_factory=dict)
 
 
 class CrmLeadDetailResponse(CrmLeadResponse):

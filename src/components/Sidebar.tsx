@@ -27,8 +27,6 @@ import {
   ChevronRight,
   LayoutGrid,
   List,
-  MessageSquareText,
-  Webhook,
   SlidersHorizontal,
   Users,
   BarChart3,
@@ -130,11 +128,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
     { id: 'deals' as CrmSubSection, label: 'Deals', icon: Briefcase },
     { id: 'list' as CrmSubSection, label: 'All Leads', icon: List },
     { id: 'followup' as CrmSubSection, label: 'Follow-ups', icon: Clock },
-    { id: 'templates' as CrmSubSection, label: 'Templates', icon: MessageSquareText },
     ...(canAssign
       ? [
-          { id: 'ingest' as CrmSubSection, label: 'Ingest Sources', icon: Webhook },
-          { id: 'rules' as CrmSubSection, label: 'Rules & Team', icon: SlidersHorizontal },
+          { id: 'settings' as CrmSubSection, label: 'Pipeline Settings', icon: SlidersHorizontal },
         ]
       : []),
   ];
@@ -366,7 +362,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
                   {crmSubItems.map((sub) => {
                     const SubIcon = sub.icon;
-                    const isSubActive = currentView === 'crm' && (activeCrmSection === sub.id || (!activeCrmSection && sub.id === 'board'));
+                    const isSubActive =
+                      currentView === 'crm' &&
+                      (activeCrmSection === sub.id ||
+                        (!activeCrmSection && sub.id === 'board') ||
+                        (sub.id === 'settings' &&
+                          (activeCrmSection === 'templates' ||
+                            activeCrmSection === 'ingest' ||
+                            activeCrmSection === 'rules')));
                     return (
                       <button
                         key={sub.id}

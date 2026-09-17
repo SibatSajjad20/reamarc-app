@@ -195,6 +195,11 @@ async def _create_indexes_background():
             await db_instance.db.crm_deals.create_index([("status", 1)], name="idx_crm_deal_status")
             await db_instance.db.crm_deals.create_index([("stage", 1), ("status", 1)], name="idx_crm_deal_stage_status")
             await db_instance.db.crm_deals.create_index([("updated_at", -1)], name="idx_crm_deal_updated")
+            await db_instance.db.crm_scheduler_slots.create_index(
+                [("date", 1), ("slot_time", 1)],
+                unique=True,
+                name="uniq_crm_scheduler_slot",
+            )
         except Exception as e:
             logger.warning(f"Could not create CRM indexes: {e}")
 

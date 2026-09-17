@@ -490,3 +490,29 @@ async def get_lead_queue_stats(current_user: dict = Depends(get_current_user)):
     from app.services import crm_lead_processor
 
     return await crm_lead_processor.get_queue_stats()
+
+
+# ==============================================================================
+# REAMARC MEETING SCHEDULER SETTINGS
+# ==============================================================================
+
+@router.get("/scheduler/settings")
+async def get_crm_scheduler_settings(current_user: dict = Depends(get_current_user)):
+    """Retrieve internal scheduler configuration and working hours."""
+    from app.services import crm_scheduler
+
+    return await crm_scheduler.get_scheduler_settings()
+
+
+@router.patch("/scheduler/settings")
+async def update_crm_scheduler_settings(
+    payload: Dict[str, Any],
+    current_user: dict = Depends(get_current_user),
+):
+    """Update meeting scheduler settings (working hours, duration, services, meeting link)."""
+    if not can_assign_leads(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only managers can update scheduler settings.")
+    from app.services import crm_scheduler
+
+    return await crm_scheduler.update_scheduler_settings(payload, current_user)
+

@@ -7,6 +7,7 @@ import {
   List,
   Plus,
   Search,
+  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -22,9 +23,8 @@ import { CrmDealKanbanBoard } from '../crm/CrmDealKanbanBoard';
 import { CrmFollowUpView } from '../crm/CrmFollowUpView';
 import { CrmProposalModal, dealFormConfigToPayload } from '../crm/CrmProposalModal';
 import { CrmLeadDrawer, CrmLeadDrawerSkeleton } from '../crm/CrmLeadDrawer';
-import { CrmIngestPanel } from '../crm/CrmIngestPanel';
-import { CrmRulesPanel } from '../crm/CrmRulesPanel';
-import { CrmTemplatesPanel } from '../crm/CrmTemplatesPanel';
+import { CrmSettingsView } from '../crm/settings/CrmSettingsView';
+import type { CrmSettingsTab } from '../crm/settings/CrmSettingsView';
 import { CrmDeleteConfirmModal } from '../crm/CrmDeleteConfirmModal';
 import {
   CrmLostReasonModal,
@@ -190,10 +190,8 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const [assignedTo, setAssignedTo] = useState('');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [rulesOpen, setRulesOpen] = useState(false);
-  const [templatesOpen, setTemplatesOpen] = useState(false);
-  const [ingestOpen, setIngestOpen] = useState(false);
-  const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup'>('board');
+  const [settingsTab, setSettingsTab] = useState<CrmSettingsTab>('templates');
+  const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup' | 'settings'>('board');
   const [proposalModalLead, setProposalModalLead] = useState<CrmLead | null>(null);
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
   const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'activity' | 'deals'>('overview');
@@ -214,52 +212,32 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     if (!activeSection) return;
     if (activeSection === 'board') {
       setViewMode('board');
-      setTemplatesOpen(false);
-      setIngestOpen(false);
-      setRulesOpen(false);
     } else if (activeSection === 'deals') {
       setViewMode('deals');
-      setTemplatesOpen(false);
-      setIngestOpen(false);
-      setRulesOpen(false);
     } else if (activeSection === 'list') {
       setViewMode('list');
-      setTemplatesOpen(false);
-      setIngestOpen(false);
-      setRulesOpen(false);
     } else if (activeSection === 'followup') {
       setViewMode('followup');
-      setTemplatesOpen(false);
-      setIngestOpen(false);
-      setRulesOpen(false);
+    } else if (activeSection === 'settings') {
+      setViewMode('settings');
     } else if (activeSection === 'templates') {
-      setTemplatesOpen(true);
-      setIngestOpen(false);
-      setRulesOpen(false);
+      setViewMode('settings');
+      setSettingsTab('templates');
     } else if (activeSection === 'ingest') {
-      setIngestOpen(true);
-      setTemplatesOpen(false);
-      setRulesOpen(false);
+      setViewMode('settings');
+      setSettingsTab('ingest');
     } else if (activeSection === 'rules') {
-      setRulesOpen(true);
-      setTemplatesOpen(false);
-      setIngestOpen(false);
+      setViewMode('settings');
+      setSettingsTab('rules');
     }
   }, [activeSection]);
 
-  const handleToggleViewMode = (mode: 'list' | 'board' | 'deals' | 'followup') => {
+  const handleToggleViewMode = (mode: 'list' | 'board' | 'deals' | 'followup' | 'settings') => {
     setViewMode(mode);
     onSectionChange?.(mode as CrmSubSection);
   };
 
-  const loadTemplates = useCallback(async () => {
-    try {
-      const tpls = await crmService.listTemplates();
-      setTemplates(tpls);
-    } catch {
-      // Non-critical
-    }
-  }, []);
+
 
   const load = useCallback(async () => {
     loadAbortRef.current?.abort();
@@ -598,6 +576,16 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         counts.opened_not_confirmed > 0 ||
         pendingOpsLeadCount > 0;
 
+  if (viewMode === 'settings') {
+    return (
+      <CrmSettingsView
+        initialTab={settingsTab}
+        assignees={assignees}
+        onBackToPipeline={() => handleToggleViewMode('board')}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 flex h-full min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
       <div className="flex-1 flex flex-col min-w-0">
@@ -626,14 +614,27 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => setCreateOpen(true)}
-            className="h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            New lead
-          </button>
+          <div className="flex items-center gap-2">
+            {canAssign && (
+              <button
+                type="button"
+                onClick={() => handleToggleViewMode('settings')}
+                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-semibold transition cursor-pointer"
+                title="Pipeline Settings (Templates, Ingest Sources, Rules & Team)"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Settings</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setCreateOpen(true)}
+              className="h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New lead
+            </button>
+          </div>
         </header>
 
         {/* Rate limit notification */}
@@ -1209,34 +1210,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         />
       )}
 
-      {templatesOpen && (
-        <CrmTemplatesPanel
-          onClose={() => {
-            setTemplatesOpen(false);
-            onSectionChange?.(viewMode);
-            void loadTemplates();
-          }}
-        />
-      )}
 
-      {rulesOpen && canAssign && (
-        <CrmRulesPanel
-          assignees={assignees}
-          onClose={() => {
-            setRulesOpen(false);
-            onSectionChange?.(viewMode);
-          }}
-        />
-      )}
-
-      {ingestOpen && canAssign && (
-        <CrmIngestPanel
-          onClose={() => {
-            setIngestOpen(false);
-            onSectionChange?.(viewMode);
-          }}
-        />
-      )}
 
       <CrmCreateLeadModal
         isOpen={createOpen}

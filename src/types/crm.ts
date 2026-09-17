@@ -60,6 +60,23 @@ export interface CrmAttribution {
   referrer?: string | null;
 }
 
+export interface CrmMeetingDetails {
+  event_id?: string | null;
+  invitee_id?: string | null;
+  event_name?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  timezone?: string | null;
+  join_url?: string | null;
+  status?: 'scheduled' | 'rescheduled' | 'canceled' | string;
+  host_name?: string | null;
+  host_email?: string | null;
+  questions_and_answers?: Array<{ question: string; answer: string }>;
+  rescheduled?: boolean;
+  canceled_at?: string | null;
+  cancellation_reason?: string | null;
+}
+
 export interface CrmLead {
   id: string;
   name: string;
@@ -99,6 +116,8 @@ export interface CrmLead {
   created_at: string;
   updated_at: string;
   attribution?: CrmAttribution | null;
+  meeting?: CrmMeetingDetails | null;
+  custom_fields?: Record<string, any>;
 }
 
 export interface CrmActivity {
@@ -382,7 +401,7 @@ export interface CrmDealList {
   total_value: number;
 }
 
-export type CrmSubSection = 'board' | 'deals' | 'list' | 'followup' | 'templates' | 'ingest' | 'rules';
+export type CrmSubSection = 'board' | 'deals' | 'list' | 'followup' | 'settings' | 'templates' | 'ingest' | 'rules';
 
 export interface CrmMetaPage {
   id: string;

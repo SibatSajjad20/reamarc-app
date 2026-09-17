@@ -1,5 +1,6 @@
 """Public CRM ingest endpoints (token auth / Meta webhook). No session required."""
 import json
+import re
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
@@ -75,6 +76,107 @@ async def google_ads_webhook(request: Request, token: str):
 
     event_id = await queue_webhook_event("google_ads", payload, source_id=source.get("id"))
     return {"ok": True, "queued": True, "event_id": event_id}
+
+
+# ==============================================================================
+# NATIVE REAMARC MEETING SCHEDULER PUBLIC ENDPOINTS (No Auth Required)
+# ==============================================================================
+
+@router.get("/public/scheduler/config")
+@limiter.limit("120/minute")
+async def get_public_scheduler_config(request: Request):
+    """Retrieve public meeting scheduler metadata (title, duration, services, host, timezone)."""
+    from app.services import crm_scheduler
+    settings = await crm_scheduler.get_scheduler_settings()
+    return {
+        "title": settings.get("title"),
+        "description": settings.get("description"),
+        "host_name": settings.get("host_name"),
+        "duration_minutes": settings.get("duration_minutes", 30),
+        "timezone": settings.get("timezone", "Asia/Karachi"),
+        "working_days": settings.get("working_days", [1, 2, 3, 4, 5]),
+        "services": settings.get("services", []),
+    }
+
+
+@router.get("/public/scheduler/slots")
+@limiter.limit("120/minute")
+async def get_public_scheduler_slots(
+    request: Request,
+    date: str = Query(..., description="Target booking date in YYYY-MM-DD format"),
+    timezone: Optional[str] = Query(None, description="Optional client timezone"),
+):
+    """Query real-time available time slots for a specified date, automatically filtering out conflicts."""
+    from app.services import crm_scheduler
+    return await crm_scheduler.get_available_slots(date, client_timezone=timezone)
+
+
+@router.post("/public/scheduler/book")
+@limiter.limit("30/minute")
+async def book_public_meeting(request: Request):
+    """Submit a booking request from the public scheduler or embedded WordPress widget.
+
+    Validates slot availability atomically, ingests the lead directly into 'session_booked'
+    stage in Reamarc CRM, and returns instant calendar links.
+    """
+    from app.services import crm_scheduler
+    raw = await request.body()
+    crm_ingest.assert_ingest_body_size(raw)
+
+    payload = await crm_ingest.parse_ingest_request_body(request, raw)
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON object required.")
+
+    return await crm_scheduler.book_meeting(payload)
+
+
+@router.get("/public/scheduler/ics/{token}")
+@limiter.limit("60/minute")
+async def download_scheduler_ics(request: Request, token: str):
+    """Download RFC 5545 iCalendar (.ics) invite. Requires a signed booking token."""
+    from app.services import crm_scheduler
+    db = crm_ingest._db()
+    token = (token or "").strip()
+    lead_id = token.split(".", 1)[0] if "." in token else ""
+    if not lead_id or not lead_id.startswith("ld_"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    lead = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
+    if not lead or not lead.get("meeting"):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    m = lead["meeting"]
+    start_time = str(m.get("start_time") or "")
+    if not crm_scheduler.verify_ics_token(token, lead_id, start_time):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    from datetime import datetime as dt_cls
+    try:
+        st_raw = start_time.replace("Z", "+00:00")
+        et_raw = str(m.get("end_time")).replace("Z", "+00:00")
+        start_dt = dt_cls.fromisoformat(st_raw)
+        end_dt = dt_cls.fromisoformat(et_raw)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid meeting timestamps.")
+
+    ics_content = crm_scheduler.generate_ics_calendar(
+        lead_id=lead_id,
+        title=m.get("event_name", "Reamarc Consultancy Session"),
+        description=f"Discovery and strategy session with Reamarc.\nMeeting Room: {m.get('join_url', '')}",
+        location=m.get("join_url", ""),
+        start_dt=start_dt,
+        end_dt=end_dt,
+        host_name=m.get("host_name", "Muhammad Faizan Khan"),
+        host_email=m.get("host_email", "faizan@reamarc.com"),
+        attendee_name=lead.get("name", "Client"),
+        attendee_email=lead.get("email", ""),
+    )
+    safe_name = re.sub(r"[^a-zA-Z0-9_-]", "", lead_id) or "session"
+    return PlainTextResponse(
+        content=ics_content,
+        media_type="text/calendar",
+        headers={"Content-Disposition": f'attachment; filename="reamarc-session-{safe_name}.ics"'},
+    )
 
 
 @router.get("/meta/webhook")

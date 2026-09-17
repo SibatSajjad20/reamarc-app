@@ -105,6 +105,44 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
           </View>
         ) : null}
 
+        {lead.meeting ? (
+          <View
+            style={[
+              styles.meetingChip,
+              lead.meeting.status === 'canceled'
+                ? styles.meetingCanceledChip
+                : styles.meetingActiveChip,
+            ]}
+          >
+            <Ionicons
+              name="videocam-outline"
+              size={11}
+              color={lead.meeting.status === 'canceled' ? colors.rose : colors.emerald}
+            />
+            <Text
+              style={[
+                styles.meetingChipText,
+                lead.meeting.status === 'canceled'
+                  ? styles.meetingCanceledText
+                  : styles.meetingActiveText,
+              ]}
+              numberOfLines={1}
+            >
+              {lead.meeting.status === 'canceled'
+                ? 'Meeting canceled'
+                : lead.meeting.start_time
+                  ? `${new Date(lead.meeting.start_time).toLocaleDateString(undefined, {
+                      month: 'short',
+                      day: 'numeric',
+                    })} ${new Date(lead.meeting.start_time).toLocaleTimeString(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}`
+                  : lead.meeting.slot_time || 'Meeting'}
+            </Text>
+          </View>
+        ) : null}
+
         {!isClosed ? (
           <View
             style={[
@@ -298,6 +336,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.slate,
     fontWeight: '600',
+  },
+  meetingChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    maxWidth: 180,
+  },
+  meetingActiveChip: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  meetingCanceledChip: {
+    backgroundColor: '#FFF1F2',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  meetingChipText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  meetingActiveText: {
+    color: '#065F46',
+  },
+  meetingCanceledText: {
+    color: '#9F1239',
   },
   outreachChip: {
     paddingHorizontal: 8,

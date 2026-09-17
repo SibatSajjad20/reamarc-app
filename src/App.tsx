@@ -22,6 +22,7 @@ import { useWorkspaces } from './hooks/useWorkspaces';
 import { canAccessCrm } from './utils/crmAccess';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
+import { PublicSchedulerView } from './components/views/PublicSchedulerView';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -78,6 +79,10 @@ function AppInner() {
       const pathname = window.location.pathname.toLowerCase().replace(/^\/+|\/+$/g, '');
       const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
       const currentPath = pathname || hash;
+
+      if (currentPath.startsWith('book') || currentPath.startsWith('schedule') || new URLSearchParams(window.location.search).get('embed') === 'true') {
+        return;
+      }
 
       const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian', 'settings'];
 
@@ -313,6 +318,15 @@ function AppInner() {
     logout();
     addToast('Signed Out', 'You have been safely signed out of Reamarc AI.', 'warning');
   };
+
+  const currentPathLower = window.location.pathname.toLowerCase();
+  const isPublicBooking =
+    currentPathLower.startsWith('/book') ||
+    currentPathLower.startsWith('/schedule');
+
+  if (isPublicBooking) {
+    return <PublicSchedulerView theme={theme} />;
+  }
 
   if (isAuthLoading) {
     return <LoadingScreen fullScreen message="Verifying session..." title="Reamarc AI" />;

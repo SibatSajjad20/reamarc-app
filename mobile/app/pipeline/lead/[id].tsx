@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme';
 import { useAuth } from '../../../src/context/AuthContext';
-import { canAccessCrm } from '../../../src/lib/roles';
+import { toSafeHttpsUrl } from '../../../src/lib/safeUrl';
 import { crmApi } from '../../../src/lib/crmApi';
 import type {
   CrmDeal,
@@ -467,11 +467,163 @@ export default function LeadDetailScreen() {
         >
           {activeTab === 'overview' && (
             <View style={styles.sectionContainer}>
+              {/* Scheduled Meeting Card (Video Consultation / Meeting Scheduler) */}
+              {lead.meeting ? (
+                <View
+                  style={[
+                    styles.meetingCard,
+                    lead.meeting.status === 'canceled'
+                      ? styles.meetingCardCanceled
+                      : styles.meetingCardActive,
+                  ]}
+                >
+                  <View style={styles.meetingCardHeaderRow}>
+                    <View
+                      style={[
+                        styles.meetingStatusBadge,
+                        lead.meeting.status === 'canceled'
+                          ? styles.meetingStatusBadgeCanceled
+                          : styles.meetingStatusBadgeActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="videocam"
+                        size={12}
+                        color={lead.meeting.status === 'canceled' ? '#BE123C' : '#047857'}
+                      />
+                      <Text
+                        style={[
+                          styles.meetingStatusText,
+                          lead.meeting.status === 'canceled'
+                            ? styles.meetingStatusCanceledText
+                            : styles.meetingStatusActiveText,
+                        ]}
+                      >
+                        {lead.meeting.status === 'canceled' ? 'MEETING CANCELED' : 'UPCOMING MEETING'}
+                      </Text>
+                    </View>
+
+                    {lead.meeting.timezone ? (
+                      <Text style={styles.meetingTzText}>({lead.meeting.timezone})</Text>
+                    ) : null}
+                  </View>
+
+                  <View style={styles.meetingTitleRow}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={styles.meetingTitleText} numberOfLines={2}>
+                        {lead.meeting.event_name || 'Consultancy Session'}
+                      </Text>
+                      {lead.meeting.host_name ? (
+                        <Text style={styles.meetingHostText}>
+                          Host: <Text style={styles.meetingHostName}>{lead.meeting.host_name}</Text>
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    {toSafeHttpsUrl(lead.meeting.join_url) && lead.meeting.status !== 'canceled' ? (
+                      <TouchableOpacity
+                        style={styles.joinCallBtn}
+                        onPress={() => {
+                          const url = toSafeHttpsUrl(lead.meeting?.join_url);
+                          if (!url) return;
+                          Linking.openURL(url).catch((err) =>
+                            Alert.alert('Cannot Open Link', err?.message || 'Failed to open meeting link')
+                          );
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="videocam" size={13} color="#FFFFFF" />
+                        <Text style={styles.joinCallBtnText}>Join Call</Text>
+                        <Ionicons name="open-outline" size={11} color="rgba(255,255,255,0.85)" />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  {lead.meeting.start_time ? (
+                    <View
+                      style={[
+                        styles.meetingTimeBanner,
+                        lead.meeting.status === 'canceled'
+                          ? styles.meetingTimeBannerCanceled
+                          : styles.meetingTimeBannerActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="time-outline"
+                        size={14}
+                        color={lead.meeting.status === 'canceled' ? '#BE123C' : '#047857'}
+                      />
+                      <Text
+                        style={[
+                          styles.meetingTimeBannerText,
+                          lead.meeting.status === 'canceled'
+                            ? styles.meetingTimeBannerTextCanceled
+                            : styles.meetingTimeBannerTextActive,
+                        ]}
+                      >
+                        {new Date(lead.meeting.start_time).toLocaleDateString(undefined, {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}{' '}
+                        at{' '}
+                        {new Date(lead.meeting.start_time).toLocaleTimeString(undefined, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        {lead.meeting.end_time ? (
+                          ` – ${new Date(lead.meeting.end_time).toLocaleTimeString(undefined, {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}`
+                        ) : null}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {lead.meeting.status === 'canceled' && lead.meeting.cancellation_reason ? (
+                    <View style={styles.cancellationBox}>
+                      <Text style={styles.cancellationText}>
+                        <Text style={{ fontWeight: '700' }}>Reason: </Text>
+                        {lead.meeting.cancellation_reason}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {lead.meeting.questions_and_answers && lead.meeting.questions_and_answers.length > 0 ? (
+                    <View style={styles.bookingQaContainer}>
+                      <Text style={styles.bookingQaHeader}>BOOKING FORM RESPONSES</Text>
+                      {lead.meeting.questions_and_answers.map((qa, idx) => (
+                        <View key={idx} style={styles.bookingQaItem}>
+                          <Text style={styles.bookingQaQuestion}>{qa.question}</Text>
+                          <Text style={styles.bookingQaAnswer}>{qa.answer}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
               <View style={styles.infoCard}>
                 <Text style={styles.cardHeader}>Contact</Text>
                 <Field label="Phone" value={formatPhoneDisplay(lead.phone_e164 || lead.phone_raw)} />
                 <Field label="Email" value={lead.email || '—'} />
                 <Field label="City" value={lead.city || '—'} />
+                {lead.website ? (
+                  <View style={styles.field}>
+                    <Text style={styles.fieldLabel}>Website</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const url = toSafeHttpsUrl(lead.website);
+                        if (!url) return;
+                        Linking.openURL(url).catch(() => {});
+                      }}
+                    >
+                      <Text style={[styles.fieldValue, { color: colors.indigo }]}>{lead.website}</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
               </View>
 
               <View style={styles.infoCard}>
@@ -1075,5 +1227,161 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+  },
+  meetingCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 12,
+  },
+  meetingCardActive: {
+    backgroundColor: '#F0FDF4',
+    borderColor: '#86EFAC',
+  },
+  meetingCardCanceled: {
+    backgroundColor: '#FFF1F2',
+    borderColor: '#FECDD3',
+  },
+  meetingCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  meetingStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  meetingStatusBadgeActive: {
+    backgroundColor: '#DCFCE7',
+    borderColor: '#BBF7D0',
+  },
+  meetingStatusBadgeCanceled: {
+    backgroundColor: '#FFE4E6',
+    borderColor: '#FECDD3',
+  },
+  meetingStatusText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  meetingStatusActiveText: {
+    color: '#15803D',
+  },
+  meetingStatusCanceledText: {
+    color: '#BE123C',
+  },
+  meetingTzText: {
+    fontSize: 11,
+    color: colors.muted,
+  },
+  meetingTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginVertical: 4,
+  },
+  meetingTitleText: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  meetingHostText: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 2,
+  },
+  meetingHostName: {
+    fontWeight: '600',
+    color: colors.slate,
+  },
+  joinCallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#059669',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  joinCallBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  meetingTimeBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginTop: 8,
+  },
+  meetingTimeBannerActive: {
+    backgroundColor: '#DCFCE7',
+  },
+  meetingTimeBannerCanceled: {
+    backgroundColor: '#FEE2E2',
+  },
+  meetingTimeBannerText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
+  },
+  meetingTimeBannerTextActive: {
+    color: '#14532D',
+  },
+  meetingTimeBannerTextCanceled: {
+    color: '#991B1B',
+  },
+  cancellationBox: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: '#FFE4E6',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+  },
+  cancellationText: {
+    fontSize: 12,
+    color: '#9F1239',
+  },
+  bookingQaContainer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(16, 185, 129, 0.2)',
+    gap: 6,
+  },
+  bookingQaHeader: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: '#047857',
+    marginBottom: 2,
+  },
+  bookingQaItem: {
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(16, 185, 129, 0.15)',
+  },
+  bookingQaQuestion: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  bookingQaAnswer: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.text,
+    marginTop: 2,
   },
 });

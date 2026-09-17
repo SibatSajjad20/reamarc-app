@@ -89,6 +89,8 @@ def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": doc.get("created_at") or "",
         "updated_at": doc.get("updated_at") or "",
         "attribution": doc.get("attribution"),
+        "meeting": doc.get("meeting"),
+        "custom_fields": doc.get("custom_fields") or {},
     }
 
 

@@ -22,6 +22,7 @@ import {
   User,
   UserCheck,
   Megaphone,
+  Video,
   X,
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -67,19 +68,28 @@ function activityLabel(type: string): string {
   if (type === 'deal_added') return 'Deal added';
   if (type === 'deal_updated') return 'Deal updated';
   if (type === 'deal_removed') return 'Deal removed';
+  if (type === 'meeting_scheduled') return 'Meeting scheduled';
+  if (type === 'meeting_rescheduled') return 'Meeting rescheduled';
+  if (type === 'meeting_canceled') return 'Meeting canceled';
   return type.replace(/_/g, ' ');
 }
 
 function ActivityIcon({ type }: { type: string }) {
   const tone =
-    type === 'converted' || type === 'won_approved'
+    type === 'converted' || type === 'won_approved' || type === 'meeting_scheduled'
       ? 'text-emerald-600 dark:text-emerald-400'
-      : type === 'outcome_set'
+      : type === 'outcome_set' || type === 'meeting_canceled'
         ? 'text-rose-600 dark:text-rose-400'
-        : type === 'follow_up_set' || type === 'follow_up_cleared'
+        : type === 'follow_up_set' || type === 'follow_up_cleared' || type === 'meeting_rescheduled'
           ? 'text-amber-600 dark:text-amber-400'
           : 'text-zinc-500 dark:text-zinc-400';
 
+  if (type === 'meeting_scheduled' || type === 'meeting_rescheduled') {
+    return <Video className={`w-3.5 h-3.5 ${tone}`} />;
+  }
+  if (type === 'meeting_canceled') {
+    return <Calendar className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />;
+  }
   if (type === 'whatsapp_opened') {
     return <MessageCircle className={`w-3.5 h-3.5 ${tone}`} />;
   }
@@ -705,6 +715,116 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   <span>Reopen Deal</span>
                 </button>
               </div>
+            </div>
+          )}
+
+          {/* Scheduled Meeting Card (Calendly / Video Consultation) */}
+          {lead.meeting && (
+            <div className={`rounded-2xl border p-4 space-y-3 ${
+              lead.meeting.status === 'canceled'
+                ? 'border-rose-500/30 bg-rose-50/50 dark:bg-rose-950/20'
+                : 'border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20'
+            }`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border ${
+                      lead.meeting.status === 'canceled'
+                        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
+                        : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
+                    }`}>
+                      <Video className="w-3 h-3" />
+                      {lead.meeting.status === 'canceled' ? 'Meeting Canceled' : 'Upcoming Meeting'}
+                    </span>
+                    {lead.meeting.timezone && (
+                      <span className="text-[10px] text-zinc-400">({lead.meeting.timezone})</span>
+                    )}
+                  </div>
+                  <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1.5 truncate">
+                    {lead.meeting.event_name || 'Consultancy Session'}
+                  </h4>
+                  {lead.meeting.host_name && (
+                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                      Host: <span className="font-medium text-zinc-700 dark:text-zinc-300">{lead.meeting.host_name}</span>
+                    </p>
+                  )}
+                </div>
+
+                {lead.meeting.join_url && lead.meeting.status !== 'canceled' && /^https:\/\//i.test(lead.meeting.join_url) && (
+                  <a
+                    href={lead.meeting.join_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-xs cursor-pointer"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Join Call</span>
+                    <ExternalLink className="w-3 h-3 opacity-70" />
+                  </a>
+                )}
+              </div>
+
+              {/* Time Display */}
+              {lead.meeting.start_time && (
+                <div className={`flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl ${
+                  lead.meeting.status === 'canceled'
+                    ? 'text-rose-950 dark:text-rose-200 bg-rose-100/60 dark:bg-rose-900/30'
+                    : 'text-emerald-950 dark:text-emerald-200 bg-emerald-100/60 dark:bg-emerald-900/30'
+                }`}>
+                  <Clock className={`w-4 h-4 shrink-0 ${
+                    lead.meeting.status === 'canceled' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
+                  }`} />
+                  <span>
+                    {new Date(lead.meeting.start_time).toLocaleDateString(undefined, {
+                      weekday: 'short',
+                      month: 'short',
+                      day: 'numeric',
+                      year: 'numeric',
+                    })}{' '}
+                    at{' '}
+                    {new Date(lead.meeting.start_time).toLocaleTimeString(undefined, {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                    {lead.meeting.end_time && (
+                      <>
+                        {' – '}
+                        {new Date(lead.meeting.end_time).toLocaleTimeString(undefined, {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </>
+                    )}
+                  </span>
+                </div>
+              )}
+
+              {/* Cancellation details */}
+              {lead.meeting.status === 'canceled' && lead.meeting.cancellation_reason && (
+                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-300">
+                  <span className="font-semibold">Reason: </span>
+                  {lead.meeting.cancellation_reason}
+                </div>
+              )}
+
+              {/* Form Responses / Questions */}
+              {lead.meeting.questions_and_answers && lead.meeting.questions_and_answers.length > 0 && (
+                <div className="pt-2 border-t border-emerald-500/15 dark:border-emerald-500/10 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400">
+                    Booking Form Responses
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {lead.meeting.questions_and_answers.map((qa, idx) => (
+                      <div key={idx} className="p-2.5 rounded-xl bg-white/70 dark:bg-zinc-900/60 border border-emerald-500/15">
+                        <p className="text-[10px] font-medium text-zinc-400 truncate">{qa.question}</p>
+                        <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5 break-words">
+                          {qa.answer}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -7,7 +7,6 @@ import { fileURLToPath, URL } from 'url'
 // Production CSP is enforced via vercel.json on the built SPA.
 const securityHeaders = {
   'X-Content-Type-Options': 'nosniff',
-  'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
   'Permissions-Policy': 'geolocation=(self), camera=(), microphone=(), payment=()',
 }
@@ -31,6 +30,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/api': {
+        target: 'http://127.0.0.1:8000',
+        changeOrigin: true,
+      },
+      '/crm': {
         target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
