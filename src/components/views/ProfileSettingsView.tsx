@@ -34,7 +34,7 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onSave
   const { addToast } = useToast();
 
   const [fullName, setFullName] = useState(user?.full_name || user?.name || '');
-  const [email, setEmail] = useState(user?.email || '');
+  const email = user?.email || '';
   const [phone, setPhone] = useState(user?.phone || user?.phone_number || '');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
