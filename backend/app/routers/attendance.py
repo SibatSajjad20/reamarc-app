@@ -34,9 +34,11 @@ from app.core.security import (
     require_management_role,
 )
 from app.core.limiter import limiter
+from app.core.rate_limit_store import enforce_shared_rate_limit
 from app.services.attendance_security import (
     is_loopback_ip,
     is_public_ip,
+    trusted_proxy_client_ip,
 )
 from app.constants.office_location import get_built_in_office_ips
 from app.services import attendance_service
@@ -68,25 +70,13 @@ def extract_client_ip(request: Request, body_ip: Optional[str] = None) -> str:
     Resolve the connecting client IP using one trusted reverse proxy (Render).
 
     Render documents X-Forwarded-For as: original client first, then proxies.
-    We take the left-most public IP so home/office WAN addresses match the
-    whitelist. Spoofable headers (X-Real-IP, CF-Connecting-IP) are ignored.
-    Browser-detected IPs are accepted only on loopback (local Vite).
+    trusted_proxy_client_ip uses the right-most public hop (the address the
+    proxy appended), not the left-most spoofable hop.
     """
     socket_ip = request.client.host if request.client and request.client.host else None
-
-    forwarded = request.headers.get("x-forwarded-for") or ""
-    parts = [part.strip() for part in forwarded.split(",") if part.strip()]
-    trusted_from_xff = None
-    for part in parts:
-        if is_public_ip(part):
-            trusted_from_xff = part
-            break
-
-    if trusted_from_xff:
-        return trusted_from_xff
-
-    if is_public_ip(socket_ip):
-        return str(socket_ip).strip()
+    trusted = trusted_proxy_client_ip(socket_ip, request.headers.get("x-forwarded-for"))
+    if trusted and is_public_ip(trusted):
+        return trusted
 
     if is_loopback_ip(socket_ip) and body_ip and is_public_ip(str(body_ip).strip()):
         return str(body_ip).strip()
@@ -120,6 +110,7 @@ async def check_in(
     Punch In for the day.
     Enforces IP Whitelist (Tier 1) and GPS Geofencing (Tier 3), unless user has approved WFH.
     """
+    await enforce_shared_rate_limit(f"punch:{current_user.get('id')}", 10, 60)
     client_ip = extract_client_ip(
         request,
         check_in_req.detected_public_ip or check_in_req.client_ip,
@@ -147,6 +138,7 @@ async def check_out(
     Punch Out for the day.
     Same office Wi-Fi / GPS proof as check-in (WFH bypasses). Calculates hours, OT, undertime.
     """
+    await enforce_shared_rate_limit(f"punch:{current_user.get('id')}", 10, 60)
     client_ip = extract_client_ip(
         request,
         check_out_req.detected_public_ip,

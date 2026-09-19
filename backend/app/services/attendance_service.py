@@ -2365,12 +2365,23 @@ async def process_break_toggle(
         old_notes = existing.get("notes") or ""
         update_doc["notes"] = f"{old_notes} | Break {action}: {break_req.notes}".strip(" | ")
 
+    occupancy = {
+        "user_id": user_id,
+        "date": date_str,
+        "is_on_break": True if action == "end" else {"$ne": True},
+    }
+
     result = await db.attendance_records.find_one_and_update(
-        {"user_id": user_id, "date": date_str},
+        occupancy,
         {"$set": update_doc},
         projection={"_id": 0},
         return_document=True,
     )
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Break state changed. Refresh and try again.",
+        )
     return AttendanceRecordResponse.from_mongo(result)
 
 

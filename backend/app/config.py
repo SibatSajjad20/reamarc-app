@@ -122,6 +122,14 @@ class Settings(BaseSettings):
         if not self.MONGODB_URL or not self.MONGODB_URL.strip():
             raise ValueError("MONGODB_URL environment variable must be provided.")
 
+        if self.IS_PRODUCTION:
+            enc = (self.ENCRYPTION_KEY or "").strip()
+            if not enc or enc == "32_byte_fernet_key_base64_encoded":
+                raise ValueError(
+                    "ENCRYPTION_KEY must be set in production "
+                    "(dedicated Fernet key, independent of SECRET_KEY)."
+                )
+
         if self.IS_PRODUCTION and not (self.OFFICE_PUBLIC_IPS or "").strip():
             raise ValueError(
                 "OFFICE_PUBLIC_IPS must be set in production (comma-separated office WAN IPs). "

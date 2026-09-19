@@ -29,7 +29,7 @@ async function setupAndroidNotificationChannel() {
       enableLights: true,
       enableVibrate: true,
       showBadge: true,
-      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PRIVATE,
       audioAttributes: {
         usage: Notifications.AndroidAudioUsage.NOTIFICATION_RINGTONE,
         contentType: Notifications.AndroidAudioContentType.SONIFICATION,

@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List
+from typing import Optional, List, Any
+import uuid
 import jwt
 import bcrypt
 from fastapi import Depends, HTTPException, status, Request
@@ -8,6 +9,8 @@ from app.config import settings
 from app.models.user import UserRole
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
+JWT_ALGORITHM = "HS256"
+_MAX_REFRESH_JTIS = 8
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     pwd_bytes = plain_password.encode("utf-8")[:72]
@@ -26,17 +29,19 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode.update({"exp": expire, "type": "access"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def create_refresh_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+    if not to_encode.get("jti"):
+        to_encode["jti"] = uuid.uuid4().hex
     to_encode.update({"exp": expire, "type": "refresh"})
-    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def decode_access_token(token: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "access":
             return None
         return payload
@@ -45,12 +50,65 @@ def decode_access_token(token: str) -> Optional[dict]:
 
 def decode_refresh_token(token: str) -> Optional[dict]:
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
         if payload.get("type") != "refresh":
             return None
         return payload
     except jwt.PyJWTError:
         return None
+
+
+def user_session_epoch(user_doc: Optional[dict]) -> int:
+    """Integer bumped on logout / password change to invalidate outstanding JWTs."""
+    if not user_doc:
+        return 0
+    try:
+        return int(user_doc.get("session_epoch") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def token_session_epoch(payload: Optional[dict]) -> int:
+    if not payload:
+        return 0
+    try:
+        return int(payload.get("ver") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def bump_session_epoch(db: Any, user_id: str) -> None:
+    if db is None or not user_id:
+        return
+    await db.users.update_one(
+        {"id": user_id},
+        {"$inc": {"session_epoch": 1}, "$set": {"refresh_jtis": []}},
+    )
+
+
+async def remember_refresh_jti(db: Any, user_id: str, jti: str) -> None:
+    if db is None or not user_id or not jti:
+        return
+    await db.users.update_one(
+        {"id": user_id},
+        {"$push": {"refresh_jtis": {"$each": [jti], "$slice": -_MAX_REFRESH_JTIS}}},
+    )
+
+
+async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) -> bool:
+    if db is None or not user_id or not old_jti or not new_jti:
+        return False
+    result = await db.users.update_one(
+        {"id": user_id, "refresh_jtis": old_jti},
+        {"$set": {"refresh_jtis.$": new_jti}},
+    )
+    return int(getattr(result, "modified_count", 0) or 0) == 1
+
+
+def claims_with_session(user_doc: dict, base: dict) -> dict:
+    out = dict(base)
+    out["ver"] = user_session_epoch(user_doc)
+    return out
 
 def _normalize_role(raw_role: Optional[str]) -> str:
     """Normalizes role strings to supported UserRole values."""
@@ -73,7 +131,7 @@ async def get_current_user(
     request: Request,
     token_from_header: Optional[str] = Depends(oauth2_scheme)
 ) -> dict:
-    token = token_from_header or request.cookies.get("access_token") or request.query_params.get("token")
+    token = token_from_header or request.cookies.get("access_token")
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -118,6 +176,13 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been deactivated. Contact an administrator.",
+        )
+
+    if token_session_epoch(payload) != user_session_epoch(user_doc):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
         )
 
     effective_role = _normalize_role(user_doc.get("role"))
@@ -281,4 +346,7 @@ async def get_workspace_context(
     return resolved
 
 
-require_editor_or_admin = require_roles(["admin", "hr", "team_lead", "team_member"])
+# Campaign editors: any internal staff with workspace membership (asserted per handler).
+require_editor_or_admin = require_roles(["admin", "hr", "operations", "team_lead", "team_member"])
+# Ad-account secrets: operations/admin only (not every team_member).
+require_ad_credential_admin = require_operations_or_admin

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import type { AuthUser, LoginPayload, RegisterPayload, UserRole } from '../types/auth';
+import type { AuthUser, LoginPayload, UserRole } from '../types/auth';
 import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 
@@ -11,7 +11,6 @@ interface AuthContextType {
   activeWorkspaceId: string | null;
   setActiveWorkspaceId: (id: string | null) => void;
   login: (payload: LoginPayload) => Promise<void>;
-  register: (payload: RegisterPayload) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   openAuthModal: (mode?: 'login' | 'register') => void;
@@ -100,26 +99,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     closeAuthModal();
   };
 
-  const register = async (payload: RegisterPayload) => {
-    const res = await authService.register(payload);
-    apiClient.setToken(null);
-    const role = res.user?.role;
-    let initialView = 'dashboard';
-    if (role === 'client') {
-      initialView = 'marketing';
-    } else if (role === 'admin') {
-      initialView = 'attendance';
-    } else {
-      initialView = 'dashboard';
-    }
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('reamarc_active_view', initialView);
-      window.history.replaceState(null, '', `/${initialView}`);
-    }
-    setUser(res.user);
-    closeAuthModal();
-  };
-
   const logout = async () => {
     try {
       await authService.logout();
@@ -155,7 +134,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeWorkspaceId,
         setActiveWorkspaceId,
         login,
-        register,
         logout,
         refreshUser,
         openAuthModal,

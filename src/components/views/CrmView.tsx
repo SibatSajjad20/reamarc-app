@@ -15,6 +15,7 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { crmService } from '../../services/crmService';
 import { canAssignCrmLeads } from '../../utils/crmAccess';
+import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 import { NEUTRAL_METADATA_BADGE_CLASS } from '../../utils/badgeStyles';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CrmCreateLeadModal } from '../crm/CrmCreateLeadModal';
@@ -1134,8 +1135,9 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
           onWhatsApp={(templateId) =>
             run(async () => {
               const result = await crmService.logWhatsappOpened(detail.id, templateId);
-              if (result.wa_url) {
-                window.open(result.wa_url, '_blank', 'noopener,noreferrer');
+              const wa = toSafeWhatsAppUrl(result.wa_url);
+              if (wa) {
+                window.open(wa, '_blank', 'noopener,noreferrer');
               }
             })
           }

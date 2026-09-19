@@ -6,7 +6,7 @@ import Constants from 'expo-constants';
 import { api } from '../lib/api';
 import { clearDailyLogCaches } from '../lib/dailyLogCache';
 import { clearAttendanceCaches } from '../lib/attendanceCache';
-import { clearSession, getAccessToken, getOrCreateDeviceUuid, saveTokens } from '../lib/secure';
+import { clearCrmCaches } from '../lib/crmCache';
 
 export type AuthUser = {
   id: string;
@@ -149,6 +149,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     clearDailyLogCaches();
     clearAttendanceCaches();
+    clearCrmCaches();
     await clearSession();
     setUser(null);
   };

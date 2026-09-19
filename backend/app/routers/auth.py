@@ -6,7 +6,6 @@ import re
 import secrets
 import logging
 
-logger = logging.getLogger(__name__)
 from app.schemas.auth import (
     UserLogin, TokenResponse, UserResponse,
     ForgotPasswordRequest, VerifyResetCodeRequest, ResetPasswordRequest,
@@ -16,13 +15,19 @@ from app.schemas.error import ErrorResponse
 from app.core.security import (
     get_password_hash, verify_password,
     create_access_token, create_refresh_token,
-    decode_refresh_token, get_current_user,
-    _normalize_role,
+    decode_refresh_token, decode_access_token, get_current_user,
+    _normalize_role, user_session_epoch, token_session_epoch,
+    bump_session_epoch, claims_with_session,
+    remember_refresh_jti, rotate_refresh_jti,
 )
-from app.core.limiter import limiter
+from app.core.limiter import limiter, get_client_ip
+from app.core.rate_limit_store import enforce_shared_rate_limit
 from app.services.email_service import EmailService
 from app.database import get_database
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+_DUMMY_PASSWORD_HASH = get_password_hash("timing-dummy-not-a-real-password")
 
 router = APIRouter(
     prefix="/auth",
@@ -38,12 +43,8 @@ router = APIRouter(
 
 def _wants_json_tokens(request: Request, device_uuid: Optional[str] = None) -> bool:
     """Mobile clients need JWTs in the body; browsers use HttpOnly cookies only."""
-    if (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile":
-        return True
-    # Mobile login always sends device_uuid; treat that as a mobile client even if X-Client is stripped.
-    if device_uuid and str(device_uuid).strip():
-        return True
-    return False
+    # Only the native app header — a body device_uuid must not flip browser sessions to JSON tokens.
+    return (request.headers.get("X-Client") or request.headers.get("x-client") or "").strip().lower() == "mobile"
 
 
 def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
@@ -126,12 +127,16 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         )
 
     email_clean = str(user_in.email).lower().strip()
+    await enforce_shared_rate_limit(f"login-email:{email_clean}", 10, 60)
+    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", 20, 60)
     user_doc = await db.users.find_one({"email": email_clean})
     if not user_doc:
         # Fallback to case-insensitive match if stored in mixed case
         user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
-    if not user_doc or not verify_password(user_in.password, user_doc.get("hashed_password", "")):
+    stored_hash = (user_doc or {}).get("hashed_password") or _DUMMY_PASSWORD_HASH
+    password_ok = verify_password(user_in.password, stored_hash)
+    if not user_doc or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
@@ -144,13 +149,13 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         )
 
     role_str = _normalize_role(user_doc.get("role"))
-    claims = {
+    claims = claims_with_session(user_doc, {
         "sub": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    }
+    })
     user_id = user_doc.get("id") or str(user_doc.get("_id"))
     if user_in.device_uuid:
         from app.services.device_registry import assert_device_login_allowed
@@ -158,6 +163,8 @@ async def login(request: Request, user_in: UserLogin, response: Response):
 
     access_token = create_access_token(claims)
     refresh_token = create_refresh_token(claims)
+    refresh_claims = decode_refresh_token(refresh_token) or {}
+    await remember_refresh_jti(db, user_id, str(refresh_claims.get("jti") or ""))
     wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
@@ -196,16 +203,37 @@ async def refresh_token(request: Request, response: Response):
     if not user_doc.get("is_active", True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account deactivated.")
 
+    if token_session_epoch(payload) != user_session_epoch(user_doc):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+
+    user_id = user_doc.get("id") or str(user_doc.get("_id"))
+    old_jti = str(payload.get("jti") or "").strip()
+    existing_jtis = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
+
     role_str = _normalize_role(user_doc.get("role"))
-    claims = {
-        "sub": user_doc.get("id") or str(user_doc.get("_id")),
+    claims = claims_with_session(user_doc, {
+        "sub": user_id,
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    }
+    })
     new_access_token = create_access_token(claims)
     new_refresh_token = create_refresh_token(claims)
+    new_jti = str((decode_refresh_token(new_refresh_token) or {}).get("jti") or "")
+
+    if old_jti and old_jti in existing_jtis:
+        rotated = await rotate_refresh_jti(db, user_id, old_jti, new_jti)
+        if not rotated:
+            await bump_session_epoch(db, user_id)
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+    elif not existing_jtis:
+        # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
+        await remember_refresh_jti(db, user_id, new_jti)
+    else:
+        await bump_session_epoch(db, user_id)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+
     wants_json = _wants_json_tokens(request)
     if not wants_json:
         _set_auth_cookies(response, new_access_token, new_refresh_token)
@@ -244,11 +272,12 @@ async def update_my_profile(
 
     if profile_in.email is not None:
         new_email = str(profile_in.email).lower().strip()
-        if new_email != user_doc.get("email"):
-            existing = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
-            if existing:
-                raise HTTPException(status_code=400, detail="Email is already taken by another account.")
-            update_fields["email"] = new_email
+        stored_email = str(user_doc.get("email") or "").lower().strip()
+        if new_email and new_email != stored_email:
+            raise HTTPException(
+                status_code=400,
+                detail="Email changes must be requested through HR.",
+            )
 
     if profile_in.phone is not None and profile_in.phone.strip():
         update_fields["phone"] = profile_in.phone.strip()
@@ -264,6 +293,8 @@ async def update_my_profile(
                 raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
         update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
+        await bump_session_epoch(db, user_id)
+        user_doc["session_epoch"] = user_session_epoch(user_doc) + 1
 
     if not update_fields:
         return _build_user_response(user_doc)
@@ -278,8 +309,24 @@ async def update_my_profile(
     return _build_user_response(updated_doc or user_doc)
 
 
+def _extract_any_token(request: Request) -> Optional[str]:
+    auth = (request.headers.get("authorization") or "").strip()
+    if auth.lower().startswith("bearer "):
+        return auth[7:].strip() or None
+    return request.cookies.get("access_token") or request.cookies.get("refresh_token")
+
+
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
+    token = _extract_any_token(request)
+    payload = decode_access_token(token) if token else None
+    if payload is None and token:
+        payload = decode_refresh_token(token)
+    user_id = (payload or {}).get("sub")
+    if user_id:
+        db = get_database()
+        await bump_session_epoch(db, str(user_id))
+
     is_prod = settings.IS_PRODUCTION
     cookie_opts = dict(
         httponly=True,
@@ -454,16 +501,10 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
     if not user_doc:
         user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
-    if not user_doc:
+    if not user_doc or not user_doc.get("is_active", True):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User account associated with this email was not found.",
-        )
-
-    if not user_doc.get("is_active", True):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Your account has been deactivated. Contact an administrator.",
+            detail="Invalid or expired verification code. Please request a new code.",
         )
 
     reset_doc = await db.password_resets.find_one(
@@ -533,10 +574,14 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
     new_hashed_password = get_password_hash(payload.new_password)
     await db.users.update_one(
         {"_id": user_doc["_id"]},
-        {"$set": {
-            "hashed_password": new_hashed_password,
-            "updated_at": now.isoformat(),
-        }}
+        {
+            "$set": {
+                "hashed_password": new_hashed_password,
+                "updated_at": now.isoformat(),
+                "refresh_jtis": [],
+            },
+            "$inc": {"session_epoch": 1},
+        }
     )
 
     # Invalidate / mark used all other pending reset tokens for this user

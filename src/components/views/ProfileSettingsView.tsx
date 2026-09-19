@@ -194,9 +194,10 @@ export const ProfileSettingsView: React.FC<ProfileSettingsViewProps> = ({ onSave
                 <input
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                  readOnly
+                  disabled
+                  title="Email changes must be requested through HR"
+                  className="w-full bg-zinc-100 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-800 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-500 dark:text-zinc-400 cursor-not-allowed"
                 />
               </div>
               <div>

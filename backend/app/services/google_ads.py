@@ -5,6 +5,7 @@ Pulls daily campaign metrics using Google Ads REST API v25 with OAuth2 token ref
 
 import logging
 import asyncio
+import re
 import httpx
 from typing import List, Dict, Any, Optional
 
@@ -12,6 +13,14 @@ logger = logging.getLogger(__name__)
 
 GOOGLE_ADS_API_VERSION = "v25"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_GAQL_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _safe_gaql_date(date_str: str) -> str:
+    text = (date_str or "").strip()
+    if not _GAQL_DATE.match(text):
+        raise ValueError("Google Ads date must be YYYY-MM-DD")
+    return text
 
 
 async def _post_google_ads_with_retry(
@@ -70,7 +79,7 @@ async def refresh_google_access_token(
                 data = resp.json()
                 return data.get("access_token")
             else:
-                logger.error(f"Failed to refresh Google token: {resp.text}")
+                logger.error(f"Failed to refresh Google token: status={resp.status_code}")
                 return None
     except Exception as e:
         logger.error(f"Exception during Google token refresh: {e}")
@@ -114,8 +123,17 @@ async def fetch_google_insights(
         logger.warning("Google Ads Fetcher: Missing account_id")
         return []
 
-    # Clean customer ID (remove dashes)
-    customer_id = account_id.replace("-", "").strip()
+    # Clean customer ID (digits only)
+    customer_id = "".join(ch for ch in account_id if ch.isdigit())
+    if not customer_id:
+        logger.warning("Google Ads Fetcher: account_id has no digits")
+        return []
+
+    try:
+        safe_date = _safe_gaql_date(date_str)
+    except ValueError:
+        logger.warning("Google Ads Fetcher: refusing invalid date %r", date_str)
+        return []
 
     # Always attempt token refresh if OAuth parameters are provided to avoid 401 Expiration
     active_token = access_token
@@ -132,7 +150,7 @@ async def fetch_google_insights(
 
     query = (
         f"SELECT campaign.id, campaign.name, campaign.status, metrics.cost_micros, metrics.impressions, "
-        f"metrics.clicks, metrics.conversions FROM campaign WHERE segments.date = '{date_str}'"
+        f"metrics.clicks, metrics.conversions FROM campaign WHERE segments.date = '{safe_date}'"
     )
 
     headers = {

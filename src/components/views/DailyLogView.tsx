@@ -41,6 +41,7 @@ import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
+import { toSafeHttpsUrl } from '../../utils/safeUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
 import { useOffDays } from '../../hooks/useOffDays';
@@ -1849,14 +1850,15 @@ export const DailyLogView: React.FC = () => {
                                       );
                                     }
 
-                                    // External web link
-                                    if (item.startsWith('http://') || item.startsWith('https://')) {
+                                    // External web link — https only
+                                    const safeHref = toSafeHttpsUrl(item);
+                                    if (safeHref) {
                                       return (
                                         <a
                                           key={itemIdx}
-                                          href={item}
+                                          href={safeHref}
                                           target="_blank"
-                                          rel="noreferrer"
+                                          rel="noopener noreferrer"
                                           onClick={(e) => e.stopPropagation()}
                                           className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
                                           title={item}

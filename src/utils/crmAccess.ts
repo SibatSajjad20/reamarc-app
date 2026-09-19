@@ -28,6 +28,7 @@ export function canAssignCrmLeads(user?: {
 } | null): boolean {
   if (!canAccessCrm(user)) return false;
   const role = (user?.role || '').toLowerCase().trim();
-  return role === 'admin' || role === 'operations' || role === 'team_lead';
+  const dept = (user?.department || '').toLowerCase().trim();
+  return role === 'admin' || role === 'operations' || (role === 'team_lead' && dept === 'sales');
 }
 

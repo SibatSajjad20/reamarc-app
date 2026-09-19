@@ -11,8 +11,8 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.core.limiter import limiter
-from app.core.uploads import open_upload_response
-from app.core.security import get_current_user
+from app.core.uploads import open_upload_response, authorize_stored_upload
+from app.core.security import require_internal_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
 from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public
 
@@ -149,43 +149,40 @@ if not settings.IS_PRODUCTION:
 
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
+def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:
+    """Cookie sessions need CSRF; Bearer tokens do not. JSON is not an exemption."""
+    return method in ("POST", "PUT", "PATCH", "DELETE") and has_auth_cookie and not has_bearer
+
+
 @app.middleware("http")
 async def csrf_protection_middleware(request: Request, call_next):
-    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
-        # Cookie-based sessions are vulnerable to cross-site request forgery.
-        # Token-based auth (Authorization: Bearer) and mobile clients (X-Client: mobile) are immune.
-        has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
-        has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
-        is_mobile = (request.headers.get("x-client") or "").strip().lower() == "mobile"
-        content_type = (request.headers.get("content-type") or "").lower()
-        is_json_body = "application/json" in content_type
+    has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
+    has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
+    if should_enforce_csrf(method=request.method, has_auth_cookie=has_auth_cookie, has_bearer=has_bearer):
+        origin = (request.headers.get("origin") or "").strip()
+        custom_header = (
+            (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest"
+            or bool(request.headers.get("x-workspace-id"))
+        )
 
-        # Native / JSON API clients are not forgeable via classic HTML forms.
-        if has_auth_cookie and not has_bearer and not is_mobile and not is_json_body:
-            origin = (request.headers.get("origin") or "").strip()
-            custom_header = (
-                (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest"
-                or bool(request.headers.get("x-workspace-id"))
-            )
-
-            # 1. Validate Origin when present
-            if origin:
-                allowed = set(settings.CORS_ORIGINS)
-                is_valid_origin = origin in allowed
-                if not is_valid_origin and not settings.IS_PRODUCTION:
-                    is_valid_origin = bool(re.match(r"^https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?$", origin))
-                if not is_valid_origin:
-                    return JSONResponse(
-                        status_code=403,
-                        content={"detail": "CSRF verification failed: Origin not authorized."},
-                    )
-
-            # 2. Block cross-site HTML forms in production (must supply custom header that forms cannot send)
-            if not custom_header and settings.IS_PRODUCTION:
+        # 1. Validate Origin when present
+        if origin:
+            allowed = set(settings.CORS_ORIGINS)
+            is_valid_origin = origin in allowed
+            if not is_valid_origin and not settings.IS_PRODUCTION:
+                is_valid_origin = bool(re.match(r"^https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?$", origin))
+            if not is_valid_origin:
                 return JSONResponse(
                     status_code=403,
-                    content={"detail": "CSRF verification failed: Missing required request header."},
+                    content={"detail": "CSRF verification failed: Origin not authorized."},
                 )
+
+        # 2. Block cross-site HTML forms in production (must supply custom header that forms cannot send)
+        if not custom_header and settings.IS_PRODUCTION:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF verification failed: Missing required request header."},
+            )
 
     return await call_next(request)
 
@@ -216,7 +213,7 @@ async def serve_upload(
     file_path: str,
     request: Request,
     download: bool = Query(False, description="Force download attachment"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_internal_user),
 ):
     """
     Authenticated upload server for proposals and deliverables.
@@ -224,6 +221,7 @@ async def serve_upload(
     Supports inline browser viewing for PDFs/images, or attachment download.
     """
     db = get_database()
+    await authorize_stored_upload(db, current_user, file_path)
     return await open_upload_response(db, file_path, download=download)
 
 
@@ -257,9 +255,11 @@ async def health_check():
         except Exception:
             mongo_ok = False
     status_label = "healthy" if mongo_ok else "degraded"
-    return {
+    payload = {
         "status": status_label,
         "message": "Backend is online",
-        "mongo": mongo_ok,
     }
+    if not settings.IS_PRODUCTION:
+        payload["mongo"] = mongo_ok
+    return payload
 

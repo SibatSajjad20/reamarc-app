@@ -1,14 +1,10 @@
 import { apiClient } from './apiClient';
 import { attendanceService } from './attendanceService';
-import type { AuthUser, LoginPayload, RegisterPayload, AuthResponse } from '../types/auth';
+import type { AuthUser, LoginPayload, AuthResponse } from '../types/auth';
 
 export const authService = {
   async login(payload: LoginPayload): Promise<AuthResponse> {
     return apiClient.post<AuthResponse>('/auth/login', payload);
-  },
-
-  async register(payload: RegisterPayload): Promise<AuthResponse> {
-    return apiClient.post<AuthResponse>('/auth/register', payload);
   },
 
   async getMe(): Promise<AuthUser> {

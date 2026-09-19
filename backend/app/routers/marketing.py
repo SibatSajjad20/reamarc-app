@@ -12,7 +12,13 @@ from typing import Optional, List, Tuple
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Request, Response
 from pydantic import BaseModel
 
-from app.core.security import get_current_user, require_editor_or_admin, workspace_mongo_filter, assert_workspace_access
+from app.core.security import (
+    get_current_user,
+    require_editor_or_admin,
+    require_ad_credential_admin,
+    workspace_mongo_filter,
+    assert_workspace_access,
+)
 from app.core.encryption import encrypt_string, decrypt_string
 from app.database import get_database
 from app.schemas.marketing import (
@@ -400,6 +406,13 @@ async def sync_now(
 
     if not target_date:
         target_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(str(target_date), "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="date must be YYYY-MM-DD",
+        )
 
     resolved = assert_workspace_access(current_user, target_ws or "ALL")
     if resolved == "__scoped__":
@@ -618,7 +631,7 @@ async def verify_google_credentials(
 @router.post("/credentials", response_model=AdAccountCredentialResponse, status_code=status.HTTP_201_CREATED)
 async def save_ad_account_credential(
     payload: AdAccountCredentialCreate,
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_ad_credential_admin),
 ):
     """Verifies live API authentication with Meta/Google Ads and saves credentials."""
     db = get_database()
@@ -659,34 +672,14 @@ async def save_ad_account_credential(
         if existing_ws:
             target_ws_id = existing_ws["id"]
             target_ws_name = existing_ws.get("name", target_ws_name)
+            assert_workspace_access(current_user, target_ws_id)
         else:
-            # Auto-create new Ad Account / Workspace
-            new_ws_id = f"ws-{uuid.uuid4().hex[:8]}"
-            initials = "".join([p[0] for p in target_ws_name.split() if p])[:2].upper() or target_ws_name[:2].upper()
-            
-            if any(k in target_ws_name.lower() for k in ["ed&c", "ednc", "elegant design"]):
-                platform_tag = "Meta & Google"
-            elif norm_platform == "Google":
-                platform_tag = "Google Ads"
-            else:
-                platform_tag = "Meta Ads"
-
-            new_ws_doc = {
-                "id": new_ws_id,
-                "name": target_ws_name,
-                "platform": platform_tag,
-                "initials": initials,
-                "brandColor": "bg-emerald-600" if norm_platform == "Google" else "bg-indigo-600",
-                "brand_color": "bg-emerald-600" if norm_platform == "Google" else "bg-indigo-600",
-                "industry": "Performance Marketing",
-                "brandGuidelines": "",
-                "brand_guidelines": "",
-                "isDefault": False,
-                "user_id": current_user.get("id", ""),
-            }
-            await db.workspaces.insert_one(new_ws_doc)
-            target_ws_id = new_ws_id
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Ad account / client workspace was not found. Create the workspace first.",
+            )
     elif target_ws_id:
+        assert_workspace_access(current_user, target_ws_id)
         ws_doc = await db.workspaces.find_one({"id": target_ws_id}, {"_id": 0, "name": 1})
         if ws_doc:
             target_ws_name = ws_doc.get("name", "")
@@ -747,7 +740,7 @@ async def save_ad_account_credential(
 async def list_ad_account_credentials(
     request: Request,
     workspace_id: Optional[str] = Query(default=None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_ad_credential_admin),
 ):
     """Lists registered ad account credentials with resolved workspace brand names."""
     db = get_database()
@@ -781,12 +774,20 @@ async def list_ad_account_credentials(
 @router.delete("/credentials/{credential_id}")
 async def delete_ad_account_credential(
     credential_id: str,
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_ad_credential_admin),
 ):
-    """Deletes an ad account credential record."""
+    """Deletes an ad account credential record after workspace membership check."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable.")
+
+    existing = await db.ad_account_credentials.find_one({"id": credential_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Credential record not found.")
+
+    ws_id = existing.get("workspace_id")
+    if ws_id:
+        assert_workspace_access(current_user, ws_id)
 
     result = await db.ad_account_credentials.delete_one({"id": credential_id})
     if result.deleted_count == 0:

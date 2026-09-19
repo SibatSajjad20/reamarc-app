@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
 from app.core.security import require_admin, require_member_or_admin, require_operations_or_admin
-from app.core.uploads import open_upload_response
+from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.database import get_database
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
@@ -44,6 +44,27 @@ def normalize_workspace(doc: dict) -> dict:
     }
 
 
+def listing_workspace(doc: dict, *, include_pii: bool) -> dict:
+    """Team members need workspace names for daily logs; hide billing/proposal PII."""
+    normalized = normalize_workspace(doc)
+    if include_pii:
+        return normalized
+    for key in (
+        "proposal_url",
+        "proposal_name",
+        "proposal_size",
+        "poc_name",
+        "poc_email",
+        "poc_phone",
+        "billing_name",
+        "billing_email",
+        "billing_phone",
+    ):
+        normalized[key] = None
+    normalized["brandGuidelines"] = ""
+    return normalized
+
+
 @router.get("", response_model=List[WorkspaceResponse])
 async def list_workspaces(current_user: dict = Depends(require_member_or_admin)):
     db = get_database()
@@ -65,7 +86,12 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
         ws_id = ws.get("id")
         if ws_id and ws_id not in seen:
             seen.add(ws_id)
-            unique_workspaces.append(normalize_workspace(ws))
+            unique_workspaces.append(
+                listing_workspace(
+                    ws,
+                    include_pii=user_role in ("admin", "operations", "hr"),
+                )
+            )
 
     unique_workspaces.sort(key=lambda w: w.get("name", "").lower())
     return unique_workspaces
@@ -195,5 +221,7 @@ async def download_proposal(
     current_user: dict = Depends(require_member_or_admin),
 ):
     """Download a workspace proposal file. Requires an authenticated internal member/lead/ops/admin."""
-    return await open_upload_response(get_database(), file_path)
+    db = get_database()
+    await authorize_stored_upload(db, current_user, file_path)
+    return await open_upload_response(db, file_path)
 

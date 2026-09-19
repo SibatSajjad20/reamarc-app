@@ -1,17 +1,15 @@
 import { API_BASE_URL } from '../services/apiClient';
 
 /**
- * Returns the full backend URL for uploaded files or external links.
- * Prefer authenticated download routes — public /uploads is disabled.
+ * Returns the backend URL for an authenticated /uploads path only.
+ * Off-origin, data:, and javascript: URLs are rejected.
  */
 export const getBackendFileUrl = (url?: string): string => {
   if (!url) return '';
-  if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('blob:') || url.startsWith('data:')) {
-    return url;
-  }
+  const uploads = extractUploadsPath(url);
+  if (!uploads) return '';
   const backendRoot = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
-  const cleanPath = url.startsWith('/') ? url : `/${url}`;
-  return `${backendRoot}${cleanPath}`;
+  return `${backendRoot}${uploads.startsWith('/') ? uploads : `/${uploads}`}`;
 };
 
 /** Extract `/uploads/...` path from a relative or absolute backend URL. */
@@ -46,35 +44,32 @@ export const openFileAttachment = async (url: string, filename?: string) => {
   if (!url) return;
 
   const lower = url.trim().toLowerCase();
-  if (lower.startsWith('javascript:') || lower.startsWith('vbscript:')) {
+  if (
+    lower.startsWith('javascript:') ||
+    lower.startsWith('vbscript:') ||
+    lower.startsWith('data:')
+  ) {
     console.error('Refusing to open unsafe URL scheme:', url);
     return;
   }
 
-  if (url.startsWith('blob:') || url.startsWith('data:')) {
-    window.open(url, '_blank', 'noopener,noreferrer');
+  const uploadsPath = extractUploadsPath(url);
+  if (!uploadsPath) {
+    console.error('Refusing to open non-upload URL:', url);
     return;
   }
 
   // Pre-open window synchronously during user gesture to avoid popup blockers
-  const newTab = window.open('about:blank', '_blank');
+  const newTab = window.open('about:blank', '_blank', 'noopener,noreferrer');
 
-  const uploadsPath = extractUploadsPath(url);
-  const cleanKey = uploadsPath ? uploadsPath.replace(/^\/?uploads\//, '') : url.replace(/^\/?uploads\//, '');
+  const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
 
-  const candidateUrls: string[] = [];
-  if (uploadsPath) {
-    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}`);
-    candidateUrls.push(`/uploads/${cleanKey}`);
-    candidateUrls.push(
-      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`
-    );
-    candidateUrls.push(
-      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`
-    );
-  } else {
-    candidateUrls.push(getBackendFileUrl(url));
-  }
+  const candidateUrls: string[] = [
+    `${API_BASE_URL}/uploads/${cleanKey}`,
+    `/uploads/${cleanKey}`,
+    `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`,
+    `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`,
+  ];
 
   for (const targetUrl of candidateUrls) {
     try {
@@ -96,10 +91,11 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
         const blobUrl = window.URL.createObjectURL(finalBlob);
         if (newTab && !newTab.closed) {
-          newTab.location.href = blobUrl;
+          newTab.location.replace(blobUrl);
         } else {
-          window.open(blobUrl, '_blank');
+          window.open(blobUrl, '_blank', 'noopener,noreferrer');
         }
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
         return;
       }
     } catch (err) {
@@ -107,12 +103,8 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     }
   }
 
-  // Fallback to direct backend URL navigation
-  const directUrl = getBackendFileUrl(url);
   if (newTab && !newTab.closed) {
-    newTab.location.href = directUrl;
-  } else {
-    window.open(directUrl, '_blank');
+    newTab.close();
   }
 };
 
@@ -159,21 +151,8 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
     candidateUrls.push(
       `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`
     );
-  } else if (
-    url.startsWith('http://') ||
-    url.startsWith('https://') ||
-    url.startsWith('blob:') ||
-    url.startsWith('data:')
-  ) {
-    candidateUrls.push(url);
   } else {
-    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}?download=true`);
-    candidateUrls.push(
-      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(url)}`
-    );
-    candidateUrls.push(
-      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(url)}`
-    );
+    return;
   }
 
   let downloaded = false;

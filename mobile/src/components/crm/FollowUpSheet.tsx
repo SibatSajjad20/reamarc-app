@@ -27,44 +27,6 @@ function atLocalHour(daysFromNow: number, hour = 10, minute = 0): Date {
   return d;
 }
 
-const PRESETS = [
-  {
-    id: 'tomorrow_am',
-    label: 'Tomorrow Morning',
-    sublabel: '10:00 AM',
-    icon: 'sunny-outline' as const,
-    getDate: () => atLocalHour(1, 10, 0),
-  },
-  {
-    id: 'tomorrow_pm',
-    label: 'Tomorrow Afternoon',
-    sublabel: '03:00 PM',
-    icon: 'partly-sunny-outline' as const,
-    getDate: () => atLocalHour(1, 15, 0),
-  },
-  {
-    id: '2d',
-    label: 'In 2 days',
-    sublabel: '10:00 AM',
-    icon: 'time-outline' as const,
-    getDate: () => atLocalHour(2, 10, 0),
-  },
-  {
-    id: '3d',
-    label: 'In 3 days',
-    sublabel: '10:00 AM',
-    icon: 'time-outline' as const,
-    getDate: () => atLocalHour(3, 10, 0),
-  },
-  {
-    id: 'week',
-    label: 'Next week',
-    sublabel: '7 days · 10:00 AM',
-    icon: 'calendar-outline' as const,
-    getDate: () => atLocalHour(7, 10, 0),
-  },
-];
-
 const TIME_OPTIONS = [
   { label: '09:00 AM', hour: 9, minute: 0 },
   { label: '10:00 AM', hour: 10, minute: 0 },
@@ -88,7 +50,6 @@ export const FollowUpSheet: React.FC<FollowUpSheetProps> = ({
   onClose,
   onSave,
 }) => {
-  const [tab, setTab] = useState<'presets' | 'calendar'>('presets');
   const [saving, setSaving] = useState(false);
 
   // Selected date state
@@ -99,7 +60,6 @@ export const FollowUpSheet: React.FC<FollowUpSheetProps> = ({
   // Reset or initialize state when sheet opens
   useEffect(() => {
     if (visible) {
-      setTab('presets');
       setSaving(false);
       const initial =
         currentFollowUp && new Date(currentFollowUp).getTime() > Date.now()
@@ -215,106 +175,12 @@ export const FollowUpSheet: React.FC<FollowUpSheetProps> = ({
             </TouchableOpacity>
           </View>
 
-          {/* Mode Switcher */}
-          <View style={styles.segmentedControl}>
-            <TouchableOpacity
-              style={[styles.segmentBtn, tab === 'presets' ? styles.segmentBtnActive : null]}
-              onPress={() => setTab('presets')}
-            >
-              <Ionicons
-                name="flash-outline"
-                size={14}
-                color={tab === 'presets' ? colors.indigo : colors.muted}
-              />
-              <Text
-                style={[
-                  styles.segmentBtnText,
-                  tab === 'presets' ? styles.segmentBtnTextActive : null,
-                ]}
-              >
-                Quick Presets
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.segmentBtn, tab === 'calendar' ? styles.segmentBtnActive : null]}
-              onPress={() => setTab('calendar')}
-            >
-              <Ionicons
-                name="calendar-outline"
-                size={14}
-                color={tab === 'calendar' ? colors.indigo : colors.muted}
-              />
-              <Text
-                style={[
-                  styles.segmentBtnText,
-                  tab === 'calendar' ? styles.segmentBtnTextActive : null,
-                ]}
-              >
-                Pick Date & Time
-              </Text>
-            </TouchableOpacity>
-          </View>
-
           <ScrollView
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {tab === 'presets' ? (
-              <View style={styles.presetsList}>
-                {PRESETS.map((p) => (
-                  <TouchableOpacity
-                    key={p.id}
-                    style={styles.presetRow}
-                    disabled={saving}
-                    onPress={() => runSave(p.getDate().toISOString())}
-                  >
-                    <View style={styles.presetIconBox}>
-                      <Ionicons name={p.icon} size={18} color={colors.indigo} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.presetLabel}>{p.label}</Text>
-                      <Text style={styles.presetSublabel}>{p.sublabel}</Text>
-                    </View>
-                    <Ionicons name="chevron-forward" size={16} color={colors.muted} />
-                  </TouchableOpacity>
-                ))}
-
-                <TouchableOpacity
-                  style={[styles.presetRow, styles.customTriggerRow]}
-                  disabled={saving}
-                  onPress={() => setTab('calendar')}
-                >
-                  <View style={[styles.presetIconBox, { backgroundColor: '#EEF2FF' }]}>
-                    <Ionicons name="calendar" size={18} color={colors.indigo} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.presetLabel, { color: colors.indigo }]}>
-                      Choose specific date & time
-                    </Text>
-                    <Text style={styles.presetSublabel}>Open interactive calendar</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={16} color={colors.indigo} />
-                </TouchableOpacity>
-
-                {currentFollowUp ? (
-                  <TouchableOpacity
-                    style={[styles.presetRow, styles.clearRow]}
-                    disabled={saving}
-                    onPress={() => runSave(null)}
-                  >
-                    <View style={[styles.presetIconBox, { backgroundColor: '#FFE4E6' }]}>
-                      <Ionicons name="close-circle-outline" size={18} color={colors.rose} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.clearLabel}>Clear follow-up</Text>
-                      <Text style={styles.clearSublabel}>Remove scheduled reminder</Text>
-                    </View>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : (
-              <View style={styles.calendarContainer}>
+            <View style={styles.calendarContainer}>
                 {/* Month / Year Bar */}
                 <View style={styles.monthHeader}>
                   <TouchableOpacity
@@ -489,13 +355,18 @@ export const FollowUpSheet: React.FC<FollowUpSheetProps> = ({
                     </>
                   )}
                 </TouchableOpacity>
-              </View>
-            )}
-          </ScrollView>
 
-          {saving && tab === 'presets' ? (
-            <ActivityIndicator style={{ marginTop: 12 }} color={colors.indigo} />
-          ) : null}
+                {currentFollowUp ? (
+                  <TouchableOpacity
+                    style={styles.clearBtn}
+                    disabled={saving}
+                    onPress={() => runSave(null)}
+                  >
+                    <Text style={styles.clearBtnText}>Clear follow-up</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+          </ScrollView>
         </Pressable>
       </Pressable>
     </Modal>
@@ -546,94 +417,11 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: colors.bg,
   },
-  segmentedControl: {
-    flexDirection: 'row',
-    backgroundColor: colors.bg,
-    borderRadius: 12,
-    padding: 3,
-    marginBottom: 14,
-  },
-  segmentBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    borderRadius: 9,
-  },
-  segmentBtnActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  segmentBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: colors.muted,
-  },
-  segmentBtnTextActive: {
-    color: colors.indigo,
-    fontWeight: '700',
-  },
   scroll: {
     maxHeight: 460,
   },
   scrollContent: {
     paddingBottom: 8,
-  },
-  presetsList: {
-    gap: 8,
-  },
-  presetRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    borderRadius: 14,
-    backgroundColor: colors.bg,
-    borderWidth: 1,
-    borderColor: colors.line,
-  },
-  customTriggerRow: {
-    backgroundColor: '#F5F7FF',
-    borderColor: '#C7D2FE',
-  },
-  clearRow: {
-    backgroundColor: '#FFF1F2',
-    borderColor: '#FECDD3',
-  },
-  presetIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  presetLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.text,
-  },
-  presetSublabel: {
-    fontSize: 11,
-    color: colors.muted,
-    marginTop: 2,
-  },
-  clearLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.rose,
-  },
-  clearSublabel: {
-    fontSize: 11,
-    color: '#FB7185',
-    marginTop: 2,
   },
   calendarContainer: {
     gap: 10,
@@ -805,6 +593,15 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '700',
+  },
+  clearBtn: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  clearBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.rose,
   },
 });
 

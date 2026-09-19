@@ -83,6 +83,26 @@ def is_private_or_loopback_ip(value: Optional[str]) -> bool:
     return any(ip_obj in net for net in PRIVATE_OR_LOOPBACK) or ip_obj.is_loopback or ip_obj.is_private
 
 
+def trusted_proxy_client_ip(socket_ip: Optional[str], x_forwarded_for: Optional[str]) -> Optional[str]:
+    """
+    Resolve the connecting client behind a single reverse proxy.
+
+    A public socket is trusted as-is (ignore client-supplied X-Forwarded-For).
+    A private/loopback socket (Render / Vite) uses the *right-most public* XFF hop —
+    the address the proxy appended — not the left-most (spoofable) hop.
+    """
+    if is_public_ip(socket_ip):
+        return str(socket_ip).strip()
+
+    parts = [part.strip() for part in (x_forwarded_for or "").split(",") if part.strip()]
+    for part in reversed(parts):
+        if is_public_ip(part):
+            return part
+    if socket_ip and str(socket_ip).strip():
+        return str(socket_ip).strip()
+    return None
+
+
 def collect_whitelist_entries(settings: SecuritySettingsSchema) -> List[str]:
     """Merge every configured IP / CIDR field into a single allow-list."""
     entries: List[str] = []

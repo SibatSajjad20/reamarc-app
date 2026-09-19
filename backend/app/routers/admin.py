@@ -32,7 +32,9 @@ from app.core.security import (
     require_operations_or_admin,
     require_management_role,
     get_password_hash,
+    bump_session_epoch,
 )
+from app.core.mongo_filters import exact_ci
 from app.database import get_database
 from app.core.encryption import encrypt_credential_fields
 from app.services.email_service import EmailService
@@ -283,7 +285,7 @@ async def list_members_activity(
         if not last_logged:
             # Fallback for rare legacy records without user_id
             legacy_last = await db.daily_log_entries.find_one(
-                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
+                {"resource_name": exact_ci(fname)},
                 sort=[("date", -1)]
             )
             if legacy_last and legacy_last.get("date"):
@@ -353,7 +355,7 @@ async def remind_member_log(
     fname = member.get("full_name") or member.get("name", "Team Member")
     recent_entries = await db.daily_log_entries.find(
         {
-            "$or": [{"user_id": user_id}, {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}}],
+            "$or": [{"user_id": user_id}, {"resource_name": exact_ci(fname)}],
             "date": {"$in": workdays}
         },
         {"date": 1}
@@ -430,19 +432,29 @@ async def remind_member_log(
     }
 
 
-@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_hr_or_admin)])
-@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_hr_or_admin)])
-async def create_member(member_in: MemberCreate):
+@router.post("/members", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/users", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
+async def create_member(
+    member_in: MemberCreate,
+    current_user: dict = Depends(require_hr_or_admin),
+):
     """Create a new team member account (HR or Admin)."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 
     # Prevent creating additional Super Admin accounts
     if member_in.role in (UserRole.ADMIN, "admin"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Creating additional Super Admin accounts is not permitted. Only one Super Admin exists.",
+        )
+    if member_in.role in (UserRole.OPERATIONS, "operations") and not is_caller_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only an administrator can assign the operations role.",
         )
 
     existing = await db.users.find_one({"email": member_in.email.lower()})
@@ -550,6 +562,14 @@ async def update_member(
     if member_in.password is not None and member_in.password.strip():
         update_fields["hashed_password"] = get_password_hash(member_in.password.strip())
     if member_in.role is not None:
+        existing_role = str(existing_user.get("role") or "").lower()
+        assigning_ops = member_in.role in (UserRole.OPERATIONS, "operations")
+        already_ops = existing_role in (UserRole.OPERATIONS.value, "operations")
+        if assigning_ops and not is_caller_admin and not already_ops:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an administrator can assign the operations role.",
+            )
         update_fields["role"] = member_in.role.value
         if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
             update_fields["department"] = "All"
@@ -618,6 +638,9 @@ async def update_member(
         {"$set": update_fields},
         return_document=True,
     )
+
+    if "hashed_password" in update_fields:
+        await bump_session_epoch(db, user_id)
 
     new_joining = update_fields.get("joining_date")
     if new_joining and new_joining != existing_user.get("joining_date"):
@@ -840,7 +863,7 @@ async def create_ad_account(acc_in: AdAccountCreate):
                 "updated_at": now_iso,
             })
         except ValueError as err:
-            raise HTTPException(status_code=500, detail=str(err)) from err
+            raise HTTPException(status_code=500, detail="Encryption configuration error.") from err
         await db.ad_account_credentials.update_one(
             {"account_id": acc_in.account_id},
             {"$set": cred_doc},
@@ -897,7 +920,7 @@ async def update_ad_account(account_id: str, acc_in: AdAccountUpdate):
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             })
         except ValueError as err:
-            raise HTTPException(status_code=500, detail=str(err)) from err
+            raise HTTPException(status_code=500, detail="Encryption configuration error.") from err
         await db.ad_account_credentials.update_one(
             {"account_id": target_account_id},
             {"$set": cred_doc},

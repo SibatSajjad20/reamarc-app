@@ -7,9 +7,16 @@ import os
 import asyncio
 from app.core.limiter import limiter
 from app.database import get_database
-from app.core.security import get_current_user, require_admin
+from app.core.security import get_current_user, require_admin, require_internal_user, assert_workspace_access
 from app.core.mongo_filters import exact_ci, contains_ci
-from app.core.uploads import open_upload_response, save_upload_bytes, normalize_upload_key
+from app.core.uploads import (
+    open_upload_response,
+    save_upload_bytes,
+    normalize_upload_key,
+    get_upload_workspace_id,
+    authorize_upload_key,
+    authorize_stored_upload,
+)
 from app.schemas.daily_log import (
     DailyLogEntryCreate,
     DailyLogEntryUpdate,
@@ -31,6 +38,21 @@ router = APIRouter(
         500: {"description": "Internal Server Error"},
     }
 )
+
+
+def _can_mutate_daily_log(existing_entry: dict, current_user: dict) -> bool:
+    """Mutations require user_id match. Name-only matches are legacy read-only."""
+    user_role = current_user.get("role", "team_member")
+    if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr"):
+        return True
+    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
+    lead_dept = current_user.get("department")
+    entry_dept = existing_entry.get("department")
+    if is_lead and lead_dept and entry_dept and str(lead_dept).lower() == str(entry_dept).lower():
+        return True
+    entry_uid = existing_entry.get("user_id")
+    curr_id = current_user.get("id") or str(current_user.get("_id"))
+    return bool(entry_uid and curr_id and str(entry_uid) == str(curr_id))
 
 DEFAULT_COLUMNS: List[dict] = [
     {"key": "date", "label": "Date", "type": "date", "editable": True},
@@ -175,7 +197,7 @@ async def get_my_log_activity(
             "date": {"$gte": min_date},
             "$or": [
                 {"user_id": uid},
-                {"resource_name": {"$regex": f"^{fname}$", "$options": "i"}},
+                {"resource_name": exact_ci(fname)},
             ],
         },
         {"_id": 0, "date": 1},
@@ -646,7 +668,7 @@ async def upload_deliverable(
         None,
         description="Optional existing /uploads/... path to overwrite (restores proposals without changing DB URLs).",
     ),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_internal_user),
 ):
     """Upload a deliverable/proposal file securely (max 25MB). Persists to disk + Mongo GridFS."""
     if not file.filename:
@@ -671,13 +693,42 @@ async def upload_deliverable(
 
     if store_as:
         # Overwrite an existing stored path (keeps workspace.proposal_url stable).
+        role = current_user.get("role")
+        if role not in (
+            UserRole.ADMIN.value,
+            UserRole.OPERATIONS.value,
+            UserRole.HR.value,
+            "admin",
+            "operations",
+            "hr",
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only operations can overwrite an existing proposal file.",
+            )
         key = normalize_upload_key(store_as)
         if not key.startswith("deliverables/"):
             raise HTTPException(status_code=400, detail="store_as must be an /uploads/deliverables/... path.")
+        existing_ws = await get_upload_workspace_id(get_database(), key)
+        authorize_upload_key(current_user, existing_ws)
     else:
         clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
         safe_name = f"{uuid.uuid4().hex[:10]}_{clean_original}"
         key = f"deliverables/{safe_name}"
+        existing_ws = None
+
+    extra_metadata = {"uploaded_by": current_user.get("id")}
+    ws_header = (request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id") or "").strip()
+    if ws_header:
+        resolved = assert_workspace_access(current_user, ws_header)
+        if resolved and resolved != "__scoped__":
+            extra_metadata["workspace_id"] = resolved
+    elif existing_ws:
+        extra_metadata["workspace_id"] = existing_ws
+    else:
+        assigned = [wid for wid in (current_user.get("workspace_ids") or []) if wid]
+        if len(assigned) == 1:
+            extra_metadata["workspace_id"] = assigned[0]
 
     db = get_database()
     file_url = await save_upload_bytes(
@@ -686,6 +737,7 @@ async def upload_deliverable(
         content=content,
         original_name=file.filename,
         content_type=file.content_type,
+        extra_metadata=extra_metadata,
     )
 
     return {
@@ -698,16 +750,12 @@ async def upload_deliverable(
 @router.get("/download-file")
 async def download_file(
     file_path: str = Query(..., description="File path under /uploads"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_internal_user),
 ):
     """Download an uploaded file attachment. Requires an authenticated internal user."""
-    user_role = current_user.get("role", "team_member")
-    if user_role in ("client", UserRole.CLIENT.value):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Client accounts do not have access to internal daily logs.",
-        )
-    return await open_upload_response(get_database(), file_path)
+    db = get_database()
+    await authorize_stored_upload(db, current_user, file_path)
+    return await open_upload_response(db, file_path)
 
 
 @router.post("/entries", response_model=DailyLogEntryResponse, status_code=status.HTTP_201_CREATED)
@@ -840,35 +888,18 @@ async def update_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    user_role = current_user.get("role", "team_member")
-    is_admin = user_role in (UserRole.ADMIN.value, "admin")
-    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
-    lead_dept = current_user.get("department")
-
     existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    # Permissions check:
-    entry_uid = existing_entry.get("user_id")
-    entry_rname = existing_entry.get("resource_name")
-    entry_dept = existing_entry.get("department")
-    curr_id = current_user.get("id") or str(current_user.get("_id"))
-    curr_name = (current_user.get("full_name") or current_user.get("name") or "").strip().lower()
-
-    if not is_admin:
-        is_own_entry = (
-            (entry_uid and str(entry_uid) == str(curr_id))
-            or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
+    if not _can_mutate_daily_log(existing_entry, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to edit this log entry. Only the author who logged the entry can edit it.",
         )
-        is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
-        is_hr = user_role in (UserRole.HR.value, "hr")
 
-        if not (is_own_entry or is_dept_lead_entry or is_hr):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to edit this log entry. Only the author who logged the entry can edit it.",
-            )
+    entry_uid = existing_entry.get("user_id")
+    entry_dept = existing_entry.get("department")
 
     update_data = {k: v for k, v in entry_in.model_dump().items() if v is not None}
     
@@ -1015,34 +1046,18 @@ async def delete_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    user_role = current_user.get("role", "team_member")
-    is_admin = user_role in (UserRole.ADMIN.value, "admin")
-    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
-    lead_dept = current_user.get("department")
-
     existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    entry_uid = existing_entry.get("user_id")
-    entry_rname = existing_entry.get("resource_name")
-    entry_dept = existing_entry.get("department")
-    curr_id = current_user.get("id") or str(current_user.get("_id"))
-    curr_name = (current_user.get("full_name") or current_user.get("name") or "").strip().lower()
-
-    if not is_admin:
-        is_own_entry = (
-            (entry_uid and str(entry_uid) == str(curr_id))
-            or (entry_rname and curr_name and entry_rname.strip().lower() == curr_name)
+    if not _can_mutate_daily_log(existing_entry, current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
         )
-        is_dept_lead_entry = is_lead and lead_dept and entry_dept and lead_dept.lower() == entry_dept.lower()
-        is_hr = user_role in (UserRole.HR.value, "hr")
 
-        if not (is_own_entry or is_dept_lead_entry or is_hr):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
-            )
+    entry_uid = existing_entry.get("user_id")
+    entry_dept = existing_entry.get("department")
 
     # 48 Working-Hours Expiration Gate for deleting (Strict equality, zero exemptions)
     if existing_entry.get("date"):

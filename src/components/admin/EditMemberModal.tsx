@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { UserRole } from '../../types/auth';
 import type { AdminMember, EmploymentType, UpdateMemberPayload } from '../../types/admin';
+import { useAuth } from '../../context/AuthContext';
 
 export const DEPARTMENTS = [
   'Website',
@@ -61,6 +62,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   onClose,
   onSubmit,
 }) => {
+  const { user } = useAuth();
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -287,7 +289,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               <span>Role Assignment <span className="text-rose-500">*</span></span>
             </label>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {ROLES.map((r) => {
+              {ROLES.filter((r) => {
+                if (r.id === 'admin') return member?.role === 'admin';
+                if (r.id === 'operations') return user?.role === 'admin' || member?.role === 'operations';
+                return true;
+              }).map((r) => {
                 const isSelected = role === r.id;
                 return (
                   <button

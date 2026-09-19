@@ -9,7 +9,6 @@ import {
   buildEntriesQuery,
   deliverableLabel,
   formatHoursShort,
-  isHttpUrl,
   isUploadPath,
   splitDeliverables,
   taskStatusTone,
@@ -20,7 +19,7 @@ import {
   isCacheStale,
   setCachedEntries,
 } from '../../src/lib/dailyLogCache';
-import { colors } from '../../src/theme';
+import { toSafeHttpsUrl } from '../../src/lib/safeUrl';
 import { Avatar } from '../../src/ui/Avatar';
 import { DailyLogDetailSkeleton } from '../../src/ui/Skeleton';
 import { formatDisplayDate, prettyRole } from '../../src/ui/format';
@@ -212,15 +211,15 @@ export default function DailyLogDetailScreen() {
             <Text style={styles.emptyInline}>No deliverables attached</Text>
           ) : (
             deliverables.map((item, index) => {
-              const http = isHttpUrl(item);
+              const safeHttps = toSafeHttpsUrl(item);
               const upload = isUploadPath(item);
               const label = deliverableLabel(item);
-              if (http) {
+              if (safeHttps) {
                 return (
                   <Pressable
                     key={`${item}-${index}`}
                     style={styles.deliverableRow}
-                    onPress={() => Linking.openURL(item)}
+                    onPress={() => Linking.openURL(safeHttps)}
                   >
                     <Ionicons name="link-outline" size={16} color={colors.indigo} />
                     <Text style={styles.deliverableLink} numberOfLines={2}>

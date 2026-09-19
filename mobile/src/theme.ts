@@ -50,14 +50,18 @@ function resolveApiUrl(): string {
   const lan = expoLanHostname();
 
   if (envUrl) {
+    let resolved = envUrl;
     if (lan && /localhost|127\.0\.0\.1/i.test(envUrl)) {
-      return envUrl.replace(/localhost|127\.0\.0\.1/i, lan);
+      resolved = envUrl.replace(/localhost|127\.0\.0\.1/i, lan);
     }
-    return envUrl;
+    if (!__DEV__ && !/^https:\/\//i.test(resolved)) {
+      return 'https://reamarc-app.onrender.com/api/v1';
+    }
+    return resolved;
   }
 
-  // When developing via Expo / Metro, automatically point to local backend on same LAN
-  if (lan) {
+  // Dev-only: Expo / Metro on a physical phone talks to the LAN backend over HTTP.
+  if (__DEV__ && lan) {
     return `http://${lan}:8000/api/v1`;
   }
 

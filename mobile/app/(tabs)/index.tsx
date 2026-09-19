@@ -48,6 +48,24 @@ import {
 
 const OVERVIEW_SETTLE_MS = 400;
 const OVERVIEW_POLL_MS = 45_000;
+const GPS_FRESH_MS = 20_000;
+const GPS_WAIT_MS = 4_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(label)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
 
 type TodayPayload = {
   record: {
@@ -166,6 +184,8 @@ function PunchScreen() {
   const [initialLoading, setInitialLoading] = useState(() => !punchCached);
   const pulse = useRef(new Animated.Value(1)).current;
   const didBlurRef = useRef(false);
+  const gpsFixRef = useRef<Fix | null>(null);
+  const punchingRef = useRef(false);
 
   const load = useCallback(async (opts: { soft?: boolean } = {}) => {
     const { soft = false } = opts;
@@ -197,34 +217,81 @@ function PunchScreen() {
     }
   }, []);
 
-  const captureGps = useCallback(async (payload: TodayPayload | null) => {
-    const perm = await Location.requestForegroundPermissionsAsync();
-    if (perm.status !== 'granted') {
-      setError('Location permission is required to punch.');
-      return null;
-    }
-    const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+  const positionToFix = useCallback((pos: Location.LocationObject, payload: TodayPayload | null): Fix => {
     const lat = pos.coords.latitude;
     const lng = pos.coords.longitude;
     const accuracy = pos.coords.accuracy ?? 999;
     const mocked = Boolean((pos as { mocked?: boolean }).mocked || (pos.coords as { mocked?: boolean }).mocked);
     const officeLat = payload?.office_latitude ?? 33.52062764084008;
     const officeLng = payload?.office_longitude ?? 73.09183393441234;
-    const radius = payload?.geofence_radius_meters ?? payload?.geofence_radius_meters ?? 500;
+    const radius = payload?.geofence_radius_meters ?? 500;
     const distance = haversineMeters(lat, lng, officeLat, officeLng);
-    const quality = classifyGpsFix(distance, accuracy, radius);
-    const next: Fix = {
+    return {
       lat,
       lng,
       accuracy,
-      capturedAt: new Date(pos.timestamp).toISOString(),
+      capturedAt: new Date(pos.timestamp || Date.now()).toISOString(),
       mocked,
       distance,
-      quality,
+      quality: classifyGpsFix(distance, accuracy, radius),
     };
+  }, []);
+
+  const applyGpsFix = useCallback((next: Fix) => {
+    gpsFixRef.current = next;
     setFix(next);
     return next;
   }, []);
+
+  const captureGps = useCallback(async (payload: TodayPayload | null, opts: { allowCached?: boolean } = {}) => {
+    const { allowCached = true } = opts;
+    if (allowCached && gpsFixRef.current) {
+      const age = Date.now() - Date.parse(gpsFixRef.current.capturedAt);
+      if (Number.isFinite(age) && age >= 0 && age < GPS_FRESH_MS) {
+        return gpsFixRef.current;
+      }
+    }
+
+    const existing = await Location.getForegroundPermissionsAsync();
+    let status = existing.status;
+    if (status !== 'granted') {
+      const asked = await Location.requestForegroundPermissionsAsync();
+      status = asked.status;
+    }
+    if (status !== 'granted') {
+      setError('Location permission is required to punch.');
+      return null;
+    }
+
+    try {
+      const last = await Location.getLastKnownPositionAsync({
+        maxAge: GPS_FRESH_MS,
+        requiredAccuracy: 150,
+      });
+      if (last) return applyGpsFix(positionToFix(last, payload));
+    } catch {
+      /* fall through to a live read */
+    }
+
+    try {
+      const pos = await withTimeout(
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
+        GPS_WAIT_MS,
+        'gps-timeout',
+      );
+      return applyGpsFix(positionToFix(pos, payload));
+    } catch {
+      try {
+        const lastAny = await Location.getLastKnownPositionAsync({});
+        if (lastAny) return applyGpsFix(positionToFix(lastAny, payload));
+      } catch {
+        /* keep going */
+      }
+      if (gpsFixRef.current) return gpsFixRef.current;
+      setError('Could not read GPS. Move near a window and try again.');
+      return null;
+    }
+  }, [applyGpsFix, positionToFix]);
 
   useEffect(() => {
     const unsub = NetInfo.addEventListener((state) => {
@@ -433,9 +500,10 @@ function PunchScreen() {
     if (today?.is_off_day) throw new Error(`Check-in is closed. ${today.off_day_label || 'Official rest day'}.`);
     if (!deviceUuid) throw new Error('Device is not registered yet.');
     if (!online) throw new Error('You are offline. Connect to the internet, then punch. Time is recorded on the server.');
+    const data = today;
+    const gpsPromise = captureGps(data, { allowCached: true });
     await confirmBiometric();
-    const data = today || (await load());
-    const gps = (await captureGps(data)) || fix;
+    const gps = (await gpsPromise) || gpsFixRef.current || fix;
     if (!gps) throw new Error('Could not read GPS.');
     const body: Record<string, unknown> = {
       device_uuid: deviceUuid,
@@ -458,34 +526,45 @@ function PunchScreen() {
   };
 
   const onPress = async (kind: 'in' | 'out') => {
+    if (punchingRef.current || busy) return;
+    punchingRef.current = true;
     setError('');
-    let currentToday = today;
-    if (kind === 'out') {
-      try {
-        currentToday = await load();
-      } catch {
-        currentToday = today;
-      }
-      if (currentToday?.checkout_gate && currentToday.checkout_gate.type && currentToday.checkout_gate.type !== 'none') {
-        setReasonOpen(true);
-        return;
-      }
-    }
     setBusy(true);
     try {
+      if (kind === 'out') {
+        let currentToday = today;
+        const cachedGate = currentToday?.checkout_gate;
+        if (!(cachedGate?.type && cachedGate.type !== 'none')) {
+          try {
+            currentToday = await withTimeout(load(), 1500, 'today-timeout');
+          } catch {
+            currentToday = today;
+          }
+        }
+        const gate = currentToday?.checkout_gate;
+        if (gate?.type && gate.type !== 'none') {
+          setBusy(false);
+          punchingRef.current = false;
+          setReasonOpen(true);
+          return;
+        }
+      }
       await punch(kind);
     } catch (err: any) {
       setError(err.message || 'Punch failed');
     } finally {
+      punchingRef.current = false;
       setBusy(false);
     }
   };
 
   const submitReason = async () => {
+    if (punchingRef.current || busy) return;
     if (reason.trim().length < 3) {
       Alert.alert('Reason required', 'Please explain overtime or leaving early.');
       return;
     }
+    punchingRef.current = true;
     setBusy(true);
     try {
       await punch('out', reason.trim());
@@ -494,6 +573,7 @@ function PunchScreen() {
     } catch (err: any) {
       setError(err.message || 'Check-out failed');
     } finally {
+      punchingRef.current = false;
       setBusy(false);
     }
   };
@@ -599,15 +679,24 @@ function PunchScreen() {
             ) : (
               <>
                 <View style={styles.heroWrap}>
-                  <Animated.View style={{ transform: [{ scale: canOut ? pulse : 1 }] }}>
-                    <Pressable
+                  <Pressable
+                    disabled={busy || btnDisabled}
+                    onPress={() => {
+                      if (busy || btnDisabled) return;
+                      void onPress(canIn ? 'in' : 'out');
+                    }}
+                    hitSlop={16}
+                    style={({ pressed }) => ({
+                      opacity: busy || btnDisabled ? 0.55 : pressed ? 0.88 : 1,
+                    })}
+                  >
+                    <Animated.View
+                      pointerEvents="none"
                       style={[
                         styles.hero,
-                        { backgroundColor: btnColor, opacity: busy || btnDisabled ? 0.55 : 1 },
+                        { backgroundColor: btnColor, transform: [{ scale: canOut ? pulse : 1 }] },
                         canIn && styles.heroGlow,
                       ]}
-                      disabled={busy || btnDisabled}
-                      onPress={() => onPress(canIn ? 'in' : 'out')}
                     >
                       {busy ? (
                         <ActivityIndicator color="#fff" />
@@ -618,8 +707,8 @@ function PunchScreen() {
                           {!!elapsed && <Text style={styles.heroTimer}>{elapsed} on shift</Text>}
                         </>
                       )}
-                    </Pressable>
-                  </Animated.View>
+                    </Animated.View>
+                  </Pressable>
                 </View>
                 <View style={styles.lockRow}>
                   <Ionicons name="lock-closed-outline" size={13} color={colors.muted} />

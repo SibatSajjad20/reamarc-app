@@ -17,6 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme';
 import { useAuth } from '../../../src/context/AuthContext';
+import { canAccessCrm } from '../../../src/lib/roles';
 import { toSafeHttpsUrl } from '../../../src/lib/safeUrl';
 import { crmApi } from '../../../src/lib/crmApi';
 import type {
@@ -68,7 +69,8 @@ function Field({ label, value, valueColor }: { label: string; value: string; val
 
 export default function LeadDetailScreen() {
   const router = useRouter();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id: rawId } = useLocalSearchParams<{ id: string }>();
+  const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : '';
   const { user } = useAuth();
   const hasAccess = canAccessCrm(user);
 

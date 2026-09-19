@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import type { CrmLead } from '../../types/crm';
 import { crmService } from '../../services/crmService';
+import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 
 interface CrmFollowUpViewProps {
   leads: CrmLead[];
@@ -234,8 +235,9 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
   };
 
   const handleOpenWhatsApp = async (lead: CrmLead) => {
-    if (!lead.wa_url) return;
-    window.open(lead.wa_url, '_blank', 'noopener,noreferrer');
+    const wa = toSafeWhatsAppUrl(lead.wa_url);
+    if (!wa) return;
+    window.open(wa, '_blank', 'noopener,noreferrer');
     try {
       await crmService.logWhatsappOpened(lead.id);
       onOptimisticUpdate?.(lead.id, {

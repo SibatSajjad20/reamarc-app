@@ -313,13 +313,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
     setTimeout(() => setCopiedPhone(false), 2000);
   };
 
-  const handlePresetFollowUp = (hoursToAdd: number) => {
-    const d = new Date();
-    d.setHours(d.getHours() + hoursToAdd);
-    setFollowUpLocal(toLocalInputValue(d.toISOString()));
-    void onFollowUp(d.toISOString());
-  };
-
   const handleCreateDeal = async () => {
     if (!newDealTitle.trim()) return;
     setSavingDeal(true);
@@ -1091,31 +1084,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                     Clear
                   </button>
                 )}
-              </div>
-
-              {/* Quick Preset Buttons */}
-              <div className="flex items-center gap-1.5 pt-0.5">
-                <button
-                  type="button"
-                  onClick={() => handlePresetFollowUp(2)}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition cursor-pointer"
-                >
-                  +2 hours
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePresetFollowUp(24)}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition cursor-pointer"
-                >
-                  Tomorrow
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handlePresetFollowUp(72)}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition cursor-pointer"
-                >
-                  In 3 days
-                </button>
               </div>
             </div>
           )}

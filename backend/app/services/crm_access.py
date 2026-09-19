@@ -41,7 +41,9 @@ def can_view_all_leads(user: Dict[str, Any]) -> bool:
         return False
     role = _role(user)
     dept = _dept(user)
-    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin") or role in (UserRole.TEAM_LEAD.value, "team_lead")
+    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin") or (
+        role in (UserRole.TEAM_LEAD.value, "team_lead") and dept == _SALES_DEPT
+    )
 
 
 def can_assign_leads(user: Dict[str, Any]) -> bool:
@@ -49,7 +51,9 @@ def can_assign_leads(user: Dict[str, Any]) -> bool:
         return False
     role = _role(user)
     dept = _dept(user)
-    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin") or role in (UserRole.TEAM_LEAD.value, "team_lead")
+    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin") or (
+        role in (UserRole.TEAM_LEAD.value, "team_lead") and dept == _SALES_DEPT
+    )
 
 
 def can_manage_outcomes(user: Dict[str, Any]) -> bool:

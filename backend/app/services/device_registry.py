@@ -184,18 +184,15 @@ async def enforce_mobile_punch(
     is_mocked: Optional[bool],
 ) -> dict:
     uuid_clean = (device_uuid or "").strip()
-    if not ENFORCE_MOBILE_PUNCH_ONLY and not uuid_clean:
-        return {}
+    # Client-supplied biometric / mock flags are not attestations. Reject mock GPS
+    # even on desktop punches; honest apps still send is_mocked for UX.
     if is_mocked:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Virtual location detected. Turn off mock / fake GPS apps and try again.",
         )
-    if biometric_verified is not True:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Unlock with Face ID, fingerprint, or your device PIN to punch.",
-        )
+    if not ENFORCE_MOBILE_PUNCH_ONLY and not uuid_clean:
+        return {}
     return await require_bound_device(user_id, device_uuid)
 
 

@@ -15,8 +15,8 @@ from app.schemas.shift import ShiftResponse
 class CheckInRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
-    longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90, description="Current latitude from browser geolocation")
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180, description="Current longitude from browser geolocation")
     accuracy_meters: Optional[float] = Field(
         default=None,
         ge=0,
@@ -26,7 +26,7 @@ class CheckInRequest(BaseModel):
         default=None,
         description="ISO timestamp when GPS was captured; stale readings are rejected",
     )
-    notes: Optional[str] = Field(default=None, description="Optional check-in notes / remarks")
+    notes: Optional[str] = Field(default=None, max_length=500, description="Optional check-in notes / remarks")
     client_ip: Optional[str] = Field(default=None, description="Deprecated; ignored unless the request IP is loopback")
     detected_public_ip: Optional[str] = Field(
         default=None,
@@ -49,14 +49,14 @@ class CheckInRequest(BaseModel):
 class CheckOutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    latitude: Optional[float] = Field(default=None, description="Current latitude from browser geolocation")
-    longitude: Optional[float] = Field(default=None, description="Current longitude from browser geolocation")
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90, description="Current latitude from browser geolocation")
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180, description="Current longitude from browser geolocation")
     accuracy_meters: Optional[float] = Field(default=None, ge=0)
     gps_captured_at: Optional[str] = Field(default=None)
     device_uuid: Optional[str] = Field(default=None, description="Mobile app device UUID. Desktop punch omits this.")
     biometric_verified: Optional[bool] = Field(default=None)
     is_mocked: Optional[bool] = Field(default=None)
-    notes: Optional[str] = Field(default=None, description="Optional check-out notes / remarks")
+    notes: Optional[str] = Field(default=None, max_length=500, description="Optional check-out notes / remarks")
     detected_public_ip: Optional[str] = Field(
         default=None,
         description="Browser-detected public IP, used only when the API request IP is loopback (local Vite proxy)",

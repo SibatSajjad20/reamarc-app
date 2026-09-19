@@ -103,6 +103,7 @@ const HEALTH_OPTIONS = [
 ];
 
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25MB
+const ALLOWED_UPLOAD_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc', '.txt', '.zip', '.xlsx', '.xls', '.csv'];
 
 export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   isOpen,
@@ -236,6 +237,11 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
     if (file.size > MAX_UPLOAD_BYTES) {
       setUploadError('File exceeds maximum allowed size of 25MB.');
+      return;
+    }
+    const ext = `.${(file.name.split('.').pop() || '').toLowerCase()}`;
+    if (!ALLOWED_UPLOAD_EXTS.includes(ext)) {
+      setUploadError('Unsupported file type. SVG is not allowed.');
       return;
     }
 
@@ -741,7 +747,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   type="file"
                   onChange={handleProposalFileUpload}
                   className="hidden"
-                  accept=".pdf,.doc,.docx,.xlsx,.xls,.zip,.png,.jpg,.jpeg,.svg"
+                  accept=".pdf,.doc,.docx,.xlsx,.xls,.zip,.png,.jpg,.jpeg"
                 />
                 <button
                   type="button"

@@ -48,9 +48,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [activeSection, setActiveSection] = useState<AdminSectionType>(() => {
     return propActiveSection || 'directory';
   });
-  const [policiesVisited, setPoliciesVisited] = useState(false);
+  const [policiesVisited, setPoliciesVisited] = useState(
+    () => propActiveSection === 'attendance_policies'
+  );
 
   useEffect(() => {
+    if (propActiveSection === 'attendance_policies') {
+      setPoliciesVisited(true);
+    }
     if (propActiveSection && propActiveSection !== activeSection) {
       setActiveSection(propActiveSection);
     }

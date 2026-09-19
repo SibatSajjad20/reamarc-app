@@ -3,7 +3,7 @@ Pydantic schemas for the Performance Marketing Module.
 Defines request/response models for marketing campaigns and daily metrics.
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import date, datetime
 
@@ -126,6 +126,20 @@ class SyncNowRequest(BaseModel):
     workspace_id: Optional[str] = None
     date: Optional[str] = None  # YYYY-MM-DD, defaults to today
     include_inactive: Optional[bool] = False
+
+    @field_validator("date")
+    @classmethod
+    def validate_sync_date(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        text = str(v).strip()
+        if not text:
+            return None
+        try:
+            datetime.strptime(text, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("date must be YYYY-MM-DD") from exc
+        return text
 
 
 class SyncNowResponse(BaseModel):
