@@ -7,6 +7,7 @@ import { api } from '../lib/api';
 import { clearDailyLogCaches } from '../lib/dailyLogCache';
 import { clearAttendanceCaches } from '../lib/attendanceCache';
 import { clearCrmCaches } from '../lib/crmCache';
+import { clearSession, getAccessToken, getOrCreateDeviceUuid, saveTokens } from '../lib/secure';
 
 export type AuthUser = {
   id: string;

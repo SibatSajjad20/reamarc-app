@@ -20,6 +20,7 @@ import {
   setCachedEntries,
 } from '../../src/lib/dailyLogCache';
 import { toSafeHttpsUrl } from '../../src/lib/safeUrl';
+import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
 import { DailyLogDetailSkeleton } from '../../src/ui/Skeleton';
 import { formatDisplayDate, prettyRole } from '../../src/ui/format';
