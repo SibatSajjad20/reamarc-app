@@ -59,8 +59,32 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     return;
   }
 
-  // Pre-open window synchronously during user gesture to avoid popup blockers
-  const newTab = window.open('about:blank', '_blank', 'noopener,noreferrer');
+  // Pre-open window synchronously during user gesture to avoid popup blockers.
+  // Note: We MUST NOT pass 'noopener' or 'noreferrer' here because per the HTML spec,
+  // passing noopener causes window.open to return null, breaking navigation to the blob URL.
+  const newTab = window.open('about:blank', '_blank');
+  if (newTab) {
+    try {
+      newTab.document.title = filename || 'Loading Document...';
+      newTab.document.body.style.margin = '0';
+      newTab.document.body.style.display = 'flex';
+      newTab.document.body.style.alignItems = 'center';
+      newTab.document.body.style.justifyContent = 'center';
+      newTab.document.body.style.height = '100vh';
+      newTab.document.body.style.fontFamily = 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+      newTab.document.body.style.backgroundColor = '#f8fafc';
+      newTab.document.body.innerHTML = `
+        <div style="text-align:center;padding:24px;">
+          <div style="display:inline-block;width:36px;height:36px;border:3px solid #cbd5e1;border-top-color:#4f46e5;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+          <div style="margin-top:16px;font-size:15px;font-weight:600;color:#1e293b;">Opening document...</div>
+          <div style="margin-top:6px;font-size:13px;color:#64748b;">${filename ? filename.replace(/[<>&"]/g, '') : 'Please wait while the file is loaded.'}</div>
+        </div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+      `;
+    } catch {
+      // In case writing to document fails in any isolated browser environment
+    }
+  }
 
   const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
 
@@ -71,6 +95,8 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`,
   ];
 
+  let is404 = false;
+
   for (const targetUrl of candidateUrls) {
     try {
       const response = await fetch(targetUrl, {
@@ -78,6 +104,11 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
+
+      if (response.status === 404) {
+        is404 = true;
+        continue;
+      }
 
       if (response.ok) {
         const contentType = response.headers.get('content-type') || '';
@@ -87,15 +118,53 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         const lowerName = (filename || url).toLowerCase();
         if (lowerName.endsWith('.pdf') && !contentType.includes('pdf')) {
           finalBlob = new Blob([blob], { type: 'application/pdf' });
+        } else if (lowerName.endsWith('.png') && !contentType.includes('png')) {
+          finalBlob = new Blob([blob], { type: 'image/png' });
+        } else if ((lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) && !contentType.includes('jpeg')) {
+          finalBlob = new Blob([blob], { type: 'image/jpeg' });
+        } else if (!blob.type && contentType) {
+          finalBlob = new Blob([blob], { type: contentType });
         }
 
         const blobUrl = window.URL.createObjectURL(finalBlob);
+
         if (newTab && !newTab.closed) {
-          newTab.location.replace(blobUrl);
+          try {
+            newTab.location.replace(blobUrl);
+          } catch {
+            try {
+              newTab.location.href = blobUrl;
+            } catch {
+              try {
+                newTab.document.body.innerHTML = '';
+                const iframe = newTab.document.createElement('iframe');
+                iframe.src = blobUrl;
+                iframe.style.width = '100%';
+                iframe.style.height = '100vh';
+                iframe.style.border = 'none';
+                newTab.document.body.style.margin = '0';
+                newTab.document.body.appendChild(iframe);
+              } catch {
+                // Ignore fallback error
+              }
+            }
+          }
+          try {
+            newTab.opener = null;
+          } catch {
+            // Ignore
+          }
         } else {
-          window.open(blobUrl, '_blank', 'noopener,noreferrer');
+          const link = document.createElement('a');
+          link.href = blobUrl;
+          link.target = '_blank';
+          link.rel = 'noopener noreferrer';
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
         }
-        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60_000);
+
+        setTimeout(() => window.URL.revokeObjectURL(blobUrl), 120_000);
         return;
       }
     } catch (err) {
@@ -105,6 +174,16 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
   if (newTab && !newTab.closed) {
     newTab.close();
+  }
+
+  if (is404) {
+    console.error(`Requested attachment not found on server: ${url}`);
+    alert(
+      'This proposal document is not on the server anymore — only the link remains in the database.\n\n' +
+        'Please re-upload the proposal document in Edit Workspace.'
+    );
+  } else {
+    alert('Unable to open the document. Please try downloading it or contact an administrator.');
   }
 };
 
