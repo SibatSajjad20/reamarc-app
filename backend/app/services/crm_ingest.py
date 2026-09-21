@@ -663,7 +663,7 @@ async def fetch_meta_lead(leadgen_id: str, *, access_token: Optional[str] = None
         "access_token": token,
         "fields": (
             "id,created_time,ad_id,ad_name,adset_id,adset_name,"
-            "campaign_id,campaign_name,form_id,field_data,page_id"
+            "campaign_id,campaign_name,form_id,field_data"
         ),
     }
     async with httpx.AsyncClient(timeout=20.0) as client:
