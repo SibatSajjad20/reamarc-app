@@ -6,6 +6,8 @@ lead ingestion into 'session_booked' stage, and calendar invite generation.
 from __future__ import annotations
 
 import asyncio
+import calendar
+from collections import defaultdict
 import hashlib
 import hmac
 import html as html_escape
@@ -77,6 +79,16 @@ DEFAULT_SCHEDULER_SETTINGS: Dict[str, Any] = {
         "UI/UX Design & Brand Transformation",
         "AI Workflows & Business Automation",
         "Comprehensive Digital Consultancy",
+    ],
+    "hr_whatsapp": "+923265550022",
+    "careers_roles": [
+        "Full-Stack Developer",
+        "UI/UX & Product Designer",
+        "Performance Marketer (Meta / Google Ads)",
+        "Video Editor & Motion Designer",
+        "AI & Automation Engineer",
+        "Technical Copywriter",
+        "Other Position",
     ],
 }
 
@@ -196,8 +208,16 @@ async def update_scheduler_settings(patch: Dict[str, Any], user: Dict[str, Any])
         "notice_hours",
         "max_days_advance",
         "services",
+        "hr_whatsapp",
+        "careers_roles",
     }
     cleaned: Dict[str, Any] = {k: v for k, v in patch.items() if k in allowed_keys and v is not None}
+    if "hr_whatsapp" in cleaned:
+        cleaned["hr_whatsapp"] = _sanitize_text(cleaned["hr_whatsapp"], max_len=40)
+    if "careers_roles" in cleaned:
+        roles = cleaned["careers_roles"]
+        if isinstance(roles, list):
+            cleaned["careers_roles"] = [_sanitize_text(r, max_len=120) for r in roles[:30] if _sanitize_text(r, max_len=120)]
     if "host_email" in cleaned:
         cleaned["host_email"] = validate_email_address(cleaned["host_email"])
     if "meeting_link" in cleaned:
@@ -401,6 +421,138 @@ async def get_available_slots(target_date_str: str, client_timezone: Optional[st
         "timezone": sched_settings.get("timezone"),
         "duration_minutes": duration,
         "slots": candidate_slots,
+    }
+
+
+async def get_month_availability(month_str: str, client_timezone: Optional[str] = None) -> Dict[str, Any]:
+    """Calculate and return fully-booked / unavailable dates for a given month (YYYY-MM)."""
+    db = _db()
+    sched_settings = await get_scheduler_settings()
+    tzinfo = _scheduler_tz(sched_settings)
+
+    clean_month = str(month_str or "").strip()
+    if not re.fullmatch(r"^\d{4}-(?:0[1-9]|1[0-2])$", clean_month):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid month format. Required format: YYYY-MM",
+        )
+
+    year, month = [int(p) for p in clean_month.split("-")]
+    num_days = calendar.monthrange(year, month)[1]
+
+    now_local = datetime.now(tzinfo)
+    today_local = now_local.date()
+    max_advance = int(sched_settings.get("max_days_advance", 30))
+    working_days = sched_settings.get("working_days", [1, 2, 3, 4, 5, 6])
+    notice_hours = float(sched_settings.get("notice_hours", 1))
+    duration = int(sched_settings.get("duration_minutes", 30))
+
+    start_hour_str = sched_settings.get("start_hour", "11:00")
+    end_hour_str = sched_settings.get("end_hour", "23:00")
+    try:
+        sh, sm = [int(p) for p in start_hour_str.split(":")]
+        eh, em = [int(p) for p in end_hour_str.split(":")]
+    except Exception:
+        sh, sm, eh, em = 10, 0, 19, 0
+
+    dummy_date = date(2000, 1, 1)
+    dummy_start = datetime.combine(dummy_date, time(sh, sm))
+    dummy_end = datetime.combine(dummy_date, time(eh, em))
+    base_slot_times: List[str] = []
+    c = dummy_start
+    while c + timedelta(minutes=duration) <= dummy_end:
+        base_slot_times.append(c.strftime("%H:%M"))
+        c += timedelta(minutes=duration)
+
+    await _ensure_slot_index(db)
+    month_start_str = f"{clean_month}-01"
+    month_end_str = f"{clean_month}-{num_days:02d}"
+
+    booked_by_date: Dict[str, set] = defaultdict(set)
+
+    # 1. Fetch reserved slots from crm_scheduler_slots
+    reserved_cursor = db.crm_scheduler_slots.find(
+        {"date": {"$gte": month_start_str, "$lte": month_end_str}},
+        {"date": 1, "slot_time": 1},
+    )
+    for row in await reserved_cursor.to_list(5000):
+        d_str = row.get("date")
+        st = row.get("slot_time")
+        if d_str and st:
+            booked_by_date[d_str].add(st)
+
+    # 2. Fetch booked meetings from crm_leads
+    leads_cursor = db.crm_leads.find(
+        {
+            "meeting.status": {"$in": ["scheduled", "active", "confirmed"]},
+            "$or": [
+                {"meeting.date": {"$gte": month_start_str, "$lte": month_end_str}},
+                {"meeting.start_time": {"$regex": f"^{clean_month}"}},
+            ],
+        },
+        {"meeting": 1},
+    )
+    for lead in await leads_cursor.to_list(5000):
+        m = lead.get("meeting") or {}
+        d_str = m.get("date")
+        st = m.get("slot_time")
+        if not d_str and m.get("start_time"):
+            d_str = str(m.get("start_time"))[:10]
+        if not st and m.get("start_time") and "T" in str(m.get("start_time")):
+            try:
+                st = str(m.get("start_time")).split("T")[1][:5]
+            except Exception:
+                pass
+        if d_str and st and d_str.startswith(clean_month):
+            booked_by_date[d_str].add(st)
+
+    fully_booked_dates: List[str] = []
+
+    for day_num in range(1, num_days + 1):
+        cur_d = date(year, month, day_num)
+        cur_d_str = f"{clean_month}-{day_num:02d}"
+
+        weekday = cur_d.isoweekday()
+        if weekday not in working_days:
+            continue
+        if cur_d < today_local:
+            continue
+        if cur_d > (today_local + timedelta(days=max_advance)):
+            continue
+
+        day_booked = booked_by_date.get(cur_d_str, set())
+        has_available_slot = False
+
+        if not base_slot_times:
+            fully_booked_dates.append(cur_d_str)
+            continue
+
+        if cur_d == today_local:
+            min_allowed_time = now_local + timedelta(hours=notice_hours)
+            for st_str in base_slot_times:
+                if st_str in day_booked:
+                    continue
+                try:
+                    th, tm = [int(p) for p in st_str.split(":")]
+                    slot_dt = datetime.combine(cur_d, time(th, tm), tzinfo=tzinfo)
+                    if slot_dt >= min_allowed_time:
+                        has_available_slot = True
+                        break
+                except Exception:
+                    continue
+        else:
+            for st_str in base_slot_times:
+                if st_str not in day_booked:
+                    has_available_slot = True
+                    break
+
+        if not has_available_slot:
+            fully_booked_dates.append(cur_d_str)
+
+    return {
+        "month": clean_month,
+        "fully_booked_dates": sorted(fully_booked_dates),
+        "working_days": working_days,
     }
 
 

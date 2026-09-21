@@ -96,7 +96,59 @@ async def get_public_scheduler_config(request: Request):
         "timezone": settings.get("timezone", "Asia/Karachi"),
         "working_days": settings.get("working_days", [1, 2, 3, 4, 5]),
         "services": settings.get("services", []),
+        "hr_whatsapp": settings.get("hr_whatsapp", "+923265550022"),
+        "careers_roles": settings.get("careers_roles", [
+            "Full-Stack Developer",
+            "UI/UX & Product Designer",
+            "Performance Marketer (Meta / Google Ads)",
+            "Video Editor & Motion Designer",
+            "AI & Automation Engineer",
+            "Technical Copywriter",
+            "Other Position",
+        ]),
     }
+
+
+@router.post("/public/careers/inquiry")
+@limiter.limit("30/minute")
+async def submit_careers_inquiry(request: Request):
+    """Store career application inquiry from public booking page.
+    Does NOT reserve any calendar slot and does NOT create sales leads in crm_leads.
+    """
+    raw = await request.body()
+    crm_ingest.assert_ingest_body_size(raw)
+    payload = await crm_ingest.parse_ingest_request_body(request, raw)
+    if not isinstance(payload, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON object required.")
+
+    db = crm_ingest._db()
+    from datetime import datetime, timezone
+    now_iso = datetime.now(timezone.utc).isoformat()
+    doc = {
+        "name": str(payload.get("name") or "").strip()[:120],
+        "email": str(payload.get("email") or "").strip()[:254],
+        "phone": str(payload.get("phone") or "").strip()[:40],
+        "role": str(payload.get("role") or "").strip()[:120],
+        "portfolio_url": str(payload.get("portfolio_url") or "").strip()[:500],
+        "note": str(payload.get("note") or "").strip()[:2000],
+        "created_at": now_iso,
+    }
+    if not doc["name"] or not doc["email"] or not doc["phone"]:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Name, email, and phone are required.")
+    await db.crm_career_applications.insert_one(doc)
+    return {"ok": True, "message": "Application inquiry recorded."}
+
+
+@router.get("/public/scheduler/month-availability")
+@limiter.limit("120/minute")
+async def get_public_scheduler_month_availability(
+    request: Request,
+    month: str = Query(..., description="Target booking month in YYYY-MM format"),
+    timezone: Optional[str] = Query(None, description="Optional client timezone"),
+):
+    """Query fully booked / unavailable dates for a calendar month."""
+    from app.services import crm_scheduler
+    return await crm_scheduler.get_month_availability(month, client_timezone=timezone)
 
 
 @router.get("/public/scheduler/slots")

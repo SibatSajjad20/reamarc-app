@@ -311,6 +311,75 @@ async def notify_users(user_ids: List[str], title: str, body: str, data: Optiona
         logger.warning("CRM email failed: %s", err)
 
 
+async def get_crm_broadcast_recipients() -> List[str]:
+    """Return user IDs of all active sales members, operations, and administrators eligible for CRM lead alerts."""
+    db = _db()
+    cursor = db.users.find(
+        {"is_active": {"$ne": False}, "role": {"$nin": ["client", "hr"]}},
+        {"_id": 0, "id": 1, "role": 1, "department": 1, "crm_enabled": 1},
+    )
+    docs = await cursor.to_list(400)
+    recipients: List[str] = []
+    for u in docs:
+        if is_crm_user(u):
+            uid = u.get("id")
+            if uid:
+                recipients.append(uid)
+    return list(dict.fromkeys(recipients))
+
+
+async def notify_new_lead_broadcast(lead_id: str) -> None:
+    """Broadcast alert to all sales members, operations, and admin when a new lead is ingested or created."""
+    db = _db()
+    now_iso = _now()
+    if hasattr(db.crm_leads, "find_one_and_update"):
+        lead = await db.crm_leads.find_one_and_update(
+            {"id": lead_id, "new_lead_notified_at": None},
+            {"$set": {"new_lead_notified_at": now_iso}},
+            return_document=ReturnDocument.AFTER,
+        )
+    else:
+        lead = await db.crm_leads.find_one({"id": lead_id})
+        if lead and not lead.get("new_lead_notified_at"):
+            lead["new_lead_notified_at"] = now_iso
+            if hasattr(db.crm_leads, "update_one"):
+                await db.crm_leads.update_one({"id": lead_id}, {"$set": {"new_lead_notified_at": now_iso}})
+        else:
+            lead = None
+
+    if not lead:
+        return
+
+    recipients = await get_crm_broadcast_recipients()
+    if not recipients:
+        return
+
+    lead_name = (lead.get("name") or "New Lead").strip()
+    source_raw = str(lead.get("source") or "direct").lower()
+    source_label = source_raw.replace("_", " ").title()
+    meeting = lead.get("meeting") or {}
+    is_meeting = bool(
+        meeting
+        or source_raw == "website_scheduler"
+        or lead.get("stage") == "session_booked"
+    )
+
+    assignee_name = lead.get("assigned_to_name")
+    assignee_status = f"Assigned to {assignee_name}." if assignee_name else "Unassigned — ready to claim!"
+
+    if is_meeting:
+        event_name = meeting.get("event_name") or "Consultancy Session"
+        slot_time = meeting.get("start_time") or lead.get("next_follow_up_at") or ""
+        time_part = f" for {slot_time}" if slot_time else ""
+        title = f"🗓️ Meeting Booked: {lead_name}"
+        body = f"{lead_name} booked a {event_name}{time_part}. {assignee_status}"
+    else:
+        title = f"🎯 New Lead: {lead_name} ({source_label})"
+        body = f"New {source_label} lead from {lead_name}. {assignee_status}"
+
+    await notify_users(recipients, title, body, data={"type": "crm_lead", "lead_id": lead_id})
+
+
 async def _set_owner(
     lead_id: str,
     user_id: str,
@@ -318,6 +387,7 @@ async def _set_owner(
     *,
     activity_type: str = "assigned",
     require_unassigned: bool = True,
+    notify: bool = True,
 ) -> Dict[str, Any]:
     """Assign ownership. Engine path requires unassigned (claim-safe); managers may reassign."""
     from app.services import crm_leads as crm
@@ -348,11 +418,17 @@ async def _set_owner(
         return crm.serialize_lead(existing)
     updated.pop("_id", None)
     await crm.append_activity(lead_id, activity_type, f"Assigned to {name}.", actor, {"assigned_to": uid})
-    await notify_users([uid], "New CRM lead", f"{name}: a lead was assigned to you.", data={"type": "crm_lead", "lead_id": lead_id})
+    if notify:
+        await notify_users([uid], "New CRM lead", f"{name}: a lead was assigned to you.", data={"type": "crm_lead", "lead_id": lead_id})
     return crm.serialize_lead(updated)
 
 
-async def _leave_unassigned_claim(lead: Dict[str, Any], pool: List[str], actor: Dict[str, Any]) -> Dict[str, Any]:
+async def _leave_unassigned_claim(
+    lead: Dict[str, Any],
+    pool: List[str],
+    actor: Dict[str, Any],
+    notify: bool = True,
+) -> Dict[str, Any]:
     from app.services import crm_leads as crm
 
     eligible = await eligible_from_pool(pool)
@@ -373,18 +449,19 @@ async def _leave_unassigned_claim(lead: Dict[str, Any], pool: List[str], actor: 
         "Left unassigned for claim (no in-shift round-robin winner).",
         actor,
     )
-    await notify_users(
-        notify_ids,
-        "Unassigned CRM lead",
-        f"{lead.get('name') or 'A lead'} is in the claim pool.",
-        data={"type": "crm_lead", "lead_id": lead["id"]},
-    )
+    if notify:
+        await notify_users(
+            notify_ids,
+            "Unassigned CRM lead",
+            f"{lead.get('name') or 'A lead'} is in the claim pool.",
+            data={"type": "crm_lead", "lead_id": lead["id"]},
+        )
     doc = await _db().crm_leads.find_one({"id": lead["id"]}, {"_id": 0})
     return crm.serialize_lead(doc or lead)
 
 
 async def apply_assignment_engine(lead_id: str, actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """First matching enabled rule wins. No-op if already assigned. Claim-safe ownership writes."""
+    """First matching enabled rule wins. Broadcasts lead alert to all sales members & admin/operations."""
     from app.services import crm_leads as crm
 
     actor = actor or ENGINE_ACTOR
@@ -398,7 +475,15 @@ async def apply_assignment_engine(lead_id: str, actor: Optional[Dict[str, Any]] 
     rules = await db.crm_assignment_rules.find({"enabled": True}, {"_id": 0}).sort("priority", 1).to_list(200)
     matched = next((r for r in rules if rule_matches(r, lead)), None)
     if not matched:
-        return crm.serialize_lead(lead)
+        await crm.append_activity(
+            lead["id"],
+            "claim_opened",
+            "Left unassigned for claim (no matching assignment rule).",
+            actor,
+        )
+        await notify_new_lead_broadcast(lead_id)
+        doc = await db.crm_leads.find_one({"id": lead["id"]}, {"_id": 0})
+        return crm.serialize_lead(doc or lead)
 
     method = matched.get("method") or "round_robin"
     pool = [p for p in (matched.get("pool") or []) if p]
@@ -407,18 +492,28 @@ async def apply_assignment_engine(lead_id: str, actor: Optional[Dict[str, Any]] 
     if method == "manual":
         fallback = matched.get("fallback_user_id") or (pool[0] if pool else None)
         if fallback:
-            return await _set_owner(lead_id, fallback, actor)
-        return await _leave_unassigned_claim(lead, pool, actor)
+            res = await _set_owner(lead_id, fallback, actor, notify=False)
+            await notify_new_lead_broadcast(lead_id)
+            return res
+        res = await _leave_unassigned_claim(lead, pool, actor, notify=False)
+        await notify_new_lead_broadcast(lead_id)
+        return res
 
     if method == "claim":
-        return await _leave_unassigned_claim(lead, pool, actor)
+        res = await _leave_unassigned_claim(lead, pool, actor, notify=False)
+        await notify_new_lead_broadcast(lead_id)
+        return res
 
     # round_robin
     if not pool:
         fallback = matched.get("fallback_user_id")
         if fallback:
-            return await _set_owner(lead_id, fallback, actor)
-        return await _leave_unassigned_claim(lead, pool, actor)
+            res = await _set_owner(lead_id, fallback, actor, notify=False)
+            await notify_new_lead_broadcast(lead_id)
+            return res
+        res = await _leave_unassigned_claim(lead, pool, actor, notify=False)
+        await notify_new_lead_broadcast(lead_id)
+        return res
 
     users = await _load_users(pool)
     n = len(pool)
@@ -442,11 +537,18 @@ async def apply_assignment_engine(lead_id: str, actor: Optional[Dict[str, Any]] 
             break
 
     if winner:
-        return await _set_owner(lead_id, winner, actor)
+        res = await _set_owner(lead_id, winner, actor, notify=False)
+        await notify_new_lead_broadcast(lead_id)
+        return res
 
     if after_hours == "fallback" and matched.get("fallback_user_id"):
-        return await _set_owner(lead_id, matched["fallback_user_id"], actor)
-    return await _leave_unassigned_claim(lead, pool, actor)
+        res = await _set_owner(lead_id, matched["fallback_user_id"], actor, notify=False)
+        await notify_new_lead_broadcast(lead_id)
+        return res
+
+    res = await _leave_unassigned_claim(lead, pool, actor, notify=False)
+    await notify_new_lead_broadcast(lead_id)
+    return res
 
 
 async def claim_lead(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:

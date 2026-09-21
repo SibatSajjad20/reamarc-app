@@ -441,9 +441,9 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
             user,
             {"assigned_to": assigned_to},
         )
-        from app.services.crm_assignment import notify_users
+        from app.services.crm_assignment import notify_new_lead_broadcast
 
-        await notify_users([assigned_to], "New CRM lead", f"A lead was assigned to {assigned_name}.")
+        await notify_new_lead_broadcast(doc["id"])
     else:
         from app.services.crm_assignment import apply_assignment_engine
 
