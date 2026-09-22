@@ -24,7 +24,7 @@ from app.services.workdays import classify_date
 logger = logging.getLogger("app.crm.assignment")
 
 METHODS = ("round_robin", "claim", "manual")
-CONDITION_FIELDS = ("source", "campaign", "city", "service")
+CONDITION_FIELDS = ("source", "campaign", "city", "service", "department")
 BLOCKING_LEAVE = {
     LeaveType.SICK.value,
     LeaveType.CASUAL.value,
@@ -134,7 +134,10 @@ async def eligible_from_pool(pool: List[str]) -> List[Dict[str, Any]]:
 
 
 def _lead_field(lead: Dict[str, Any], field: str) -> str:
-    return str(lead.get(field) or "").strip().lower()
+    val = lead.get(field)
+    if val is None:
+        val = (lead.get("custom_fields") or {}).get(field)
+    return str(val or "").strip().lower()
 
 
 def rule_matches(rule: Dict[str, Any], lead: Dict[str, Any]) -> bool:

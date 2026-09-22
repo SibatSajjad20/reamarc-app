@@ -595,6 +595,35 @@ async def ingest_from_token(raw_token: str, body: Dict[str, Any]) -> Dict[str, A
     source = await resolve_source_by_token(raw_token)
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON object required.")
+
+    # Intercept job/career inquiries so they do not pollute the sales CRM pipeline
+    dept = str(body.get("department") or "").strip().lower()
+    campaign = str(body.get("campaign") or "").strip().lower()
+    service = str(body.get("service") or "").strip().lower()
+    if dept == "careers" or campaign.endswith("_careers") or "careers" in service or "jobs" in service:
+        db = _db()
+        now_iso = _now()
+        app_id = f"app_{uuid.uuid4().hex[:12]}"
+        doc = {
+            "id": app_id,
+            "name": str(body.get("name") or "Applicant").strip()[:120],
+            "email": str(body.get("email") or "").strip()[:254],
+            "phone": str(body.get("phone") or body.get("phone_raw") or "").strip()[:40],
+            "role": str(body.get("company") or body.get("role") or "").strip()[:120],
+            "portfolio_url": str(body.get("portfolio_url") or "").strip()[:500],
+            "note": str(body.get("message") or body.get("note") or "").strip()[:2000],
+            "source": "website_chatbot",
+            "created_at": now_iso,
+        }
+        await db.crm_career_applications.insert_one(doc)
+        if source.get("id"):
+            await _touch_source(source["id"])
+        return {
+            "lead": {"id": app_id},
+            "created": False,
+            "duplicate": False,
+        }
+
     source_lbl = str(body.get("source") or source.get("default_source") or "website")
     return await ingest_lead(
         fields=body,

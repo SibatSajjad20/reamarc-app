@@ -36,6 +36,14 @@
     }
   ],
   "rewrites": [
+    {
+      "source": "/crm/ingest/:path*",
+      "destination": "https://reamarc-app.onrender.com/crm/ingest/:path*"
+    },
+    {
+      "source": "/api/v1/:path*",
+      "destination": "https://reamarc-app.onrender.com/api/v1/:path*"
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

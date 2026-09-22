@@ -18,6 +18,14 @@ _LOCAL_ORIGINS = [
     "https://testserver",
 ]
 
+_DEFAULT_PRODUCTION_ORIGINS = [
+    "https://reamarc.io",
+    "https://www.reamarc.io",
+    "https://reamarc.com",
+    "https://www.reamarc.com",
+    "https://reamarc-app.vercel.app",
+]
+
 
 class Settings(BaseSettings):
     PROJECT_NAME: str = "Reamarc AI Copywriter API"
@@ -96,18 +104,19 @@ class Settings(BaseSettings):
 
         extra = [o.strip() for o in self.ALLOWED_ORIGINS.split(",") if o.strip()]
         if self.IS_PRODUCTION:
-            # Production: only explicitly allowed origins (no localhost defaults, no *.vercel.app regex)
-            origins = list(extra)
-            if self.APP_FRONTEND_URL and self.APP_FRONTEND_URL not in origins:
+            # Production: Reamarc websites and Vercel app allowed by default + any explicit extra
+            origins = list(_DEFAULT_PRODUCTION_ORIGINS)
+            for origin in extra:
+                if origin not in origins:
+                    origins.append(origin)
+            if self.APP_FRONTEND_URL and self.APP_FRONTEND_URL.rstrip("/") not in origins:
                 origins.append(self.APP_FRONTEND_URL.rstrip("/"))
-            if not origins:
-                logger.warning(
-                    "IS_PRODUCTION is true but ALLOWED_ORIGINS / APP_FRONTEND_URL are empty. "
-                    "CORS will reject browser clients until origins are configured."
-                )
             object.__setattr__(self, "CORS_ORIGINS", origins)
         else:
             origins = list(_LOCAL_ORIGINS)
+            for origin in _DEFAULT_PRODUCTION_ORIGINS:
+                if origin not in origins:
+                    origins.append(origin)
             for origin in extra:
                 if origin not in origins:
                     origins.append(origin)

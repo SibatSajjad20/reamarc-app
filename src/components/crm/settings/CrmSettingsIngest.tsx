@@ -81,15 +81,15 @@ export const CrmSettingsIngest: React.FC = () => {
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
 
-  const effectiveBaseUrl =
-    typeof window !== 'undefined' && window.location.origin
-      ? window.location.origin
-      : API_BASE_URL;
-
-  const absoluteUrl = (path: string) =>
-    path.startsWith('http')
-      ? path
-      : `${effectiveBaseUrl}${path.startsWith('/') ? '' : '/'}${path}`;
+  const absoluteUrl = (path: string) => {
+    if (path.startsWith('http')) return path;
+    const base = API_BASE_URL.replace(/\/api\/v1\/?$/, '').replace(/\/$/, '');
+    let suffix = path.startsWith('/') ? path : `/${path}`;
+    if (base.endsWith('/api/v1') && suffix.startsWith('/api/v1/')) {
+      suffix = suffix.slice('/api/v1'.length);
+    }
+    return `${base}${suffix}`;
+  };
 
   const copyText = async (text: string, type: 'token' | 'link' | 'embed') => {
     try {
