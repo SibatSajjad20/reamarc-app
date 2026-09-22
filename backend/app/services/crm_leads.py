@@ -18,7 +18,13 @@ from app.schemas.crm import (
     CrmLeadCreate,
     CrmLeadUpdate,
 )
-from app.services.crm_access import can_assign_leads, can_manage_outcomes, can_view_all_leads, visibility_filter
+from app.services.crm_access import (
+    can_assign_leads,
+    can_manage_outcomes,
+    is_sales_team_lead,
+    lead_visible_to,
+    visibility_filter,
+)
 from app.services.crm_phone import normalize_phone_e164, wa_me_url
 
 logger = logging.getLogger("app.crm")
@@ -187,11 +193,15 @@ async def _user_label(user_id: Optional[str]) -> Tuple[Optional[str], Optional[s
     return user_id, str(doc.get("full_name") or doc.get("name") or doc.get("email") or user_id)
 
 
-def _assert_can_see(user: Dict[str, Any], lead: Dict[str, Any]) -> None:
-    if can_view_all_leads(user):
-        return
-    uid = user.get("id")
-    if lead.get("assigned_to") in (None, uid):
+async def _assert_can_see(user: Dict[str, Any], lead: Dict[str, Any]) -> None:
+    assignee = None
+    assigned_to = lead.get("assigned_to")
+    if assigned_to and is_sales_team_lead(user) and assigned_to != user.get("id"):
+        assignee = await _db().users.find_one(
+            {"id": assigned_to},
+            {"_id": 0, "id": 1, "role": 1, "department": 1},
+        )
+    if lead_visible_to(user, lead, assignee):
         return
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
 
@@ -225,7 +235,7 @@ async def get_lead_or_404(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     doc = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
-    _assert_can_see(user, doc)
+    await _assert_can_see(user, doc)
     deals = await db.crm_deals.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
     from app.services.crm_deals import serialize_deal
 
@@ -275,7 +285,7 @@ async def list_leads(
 ) -> Tuple[List[Dict[str, Any]], int]:
     db = _db()
     clauses: List[Dict[str, Any]] = []
-    vis = visibility_filter(user)
+    vis = await visibility_filter(user)
     if vis:
         clauses.append(vis)
     if not include_junk:
@@ -323,7 +333,7 @@ async def list_leads(
 
 async def lead_counts(user: Dict[str, Any]) -> Dict[str, Any]:
     db = _db()
-    vis = visibility_filter(user)
+    vis = await visibility_filter(user)
     base: Dict[str, Any] = dict(vis or {})
     open_q = {**base, "outcome": None}
     incoming = await db.crm_leads.count_documents(open_q)
@@ -380,7 +390,7 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Assignee is not CRM-eligible.")
         assigned_to = assignee.get("id")
         assigned_name = str(assignee.get("full_name") or assignee.get("name") or assignee.get("email") or assigned_to)
-    elif not can_view_all_leads(user):
+    elif not can_assign_leads(user):
         assigned_to, assigned_name = user.get("id"), _actor_name(user)
 
     if e164:

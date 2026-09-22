@@ -277,7 +277,7 @@ async def list_deals(
     lead_ids = list({d.get("lead_id") for d in all_docs if d.get("lead_id")})
     leads_by_id: Dict[str, Dict[str, Any]] = {}
     if lead_ids:
-        vis = visibility_filter(user)
+        vis = await visibility_filter(user)
         lead_q: Dict[str, Any] = {"id": {"$in": lead_ids}}
         if vis:
             lead_q = {"$and": [lead_q, vis]}
