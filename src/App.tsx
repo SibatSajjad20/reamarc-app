@@ -24,6 +24,7 @@ import { viewFromNotificationPath } from './utils/notificationRoute';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
+import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -256,13 +257,18 @@ function AppInner() {
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const onMessage = (event: MessageEvent) => {
-      if (event.data?.type !== 'reamarc-navigate') return;
-      const view = viewFromNotificationPath(String(event.data.path || ''));
-      if (view) handleSelectView(view);
+      if (event.data?.type === 'reamarc-navigate') {
+        const view = viewFromNotificationPath(String(event.data.path || ''));
+        if (view) handleSelectView(view);
+      } else if (event.data?.type === 'reamarc-push-received') {
+        const title = event.data.title || 'Reamarc';
+        const body = event.data.body || '';
+        addToast(title, body, 'info');
+      }
     };
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser]);
+  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
 
   const {
     workspaces,
@@ -350,6 +356,9 @@ function AppInner() {
 
   return (
     <div className="flex h-screen w-screen bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 overflow-hidden antialiased">
+      {/* Real-time prompt when desktop notifications are not yet enabled */}
+      <NotificationPromptBanner />
+
       {/* Persistent Left Sidebar */}
       <Sidebar
         currentView={currentView}

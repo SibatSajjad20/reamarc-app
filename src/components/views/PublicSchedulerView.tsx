@@ -24,6 +24,7 @@ import {
   Briefcase,
   Users,
   GraduationCap,
+  MapPin,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../services/apiClient';
 
@@ -36,9 +37,52 @@ interface SchedulerConfig {
   working_days: number[];
   services: string[];
   meeting_link?: string;
+  office_address?: string;
+  office_map_url?: string;
   hr_whatsapp?: string;
   careers_roles?: string[];
 }
+
+export type MeetingMode = 'google_meet' | 'zoom' | 'teams' | 'in_person';
+
+export interface MeetingModeOption {
+  value: MeetingMode;
+  label: string;
+  badge: string;
+  note: string;
+  icon: React.ComponentType<{ className?: string }>;
+}
+
+export const MEETING_MODE_OPTIONS: MeetingModeOption[] = [
+  {
+    value: 'google_meet',
+    label: 'Google Meet',
+    badge: 'Instant Link',
+    note: 'Direct Google Meet video link provided immediately',
+    icon: Video,
+  },
+  {
+    value: 'zoom',
+    label: 'Zoom',
+    badge: 'Link via WhatsApp',
+    note: 'Host sends custom Zoom link via WhatsApp & Email',
+    icon: Video,
+  },
+  {
+    value: 'teams',
+    label: 'Microsoft Teams',
+    badge: 'Link via WhatsApp',
+    note: 'Host sends Teams link via WhatsApp & Email',
+    icon: Users,
+  },
+  {
+    value: 'in_person',
+    label: 'In-Person / Office',
+    badge: 'Rawalpindi HQ',
+    note: 'Face-to-face meeting at Reamarc Office',
+    icon: Building2,
+  },
+];
 
 interface TimeSlot {
   time: string;
@@ -418,6 +462,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const [website, setWebsite] = useState('');
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [note, setNote] = useState('');
+  const [meetingMode, setMeetingMode] = useState<MeetingMode>('google_meet');
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
 
@@ -441,13 +486,19 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const [isTopicDropdownOpen, setIsTopicDropdownOpen] = useState(false);
   const topicDropdownRef = useRef<HTMLDivElement>(null);
 
+  const [isMeetingModeDropdownOpen, setIsMeetingModeDropdownOpen] = useState(false);
+  const meetingModeDropdownRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
       if (topicDropdownRef.current && !topicDropdownRef.current.contains(e.target as Node)) {
         setIsTopicDropdownOpen(false);
       }
+      if (meetingModeDropdownRef.current && !meetingModeDropdownRef.current.contains(e.target as Node)) {
+        setIsMeetingModeDropdownOpen(false);
+      }
     };
-    if (isTopicDropdownOpen) {
+    if (isTopicDropdownOpen || isMeetingModeDropdownOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
       document.addEventListener('touchstart', handleOutsideClick);
     }
@@ -455,11 +506,15 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
     };
-  }, [isTopicDropdownOpen]);
+  }, [isTopicDropdownOpen, isMeetingModeDropdownOpen]);
 
   const selectedTopicOption = useMemo(() => {
     return TOPIC_OPTIONS.find((o) => o.value === topic) || null;
   }, [topic]);
+
+  const selectedMeetingModeOption = useMemo(() => {
+    return MEETING_MODE_OPTIONS.find((o) => o.value === meetingMode) || MEETING_MODE_OPTIONS[0];
+  }, [meetingMode]);
 
   const handleTopicChange = (newTopic: MeetingTopic) => {
     setTopic(newTopic);
@@ -673,6 +728,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       service: activeServices,
       note: note.trim() || undefined,
       topic: topicLabel,
+      meeting_mode: meetingMode,
       utm_source: urlParams.get('utm_source') || 'website_scheduler',
       utm_medium: urlParams.get('utm_medium') || (isEmbed ? 'wordpress_embed' : 'direct'),
       utm_campaign: urlParams.get('utm_campaign') || undefined,
@@ -717,6 +773,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     setCompany('');
     setWebsite('');
     setSelectedServices([]);
+    setMeetingMode('google_meet');
     setNote('');
     setBookingError(null);
     setSlotsRefreshKey((prev) => prev + 1);
@@ -875,7 +932,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
               </div>
               <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 text-xs font-medium text-zinc-700 dark:text-zinc-300">
                 <Video className="w-3.5 h-3.5 text-blue-500" />
-                <span>Google Meet</span>
+                <span>Meet, Zoom or Office</span>
               </div>
             </div>
           </div>
@@ -1310,6 +1367,99 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
               </div>
             </div>
 
+            {/* Preferred Meeting Method Selector */}
+            <div className="space-y-1.5" ref={meetingModeDropdownRef}>
+              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
+                <span className="flex items-center gap-1.5">
+                  <Video className="w-3.5 h-3.5 text-blue-500" />
+                  Preferred Meeting Method <span className="text-rose-500">*</span>
+                </span>
+                <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
+                  Google Meet provided as backup
+                </span>
+              </label>
+
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsMeetingModeDropdownOpen((prev) => !prev)}
+                  className={`w-full h-11 px-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold transition border cursor-pointer select-none touch-manipulation ${
+                    isMeetingModeDropdownOpen
+                      ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100 shadow-md'
+                      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/50 text-zinc-900 dark:text-zinc-100'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+                      <selectedMeetingModeOption.icon className="w-4 h-4" />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                        <span>{selectedMeetingModeOption.label}</span>
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                          {selectedMeetingModeOption.badge}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <ChevronDown
+                    className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
+                      isMeetingModeDropdownOpen ? 'rotate-180 text-blue-500' : ''
+                    }`}
+                  />
+                </button>
+
+                {isMeetingModeDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full mt-2 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-1">
+                    {MEETING_MODE_OPTIONS.map((opt) => {
+                      const isSelected = meetingMode === opt.value;
+                      const Icon = opt.icon;
+                      return (
+                        <button
+                          key={opt.value}
+                          type="button"
+                          onClick={() => {
+                            setMeetingMode(opt.value);
+                            setIsMeetingModeDropdownOpen(false);
+                          }}
+                          className={`w-full p-2.5 rounded-xl text-left transition flex items-center justify-between gap-3 cursor-pointer touch-manipulation ${
+                            isSelected
+                              ? 'bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400'
+                              : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div
+                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white'
+                                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
+                              }`}
+                            >
+                              <Icon className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="text-xs font-bold flex items-center gap-2">
+                                <span>{opt.label}</span>
+                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                                  {opt.badge}
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
+                                {opt.note}
+                              </p>
+                            </div>
+                          </div>
+                          {isSelected && <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
             {/* Project Brief */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
@@ -1392,31 +1542,128 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </span>
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-zinc-400 shrink-0">Location:</span>
-                {bookingResult.meeting?.join_url && /^https:\/\//i.test(bookingResult.meeting.join_url) ? (
-                <a
-                  href={bookingResult.meeting.join_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-medium text-blue-600 hover:underline flex items-center gap-1"
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span>Join Google Meet</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
+                <span className="text-zinc-400 shrink-0">Meeting Method:</span>
+                {bookingResult.meeting?.meeting_mode === 'in_person' ? (
+                  <span className="font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 text-right">
+                    <Building2 className="w-3.5 h-3.5" />
+                    <span>In-Person (Reamarc Office)</span>
+                  </span>
+                ) : bookingResult.meeting?.meeting_mode === 'zoom' ? (
+                  <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1 text-right">
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Zoom (Link on WhatsApp)</span>
+                  </span>
+                ) : bookingResult.meeting?.meeting_mode === 'teams' ? (
+                  <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 text-right">
+                    <Users className="w-3.5 h-3.5" />
+                    <span>Microsoft Teams (via WhatsApp)</span>
+                  </span>
+                ) : bookingResult.meeting?.join_url && /^https:\/\//i.test(bookingResult.meeting.join_url) ? (
+                  <a
+                    href={bookingResult.meeting.join_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <Video className="w-3.5 h-3.5" />
+                    <span>Join Google Meet</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
                 ) : (
                   <span className="font-medium text-zinc-800 dark:text-zinc-200">Google Meet</span>
                 )}
               </div>
             </div>
 
+            {/* Context Note for Selected Meeting Mode */}
+            {bookingResult.meeting?.meeting_mode === 'in_person' ? (
+              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-left space-y-2 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-200">
+                  <MapPin className="w-4 h-4 text-amber-600" />
+                  <span>Office Visit &amp; Directions</span>
+                </div>
+                <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                  {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
+                </p>
+                <div className="pt-1 flex flex-wrap items-center gap-3">
+                  <a
+                    href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-semibold text-amber-700 dark:text-amber-300 underline flex items-center gap-1"
+                  >
+                    <span>View on Google Maps</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                  {bookingResult.meeting?.join_url && (
+                    <span className="text-zinc-500 dark:text-zinc-400">
+                      &bull; Online backup:{' '}
+                      <a href={bookingResult.meeting.join_url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">
+                        Google Meet
+                      </a>
+                    </span>
+                  )}
+                </div>
+              </div>
+            ) : (bookingResult.meeting?.meeting_mode === 'zoom' || bookingResult.meeting?.meeting_mode === 'teams') ? (
+              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-blue-500/10 border border-blue-500/25 text-left space-y-2 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-blue-700 dark:text-blue-300">
+                  <MessageSquare className="w-4 h-4 text-blue-500" />
+                  <span>Direct {bookingResult.meeting?.location_label || 'Meeting'} Link via WhatsApp</span>
+                </div>
+                <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
+                  Your host will send your custom {bookingResult.meeting?.location_label || 'room'} link directly to your WhatsApp and email prior to the call.
+                </p>
+                {bookingResult.meeting?.join_url && (
+                  <div className="pt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
+                    Alternative backup room:{' '}
+                    <a
+                      href={bookingResult.meeting.join_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-semibold text-blue-600 dark:text-blue-400 underline inline-flex items-center gap-0.5"
+                    >
+                      <span>Join Google Meet</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             {/* Calendar Buttons */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 pt-2 max-w-sm sm:max-w-none mx-auto">
+              {bookingResult.meeting?.meeting_mode === 'in_person' ? (
+                <a
+                  href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-amber-600/25 cursor-pointer touch-manipulation"
+                >
+                  <MapPin className="w-4 h-4" />
+                  <span>View Office Map</span>
+                </a>
+              ) : (
+                <a
+                  href={bookingResult.meeting?.join_url || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 cursor-pointer touch-manipulation"
+                >
+                  <Video className="w-4 h-4" />
+                  <span>
+                    {bookingResult.meeting?.meeting_mode === 'google_meet'
+                      ? 'Join Google Meet'
+                      : 'Join Google Meet (Backup)'}
+                  </span>
+                </a>
+              )}
+
               <a
                 href={bookingResult.calendar_links?.google || '#'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 cursor-pointer touch-manipulation"
+                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md cursor-pointer touch-manipulation"
               >
                 <CalendarIcon className="w-4 h-4" />
                 <span>Add to Google Calendar</span>

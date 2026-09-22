@@ -77,6 +77,7 @@ export const CrmSettingsIngest: React.FC = () => {
     start_hour: '11:00',
     end_hour: '23:00',
     meeting_link: 'https://meet.google.com/lookup/reamarc-strategy',
+    office_address: 'Reamarc Office, Rawalpindi HQ, Pakistan',
   });
   const [loadingConfig, setLoadingConfig] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
@@ -157,6 +158,7 @@ export const CrmSettingsIngest: React.FC = () => {
           start_hour: data.start_hour || '11:00',
           end_hour: data.end_hour || '23:00',
           meeting_link: data.meeting_link || '',
+          office_address: data.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan',
         });
       }
     } catch {
@@ -930,7 +932,7 @@ export const CrmSettingsIngest: React.FC = () => {
 
               <div>
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                  Google Meet / Video Call Link
+                  Google Meet / Video Call Link (Default &amp; Backup)
                 </label>
                 <input
                   type="url"
@@ -938,6 +940,19 @@ export const CrmSettingsIngest: React.FC = () => {
                   onChange={(e) => setSchedulerConfig({ ...schedulerConfig, meeting_link: e.target.value })}
                   className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none font-mono"
                   placeholder="https://meet.google.com/..."
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
+                  Office Address (for In-Person Meetings)
+                </label>
+                <input
+                  type="text"
+                  value={schedulerConfig.office_address}
+                  onChange={(e) => setSchedulerConfig({ ...schedulerConfig, office_address: e.target.value })}
+                  className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none"
+                  placeholder="e.g. Reamarc Office, Rawalpindi HQ, Pakistan"
                 />
               </div>
 

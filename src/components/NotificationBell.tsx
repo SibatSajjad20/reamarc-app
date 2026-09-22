@@ -2,8 +2,14 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Bell } from 'lucide-react';
 import type { ViewType } from '../types';
 import { apiClient } from '../services/apiClient';
-import { enableWebPush, notificationPermission, syncWebPushSubscription } from '../services/webPushService';
+import {
+  enableWebPush,
+  notificationPermission,
+  sendTestPush,
+  syncWebPushSubscription,
+} from '../services/webPushService';
 import { viewForNotificationKind } from '../utils/notificationRoute';
+import { useToast } from '../context/ToastContext';
 
 interface InboxItem {
   id: string;
@@ -27,10 +33,12 @@ function formatWhen(value?: string): string {
 }
 
 export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, onSelectView }) => {
+  const { addToast } = useToast();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<InboxItem[]>([]);
   const [permission, setPermission] = useState(notificationPermission);
   const [enabling, setEnabling] = useState(false);
+  const [testing, setTesting] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const unread = items.filter((item) => !item.read).length;
@@ -60,6 +68,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
 
   useEffect(() => {
     if (!open) return;
+    setPermission(notificationPermission());
     const onPointer = (event: MouseEvent) => {
       if (!panelRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -81,8 +90,23 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
     try {
       const next = await enableWebPush();
       setPermission(next);
+      if (next === 'granted') {
+        addToast('Notifications Enabled 🎉', 'Desktop alerts are now active.', 'success');
+      }
     } finally {
       setEnabling(false);
+    }
+  };
+
+  const handleTestPopup = async () => {
+    setTesting(true);
+    try {
+      const result = await sendTestPush();
+      addToast('Notification Test', result.message, result.success ? 'info' : 'warning');
+    } catch (err: any) {
+      addToast('Test Failed', err.message || 'Could not send test popup.', 'warning');
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -131,13 +155,28 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
               type="button"
               disabled={enabling}
               onClick={() => void enable()}
-              className="w-full text-left px-3 py-2 text-[12px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 cursor-pointer"
+              className="w-full text-left px-3 py-2 text-[12px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/70 transition-colors cursor-pointer"
             >
-              {enabling ? 'Enabling…' : 'Enable desktop notifications'}
+              {enabling ? 'Enabling…' : '🔔 Enable desktop notifications'}
             </button>
           )}
+          {permission === 'granted' && (
+            <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-100 dark:border-emerald-900/40 text-[11px] text-emerald-700 dark:text-emerald-300">
+              <span className="flex items-center gap-1 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Desktop alerts active
+              </span>
+              <button
+                type="button"
+                disabled={testing}
+                onClick={() => void handleTestPopup()}
+                className="font-semibold text-emerald-800 dark:text-emerald-200 hover:underline cursor-pointer disabled:opacity-50"
+              >
+                {testing ? 'Sending…' : 'Send test popup'}
+              </button>
+            </div>
+          )}
           {permission === 'denied' && (
-            <p className="px-3 py-2 text-[11px] text-zinc-500">
+            <p className="px-3 py-2 text-[11px] text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-800">
               Desktop alerts are blocked in this browser. You can still read them here.
             </p>
           )}

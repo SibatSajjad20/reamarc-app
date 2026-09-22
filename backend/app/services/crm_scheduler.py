@@ -70,6 +70,8 @@ DEFAULT_SCHEDULER_SETTINGS: Dict[str, Any] = {
     "timezone": "Asia/Karachi",
     "location_type": "google_meet",
     "meeting_link": "https://meet.google.com/lookup/reamarc-strategy",
+    "office_address": "Reamarc Office, Rawalpindi HQ, Pakistan",
+    "office_map_url": "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA",
     "notice_hours": 1,
     "max_days_advance": 30,
     "services": [
@@ -205,6 +207,8 @@ async def update_scheduler_settings(patch: Dict[str, Any], user: Dict[str, Any])
         "end_hour",
         "timezone",
         "meeting_link",
+        "office_address",
+        "office_map_url",
         "notice_hours",
         "max_days_advance",
         "services",
@@ -212,6 +216,10 @@ async def update_scheduler_settings(patch: Dict[str, Any], user: Dict[str, Any])
         "careers_roles",
     }
     cleaned: Dict[str, Any] = {k: v for k, v in patch.items() if k in allowed_keys and v is not None}
+    if "office_address" in cleaned:
+        cleaned["office_address"] = _sanitize_text(cleaned["office_address"], max_len=300)
+    if "office_map_url" in cleaned:
+        cleaned["office_map_url"] = validate_https_url(cleaned["office_map_url"], field_name="Office map link")
     if "hr_whatsapp" in cleaned:
         cleaned["hr_whatsapp"] = _sanitize_text(cleaned["hr_whatsapp"], max_len=40)
     if "careers_roles" in cleaned:
@@ -692,8 +700,21 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
     service = _sanitize_text(payload.get("service"), max_len=300)
     note = _sanitize_text(payload.get("note"), max_len=2000, allow_newlines=True)
 
+    raw_mode = _sanitize_text(payload.get("meeting_mode") or payload.get("location_preference") or "google_meet", max_len=40).lower()
+    meeting_mode = raw_mode if raw_mode in {"google_meet", "zoom", "teams", "in_person"} else "google_meet"
+    mode_labels = {
+        "google_meet": "Google Meet",
+        "zoom": "Zoom",
+        "teams": "Microsoft Teams",
+        "in_person": "In-Person (Office)",
+    }
+    meeting_mode_label = mode_labels.get(meeting_mode, "Google Meet")
+    office_address = _sanitize_text(sched_settings.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan", max_len=300)
+    office_map_url = sched_settings.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
+
     qa_list = [
         {"question": "What services do you require?", "answer": service or "Consultancy"},
+        {"question": "Preferred Meeting Mode", "answer": meeting_mode_label},
         {"question": "Please share a brief of your requirement", "answer": note or "No brief provided."},
     ]
     if company:
@@ -709,6 +730,11 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         "end_time": end_iso,
         "timezone": sched_settings.get("timezone", "Asia/Karachi"),
         "join_url": meeting_url,
+        "meeting_mode": meeting_mode,
+        "location_type": meeting_mode,
+        "location_label": meeting_mode_label,
+        "office_address": office_address,
+        "office_map_url": office_map_url,
         "status": "scheduled",
         "host_name": host_name,
         "host_email": host_email,
@@ -765,11 +791,24 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         await db.crm_scheduler_slots.delete_one({"date": target_date, "slot_time": slot_time})
         raise
 
-    cal_desc = f"{event_title}\n\nHost: {host_name} ({host_email})\nAttendee: {name} ({email})\nMeeting Room: {meeting_url}\n\nProject Brief: {note or 'N/A'}"
+    if meeting_mode == "in_person":
+        cal_loc = f"In-Person ({office_address})"
+        loc_line = f"Location: In-Person ({office_address})\nRemote Backup Room: {meeting_url}"
+    else:
+        cal_loc = meeting_url
+        loc_line = f"Meeting Method: {meeting_mode_label}\nGoogle Meet Room: {meeting_url}"
+
+    cal_desc = (
+        f"{event_title}\n\n"
+        f"Host: {host_name} ({host_email})\n"
+        f"Attendee: {name} ({email})\n"
+        f"{loc_line}\n\n"
+        f"Project Brief: {note or 'N/A'}"
+    )
     google_cal_url = _build_google_calendar_url(
         title=f"{event_title} - Reamarc",
         description=cal_desc,
-        location=meeting_url,
+        location=cal_loc,
         start_dt=start_dt,
         end_dt=end_dt,
     )
@@ -807,6 +846,10 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
             "end_time": end_iso,
             "host_name": host_name,
             "join_url": meeting_url,
+            "meeting_mode": meeting_mode,
+            "location_label": meeting_mode_label,
+            "office_address": office_address,
+            "office_map_url": office_map_url,
             "timezone": sched_settings.get("timezone", "Asia/Karachi"),
         },
         "calendar_links": {
@@ -838,6 +881,55 @@ def build_booking_confirmation_html(
     time_label = html_escape.escape(str(meeting_info.get("time_label") or slot_time))
     timezone_str = html_escape.escape(str(meeting_info.get("timezone") or "Asia/Karachi"))
     safe_attendee = html_escape.escape(attendee_name or "there")
+
+    meeting_mode = str(meeting_info.get("meeting_mode") or "google_meet").lower()
+    mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
+    office_address = html_escape.escape(str(meeting_info.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan"))
+    office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"))
+
+    if meeting_mode == "google_meet":
+        location_row = f"""<div style="margin-bottom: 8px;">
+          <span style="color: #64748b; display: inline-block; width: 100px;">Location:</span>
+          <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
+            Join via Google Meet &rarr;
+          </a>
+        </div>"""
+        action_button = f"""<a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 26px; border-radius: 10px; text-decoration: none; margin-right: 8px; margin-bottom: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+          &#9654; Join Google Meet
+        </a>"""
+        how_to_join = "A few minutes prior to the scheduled time, simply click the <strong>Join Google Meet</strong> button above. When prompted, click <em>&ldquo;Ask to join&rdquo;</em> and your host will let you in."
+    elif meeting_mode in ("zoom", "teams"):
+        location_row = f"""<div style="margin-bottom: 8px;">
+          <span style="color: #64748b; display: inline-block; width: 100px;">Platform:</span>
+          <strong style="color: #0f172a;">{mode_label}</strong>
+          <span style="display: block; margin-top: 4px; font-size: 12px; color: #475569;">
+            Host will share your custom room link via WhatsApp &amp; Email prior to the call.
+          </span>
+          <span style="display: block; margin-top: 2px; font-size: 11px; color: #64748b;">
+            Alternative Google Meet room: <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">Open Backup Room</a>
+          </span>
+        </div>"""
+        action_button = f"""<a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 26px; border-radius: 10px; text-decoration: none; margin-right: 8px; margin-bottom: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
+          &#9654; Join Google Meet (Backup)
+        </a>"""
+        how_to_join = f"Your host will send your personalized <strong>{mode_label}</strong> room link to your WhatsApp and email prior to the call. If you prefer or experience connectivity issues, the alternative <strong>Google Meet</strong> backup room above is also active."
+    else:  # in_person
+        location_row = f"""<div style="margin-bottom: 8px;">
+          <span style="color: #64748b; display: inline-block; width: 100px;">Location:</span>
+          <strong style="color: #0f172a;">In-Person &bull; {office_address}</strong>
+          <span style="display: block; margin-top: 4px; font-size: 12px;">
+            <a href="{office_map_url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">
+              &#128205; View on Google Maps &rarr;
+            </a>
+          </span>
+          <span style="display: block; margin-top: 2px; font-size: 11px; color: #64748b;">
+            Remote backup room: <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; text-decoration: underline;">Google Meet</a>
+          </span>
+        </div>"""
+        action_button = f"""<a href="{office_map_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 26px; border-radius: 10px; text-decoration: none; margin-right: 8px; margin-bottom: 8px;">
+          &#128205; View Office Map
+        </a>"""
+        how_to_join = f"Please arrive at <strong>{office_address}</strong> 5 minutes before your scheduled session. If you need assistance or wish to switch to an online video call, you can join the backup Google Meet room."
 
     company_row = (
         f"""<div style="margin-bottom: 8px;">
@@ -913,20 +1005,13 @@ def build_booking_confirmation_html(
           <span style="color: #64748b; display: inline-block; width: 100px;">Host:</span>
           <span style="color: #0f172a;">{host_name} (<a href="mailto:{host_email}" style="color: #2563eb; text-decoration: none;">{host_email}</a>)</span>
         </div>
-        <div style="margin-bottom: 8px;">
-          <span style="color: #64748b; display: inline-block; width: 100px;">Location:</span>
-          <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="color: #2563eb; font-weight: 600; text-decoration: underline;">
-            Join via Google Meet &rarr;
-          </a>
-        </div>
+        {location_row}
         {company_row}
       </div>
 
       <!-- Action Buttons -->
       <div style="text-align: center; margin: 28px 0 20px 0;">
-        <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 26px; border-radius: 10px; text-decoration: none; margin-right: 8px; margin-bottom: 8px; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);">
-          &#9654; Join Google Meet
-        </a>
+        {action_button}
         <a href="{clean_cal_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 22px; border-radius: 10px; text-decoration: none; margin-bottom: 8px;">
           + Add to Google Calendar
         </a>
@@ -939,7 +1024,7 @@ def build_booking_confirmation_html(
       <div style="margin-top: 24px; padding-top: 20px; border-top: 1px solid #f1f5f9; font-size: 12px; color: #64748b; line-height: 1.6;">
         <strong style="color: #334155;">How to join:</strong>
         <br>
-        A few minutes prior to the scheduled time, simply click the <strong>Join Google Meet</strong> button above. When prompted, click <em>&ldquo;Ask to join&rdquo;</em> and your host will let you in.
+        {how_to_join}
       </div>
     </div>
 
@@ -984,6 +1069,30 @@ def build_host_booking_notification_html(
     safe_service = html_escape.escape(service or "Consultancy")
     safe_note = html_escape.escape(note or "None provided")
 
+    meeting_mode = str(meeting_info.get("meeting_mode") or "google_meet").lower()
+    mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
+    clean_phone = re.sub(r"[^0-9]", "", attendee_phone or "")
+    wa_link = f"https://wa.me/{clean_phone}" if clean_phone else None
+
+    action_banner = ""
+    if meeting_mode != "google_meet":
+        wa_btn = (
+            f"""<a href="{html_escape.escape(wa_link)}" target="_blank" style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 7px 16px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 12px; margin-right: 8px;">&#128172; Open WhatsApp Chat</a>"""
+            if wa_link
+            else ""
+        )
+        action_banner = f"""
+      <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-left: 4px solid #f59e0b; padding: 14px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px; color: #92400e;">
+        <strong style="font-size: 14px; color: #b45309;">&#9888; ACTION REQUIRED: Attendee Requested {mode_label}</strong><br>
+        Please reach out to <strong>{safe_name}</strong> to share your custom {mode_label} link or office directions:
+        <div style="margin-top: 10px;">
+          {wa_btn}
+          <a href="mailto:{safe_email}" style="display: inline-block; background-color: #0f172a; color: #ffffff; padding: 7px 16px; border-radius: 6px; text-decoration: none; font-weight: 700; font-size: 12px;">Email Client</a>
+        </div>
+        <span style="font-size: 11px; color: #b45309; margin-top: 8px; display: block;">(Client was also provided the backup Google Meet room: <a href="{clean_join_url}" style="color: #b45309; text-decoration: underline;">{clean_join_url}</a>)</span>
+      </div>
+"""
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -998,11 +1107,13 @@ def build_host_booking_notification_html(
       <p style="margin: 4px 0 0 0; font-size: 13px; color: #94a3b8;">{date_str} at {time_label} ({timezone_str})</p>
     </div>
     <div style="padding: 24px;">
+      {action_banner}
       <h3 style="margin-top: 0; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em; color: #64748b;">Client Profile</h3>
       <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
-        <tr><td style="padding: 6px 0; color: #64748b; width: 110px;">Name:</td><td><strong>{safe_name}</strong></td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b; width: 120px;">Name:</td><td><strong>{safe_name}</strong></td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">Meeting Mode:</td><td><strong style="color: #2563eb;">{mode_label}</strong></td></tr>
         <tr><td style="padding: 6px 0; color: #64748b;">Email:</td><td><a href="mailto:{safe_email}" style="color: #2563eb;">{safe_email}</a></td></tr>
-        <tr><td style="padding: 6px 0; color: #64748b;">Phone:</td><td>{safe_phone}</td></tr>
+        <tr><td style="padding: 6px 0; color: #64748b;">Phone:</td><td>{safe_phone} {" &bull; <a href='" + html_escape.escape(wa_link) + "' target='_blank' style='color: #16a34a; font-weight: 600; text-decoration: none;'>WhatsApp &rarr;</a>" if wa_link else ""}</td></tr>
         <tr><td style="padding: 6px 0; color: #64748b;">Company:</td><td>{safe_company}</td></tr>
         <tr><td style="padding: 6px 0; color: #64748b;">Website:</td><td>{safe_website}</td></tr>
         <tr><td style="padding: 6px 0; color: #64748b;">Service:</td><td>{safe_service}</td></tr>
@@ -1015,7 +1126,7 @@ def build_host_booking_notification_html(
 
       <div style="text-align: center;">
         <a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 14px; padding: 12px 28px; border-radius: 10px; text-decoration: none;">
-          Open Google Meet Room &rarr;
+          Open Google Meet Room (Backup) &rarr;
         </a>
       </div>
     </div>

@@ -115,15 +115,24 @@ def notification_path(kind: str, data: Optional[dict] = None) -> str:
 
 def _subject() -> str:
     subject = (settings.VAPID_SUBJECT or "").strip()
+    if (subject.startswith('"') and subject.endswith('"')) or (subject.startswith("'") and subject.endswith("'")):
+        subject = subject[1:-1].strip()
+    if not subject:
+        subject = "mailto:faizan@reamarc.com"
+    if "@" in subject and not subject.startswith("mailto:"):
+        subject = f"mailto:{subject}"
     if subject.startswith("mailto:") and "@" in subject[7:]:
         return subject
     if subject.startswith("https://") and " " not in subject:
         return subject
-    return ""
+    return "mailto:faizan@reamarc.com"
 
 
 def _private_key() -> str:
-    return (settings.VAPID_PRIVATE_KEY or "").strip()
+    key = (settings.VAPID_PRIVATE_KEY or "").strip()
+    if (key.startswith('"') and key.endswith('"')) or (key.startswith("'") and key.endswith("'")):
+        key = key[1:-1].strip()
+    return key
 
 
 def web_push_configured() -> bool:
@@ -131,8 +140,16 @@ def web_push_configured() -> bool:
 
 
 def _vapid() -> Vapid:
+    raw = _private_key()
+    if not raw:
+        raise WebPushConfigError("VAPID private key is not configured.")
+    if "BEGIN " in raw:
+        try:
+            return Vapid.from_pem(raw.encode("ascii"))
+        except Exception as err:
+            raise WebPushConfigError("VAPID private key PEM is invalid.") from err
     try:
-        return Vapid.from_string(_private_key())
+        return Vapid.from_string(raw)
     except Exception as err:
         raise WebPushConfigError("VAPID private key is invalid.") from err
 
@@ -150,16 +167,21 @@ def public_application_server_key() -> Optional[str]:
     except WebPushConfigError:
         logger.error("Web Push public key could not be derived.")
         return None
-    except Exception:
-        logger.error("Web Push public key could not be derived.")
+    except Exception as err:
+        logger.error("Web Push public key could not be derived: %s", err)
         return None
     derived = b64urlencode(raw)
     if isinstance(derived, bytes):
         derived = derived.decode("ascii")
     configured = (settings.VAPID_PUBLIC_KEY or "").strip()
-    if configured and configured != derived:
-        logger.error("VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY. Refusing to advertise it.")
-        return None
+    if (configured.startswith('"') and configured.endswith('"')) or (configured.startswith("'") and configured.endswith("'")):
+        configured = configured[1:-1].strip()
+    if configured:
+        conf_clean = configured.replace("+", "-").replace("/", "_").rstrip("=")
+        der_clean = derived.replace("+", "-").replace("/", "_").rstrip("=")
+        if conf_clean != der_clean:
+            logger.error("VAPID_PUBLIC_KEY does not match VAPID_PRIVATE_KEY. Refusing to advertise it.")
+            return None
     return derived
 
 
@@ -317,6 +339,7 @@ async def send_web_push(
             "title": (title or "Reamarc")[:120],
             "body": (body or "")[:500],
             "path": notification_path(kind, data),
+            "kind": (kind or "custom")[:60],
         },
         separators=(",", ":"),
     )

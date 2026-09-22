@@ -18,7 +18,7 @@ from app.services.attendance_service import (
     get_now_pkt,
     get_shift_for_user,
 )
-from app.services.crm_access import can_assign_leads, is_crm_user
+from app.services.crm_access import can_assign_leads, can_view_all_leads, is_crm_user
 from app.services.workdays import classify_date
 
 logger = logging.getLogger("app.crm.assignment")
@@ -314,8 +314,25 @@ async def notify_users(user_ids: List[str], title: str, body: str, data: Optiona
         logger.warning("CRM email failed: %s", err)
 
 
-async def get_crm_broadcast_recipients() -> List[str]:
-    """Return user IDs of all active sales members, operations, and administrators eligible for CRM lead alerts."""
+def recipient_should_get_new_lead_alert(user: Dict[str, Any], lead: Dict[str, Any]) -> bool:
+    """Keep new-lead alerts aligned with pipeline visibility.
+
+    Managers (admin, operations, sales team leads) see every lead, so they always get the alert.
+    Sales members only see unassigned leads and leads assigned to themselves. A lead assigned to
+    someone else is invisible to them, so they must not be notified on phone, browser, or email.
+    """
+    if not is_crm_user(user):
+        return False
+    if can_view_all_leads(user):
+        return True
+    assignee = lead.get("assigned_to") or None
+    if not assignee:
+        return True
+    return str(assignee) == str(user.get("id") or "")
+
+
+async def get_crm_broadcast_recipients(lead: Dict[str, Any]) -> List[str]:
+    """CRM users who can see this lead and should receive its new-lead alert."""
     db = _db()
     cursor = db.users.find(
         {"is_active": {"$ne": False}, "role": {"$nin": ["client", "hr"]}},
@@ -324,7 +341,7 @@ async def get_crm_broadcast_recipients() -> List[str]:
     docs = await cursor.to_list(400)
     recipients: List[str] = []
     for u in docs:
-        if is_crm_user(u):
+        if recipient_should_get_new_lead_alert(u, lead):
             uid = u.get("id")
             if uid:
                 recipients.append(uid)
@@ -332,7 +349,7 @@ async def get_crm_broadcast_recipients() -> List[str]:
 
 
 async def notify_new_lead_broadcast(lead_id: str) -> None:
-    """Broadcast alert to all sales members, operations, and admin when a new lead is ingested or created."""
+    """Alert everyone who can see this lead. Sales members are included only for unassigned leads or their own."""
     db = _db()
     now_iso = _now()
     if hasattr(db.crm_leads, "find_one_and_update"):
@@ -353,7 +370,7 @@ async def notify_new_lead_broadcast(lead_id: str) -> None:
     if not lead:
         return
 
-    recipients = await get_crm_broadcast_recipients()
+    recipients = await get_crm_broadcast_recipients(lead)
     if not recipients:
         return
 
@@ -464,7 +481,7 @@ async def _leave_unassigned_claim(
 
 
 async def apply_assignment_engine(lead_id: str, actor: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """First matching enabled rule wins. Broadcasts lead alert to all sales members & admin/operations."""
+    """First matching enabled rule wins, then alerts only users who can see the lead."""
     from app.services import crm_leads as crm
 
     actor = actor or ENGINE_ACTOR

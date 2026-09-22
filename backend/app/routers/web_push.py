@@ -9,6 +9,7 @@ from app.services.web_push_service import (
     WebPushConfigError,
     public_application_server_key,
     remove_subscription,
+    send_web_push,
     upsert_subscription,
     web_push_configured,
 )
@@ -96,3 +97,31 @@ async def unsubscribe_browser(
     user_id = current_user.get("id") or ""
     removed = await remove_subscription(user_id, body.endpoint)
     return {"removed": removed}
+
+
+@router.post("/test")
+async def test_push(current_user: dict = Depends(require_internal_user)):
+    user_id = current_user.get("id")
+    if not user_id:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
+    if not web_push_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Browser notifications are not configured on server.",
+        )
+    sent = await send_web_push(
+        user_ids=[user_id],
+        title="Reamarc Web Push Test 🚀",
+        body="Desktop notifications are working properly on this browser!",
+        kind="test",
+        data={"type": "test", "path": "/"},
+    )
+    if sent == 0:
+        return {
+            "sent": 0,
+            "message": "No active web push subscriptions found for your account. Please enable notifications in this browser.",
+        }
+    return {
+        "sent": sent,
+        "message": f"Test notification sent to {sent} active browser(s)!",
+    }

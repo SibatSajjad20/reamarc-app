@@ -1,6 +1,15 @@
 /* Reamarc Web Push worker. Shows only title, body, and a same-origin path. */
+
+self.addEventListener('install', (event) => {
+  self.skipWaiting();
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(self.clients.claim());
+});
+
 self.addEventListener('push', (event) => {
-  let payload = { title: 'Reamarc', body: '', path: '/' };
+  let payload = { title: 'Reamarc', body: '', path: '/', kind: 'custom' };
   try {
     if (event.data) {
       const parsed = event.data.json();
@@ -14,14 +23,30 @@ self.addEventListener('push', (event) => {
   const title = String(payload.title || 'Reamarc').slice(0, 120);
   const body = String(payload.body || '').slice(0, 500);
   const path = safePath(payload.path);
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body,
-      icon: '/favicon.svg',
-      badge: '/favicon.svg',
-      data: { path },
-    })
-  );
+
+  // 1. Show OS-level notification popup (using raster PNG icon for Windows/Chrome compatibility)
+  const notificationPromise = self.registration.showNotification(title, {
+    body,
+    icon: '/favicon.png',
+    badge: '/favicon.png',
+    tag: `reamarc-${Date.now()}`,
+    data: { path },
+  });
+
+  // 2. Also broadcast to all active window clients for immediate on-screen in-app toast
+  const broadcastPromise = self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clients) => {
+    for (const client of clients) {
+      client.postMessage({
+        type: 'reamarc-push-received',
+        title,
+        body,
+        path,
+        kind: payload.kind,
+      });
+    }
+  });
+
+  event.waitUntil(Promise.all([notificationPromise, broadcastPromise]));
 });
 
 self.addEventListener('notificationclick', (event) => {
