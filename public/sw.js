@@ -1,4 +1,4 @@
-/* Reamarc Web Push worker. System popups stay up when the tab is hidden or the browser is closed. */
+/* Reamarc Web Push worker v2. System popups show whether tab is active, hidden, or browser is closed. */
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
@@ -36,28 +36,23 @@ async function handlePush(event) {
   const title = String(payload.title || 'Reamarc').slice(0, 120);
   const body = String(payload.body || '').slice(0, 500);
   const path = safePath(payload.path);
-  const tag = payload.kind === 'test' ? 'reamarc-web-push-test' : `reamarc-${Date.now()}`;
+  const tag = payload.kind === 'test' ? `reamarc-test-${Date.now()}` : (payload.tag || `reamarc-${Date.now()}`);
 
+  // 1. ALWAYS trigger native OS desktop notification so it pops up outside the tab/browser
+  let displayed = false;
+  try {
+    await showDesktopNotification(title, body, path, tag);
+    displayed = true;
+  } catch (err) {
+    console.warn('[Reamarc SW] Could not show system notification:', err);
+  }
+
+  // 2. Broadcast to open windows (for in-app toasts and live state updates)
   let windows = [];
   try {
     windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
   } catch {
     windows = [];
-  }
-  const pageIsVisible = windows.some((client) => client.visibilityState === 'visible');
-
-  // While this site is the focused tab, Chrome on Windows often swallows the
-  // worker banner and the page only showed an in-app toast. The open page raises
-  // the system popup itself in that case. Hidden, minimized, and closed windows
-  // still get the worker notification.
-  let displayed = false;
-  if (!pageIsVisible) {
-    try {
-      await showDesktopNotification(title, body, path, tag);
-      displayed = true;
-    } catch (err) {
-      console.warn('[Reamarc SW] Could not show system notification', err);
-    }
   }
 
   for (const client of windows) {
@@ -74,20 +69,23 @@ async function handlePush(event) {
 }
 
 async function showDesktopNotification(title, body, path, tag) {
+  const iconUrl = new URL('/favicon.png', self.location.origin).href;
   const options = {
     body,
-    tag,
+    tag: tag || `reamarc-${Date.now()}`,
     renotify: true,
     requireInteraction: true,
     silent: false,
     data: { path },
-    icon: '/favicon.png',
+    icon: iconUrl,
+    badge: iconUrl,
   };
   try {
     await self.registration.showNotification(title, options);
   } catch (err) {
-    console.warn('[Reamarc SW] Notification with icon failed, retrying', err);
+    console.warn('[Reamarc SW] Notification with icon failed, retrying with basic options:', err);
     delete options.icon;
+    delete options.badge;
     await self.registration.showNotification(title, options);
   }
 }

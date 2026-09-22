@@ -266,9 +266,8 @@ function AppInner() {
         const body = String(event.data.body || '');
         const tag = typeof event.data.tag === 'string' ? event.data.tag : undefined;
         const displayed = event.data.displayed === true;
-        // A focused window often gets only the in-app toast from the worker.
-        // Raise a real system popup here, and also if the worker failed to show one.
-        if (document.visibilityState === 'visible' || !displayed) {
+        // The service worker already shows the native OS popup. Only trigger fallback if SW failed.
+        if (!displayed) {
           void showDesktopPopup(title, body, tag, String(event.data.path || '/'));
         }
         addToast(title, body, 'info');

@@ -40,8 +40,8 @@ export async function getRegistration(): Promise<ServiceWorkerRegistration | nul
 const heldPopups: Notification[] = [];
 
 /**
- * OS notification. `new Notification` still banners while this tab is focused.
- * The service worker notification remains after the tab is hidden or the browser closes.
+ * OS notification. Uses ServiceWorkerRegistration.showNotification() as primary
+ * to ensure native system popups display on Windows/macOS whether tab is active or in background.
  */
 export async function showDesktopPopup(
   title: string,
@@ -53,9 +53,11 @@ export async function showDesktopPopup(
     return false;
   }
   const noteTag = tag || `reamarc-${Date.now()}`;
+  const iconUrl = typeof window !== 'undefined' ? new URL('/favicon.png', window.location.origin).href : '/favicon.png';
   const options = {
     body,
-    icon: '/favicon.png',
+    icon: iconUrl,
+    badge: iconUrl,
     tag: noteTag,
     renotify: true,
     requireInteraction: true,
@@ -63,45 +65,41 @@ export async function showDesktopPopup(
     data: { path },
   } as NotificationOptions;
 
-  const reveal = (popup: Notification) => {
-    heldPopups.push(popup);
-    if (heldPopups.length > 8) heldPopups.shift();
-    popup.onclick = () => {
-      window.focus();
-      popup.close();
-    };
-  };
-
-  try {
-    reveal(new Notification(title, options));
-    return true;
-  } catch (err) {
-    console.warn('[WebPush] Desktop popup failed, retrying with basic options:', err);
-  }
-
-  try {
-    reveal(new Notification(title, { body, icon: '/favicon.png', tag: noteTag }));
-    return true;
-  } catch (err) {
-    console.warn('[WebPush] Basic desktop popup failed:', err);
-  }
-
+  // 1. Primary: ServiceWorkerRegistration.showNotification() - official standard for system popups
   try {
     const reg = await getRegistration();
-    if (!reg) return false;
-    await reg.showNotification(title, {
-      body,
-      tag: noteTag,
-      renotify: true,
-      requireInteraction: true,
-      silent: false,
-      data: { path },
-    } as NotificationOptions);
+    if (reg && 'showNotification' in reg) {
+      await reg.showNotification(title, options);
+      return true;
+    }
+  } catch (err) {
+    console.warn('[WebPush] Service worker showNotification failed, retrying basic options:', err);
+    try {
+      const reg = await getRegistration();
+      if (reg && 'showNotification' in reg) {
+        await reg.showNotification(title, { body, tag: noteTag });
+        return true;
+      }
+    } catch {
+      // Fall through to window.Notification
+    }
+  }
+
+  // 2. Fallback: window.Notification constructor
+  try {
+    const note = new Notification(title, options);
+    heldPopups.push(note);
+    if (heldPopups.length > 8) heldPopups.shift();
+    note.onclick = () => {
+      window.focus();
+      note.close();
+    };
     return true;
   } catch (err) {
-    console.warn('[WebPush] Service worker notification failed:', err);
-    return false;
+    console.warn('[WebPush] Desktop popup fallback failed:', err);
   }
+
+  return false;
 }
 
 export function notificationPermission(): NotificationPermission | 'unsupported' {
@@ -200,47 +198,49 @@ export async function disableWebPush(): Promise<void> {
   }
 }
 
-const TEST_POPUP_TAG = 'reamarc-web-push-test';
-const TEST_POPUP_TITLE = 'Reamarc Web Push Test';
-const TEST_POPUP_BODY = 'Desktop notifications are working on this browser. This popup stays until you dismiss it.';
-
-/** Send an end-to-end backend push test and show a system popup immediately. */
+/** Send an end-to-end backend push test and ensure a system popup appears. */
 export async function sendTestPush(): Promise<{ success: boolean; message: string }> {
   if (!canUsePush()) {
-    return { success: false, message: 'Browser notifications are not supported.' };
+    return { success: false, message: 'Browser notifications are not supported on this device.' };
   }
   if (Notification.permission !== 'granted') {
-    return { success: false, message: 'Notifications are not allowed. Please click "Enable notifications" first.' };
+    return { success: false, message: 'Notifications are not allowed. Please click "Enable desktop notifications" first.' };
   }
-  const shown = await showDesktopPopup(TEST_POPUP_TITLE, TEST_POPUP_BODY, TEST_POPUP_TAG);
+
+  // Ensure subscription is registered with service worker and synced to backend
+  await syncWebPushSubscription();
+
   try {
-    await syncWebPushSubscription();
     const res = await apiClient.post<{ sent: number; message: string }>('/web-push/test');
-    if (shown && res.sent > 0) {
-      return {
-        success: true,
-        message: 'Desktop popup sent. It still appears if you switch tabs, minimize, or close the browser.',
-      };
-    }
-    if (shown) {
-      return {
-        success: true,
-        message: 'Desktop popup shown on this device. Enable notifications again if it should also arrive after the browser is closed.',
-      };
-    }
     if (res.sent > 0) {
       return {
-        success: false,
-        message: 'The server sent the test, but this browser did not open a system popup. Allow notifications for the browser in Windows Settings, then try again.',
+        success: true,
+        message: 'Desktop notification sent from server! A system popup will appear even if you switch tabs or minimize.',
       };
     }
-    return { success: false, message: res.message || 'Could not show a desktop popup.' };
-  } catch {
+    // If backend reports 0 subscribers (e.g. backend key sync delay), trigger local system popup directly
+    const shown = await showDesktopPopup(
+      'Reamarc Web Push Test 🚀',
+      'Desktop popup notifications are active on this browser!',
+      `reamarc-test-${Date.now()}`
+    );
     return {
       success: shown,
       message: shown
-        ? 'Desktop popup shown on this device. The server test could not be reached.'
-        : 'Could not show a desktop popup.',
+        ? 'Desktop popup displayed on this device.'
+        : 'Could not show a desktop popup. Please allow notifications for your browser in Windows Settings.',
+    };
+  } catch {
+    const shown = await showDesktopPopup(
+      'Reamarc Web Push Test 🚀',
+      'Desktop popup notifications are active on this browser!',
+      `reamarc-test-${Date.now()}`
+    );
+    return {
+      success: shown,
+      message: shown
+        ? 'Desktop popup displayed locally (server test was unreachable).'
+        : 'Could not show a desktop popup. Please check Windows Notification Settings.',
     };
   }
 }
