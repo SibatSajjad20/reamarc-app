@@ -90,6 +90,12 @@ class Settings(BaseSettings):
     CRM_META_APP_SECRET: str = ""
     CRM_META_FORM_IDS: str = ""  # comma-separated form ids for poll backup
 
+    # Web Push (VAPID). Private key stays on the server. Never commit it.
+    # Generate with: python -m app.web_push_keys
+    VAPID_PUBLIC_KEY: str = ""
+    VAPID_PRIVATE_KEY: str = ""
+    VAPID_SUBJECT: str = "mailto:faizan@reamarc.com"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

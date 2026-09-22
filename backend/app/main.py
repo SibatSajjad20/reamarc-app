@@ -14,7 +14,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public, web_push
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -237,6 +237,7 @@ app.include_router(attendance.router, prefix=settings.API_V1_STR)
 app.include_router(leaves.router, prefix=settings.API_V1_STR)
 app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
 app.include_router(mobile.router, prefix=settings.API_V1_STR)
+app.include_router(web_push.router, prefix=settings.API_V1_STR)
 app.include_router(crm.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router)

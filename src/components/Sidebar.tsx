@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import type { ViewType, ThemeMode } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { dailyLogService } from '../services/dailyLogService';
+import { NotificationBell } from './NotificationBell';
 const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
 import { getInitials, getRoleLabel } from '../utils/badgeStyles';
 import { canAccessCrm, canAssignCrmLeads } from '../utils/crmAccess';
@@ -553,6 +554,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="flex items-center gap-1">
+              {!isClient && <NotificationBell collapsed={false} onSelectView={onSelectView} />}
               <button
                 type="button"
                 onClick={() => onSelectView('profile')}
@@ -573,6 +575,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 mx-auto">
+            {!isClient && <NotificationBell collapsed onSelectView={onSelectView} />}
             <button
               type="button"
               onClick={() => onSelectView('profile')}

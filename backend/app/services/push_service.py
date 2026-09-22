@@ -137,6 +137,7 @@ async def dispatch_to_users(
             "sent": 0,
             "skipped": 0,
             "in_app": 0,
+            "web_sent": 0,
             "message": "No recipients.",
         }
 
@@ -151,18 +152,25 @@ async def dispatch_to_users(
         if uid:
             device_user_ids.add(uid)
 
+    from app.services.web_push_service import send_web_push, subscriber_user_ids
+
+    browser_user_ids: List[str] = []
+    if user_ids is None:
+        browser_user_ids = await subscriber_user_ids()
+
     # Targeted sends: write inbox for every requested user, even without a bound phone.
     if user_ids is not None:
         inbox_ids = list(dict.fromkeys(uid for uid in user_ids if uid))
     else:
-        inbox_ids = list(device_user_ids)
+        inbox_ids = list(dict.fromkeys([*device_user_ids, *browser_user_ids]))
 
     if not inbox_ids and not tokens:
         return {
             "sent": 0,
             "skipped": 0,
             "in_app": 0,
-            "message": "No bound phones. The employee must log in on the mobile app first.",
+            "web_sent": 0,
+            "message": "No recipients. The employee must open the mobile app or allow browser notifications.",
         }
 
     for uid in inbox_ids:
@@ -178,16 +186,23 @@ async def dispatch_to_users(
         )
 
     sent = await send_expo_push(tokens, title, body, data=data)
+    web_targets = inbox_ids if user_ids is not None else browser_user_ids
+    try:
+        web_sent = await send_web_push(web_targets, title, body, kind=kind, data=data)
+    except Exception as err:
+        logger.warning("Web push dispatch failed: %s", err)
+        web_sent = 0
     in_app = len(inbox_ids)
     skipped = max(0, in_app - sent)
     return {
         "sent": sent,
         "skipped": skipped,
         "in_app": in_app,
+        "web_sent": web_sent,
         "message": (
-            f"Saved to {in_app} Alerts inbox(es). "
-            f"Lock-screen push queued for {sent} device(s). "
-            "Expo Go usually cannot show lock-screen pushes — keep the app open and check Alerts."
+            f"Saved to {in_app} inbox(es). "
+            f"Phone push queued for {sent} device(s). "
+            f"Browser push queued for {web_sent}."
         ),
     }
 

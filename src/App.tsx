@@ -20,6 +20,7 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { canAccessCrm } from './utils/crmAccess';
+import { viewFromNotificationPath } from './utils/notificationRoute';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
@@ -251,6 +252,17 @@ function AppInner() {
     setCurrentView(targetView);
     localStorage.setItem('reamarc_active_view', targetView);
   };
+
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'reamarc-navigate') return;
+      const view = viewFromNotificationPath(String(event.data.path || ''));
+      if (view) handleSelectView(view);
+    };
+    navigator.serviceWorker.addEventListener('message', onMessage);
+    return () => navigator.serviceWorker.removeEventListener('message', onMessage);
+  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser]);
 
   const {
     workspaces,

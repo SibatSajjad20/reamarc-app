@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import type { AuthUser, LoginPayload, UserRole } from '../types/auth';
 import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
+import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -77,6 +78,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchCurrentUser();
   }, [fetchCurrentUser]);
 
+  useEffect(() => {
+    if (!user?.id || user.role === 'client') return;
+    void syncWebPushSubscription();
+  }, [user?.id, user?.role]);
+
   const login = async (payload: LoginPayload) => {
     const res = await authService.login(payload);
     // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
@@ -100,6 +106,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = async () => {
+    if (user && user.role !== 'client') {
+      await disableWebPush();
+    }
     try {
       await authService.logout();
     } catch {
