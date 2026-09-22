@@ -19,6 +19,8 @@ from app.core.security import (
     _normalize_role, user_session_epoch, token_session_epoch,
     bump_session_epoch, claims_with_session,
     remember_refresh_jti, rotate_refresh_jti,
+    decide_refresh_action, retired_jti_is_recent, accept_retired_refresh,
+    revoke_refresh_jtis,
 )
 from app.core.limiter import limiter, get_client_ip
 from app.core.rate_limit_store import enforce_shared_rate_limit
@@ -66,6 +68,15 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         **cookie_opts,
     )
+
+
+def _issue_token_pair(claims: dict, session_id: str) -> tuple[str, str]:
+    """Access and refresh tokens for one browser. session_id is that browser's sid."""
+    access_claims = dict(claims)
+    access_claims["sid"] = session_id
+    refresh_claims = dict(claims)
+    refresh_claims["jti"] = session_id
+    return create_access_token(access_claims), create_refresh_token(refresh_claims)
 
 
 def _token_payload(access_token: str, refresh_token: str, user_doc: dict, include_tokens: bool = True) -> dict:
@@ -161,10 +172,10 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         from app.services.device_registry import assert_device_login_allowed
         await assert_device_login_allowed(user_id, user_in.device_uuid)
 
-    access_token = create_access_token(claims)
-    refresh_token = create_refresh_token(claims)
-    refresh_claims = decode_refresh_token(refresh_token) or {}
-    await remember_refresh_jti(db, user_id, str(refresh_claims.get("jti") or ""))
+    session_id = uuid.uuid4().hex
+    access_token, refresh_token = _issue_token_pair(claims, session_id)
+    # A new login adds a session. It does not revoke any other browser or account.
+    await remember_refresh_jti(db, user_id, session_id)
     wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
@@ -218,20 +229,27 @@ async def refresh_token(request: Request, response: Response):
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
     })
-    new_access_token = create_access_token(claims)
-    new_refresh_token = create_refresh_token(claims)
-    new_jti = str((decode_refresh_token(new_refresh_token) or {}).get("jti") or "")
+    session_id = uuid.uuid4().hex
+    new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
+    recently_retired = bool(old_jti) and retired_jti_is_recent(
+        user_doc.get("refresh_retired"), old_jti
+    )
+    action = decide_refresh_action(
+        old_jti, existing_jtis, recently_retired=recently_retired
+    )
 
-    if old_jti and old_jti in existing_jtis:
-        rotated = await rotate_refresh_jti(db, user_id, old_jti, new_jti)
-        if not rotated:
-            await bump_session_epoch(db, user_id)
+    if action == "rotate":
+        rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
+        if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
-    elif not existing_jtis:
+    elif action == "grace":
+        if not await accept_retired_refresh(db, user_id, old_jti, session_id):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+    elif action == "legacy":
         # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
-        await remember_refresh_jti(db, user_id, new_jti)
+        await remember_refresh_jti(db, user_id, session_id)
     else:
-        await bump_session_epoch(db, user_id)
+        # Stale token from another browser. Reject this token only.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
 
     wants_json = _wants_json_tokens(request)
@@ -316,16 +334,39 @@ def _extract_any_token(request: Request) -> Optional[str]:
     return request.cookies.get("access_token") or request.cookies.get("refresh_token")
 
 
+def _logout_target(request: Request) -> tuple[Optional[str], list[str]]:
+    """User id plus the session ids belonging to this browser only."""
+    user_id = None
+    session_ids: list[str] = []
+    access = _extract_any_token(request)
+    access_payload = decode_access_token(access) if access else None
+    if access_payload:
+        user_id = access_payload.get("sub")
+        sid = str(access_payload.get("sid") or "").strip()
+        if sid:
+            session_ids.append(sid)
+    refresh = request.cookies.get("refresh_token")
+    refresh_payload = decode_refresh_token(refresh) if refresh else None
+    if refresh_payload is None and access and access_payload is None:
+        refresh_payload = decode_refresh_token(access)
+    if refresh_payload:
+        user_id = user_id or refresh_payload.get("sub")
+        jti = str(refresh_payload.get("jti") or "").strip()
+        if jti and jti not in session_ids:
+            session_ids.append(jti)
+    return (str(user_id) if user_id else None), session_ids
+
+
 @router.post("/logout")
 async def logout(request: Request, response: Response):
-    token = _extract_any_token(request)
-    payload = decode_access_token(token) if token else None
-    if payload is None and token:
-        payload = decode_refresh_token(token)
-    user_id = (payload or {}).get("sub")
+    user_id, session_ids = _logout_target(request)
     if user_id:
         db = get_database()
-        await bump_session_epoch(db, str(user_id))
+        if session_ids:
+            await revoke_refresh_jtis(db, user_id, session_ids)
+        else:
+            # Legacy tokens have no session id, so this browser cannot be split out.
+            await bump_session_epoch(db, user_id)
 
     is_prod = settings.IS_PRODUCTION
     cookie_opts = dict(

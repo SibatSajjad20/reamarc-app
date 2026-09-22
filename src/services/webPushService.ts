@@ -24,11 +24,83 @@ export function canUsePush(): boolean {
 export async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
   if (!canUsePush()) return null;
   try {
-    await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
+    const reg = await navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' });
+    try {
+      await reg.update();
+    } catch {
+      // A failed update check must not block an already-active worker.
+    }
     return await navigator.serviceWorker.ready;
   } catch (err) {
     console.warn('[WebPush] ServiceWorker registration failed:', err);
     return null;
+  }
+}
+
+const heldPopups: Notification[] = [];
+
+/**
+ * OS notification. `new Notification` still banners while this tab is focused.
+ * The service worker notification remains after the tab is hidden or the browser closes.
+ */
+export async function showDesktopPopup(
+  title: string,
+  body: string,
+  tag?: string,
+  path = '/'
+): Promise<boolean> {
+  if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') {
+    return false;
+  }
+  const noteTag = tag || `reamarc-${Date.now()}`;
+  const options = {
+    body,
+    icon: '/favicon.png',
+    tag: noteTag,
+    renotify: true,
+    requireInteraction: true,
+    silent: false,
+    data: { path },
+  } as NotificationOptions;
+
+  const reveal = (popup: Notification) => {
+    heldPopups.push(popup);
+    if (heldPopups.length > 8) heldPopups.shift();
+    popup.onclick = () => {
+      window.focus();
+      popup.close();
+    };
+  };
+
+  try {
+    reveal(new Notification(title, options));
+    return true;
+  } catch (err) {
+    console.warn('[WebPush] Desktop popup failed, retrying with basic options:', err);
+  }
+
+  try {
+    reveal(new Notification(title, { body, icon: '/favicon.png', tag: noteTag }));
+    return true;
+  } catch (err) {
+    console.warn('[WebPush] Basic desktop popup failed:', err);
+  }
+
+  try {
+    const reg = await getRegistration();
+    if (!reg) return false;
+    await reg.showNotification(title, {
+      body,
+      tag: noteTag,
+      renotify: true,
+      requireInteraction: true,
+      silent: false,
+      data: { path },
+    } as NotificationOptions);
+    return true;
+  } catch (err) {
+    console.warn('[WebPush] Service worker notification failed:', err);
+    return false;
   }
 }
 
@@ -42,29 +114,7 @@ export async function showWelcomeNotification(
   title = 'Notifications Enabled 🎉',
   body = 'You will now receive real-time alerts from Reamarc.'
 ): Promise<boolean> {
-  if (!canUsePush() || Notification.permission !== 'granted') return false;
-  try {
-    const reg = await getRegistration();
-    if (reg && 'showNotification' in reg) {
-      await reg.showNotification(title, {
-        body,
-        icon: '/favicon.png',
-        badge: '/favicon.png',
-        tag: `reamarc-test-${Date.now()}`,
-      });
-      return true;
-    }
-    if ('Notification' in window) {
-      new Notification(title, {
-        body,
-        icon: '/favicon.png',
-      });
-      return true;
-    }
-  } catch (err) {
-    console.warn('[WebPush] Failed to show on-screen popup notification:', err);
-  }
-  return false;
+  return showDesktopPopup(title, body, `reamarc-welcome-${Date.now()}`);
 }
 
 /** Subscribe this browser when permission is already granted. Does not prompt. */
@@ -150,7 +200,11 @@ export async function disableWebPush(): Promise<void> {
   }
 }
 
-/** Send an end-to-end backend push test or fallback to local notification popup. */
+const TEST_POPUP_TAG = 'reamarc-web-push-test';
+const TEST_POPUP_TITLE = 'Reamarc Web Push Test';
+const TEST_POPUP_BODY = 'Desktop notifications are working on this browser. This popup stays until you dismiss it.';
+
+/** Send an end-to-end backend push test and show a system popup immediately. */
 export async function sendTestPush(): Promise<{ success: boolean; message: string }> {
   if (!canUsePush()) {
     return { success: false, message: 'Browser notifications are not supported.' };
@@ -158,17 +212,35 @@ export async function sendTestPush(): Promise<{ success: boolean; message: strin
   if (Notification.permission !== 'granted') {
     return { success: false, message: 'Notifications are not allowed. Please click "Enable notifications" first.' };
   }
+  const shown = await showDesktopPopup(TEST_POPUP_TITLE, TEST_POPUP_BODY, TEST_POPUP_TAG);
   try {
     await syncWebPushSubscription();
     const res = await apiClient.post<{ sent: number; message: string }>('/web-push/test');
-    if (res.sent > 0) {
-      return { success: true, message: 'Test notification sent from server! Popup should appear.' };
+    if (shown && res.sent > 0) {
+      return {
+        success: true,
+        message: 'Desktop popup sent. It still appears if you switch tabs, minimize, or close the browser.',
+      };
     }
-    await showWelcomeNotification('Reamarc Test Notification 🔔', 'Web push is working properly on this browser.');
-    return { success: true, message: res.message || 'Test notification displayed.' };
-  } catch (err: any) {
-    // Fallback to local popup
-    await showWelcomeNotification('Reamarc Test Notification 🔔', 'Web push is working properly on this browser.');
-    return { success: true, message: 'Local notification popup displayed.' };
+    if (shown) {
+      return {
+        success: true,
+        message: 'Desktop popup shown on this device. Enable notifications again if it should also arrive after the browser is closed.',
+      };
+    }
+    if (res.sent > 0) {
+      return {
+        success: false,
+        message: 'The server sent the test, but this browser did not open a system popup. Allow notifications for the browser in Windows Settings, then try again.',
+      };
+    }
+    return { success: false, message: res.message || 'Could not show a desktop popup.' };
+  } catch {
+    return {
+      success: shown,
+      message: shown
+        ? 'Desktop popup shown on this device. The server test could not be reached.'
+        : 'Could not show a desktop popup.',
+    };
   }
 }

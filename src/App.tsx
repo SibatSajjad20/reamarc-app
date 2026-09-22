@@ -21,6 +21,7 @@ import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { canAccessCrm } from './utils/crmAccess';
 import { viewFromNotificationPath } from './utils/notificationRoute';
+import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
@@ -261,8 +262,15 @@ function AppInner() {
         const view = viewFromNotificationPath(String(event.data.path || ''));
         if (view) handleSelectView(view);
       } else if (event.data?.type === 'reamarc-push-received') {
-        const title = event.data.title || 'Reamarc';
-        const body = event.data.body || '';
+        const title = String(event.data.title || 'Reamarc');
+        const body = String(event.data.body || '');
+        const tag = typeof event.data.tag === 'string' ? event.data.tag : undefined;
+        const displayed = event.data.displayed === true;
+        // A focused window often gets only the in-app toast from the worker.
+        // Raise a real system popup here, and also if the worker failed to show one.
+        if (document.visibilityState === 'visible' || !displayed) {
+          void showDesktopPopup(title, body, tag, String(event.data.path || '/'));
+        }
         addToast(title, body, 'info');
       }
     };

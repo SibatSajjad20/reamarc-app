@@ -11,6 +11,10 @@ from app.models.user import UserRole
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 JWT_ALGORITHM = "HS256"
 _MAX_REFRESH_JTIS = 8
+_MAX_RETIRED_REFRESH_JTIS = 32
+# Parallel refreshes in one browser present the same token. Treat that replay as
+# a race for this long, then reject it without signing out any other session.
+REFRESH_ROTATION_GRACE_SECONDS = 60
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     pwd_bytes = plain_password.encode("utf-8")[:72]
@@ -59,7 +63,7 @@ def decode_refresh_token(token: str) -> Optional[dict]:
 
 
 def user_session_epoch(user_doc: Optional[dict]) -> int:
-    """Integer bumped on logout / password change to invalidate outstanding JWTs."""
+    """Integer bumped on password change or legacy logout to invalidate outstanding JWTs."""
     if not user_doc:
         return 0
     try:
@@ -98,11 +102,113 @@ async def remember_refresh_jti(db: Any, user_id: str, jti: str) -> None:
 async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) -> bool:
     if db is None or not user_id or not old_jti or not new_jti:
         return False
+    now = datetime.now(timezone.utc).isoformat()
     result = await db.users.update_one(
         {"id": user_id, "refresh_jtis": old_jti},
-        {"$set": {"refresh_jtis.$": new_jti}},
+        {
+            "$set": {"refresh_jtis.$": new_jti},
+            "$push": {
+                "refresh_retired": {
+                    "$each": [{"jti": old_jti, "at": now}],
+                    "$slice": -_MAX_RETIRED_REFRESH_JTIS,
+                }
+            },
+        },
     )
     return int(getattr(result, "modified_count", 0) or 0) == 1
+
+
+async def revoke_refresh_jtis(db: Any, user_id: str, jtis: List[str]) -> None:
+    """Drop one browser's refresh ids. Other browsers of this account stay signed in."""
+    ids = [str(j) for j in jtis if j]
+    if db is None or not user_id or not ids:
+        return
+    await db.users.update_one(
+        {"id": user_id},
+        {"$pull": {"refresh_jtis": {"$in": ids}}},
+    )
+
+
+def decide_refresh_action(
+    old_jti: str,
+    existing_jtis: List[str],
+    *,
+    recently_retired: bool,
+) -> str:
+    """How to treat one refresh token without affecting other browsers.
+
+    rotate: this browser's token is current.
+    grace: this token was rotated moments ago by a parallel request.
+    legacy: this account has no tracked refresh tokens yet.
+    reject: this token is stale. The caller must not revoke other sessions.
+    """
+    if old_jti and old_jti in existing_jtis:
+        return "rotate"
+    if old_jti and recently_retired:
+        return "grace"
+    if not existing_jtis:
+        return "legacy"
+    return "reject"
+
+
+def retired_jti_is_recent(
+    entries: Optional[List[Any]],
+    jti: str,
+    *,
+    now: Optional[datetime] = None,
+    grace_seconds: int = REFRESH_ROTATION_GRACE_SECONDS,
+) -> bool:
+    if not jti or not entries:
+        return False
+    current = now or datetime.now(timezone.utc)
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if str(entry.get("jti") or "") != jti or entry.get("consumed"):
+            continue
+        stamp = _parse_iso(str(entry.get("at") or ""))
+        if stamp is None:
+            continue
+        if (current - stamp).total_seconds() <= grace_seconds:
+            return True
+    return False
+
+
+def _parse_iso(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+async def accept_retired_refresh(db: Any, user_id: str, old_jti: str, new_jti: str) -> bool:
+    """Accept one replay of a just-rotated refresh token.
+
+    The winning request already kept that browser signed in. A second copy of the
+    same token must not bump session_epoch, or every other browser of this account
+    is signed out.
+    """
+    if db is None or not user_id or not old_jti or not new_jti:
+        return False
+    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "refresh_retired": 1})
+    if not retired_jti_is_recent((fresh or {}).get("refresh_retired"), old_jti):
+        return False
+    consumed = await db.users.update_one(
+        {
+            "id": user_id,
+            "refresh_retired": {"$elemMatch": {"jti": old_jti, "consumed": {"$ne": True}}},
+        },
+        {"$set": {"refresh_retired.$.consumed": True}},
+    )
+    if int(getattr(consumed, "modified_count", 0) or 0) != 1:
+        return False
+    await remember_refresh_jti(db, user_id, new_jti)
+    return True
 
 
 def claims_with_session(user_doc: dict, base: dict) -> dict:
@@ -184,6 +290,18 @@ async def get_current_user(
             detail="Session expired. Please sign in again.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+    # sid is this browser's refresh id. Missing sid is a legacy token and stays
+    # valid until password change. A revoked sid signs out only that browser.
+    session_id = str(payload.get("sid") or "").strip()
+    if session_id:
+        active_sessions = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
+        if session_id not in active_sessions:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     effective_role = _normalize_role(user_doc.get("role"))
 

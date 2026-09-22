@@ -141,17 +141,25 @@ class ApiClient {
     if (this.refreshPromise) return this.refreshPromise;
     this.refreshPromise = (async () => {
       try {
+        const headers = {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+        };
         const res = await fetch(`${this.baseUrl}/auth/refresh`, {
           method: 'POST',
           credentials: 'include',
-          headers: {
-            Accept: 'application/json',
-            'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest',
-          },
+          headers,
           body: '{}',
         });
-        return res.ok;
+        if (res.ok) return true;
+        // Another tab may already have rotated this browser's cookie.
+        const me = await fetch(`${this.baseUrl}/auth/me`, {
+          method: 'GET',
+          credentials: 'include',
+          headers,
+        });
+        return me.ok;
       } catch {
         return false;
       } finally {
