@@ -1,13 +1,38 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Platform } from 'react-native';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import Constants from 'expo-constants';
-import { api } from '../lib/api';
+import { api, isAuthRejection } from '../lib/api';
 import { clearDailyLogCaches } from '../lib/dailyLogCache';
 import { clearAttendanceCaches } from '../lib/attendanceCache';
 import { clearCrmCaches } from '../lib/crmCache';
-import { clearSession, getAccessToken, getOrCreateDeviceUuid, saveTokens } from '../lib/secure';
+import {
+  clearSession,
+  getOrCreateDeviceUuid,
+  loadPersistedSession,
+  onSessionCleared,
+  saveCachedUser,
+  saveTokens,
+} from '../lib/secure';
+import { decideStartupSession, userFromAccessToken, type RevalidateError } from '../lib/sessionCodec';
+
+function waitUntilActive(): Promise<void> {
+  if (AppState.currentState === 'active') return Promise.resolve();
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      sub.remove();
+      resolve();
+    }, 2000);
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        clearTimeout(timeout);
+        sub.remove();
+        resolve();
+      }
+    });
+  });
+}
 
 export type AuthUser = {
   id: string;
@@ -25,7 +50,7 @@ type AuthContextValue = {
   deviceUuid: string | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  refreshMe: () => Promise<void>;
+  refreshMe: () => Promise<AuthUser>;
 };
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -96,27 +121,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const refreshMe = useCallback(async () => {
     const me = await api<AuthUser>('/auth/me');
     setUser(me);
+    try {
+      await saveCachedUser(me);
+    } catch {
+      /* the access token still restores this profile on the next launch */
+    }
+    return me;
   }, []);
 
+  const sessionVersion = useRef(0);
+
   useEffect(() => {
+    let cancelled = false;
+    const unsubscribe = onSessionCleared(() => {
+      sessionVersion.current += 1;
+      if (!cancelled) setUser(null);
+    });
+
     (async () => {
+      let uuid: string | null = null;
       try {
-        const uuid = await getOrCreateDeviceUuid();
-        setDeviceUuid(uuid);
-        const token = await getAccessToken();
-        if (token) {
-          await refreshMe();
-          await registerPushToken(uuid);
+        await waitUntilActive();
+        if (cancelled) return;
+        try {
+          uuid = await getOrCreateDeviceUuid();
+          if (!cancelled) setDeviceUuid(uuid);
+        } catch {
+          uuid = null;
+        }
+
+        const session = await loadPersistedSession();
+        if (cancelled) return;
+        const optimistic = session.accessToken
+          ? session.user ?? userFromAccessToken(session.accessToken)
+          : null;
+        if (optimistic) {
+          setUser(optimistic);
+          setLoading(false);
+        }
+        if (!session.accessToken) {
+          setUser(null);
+          return;
+        }
+
+        let serverUser: AuthUser | null = null;
+        let revalidateError: RevalidateError = 'none';
+        const seenVersion = sessionVersion.current;
+        try {
+          serverUser = await refreshMe();
+        } catch (err) {
+          revalidateError = isAuthRejection(err) ? 'auth' : 'transient';
+        }
+        if (cancelled || sessionVersion.current !== seenVersion) return;
+
+        const decision = decideStartupSession({
+          accessToken: session.accessToken,
+          cachedUser: session.user ?? optimistic,
+          revalidateError,
+          serverUser,
+        });
+        if (!decision.keepTokens) {
+          clearDailyLogCaches();
+          clearAttendanceCaches();
+          clearCrmCaches();
+          await clearSession();
+        }
+        if (!cancelled) setUser(decision.user);
+        if (decision.user && revalidateError === 'none' && uuid) {
+          void registerPushToken(uuid);
         }
       } catch {
-        clearDailyLogCaches();
-        clearAttendanceCaches();
-        await clearSession();
-        setUser(null);
+        /* keychain was not readable; leave any saved tokens in place */
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [refreshMe]);
 
   const login = async (email: string, password: string) => {
@@ -138,6 +222,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error('Authentication succeeded but no access token was returned.');
     }
     await saveTokens(accessToken, refreshToken || null);
+    try {
+      await saveCachedUser(data.user);
+    } catch {
+      /* token read-back already succeeded */
+    }
     setUser(data.user);
     void registerPushToken(uuid);
   };
