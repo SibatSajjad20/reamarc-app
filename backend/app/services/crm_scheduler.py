@@ -1203,7 +1203,8 @@ async def send_booking_confirmation_emails(
                 note=note,
                 meeting_info=meeting_info,
             )
-            host_subject = f"[New Booking] {attendee_name} booked {meeting_info.get('event_name', 'Session')} ({meeting_info.get('date')} at {meeting_info.get('slot_time')})"
+            mode_tag = f"[{meeting_info.get('location_label', 'New').upper()}]" if meeting_info.get("meeting_mode") and meeting_info.get("meeting_mode") != "google_meet" else "[New Booking]"
+            host_subject = f"{mode_tag} {attendee_name} booked {meeting_info.get('event_name', 'Session')} ({meeting_info.get('date')} at {meeting_info.get('slot_time')})"
             ok = await EmailService.send_html_email(
                 recipient_email=host_email,
                 subject=host_subject,
