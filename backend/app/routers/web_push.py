@@ -67,6 +67,9 @@ async def subscribe_browser(
     if not user_id:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
     await enforce_shared_rate_limit(f"webpush-sub:{user_id}", 20, 60)
+    origin = (request.headers.get("origin") or request.headers.get("referer") or "").lower()
+    if "localhost" in origin or "127.0.0.1" in origin:
+        return {"subscribed": False}
     if not web_push_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

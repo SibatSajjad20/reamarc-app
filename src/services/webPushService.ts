@@ -115,9 +115,28 @@ export async function showWelcomeNotification(
   return showDesktopPopup(title, body, `reamarc-welcome-${Date.now()}`);
 }
 
-/** Subscribe this browser when permission is already granted. Does not prompt. */
 export async function syncWebPushSubscription(): Promise<boolean> {
   if (!canUsePush() || Notification.permission !== 'granted') return false;
+
+  // Never register localhost / 127.0.0.1 subscriptions to the backend.
+  // This prevents development environments from creating duplicate or orphaned push targets.
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    try {
+      const reg = await getRegistration();
+      const sub = await reg?.pushManager.getSubscription();
+      if (sub) {
+        await apiClient.post('/web-push/unsubscribe', { endpoint: sub.endpoint }).catch(() => {});
+        await sub.unsubscribe().catch(() => {});
+      }
+    } catch {
+      // Ignore cleanup error in dev
+    }
+    return false;
+  }
+
   try {
     const reg = await getRegistration();
     if (!reg) return false;
@@ -205,6 +224,24 @@ export async function sendTestPush(): Promise<{ success: boolean; message: strin
   }
   if (Notification.permission !== 'granted') {
     return { success: false, message: 'Notifications are not allowed. Please click "Enable desktop notifications" first.' };
+  }
+
+  // If running on localhost / 127.0.0.1, show local desktop popup directly so local dev never invokes server push
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+  ) {
+    const shown = await showDesktopPopup(
+      'Reamarc Web Push Test 🚀',
+      'Desktop popup notifications are active on this browser!',
+      `reamarc-test-${Date.now()}`
+    );
+    return {
+      success: shown,
+      message: shown
+        ? 'Local desktop popup displayed (localhost notifications are not sent via server).'
+        : 'Could not show a desktop popup. Please allow notifications for your browser in Windows Settings.',
+    };
   }
 
   // Ensure subscription is registered with service worker and synced to backend
