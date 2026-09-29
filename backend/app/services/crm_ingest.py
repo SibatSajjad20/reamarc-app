@@ -713,6 +713,20 @@ def meta_field_data_to_dict(field_data: Any) -> Dict[str, Any]:
     return out
 
 
+def meta_source_label(platform: Optional[str]) -> str:
+    """Map Meta's lead platform to the CRM source column.
+
+    Lead-ad webhooks and the lead object use ``fb`` or ``ig``. Organic test
+    leads often omit the field; those stay ``meta`` rather than a guess.
+    """
+    text = str(platform or "").strip().lower()
+    if text in ("fb", "facebook"):
+        return "facebook"
+    if text in ("ig", "instagram"):
+        return "instagram"
+    return "meta"
+
+
 def meta_lead_is_recent(created_time: Optional[str], *, lookback_hours: int, now: Optional[datetime] = None) -> bool:
     """True when a Graph lead timestamp falls inside the poll window.
 
@@ -774,7 +788,7 @@ async def fetch_meta_lead(leadgen_id: str, *, access_token: Optional[str] = None
         "access_token": token,
         "fields": (
             "id,created_time,ad_id,ad_name,adset_id,adset_name,"
-            "campaign_id,campaign_name,form_id,field_data"
+            "campaign_id,campaign_name,form_id,platform,field_data"
         ),
     }
     async with httpx.AsyncClient(timeout=20.0) as client:
@@ -789,7 +803,12 @@ async def fetch_meta_lead(leadgen_id: str, *, access_token: Optional[str] = None
     return data
 
 
-async def ingest_meta_leadgen(leadgen_id: str, *, page_id: Optional[str] = None) -> Dict[str, Any]:
+async def ingest_meta_leadgen(
+    leadgen_id: str,
+    *,
+    page_id: Optional[str] = None,
+    platform: Optional[str] = None,
+) -> Dict[str, Any]:
     from app.services import crm_meta_accounts
 
     creds = await crm_meta_accounts.get_page_credentials(page_id)
@@ -802,9 +821,10 @@ async def ingest_meta_leadgen(leadgen_id: str, *, page_id: Optional[str] = None)
     meta = await fetch_meta_lead(leadgen_id, access_token=creds["access_token"])
     fields = meta_field_data_to_dict(meta.get("field_data"))
     campaign = meta.get("campaign_name") or meta.get("ad_name") or creds.get("default_campaign")
+    source = meta_source_label(platform or meta.get("platform"))
 
     attribution = {
-        "platform": "meta",
+        "platform": source,
         "campaign_id": _clip_str(meta.get("campaign_id"), 100),
         "campaign_name": _clip_str(meta.get("campaign_name"), 160),
         "adset_id": _clip_str(meta.get("adset_id"), 100),
@@ -817,7 +837,7 @@ async def ingest_meta_leadgen(leadgen_id: str, *, page_id: Optional[str] = None)
 
     return await ingest_lead(
         fields=fields,
-        source_label="meta",
+        source_label=source,
         campaign=str(campaign) if campaign else None,
         external_id=f"meta_lead_{leadgen_id}",
         raw_payload={"meta_lead": meta, "field_data": fields},
@@ -899,7 +919,11 @@ async def process_meta_webhook_payload(payload: Dict[str, Any]) -> Dict[str, Any
                 skipped += 1
                 continue
             try:
-                result = await ingest_meta_leadgen(leadgen_id, page_id=value.get("page_id") or entry.get("id"))
+                result = await ingest_meta_leadgen(
+                    leadgen_id,
+                    page_id=value.get("page_id") or entry.get("id"),
+                    platform=value.get("platform"),
+                )
                 if result.get("duplicate"):
                     duplicates += 1
                 elif result.get("created"):
@@ -945,7 +969,7 @@ async def poll_meta_form_leads(
         f"{form_id}/leads",
         token,
         {
-            "fields": "id,created_time,field_data,ad_id,ad_name,campaign_id,campaign_name,form_id",
+            "fields": "id,created_time,field_data,ad_id,ad_name,campaign_id,campaign_name,form_id,platform",
             "limit": min(max(limit, 1), 50),
         },
     )
@@ -961,14 +985,15 @@ async def poll_meta_form_leads(
             skipped += 1
             continue
         fields = meta_field_data_to_dict(item.get("field_data"))
+        source = meta_source_label(item.get("platform"))
         result = await ingest_lead(
             fields=fields,
-            source_label="meta",
+            source_label=source,
             campaign=item.get("campaign_name") or item.get("ad_name") or default_campaign,
             external_id=f"meta_lead_{leadgen_id}",
             raw_payload={"meta_lead": item, "field_data": fields, "polled_form_id": form_id},
             attribution={
-                "platform": "meta",
+                "platform": source,
                 "campaign_id": _clip_str(item.get("campaign_id"), 100),
                 "campaign_name": _clip_str(item.get("campaign_name"), 160),
                 "ad_id": _clip_str(item.get("ad_id"), 100),
