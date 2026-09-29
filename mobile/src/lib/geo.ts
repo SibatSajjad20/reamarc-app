@@ -27,3 +27,45 @@ export function classifyGpsFix(
   if (distanceMeters <= radius) return 'in_range';
   return 'coarse';
 }
+
+export type PunchFix = {
+  lat: number;
+  lng: number;
+  accuracy: number;
+  capturedAt: string;
+  quality: GpsFixClass;
+};
+
+export type PunchGpsFields = {
+  latitude?: number;
+  longitude?: number;
+  accuracy_meters?: number;
+  gps_captured_at?: string;
+};
+
+/**
+ * A live sample is good enough to stop waiting once it sits inside the fence
+ * with a satellite-scale accuracy. Looser network guesses keep watching so a
+ * later GPS update can replace them.
+ */
+export function shouldAcceptLiveSample(quality: GpsFixClass, accuracyMeters: number): boolean {
+  return quality === 'in_range' && Number.isFinite(accuracyMeters) && accuracyMeters <= 150;
+}
+
+/**
+ * Do not upload a tight out-of-range pin while the device is already on the
+ * office network. That pin is usually a Wi-Fi-database miss. The server would
+ * store it as the punch location and, on older builds, reject the punch.
+ * Off the office network the same pin is sent so a real away-from-office fix
+ * is rejected.
+ */
+export function gpsFieldsForPunch(fix: PunchFix | null, officeNetworkVerified: boolean): PunchGpsFields {
+  if (!fix) return {};
+  if (fix.quality === 'out_of_range' && officeNetworkVerified) return {};
+  return {
+    latitude: fix.lat,
+    longitude: fix.lng,
+    accuracy_meters: fix.accuracy,
+    gps_captured_at: fix.capturedAt,
+  };
+}

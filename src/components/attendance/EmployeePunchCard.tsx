@@ -259,7 +259,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           ? classifyGpsFix(nextDistance, nextCoords.accuracy, geofenceLimitMeters)
           : (nextCoords != null ? 'in_range' : 'coarse');
 
-      if (!isWfh && enforceGps && nextDistance != null && gpsQuality === 'out_of_range') {
+      if (!isWfh && enforceGps && nextDistance != null && gpsQuality === 'out_of_range' && !wifiOk) {
         addToast(
           'Out of Office Range',
           `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
@@ -283,7 +283,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       if (!isWfh && !gpsOk && wifiOk) {
         addToast(
           'Checking in via office Wi-Fi',
-          gpsQuality === 'coarse' && nextCoords
+          gpsQuality === 'out_of_range'
+            ? 'Phone location missed the office pin. Office network is verified, so check-in will continue.'
+            : gpsQuality === 'coarse' && nextCoords
             ? 'Browser location is too coarse to prove you are at the office. Office network is verified, so check-in will continue.'
             : 'This browser could not get GPS. Office network is verified, so check-in will continue.',
           'info'
@@ -340,7 +342,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           setDistanceMeters(dist);
           setGeoError(null);
           const quality = dist != null ? classifyGpsFix(dist, fresh.accuracy, geofenceLimitMeters) : 'in_range';
-          if (dist != null && quality === 'out_of_range') {
+          if (dist != null && quality === 'out_of_range' && !wifiOk) {
             addToast(
               'Out of Office Range',
               `You are ${formatDistance(dist)} from the office (limit ${geofenceLimitMeters}m). Check-out blocked.`,
@@ -455,7 +457,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const gpsInRange = isWfh || !enforceGps || (coords != null && (distanceMeters == null || gpsQuality === 'in_range'));
   const gpsClearlyOutOfRange = !isWfh && enforceGps && distanceMeters != null && gpsQuality === 'out_of_range';
   const gpsCoarse = !isWfh && enforceGps && coords != null && distanceMeters != null && gpsQuality === 'coarse';
-  const securityBlocksCheckIn = !isWfh && (gpsClearlyOutOfRange || (!wifiOk && !gpsInRange));
+  const securityBlocksCheckIn = !isWfh && !wifiOk && !gpsInRange;
 
   if (isLoading && !todayData) {
     return (
@@ -763,9 +765,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                           : `Check-in blocked: ${geoError || 'waiting for GPS location.'}`}
                       </p>
                     )}
-                    {!securityBlocksCheckIn && !isWfh && wifiOk && (geoError || gpsCoarse) && (
+                    {!securityBlocksCheckIn && !isWfh && wifiOk && (geoError || gpsCoarse || gpsClearlyOutOfRange) && (
                       <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
-                        {gpsCoarse
+                        {gpsClearlyOutOfRange
+                          ? 'Phone location missed the office pin. Office Wi-Fi is verified, so check-in will use the office network.'
+                          : gpsCoarse
                           ? 'Browser location is too coarse to prove the office. Check-in will use office Wi-Fi instead.'
                           : 'Tap Allow location so this phone can use GPS. Check-in can still use office Wi-Fi.'}
                       </p>

@@ -7,9 +7,12 @@ is enough to punch in. Desktop Chrome/Edge often cannot obtain GPS at all
 (Windows Location Services), so requiring both would lock out staff who are
 physically on office Wi-Fi.
 
-A coarse / city-level browser guess is treated as GPS unknown (office Wi-Fi
-may still allow check-in). Only a tight fix whose accuracy circle cannot
-cover HQ is treated as out of range (covers home + office VPN).
+A coarse / city-level guess is treated as GPS unknown, so office Wi-Fi can
+still allow check-in. A tight fix whose accuracy circle cannot cover HQ is
+out of range and blocks check-in only when the request is not on an office
+IP. It must not override a verified office IP: phone Wi-Fi positioning
+databases often report a confident pin far from the building while the
+device is on office Wi-Fi.
 """
 from __future__ import annotations
 
@@ -309,7 +312,9 @@ def validate_punch_security(
     Punch security:
     - Approved WFH may bypass both checks when allow_wfh_bypass is on.
     - Enabled checks are OR: office IP *or* in-range GPS is enough.
-    - Tight GPS that cannot cover HQ always blocks (VPN/home).
+    - A verified office IP is enough even when GPS is a tight miss. Phone
+      Wi-Fi geolocation often places the office router outside the fence.
+    - A tight miss still blocks when the IP is not an office address.
     - Coarse GPS is ignored so office Wi-Fi can still allow check-in.
     """
     whitelist = collect_whitelist_entries(settings)
@@ -376,7 +381,11 @@ def validate_punch_security(
     if gps_required:
         proofs.append(gps_verified)
 
-    if gps_required and gps_out_of_range:
+    # Office WAN IP is proof the device is on the office network. A tight
+    # out-of-range pin must not veto that: Android/iOS Wi-Fi positioning
+    # returns a confident but wrong coordinate for the office router.
+    # Away from the office IP, the same pin still blocks the punch.
+    if gps_required and gps_out_of_range and not ip_verified:
         km = (distance or 0) / 1000.0
         dist_label = f"{distance:.0f}m" if (distance or 0) < 1000 else f"{km:.1f} km"
         return PunchSecurityResult(

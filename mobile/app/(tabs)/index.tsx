@@ -31,7 +31,7 @@ import {
   setCachedMatrix,
   setCachedPunchToday,
 } from '../../src/lib/attendanceCache';
-import { classifyGpsFix, haversineMeters } from '../../src/lib/geo';
+import { classifyGpsFix, gpsFieldsForPunch, haversineMeters, shouldAcceptLiveSample } from '../../src/lib/geo';
 import { isAdmin } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
@@ -49,7 +49,9 @@ import {
 const OVERVIEW_SETTLE_MS = 400;
 const OVERVIEW_POLL_MS = 45_000;
 const GPS_FRESH_MS = 20_000;
-const GPS_WAIT_MS = 4_000;
+const GPS_SATELLITE_WAIT_MS = 12_000;
+const GPS_OFFICE_NETWORK_WAIT_MS = 8_000;
+const GPS_FALLBACK_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise((resolve, reject) => {
@@ -243,12 +245,16 @@ function PunchScreen() {
     return next;
   }, []);
 
-  const captureGps = useCallback(async (payload: TodayPayload | null, opts: { allowCached?: boolean } = {}) => {
-    const { allowCached = true } = opts;
-    if (allowCached && gpsFixRef.current) {
-      const age = Date.now() - Date.parse(gpsFixRef.current.capturedAt);
+  const captureGps = useCallback(async (
+    payload: TodayPayload | null,
+    opts: { allowCached?: boolean; required?: boolean } = {},
+  ) => {
+    const { allowCached = true, required = false } = opts;
+    const cached = gpsFixRef.current;
+    if (allowCached && cached?.quality === 'in_range') {
+      const age = Date.now() - Date.parse(cached.capturedAt);
       if (Number.isFinite(age) && age >= 0 && age < GPS_FRESH_MS) {
-        return gpsFixRef.current;
+        return cached;
       }
     }
 
@@ -259,36 +265,64 @@ function PunchScreen() {
       status = asked.status;
     }
     if (status !== 'granted') {
-      setError('Location permission is required to punch.');
+      if (required) setError('Location permission is required to punch.');
       return null;
     }
 
+    const officeNetwork = Boolean(payload?.is_ip_verified) || Boolean(payload?.is_wfh_approved);
+    const waitMs = officeNetwork ? GPS_OFFICE_NETWORK_WAIT_MS : GPS_SATELLITE_WAIT_MS;
+
+    const readSatelliteFix = () => new Promise<Location.LocationObject | null>((resolve, reject) => {
+      let subscription: Location.LocationSubscription | null = null;
+      let best: Location.LocationObject | null = null;
+      let settled = false;
+      const finish = (value: Location.LocationObject | null, err?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        subscription?.remove();
+        if (err) reject(err);
+        else resolve(value);
+      };
+      const timer = setTimeout(() => finish(best), waitMs);
+      Location.watchPositionAsync(
+        {
+          accuracy: Location.Accuracy.Highest,
+          timeInterval: 1000,
+          distanceInterval: 0,
+        },
+        (pos) => {
+          const next = positionToFix(pos, payload);
+          if (shouldAcceptLiveSample(next.quality, next.accuracy)) {
+            finish(pos);
+            return;
+          }
+          const bestAccuracy = best?.coords.accuracy ?? Number.POSITIVE_INFINITY;
+          const nextAccuracy = pos.coords.accuracy ?? Number.POSITIVE_INFINITY;
+          if (nextAccuracy < bestAccuracy) best = pos;
+        },
+      ).then((sub) => {
+        if (settled) sub.remove();
+        else subscription = sub;
+      }).catch((err) => finish(null, err));
+    });
+
     try {
-      const last = await Location.getLastKnownPositionAsync({
-        maxAge: GPS_FRESH_MS,
-        requiredAccuracy: 150,
-      });
-      if (last) return applyGpsFix(positionToFix(last, payload));
+      const live = await readSatelliteFix();
+      if (live) return applyGpsFix(positionToFix(live, payload));
     } catch {
-      /* fall through to a live read */
+      /* one direct high-accuracy read below */
     }
 
     try {
       const pos = await withTimeout(
-        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-        GPS_WAIT_MS,
+        Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }),
+        GPS_FALLBACK_MS,
         'gps-timeout',
       );
       return applyGpsFix(positionToFix(pos, payload));
     } catch {
-      try {
-        const lastAny = await Location.getLastKnownPositionAsync({});
-        if (lastAny) return applyGpsFix(positionToFix(lastAny, payload));
-      } catch {
-        /* keep going */
-      }
-      if (gpsFixRef.current) return gpsFixRef.current;
-      setError('Could not read GPS. Move near a window and try again.');
+      if (required) setError('Could not read GPS. Step near a window and try again.');
       return null;
     }
   }, [applyGpsFix, positionToFix]);
@@ -306,7 +340,11 @@ function PunchScreen() {
     (async () => {
       try {
         const data = await load();
-        if (alive && !data?.is_off_day) await captureGps(data);
+        if (alive && !data?.is_off_day) {
+          await captureGps(data, {
+            required: !data?.is_wfh_approved && !data?.is_ip_verified,
+          });
+        }
       } catch (err: any) {
         if (alive) setError(err.message || 'Could not load today');
       } finally {
@@ -501,18 +539,17 @@ function PunchScreen() {
     if (!deviceUuid) throw new Error('Device is not registered yet.');
     if (!online) throw new Error('You are offline. Connect to the internet, then punch. Time is recorded on the server.');
     const data = today;
-    const gpsPromise = captureGps(data, { allowCached: true });
+    const officeNetwork = Boolean(data?.is_ip_verified);
+    const gpsPromise = captureGps(data, { allowCached: true, required: !isWfh && !officeNetwork });
     await confirmBiometric();
-    const gps = (await gpsPromise) || gpsFixRef.current || fix;
-    if (!gps) throw new Error('Could not read GPS.');
+    const gps = await gpsPromise;
+    if (!gps && !isWfh && !officeNetwork) throw new Error('Could not read GPS. Step near a window and try again.');
+    const loc = gpsFieldsForPunch(gps, officeNetwork && !isWfh);
     const body: Record<string, unknown> = {
       device_uuid: deviceUuid,
       biometric_verified: true,
-      is_mocked: gps.mocked,
-      latitude: gps.lat,
-      longitude: gps.lng,
-      accuracy_meters: gps.accuracy,
-      gps_captured_at: gps.capturedAt,
+      is_mocked: Boolean(gps?.mocked),
+      ...loc,
     };
     if (kind === 'in') {
       body.notes = isWfh ? 'WFH Approved Check-In' : 'Office Check-In';
