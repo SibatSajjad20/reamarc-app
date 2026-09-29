@@ -909,6 +909,30 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5">{lead.city || '—'}</dd>
               </div>
 
+              {lead.company && (
+                <div>
+                  <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Company</dt>
+                  <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5 truncate">{lead.company}</dd>
+                </div>
+              )}
+
+              {lead.website && (
+                <div className="col-span-2">
+                  <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Website</dt>
+                  <dd className="mt-0.5">
+                    <a
+                      href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs break-all inline-flex items-center gap-1"
+                    >
+                      {lead.website}
+                      <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
+                    </a>
+                  </dd>
+                </div>
+              )}
+
               <div>
                 <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Primary Service</dt>
                 <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5">{lead.service || '—'}</dd>
