@@ -129,6 +129,7 @@ export interface CrmLead {
   attribution?: CrmAttribution | null;
   meeting?: CrmMeetingDetails | null;
   custom_fields?: Record<string, any>;
+  form_answers?: Array<{ label: string; value: string }>;
 }
 
 export interface CrmActivity {

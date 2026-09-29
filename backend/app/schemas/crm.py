@@ -618,6 +618,11 @@ class CrmActivityResponse(BaseModel):
     meta: Dict[str, Any] = Field(default_factory=dict)
 
 
+class CrmFormAnswer(BaseModel):
+    label: str
+    value: str
+
+
 class CrmLeadResponse(BaseModel):
     id: str
     name: str
@@ -669,6 +674,7 @@ class CrmLeadResponse(BaseModel):
     attribution: Optional[CrmAttribution] = None
     meeting: Optional[Dict[str, Any]] = None
     custom_fields: Dict[str, Any] = Field(default_factory=dict)
+    form_answers: List[CrmFormAnswer] = Field(default_factory=list)
 
 
 class CrmLeadDetailResponse(CrmLeadResponse):

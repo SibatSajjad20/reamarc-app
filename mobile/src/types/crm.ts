@@ -57,6 +57,7 @@ export interface CrmLead {
   service?: string | null;
   budget?: string | null;
   no_website?: boolean;
+  form_answers?: Array<{ label: string; value: string }>;
   role?: string | null;
   industry?: string | null;
   business_stage?: string | null;

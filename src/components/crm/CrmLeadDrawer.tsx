@@ -1086,6 +1086,10 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             ]}
           />
           <BriefGroup
+            title="Form answers"
+            rows={(lead.form_answers || []).map((answer) => [answer.label, answer.value])}
+          />
+          <BriefGroup
             title="Source"
             rows={[
               ['Source', lead.source],

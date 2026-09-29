@@ -78,7 +78,7 @@ export const CrmSettingsRules: React.FC<CrmSettingsRulesProps> = ({ assignees: i
         priority: Number(priority) || 100,
         pool,
         fallback_user_id: fallback || null,
-        after_hours: 'claim',
+        after_hours: fallback ? 'fallback' : 'claim',
         conditions: source.trim()
           ? [{ field: 'source', op: 'eq', value: source.trim().toLowerCase() }]
           : [],

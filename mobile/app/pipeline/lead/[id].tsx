@@ -612,7 +612,9 @@ export default function LeadDetailScreen() {
                 <Field label="Phone" value={formatPhoneDisplay(lead.phone_e164 || lead.phone_raw)} />
                 <Field label="Email" value={lead.email || '—'} />
                 <Field label="City" value={lead.city || '—'} />
-                {lead.website ? (
+                {lead.no_website ? (
+                  <Field label="Website" value="No website" />
+                ) : lead.website ? (
                   <View style={styles.field}>
                     <Text style={styles.fieldLabel}>Website</Text>
                     <TouchableOpacity
@@ -639,6 +641,9 @@ export default function LeadDetailScreen() {
                 {lead.objective ? <Field label="Objective" value={lead.objective} /> : null}
                 {lead.start_timeline ? <Field label="Start" value={lead.start_timeline} /> : null}
                 {lead.budget ? <Field label="Budget" value={lead.budget} /> : null}
+                {(lead.form_answers || []).map((answer) => (
+                  <Field key={answer.label} label={answer.label} value={answer.value} />
+                ))}
                 {lead.brief ? <Field label="Need" value={lead.brief} /> : null}
                 <Field
                   label="Source"

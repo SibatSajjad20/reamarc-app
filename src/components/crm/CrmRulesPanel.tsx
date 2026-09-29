@@ -57,7 +57,7 @@ export const CrmRulesPanel: React.FC<CrmRulesPanelProps> = ({ assignees, onClose
         priority: Number(priority) || 100,
         pool,
         fallback_user_id: fallback || null,
-        after_hours: 'claim',
+        after_hours: fallback ? 'fallback' : 'claim',
         conditions: source.trim() ? [{ field: 'source', op: 'eq', value: source.trim().toLowerCase() }] : [],
       });
       setName('Rule');

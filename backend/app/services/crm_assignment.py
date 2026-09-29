@@ -19,6 +19,7 @@ from app.services.attendance_service import (
     get_shift_for_user,
 )
 from app.services.crm_access import can_assign_leads, is_crm_user, lead_visible_to
+from app.services.crm_form_fields import sources_equivalent
 from app.services.workdays import classify_date
 
 logger = logging.getLogger("app.crm.assignment")
@@ -160,10 +161,15 @@ def rule_matches(rule: Dict[str, Any], lead: Dict[str, Any]) -> bool:
                 options = [str(v).strip().lower() for v in raw if str(v).strip()]
             else:
                 options = [p.strip().lower() for p in str(raw or "").split(",") if p.strip()]
-            if actual not in options:
+            if field == "source":
+                if not any(sources_equivalent(actual, option) for option in options):
+                    return False
+            elif actual not in options:
                 return False
         else:
-            if actual != str(raw or "").strip().lower():
+            expected = str(raw or "").strip().lower()
+            matched = sources_equivalent(actual, expected) if field == "source" else actual == expected
+            if not matched:
                 return False
     return True
 

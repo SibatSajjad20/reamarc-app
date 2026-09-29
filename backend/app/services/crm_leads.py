@@ -11,6 +11,7 @@ from fastapi import HTTPException, status
 from pymongo import ReturnDocument
 
 from app.database import get_database
+from app.services.crm_form_fields import form_answer_rows, is_no_website, pull_form_answers
 from app.schemas.crm import (
     DISQUALIFY_REASONS,
     OPEN_STAGES,
@@ -70,29 +71,44 @@ def _help_service_label(help_with: list, help_other: Optional[str]) -> Optional[
 def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
     e164 = doc.get("phone_e164")
     valid = bool(doc.get("phone_valid"))
+    custom = doc.get("custom_fields") or {}
+    filled, consumed = pull_form_answers(
+        custom,
+        {
+            "role": doc.get("role"),
+            "budget": doc.get("budget"),
+            "start_timeline": doc.get("start_timeline"),
+            "service": doc.get("service"),
+            "objective": doc.get("objective"),
+        },
+    )
+    website = doc.get("website")
+    no_website = bool(doc.get("no_website")) or is_no_website(website)
+    if no_website:
+        website = None
     return {
         "id": doc.get("id"),
         "name": doc.get("name") or "",
         "company": doc.get("company"),
-        "website": doc.get("website"),
+        "website": website,
         "email": doc.get("email"),
         "phone_raw": doc.get("phone_raw"),
         "phone_e164": e164,
         "phone_valid": valid,
         "wa_url": wa_me_url(e164) if valid else None,
         "city": doc.get("city"),
-        "service": doc.get("service"),
-        "budget": doc.get("budget"),
-        "no_website": bool(doc.get("no_website")),
-        "role": doc.get("role"),
+        "service": filled.get("service"),
+        "budget": filled.get("budget"),
+        "no_website": no_website,
+        "role": filled.get("role"),
         "industry": doc.get("industry"),
         "business_stage": doc.get("business_stage"),
         "employee_count": doc.get("employee_count"),
         "sales_team": doc.get("sales_team"),
         "help_with": doc.get("help_with") or [],
         "help_other": doc.get("help_other"),
-        "objective": doc.get("objective"),
-        "start_timeline": doc.get("start_timeline"),
+        "objective": filled.get("objective"),
+        "start_timeline": filled.get("start_timeline"),
         "brief": doc.get("brief"),
         "source": doc.get("source") or "manual",
         "campaign": doc.get("campaign"),
@@ -121,7 +137,8 @@ def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
         "updated_at": doc.get("updated_at") or "",
         "attribution": doc.get("attribution"),
         "meeting": doc.get("meeting"),
-        "custom_fields": doc.get("custom_fields") or {},
+        "custom_fields": custom,
+        "form_answers": form_answer_rows(custom, consumed),
     }
 
 

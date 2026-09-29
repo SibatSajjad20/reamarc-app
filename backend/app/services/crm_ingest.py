@@ -16,6 +16,7 @@ from fastapi import HTTPException, status
 
 from app.config import settings
 from app.database import get_database
+from app.services.crm_form_fields import is_no_website, pull_form_answers
 from app.services.crm_leads import append_activity, serialize_lead
 from app.services.crm_phone import normalize_phone_e164
 from app.services.meta_ads import META_GRAPH_BASE_URL, _execute_meta_request_with_retry
@@ -227,6 +228,24 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         company = _clip_str(raw_company, 160)
         website = _clip_str(raw_website, 200)
 
+    no_website = is_no_website(website)
+    if no_website:
+        website = None
+
+    custom = _sanitize_custom_fields(raw, reserved)
+    filled, consumed = pull_form_answers(
+        custom,
+        {
+            "role": None,
+            "budget": _clip_str(_first_str(raw, _BUDGET_KEYS), 80),
+            "start_timeline": None,
+            "service": _clip_str(_first_str(raw, _SERVICE_KEYS), 120),
+            "objective": None,
+        },
+    )
+    for key in consumed:
+        custom.pop(key, None)
+
     return {
         "name": _pick_name(raw)[:160],
         "phone_raw": phone_raw,
@@ -235,9 +254,13 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "email": email[:200] if email else None,
         "company": company,
         "website": website,
+        "no_website": no_website,
         "city": _clip_str(_first_str(raw, _CITY_KEYS), 80),
-        "service": _clip_str(_first_str(raw, _SERVICE_KEYS), 120),
-        "budget": _clip_str(_first_str(raw, _BUDGET_KEYS), 80),
+        "service": filled.get("service"),
+        "budget": filled.get("budget"),
+        "role": filled.get("role"),
+        "start_timeline": filled.get("start_timeline"),
+        "objective": filled.get("objective"),
         "campaign": _clip_str(_first_str(raw, ("campaign", "campaign_name", "utm_campaign")), 160),
         "note": _clip_str(_first_str(raw, ("note", "message", "comments", "enquiry")), 4000),
         "external_id": (
@@ -248,7 +271,7 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
             )
             else _clip_str(_first_str(raw, ("external_id", "id", "lead_id")), 200)
         ),
-        "custom_fields": _sanitize_custom_fields(raw, reserved),
+        "custom_fields": custom,
     }
 
 
@@ -574,6 +597,10 @@ async def ingest_lead(
         "city": normalized.get("city"),
         "service": normalized.get("service"),
         "budget": normalized.get("budget"),
+        "no_website": bool(normalized.get("no_website")),
+        "role": normalized.get("role"),
+        "start_timeline": normalized.get("start_timeline"),
+        "objective": normalized.get("objective"),
         "source": (source_label or "ingest").strip().lower()[:80],
         "campaign": campaign or normalized.get("campaign"),
         "stage": (initial_stage or "new").strip().lower()[:80],
