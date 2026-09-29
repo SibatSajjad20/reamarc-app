@@ -97,6 +97,7 @@ export interface CrmLead {
   employee_count?: string | null;
   sales_team?: string | null;
   help_with?: string[];
+  help_other?: string | null;
   objective?: string | null;
   start_timeline?: string | null;
   brief?: string | null;
@@ -182,6 +183,7 @@ export interface CrmLeadCreatePayload {
   employee_count: string;
   sales_team: string;
   help_with: string[];
+  help_other?: string;
   objective: string;
   start_timeline: string;
   brief: string;

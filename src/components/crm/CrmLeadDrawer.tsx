@@ -1079,7 +1079,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           <BriefGroup
             title="Need"
             rows={[
-              ['Help with', (lead.help_with || []).join(', ') || lead.service],
+              ['Help with', (lead.help_with || []).map((item) => (item === 'Other' && lead.help_other ? `Other: ${lead.help_other}` : item)).join(', ') || lead.service],
               ['Objective', lead.objective],
               ['Start', lead.start_timeline],
               ['Budget', lead.budget],

@@ -5,7 +5,6 @@ import {
   User,
   Mail,
   Phone,
-  Building2,
   Globe,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +27,16 @@ import {
 } from 'lucide-react';
 import { API_BASE_URL } from '../../services/apiClient';
 import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
+import {
+  validateCompanyName,
+  validateDescription,
+  validateEmailAddress,
+  validatePersonName,
+  validatePhoneNumber,
+  validateWebsiteUrl,
+} from '../crm/leadFieldValidation';
+
+const ReamarcLogo3D = React.lazy(() => import('../ui/ReamarcLogo3D'));
 
 interface SchedulerConfig {
   title: string;
@@ -46,43 +55,11 @@ interface SchedulerConfig {
 
 export type MeetingMode = 'google_meet' | 'zoom' | 'teams' | 'in_person';
 
-export interface MeetingModeOption {
-  value: MeetingMode;
-  label: string;
-  badge: string;
-  note: string;
-  icon: React.ComponentType<{ className?: string }>;
-}
-
-export const MEETING_MODE_OPTIONS: MeetingModeOption[] = [
-  {
-    value: 'google_meet',
-    label: 'Google Meet',
-    badge: 'Instant Link',
-    note: 'Direct Google Meet video link provided immediately',
-    icon: Video,
-  },
-  {
-    value: 'zoom',
-    label: 'Zoom',
-    badge: 'Link via WhatsApp',
-    note: 'Host sends custom Zoom link via WhatsApp & Email',
-    icon: Video,
-  },
-  {
-    value: 'teams',
-    label: 'Microsoft Teams',
-    badge: 'Link via WhatsApp',
-    note: 'Host sends Teams link via WhatsApp & Email',
-    icon: Users,
-  },
-  {
-    value: 'in_person',
-    label: 'In-Person / Office',
-    badge: 'Rawalpindi HQ',
-    note: 'Face-to-face meeting at Reamarc Office',
-    icon: Building2,
-  },
+export const MEETING_MODE_OPTIONS: { value: MeetingMode; label: string }[] = [
+  { value: 'google_meet', label: 'Google Meet' },
+  { value: 'zoom', label: 'Zoom' },
+  { value: 'teams', label: 'Microsoft Teams' },
+  { value: 'in_person', label: 'In-Person' },
 ];
 
 interface TimeSlot {
@@ -293,6 +270,121 @@ function CountryCodeDropdown({ value, onChange }: CountryCodeDropdownProps) {
   );
 }
 
+function FormSelect({
+  value,
+  onChange,
+  options,
+  placeholder = 'Select',
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+  placeholder?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const selected = options.find((opt) => opt.value === value);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="relative w-full" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className={`w-full h-10 px-3.5 rounded-xl flex items-center justify-between gap-2 text-sm sm:text-xs font-medium transition border cursor-pointer select-none touch-manipulation ${
+          isOpen
+            ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100'
+            : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 text-zinc-900 dark:text-zinc-100'
+        }`}
+      >
+        <span className={`truncate ${selected ? '' : 'text-zinc-400 dark:text-zinc-500'}`}>
+          {selected ? selected.label : placeholder}
+        </span>
+        <ChevronDown
+          className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
+            isOpen ? 'rotate-180 text-blue-500' : ''
+          }`}
+        />
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-0.5 max-h-60 overflow-y-auto">
+          {options.map((opt) => {
+            const isSelected = opt.value === value;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => {
+                  onChange(opt.value);
+                  setIsOpen(false);
+                }}
+                className={`w-full px-3 py-2 rounded-xl text-left transition flex items-center justify-between gap-2 text-xs cursor-pointer touch-manipulation ${
+                  isSelected
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold'
+                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/70 text-zinc-800 dark:text-zinc-200'
+                }`}
+              >
+                <span className="truncate">{opt.label}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormOption({
+  checked,
+  label,
+  onToggle,
+}: {
+  checked: boolean;
+  label: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-pressed={checked}
+      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left text-sm sm:text-xs font-medium transition cursor-pointer touch-manipulation ${
+        checked
+          ? 'bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
+          : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-blue-500/40'
+      }`}
+    >
+      <span
+        className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+          checked
+            ? 'bg-blue-600 border-blue-600 text-white'
+            : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-600'
+        }`}
+      >
+        {checked && <Check className="w-3 h-3" />}
+      </span>
+      <span>{label}</span>
+    </button>
+  );
+}
+
 interface RoleDropdownProps {
   value: string;
   onChange: (role: string) => void;
@@ -465,10 +557,12 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const [industry, setIndustry] = useState('');
   const [startTimeline, setStartTimeline] = useState('');
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
+  const [helpOther, setHelpOther] = useState('');
   const [note, setNote] = useState('');
   const [meetingMode, setMeetingMode] = useState<MeetingMode>('google_meet');
   const [submitting, setSubmitting] = useState(false);
   const [bookingError, setBookingError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   // Confirmed booking response
   const [bookingResult, setBookingResult] = useState<any | null>(null);
@@ -490,19 +584,13 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const [isTopicDropdownOpen, setIsTopicDropdownOpen] = useState(false);
   const topicDropdownRef = useRef<HTMLDivElement>(null);
 
-  const [isMeetingModeDropdownOpen, setIsMeetingModeDropdownOpen] = useState(false);
-  const meetingModeDropdownRef = useRef<HTMLDivElement>(null);
-
   useEffect(() => {
     const handleOutsideClick = (e: MouseEvent | TouchEvent) => {
       if (topicDropdownRef.current && !topicDropdownRef.current.contains(e.target as Node)) {
         setIsTopicDropdownOpen(false);
       }
-      if (meetingModeDropdownRef.current && !meetingModeDropdownRef.current.contains(e.target as Node)) {
-        setIsMeetingModeDropdownOpen(false);
-      }
     };
-    if (isTopicDropdownOpen || isMeetingModeDropdownOpen) {
+    if (isTopicDropdownOpen) {
       document.addEventListener('mousedown', handleOutsideClick);
       document.addEventListener('touchstart', handleOutsideClick);
     }
@@ -510,20 +598,18 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       document.removeEventListener('mousedown', handleOutsideClick);
       document.removeEventListener('touchstart', handleOutsideClick);
     };
-  }, [isTopicDropdownOpen, isMeetingModeDropdownOpen]);
+  }, [isTopicDropdownOpen]);
 
   const selectedTopicOption = useMemo(() => {
     return TOPIC_OPTIONS.find((o) => o.value === topic) || null;
   }, [topic]);
 
-  const selectedMeetingModeOption = useMemo(() => {
-    return MEETING_MODE_OPTIONS.find((o) => o.value === meetingMode) || MEETING_MODE_OPTIONS[0];
-  }, [meetingMode]);
 
   const handleTopicChange = (newTopic: MeetingTopic) => {
     setTopic(newTopic);
     setIsTopicDropdownOpen(false);
     setSelectedServices([]);
+    setHelpOther('');
     setBookingError(null);
     setCandidateError(null);
     if (newTopic !== 'jobs_and_career') {
@@ -699,9 +785,17 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   };
 
   const toggleService = (srv: string) => {
-    setSelectedServices((prev) =>
-      prev.includes(srv) ? prev.filter((s) => s !== srv) : [...prev, srv]
-    );
+    setSelectedServices((prev) => {
+      const next = prev.includes(srv) ? prev.filter((s) => s !== srv) : [...prev, srv];
+      if (!next.includes('Other')) setHelpOther('');
+      return next;
+    });
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next.help;
+      delete next.helpOther;
+      return next;
+    });
   };
 
   // Submit Booking
@@ -716,43 +810,40 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
 
     // Read UTMs from parent / current window URL
     const urlParams = new URLSearchParams(window.location.search);
-
-    if (!company.trim()) {
-      setBookingError('Company / business name is required.');
-      setSubmitting(false);
-      return;
-    }
-    if (!noWebsite && !website.trim()) {
-      setBookingError('Website is required, or mark that there is no website.');
-      setSubmitting(false);
-      return;
-    }
-    if (!industry) {
-      setBookingError('Select what the business does.');
-      setSubmitting(false);
-      return;
-    }
-    if (selectedServices.length === 0) {
-      setBookingError('Select at least one thing you need help with.');
-      setSubmitting(false);
-      return;
-    }
-    if (!startTimeline) {
-      setBookingError('Select when you are looking to start.');
-      setSubmitting(false);
-      return;
-    }
-    if (!note.trim()) {
-      setBookingError('Briefly describe what you need.');
-      setSubmitting(false);
-      return;
-    }
-
     const fullPhone = `${countryCode} ${phone.trim()}`;
-
-    const topicLabel = (topic && TOPIC_LABELS[topic]) || 'Branding and Marketing';
     const helpOptions = topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH;
     const helpWith = selectedServices.filter((item) => helpOptions.includes(item));
+    const problems: Record<string, string> = {};
+    const nameError = validatePersonName(name);
+    const emailError = validateEmailAddress(email);
+    const phoneError = validatePhoneNumber(fullPhone);
+    const companyError = validateCompanyName(company);
+    const websiteError = validateWebsiteUrl(website, noWebsite);
+    const noteError = validateDescription(note, 'The description');
+    if (nameError) problems.name = nameError;
+    if (emailError) problems.email = emailError;
+    if (phoneError) problems.phone = phoneError;
+    if (companyError) problems.company = companyError;
+    if (websiteError) problems.website = websiteError;
+    if (!industry) problems.industry = 'Select what the business does.';
+    if (helpWith.length === 0) problems.help = 'Select at least one thing you need help with.';
+    if (helpWith.includes('Other')) {
+      const otherError = validateDescription(helpOther, 'The specific need');
+      if (otherError) problems.helpOther = otherError;
+    }
+    if (!startTimeline) problems.start = 'Select when you are looking to start.';
+    if (!meetingMode) problems.meeting = 'Select a meeting method.';
+    if (noteError) problems.note = noteError;
+    const firstProblem = Object.values(problems)[0];
+    if (firstProblem) {
+      setFieldErrors(problems);
+      setBookingError(firstProblem);
+      setSubmitting(false);
+      return;
+    }
+    setFieldErrors({});
+
+    const topicLabel = (topic && TOPIC_LABELS[topic]) || 'Branding and Marketing';
 
     const payload = {
       name: name.trim(),
@@ -765,7 +856,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       no_website: noWebsite,
       industry,
       help_with: topic === 'collaboration_and_partnership' ? undefined : helpWith,
-      service: helpWith.join(', '),
+      help_other: helpWith.includes('Other') ? helpOther.trim() : undefined,
+      service: helpWith.map((item) => (item === 'Other' && helpOther.trim() ? `Other: ${helpOther.trim()}` : item)).join(', '),
       start_timeline: startTimeline,
       note: note.trim(),
       topic: topicLabel,
@@ -814,9 +906,11 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     setCompany('');
     setWebsite('');
     setSelectedServices([]);
+    setHelpOther('');
     setMeetingMode('google_meet');
     setNote('');
     setBookingError(null);
+    setFieldErrors({});
     setSlotsRefreshKey((prev) => prev + 1);
   };
 
@@ -955,11 +1049,18 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       >
         {/* Header Section */}
         <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4 sm:pb-5 mb-5 sm:mb-6">
-          <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
-            <div>
-              <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">
-                {config.title || 'Digital Services Consultancy Session'}
-              </h1>
+          <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-3 sm:gap-3.5">
+                <React.Suspense
+                  fallback={<div style={{ width: 40, height: 40 }} className="shrink-0" />}
+                >
+                  <ReamarcLogo3D size={40} className="shrink-0" />
+                </React.Suspense>
+                <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 leading-snug">
+                  {config.title || 'Digital Services Consultancy Session'}
+                </h1>
+              </div>
               <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1.5 sm:mt-2 max-w-2xl whitespace-pre-line leading-relaxed">
                 {config.description}
               </p>
@@ -982,8 +1083,17 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
         {/* STEP 1: PURPOSE / TOPIC SELECTION (Modern Custom Dropdown) */}
         {!(topic !== 'jobs_and_career' && step === 3 && bookingResult) &&
           !(topic === 'jobs_and_career' && candidateSubmitted) && (
-            <div className="mb-6 pb-6 border-b border-zinc-200 dark:border-zinc-800" ref={topicDropdownRef}>
-              <div className="flex items-center gap-2 mb-2">
+            <div
+              className={
+                topic && topic !== 'jobs_and_career' && step === 1
+                  ? 'mb-6 pb-6 border-b border-zinc-200 dark:border-zinc-800'
+                  : topic
+                    ? 'mb-6'
+                    : ''
+              }
+              ref={topicDropdownRef}
+            >
+              <div className="flex items-center gap-2 mb-3">
                 <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold shadow-xs">
                   1
                 </span>
@@ -992,7 +1102,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </label>
               </div>
 
-              <div className="relative max-w-md">
+              <div className="relative w-full">
                 <button
                   type="button"
                   onClick={() => setIsTopicDropdownOpen((prev) => !prev)}
@@ -1083,18 +1193,14 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
             </div>
           )}
 
-        {/* STEP 1: DATE & TIME SELECTION */}
-        {topic !== 'jobs_and_career' && step === 1 && (
+        {/* STEP 2: DATE & TIME SELECTION — only after a purpose is selected */}
+        {topic && topic !== 'jobs_and_career' && step === 1 && (
           <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
             {/* Calendar Column */}
             <div className="md:col-span-7 space-y-4">
               <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
                 <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
-                  <span
-                    className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${
-                      topic ? 'bg-blue-600 text-white shadow-xs' : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400'
-                    }`}
-                  >
+                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-blue-600 text-white shadow-xs">
                     2
                   </span>
                   <CalendarIcon className="w-4 h-4 text-blue-500" />
@@ -1103,9 +1209,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 <div className="flex items-center gap-1">
                   <button
                     type="button"
-                    disabled={!topic}
                     onClick={handlePrevMonth}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed touch-manipulation"
+                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer touch-manipulation"
                     title="Previous month"
                   >
                     <ChevronLeft className="w-4 h-4" />
@@ -1115,9 +1220,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                   </span>
                   <button
                     type="button"
-                    disabled={!topic}
                     onClick={handleNextMonth}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed touch-manipulation"
+                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer touch-manipulation"
                     title="Next month"
                   >
                     <ChevronRight className="w-4 h-4" />
@@ -1125,15 +1229,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </div>
               </div>
 
-              {!topic && (
-                <div className="p-3 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-700 dark:text-blue-300 text-xs font-medium flex items-center gap-2">
-                  <Clock className="w-4 h-4 shrink-0 text-blue-500" />
-                  <span>Please select an option in Step 1 above to view available dates.</span>
-                </div>
-              )}
-
               {/* Calendar Grid */}
-              <div className={`border border-zinc-200 dark:border-zinc-800 rounded-xl p-2.5 sm:p-3 bg-zinc-50/50 dark:bg-zinc-950/40 transition-opacity ${!topic ? 'opacity-50' : ''}`}>
+              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-2.5 sm:p-3 bg-zinc-50/50 dark:bg-zinc-950/40">
                 <div className="grid grid-cols-7 gap-1 text-center mb-2">
                   {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
                     <span key={d} className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 py-1">
@@ -1149,8 +1246,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                     const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i + 1);
                     const dStr = formatCivilYmd(d);
                     const isBookedOut = fullyBookedDates.includes(dStr);
-                    const disabled = !topic || isDateDisabled(d);
-                    const selected = topic ? isSameDay(d, selectedDate) : false;
+                    const disabled = isDateDisabled(d);
+                    const selected = isSameDay(d, selectedDate);
 
                     return (
                       <button
@@ -1189,21 +1286,14 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                   <Clock className="w-4 h-4 text-blue-500" />
                   Available Times
                 </h2>
-                {topic && selectedDate && (
+                {selectedDate && (
                   <span className="text-xs text-zinc-500 font-medium">
                     {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                   </span>
                 )}
               </div>
 
-              {!topic ? (
-                <div className="flex-1 min-h-[260px] flex flex-col items-center justify-center p-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl text-center space-y-2">
-                  <Clock className="w-8 h-8 text-zinc-300 dark:text-zinc-700" />
-                  <p className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-                    Available times will appear once an option in Step 1 is selected.
-                  </p>
-                </div>
-              ) : loadingSlots ? (
+              {loadingSlots ? (
                 <div className="flex-1 flex flex-col items-center justify-center p-8 text-zinc-400">
                   <Loader2 className="w-6 h-6 animate-spin text-blue-500 mb-2" />
                   <span className="text-xs">Checking real-time schedule…</span>
@@ -1258,7 +1348,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
 
         {/* STEP 2: PROJECT BRIEF & DETAILS */}
         {topic !== 'jobs_and_career' && step === 2 && selectedDate && selectedSlot && (
-          <form onSubmit={handleConfirmBooking} className="space-y-5">
+          <form onSubmit={handleConfirmBooking} noValidate className="space-y-5">
             {/* Selected Summary Pill */}
             <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 sm:p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
               <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300 font-medium min-w-0">
@@ -1306,12 +1396,12 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="e.g. Sarah Jenkins"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
+                {fieldErrors.name && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.name}</p>}
               </div>
 
               {/* Email Address */}
@@ -1322,12 +1412,12 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </label>
                 <input
                   type="email"
-                  required
                   placeholder="e.g. sarah@company.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
+                {fieldErrors.email && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.email}</p>}
               </div>
 
               {/* Phone / WhatsApp */}
@@ -1340,13 +1430,13 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                   <CountryCodeDropdown value={countryCode} onChange={setCountryCode} />
                   <input
                     type="tel"
-                    required
                     placeholder="300 1234567"
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="flex-1 h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 min-w-0"
                   />
                 </div>
+                {fieldErrors.phone && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.phone}</p>}
               </div>
 
               <div className="space-y-1.5">
@@ -1355,29 +1445,25 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </label>
                 <input
                   type="text"
-                  required
                   placeholder="e.g. Acme Corp"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
                   className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
                 />
+                {fieldErrors.company && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.company}</p>}
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   What does your business do? <span className="text-rose-500">*</span>
                 </label>
-                <select
-                  required
+                <FormSelect
                   value={industry}
-                  onChange={(e) => setIndustry(e.target.value)}
-                  className="w-full h-10 px-3 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select</option>
-                  {LEAD_INDUSTRIES.map((item) => (
-                    <option key={item} value={item}>{item}</option>
-                  ))}
-                </select>
+                  onChange={setIndustry}
+                  placeholder="Select"
+                  options={LEAD_INDUSTRIES.map((item) => ({ value: item, label: item }))}
+                />
+                {fieldErrors.industry && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.industry}</p>}
               </div>
 
               <div className="sm:col-span-2 space-y-1.5">
@@ -1386,25 +1472,23 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </label>
                 <input
                   type="text"
-                  required={!noWebsite}
                   disabled={noWebsite}
                   placeholder="https://acmecorp.com"
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
                   className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 />
-                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={noWebsite}
-                    onChange={(e) => {
-                      setNoWebsite(e.target.checked);
-                      if (e.target.checked) setWebsite('');
-                    }}
-                    className="w-3.5 h-3.5 rounded border-zinc-300"
-                  />
-                  No website
-                </label>
+                {fieldErrors.website && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.website}</p>}
+                <FormOption
+                  checked={noWebsite}
+                  label="No website"
+                  onToggle={() => {
+                    setNoWebsite((prev) => {
+                      if (!prev) setWebsite('');
+                      return !prev;
+                    });
+                  }}
+                />
               </div>
             </div>
 
@@ -1416,134 +1500,55 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 <span className="text-rose-500">*</span>
               </label>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH).map((srv) => {
-                  const active = selectedServices.includes(srv);
-                  return (
-                    <label
-                      key={srv}
-                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={active}
-                        onChange={() => toggleService(srv)}
-                        className="w-3.5 h-3.5 rounded border-zinc-300"
-                      />
-                      <span>{srv}</span>
-                    </label>
-                  );
-                })}
+                {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH).map((srv) => (
+                  <FormOption
+                    key={srv}
+                    checked={selectedServices.includes(srv)}
+                    label={srv}
+                    onToggle={() => toggleService(srv)}
+                  />
+                ))}
               </div>
+              {fieldErrors.help && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.help}</p>}
+              {selectedServices.includes('Other') && (
+                <label className="block space-y-1.5">
+                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                    Describe the specific need <span className="text-rose-500">*</span>
+                  </span>
+                  <textarea
+                    rows={2}
+                    value={helpOther}
+                    onChange={(e) => setHelpOther(e.target.value)}
+                    placeholder="What else do you need help with?"
+                    className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
+                  />
+                  {fieldErrors.helpOther && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.helpOther}</p>}
+                </label>
+              )}
             </div>
 
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 When are you looking to start? <span className="text-rose-500">*</span>
               </label>
-              <select
-                required
+              <FormSelect
                 value={startTimeline}
-                onChange={(e) => setStartTimeline(e.target.value)}
-                className="w-full h-10 px-3 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Select</option>
-                {LEAD_START_TIMELINES.map((item) => (
-                  <option key={item} value={item}>{item}</option>
-                ))}
-              </select>
+                onChange={setStartTimeline}
+                placeholder="Select"
+                options={LEAD_START_TIMELINES.map((item) => ({ value: item, label: item }))}
+              />
+              {fieldErrors.start && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.start}</p>}
             </div>
 
-            {/* Preferred Meeting Method Selector */}
-            <div className="space-y-1.5" ref={meetingModeDropdownRef}>
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center justify-between">
-                <span className="flex items-center gap-1.5">
-                  <Video className="w-3.5 h-3.5 text-blue-500" />
-                  Preferred Meeting Method <span className="text-rose-500">*</span>
-                </span>
-                <span className="text-[11px] font-normal text-zinc-400 dark:text-zinc-500">
-                  Google Meet provided as backup
-                </span>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                Preferred Meeting Method <span className="text-rose-500">*</span>
               </label>
-
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setIsMeetingModeDropdownOpen((prev) => !prev)}
-                  className={`w-full h-11 px-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold transition border cursor-pointer select-none touch-manipulation ${
-                    isMeetingModeDropdownOpen
-                      ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100 shadow-md'
-                      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/50 text-zinc-900 dark:text-zinc-100'
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                      <selectedMeetingModeOption.icon className="w-4 h-4" />
-                    </div>
-                    <div className="text-left min-w-0">
-                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                        <span>{selectedMeetingModeOption.label}</span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-                          {selectedMeetingModeOption.badge}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <ChevronDown
-                    className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
-                      isMeetingModeDropdownOpen ? 'rotate-180 text-blue-500' : ''
-                    }`}
-                  />
-                </button>
-
-                {isMeetingModeDropdownOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-2 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-1">
-                    {MEETING_MODE_OPTIONS.map((opt) => {
-                      const isSelected = meetingMode === opt.value;
-                      const Icon = opt.icon;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            setMeetingMode(opt.value);
-                            setIsMeetingModeDropdownOpen(false);
-                          }}
-                          className={`w-full p-2.5 rounded-xl text-left transition flex items-center justify-between gap-3 cursor-pointer touch-manipulation ${
-                            isSelected
-                              ? 'bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400'
-                              : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <div
-                              className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-                              }`}
-                            >
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold flex items-center gap-2">
-                                <span>{opt.label}</span>
-                                <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
-                                  {opt.badge}
-                                </span>
-                              </div>
-                              <p className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">
-                                {opt.note}
-                              </p>
-                            </div>
-                          </div>
-                          {isSelected && <Check className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+              <FormSelect
+                value={meetingMode}
+                onChange={(value) => setMeetingMode(value as MeetingMode)}
+                options={MEETING_MODE_OPTIONS}
+              />
             </div>
 
             {/* Project Brief */}
@@ -1552,13 +1557,13 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 Briefly describe what you need <span className="text-rose-500">*</span>
               </label>
               <textarea
-                required
                 rows={3}
                 placeholder="What are you trying to achieve, and what problem are you facing?"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none leading-relaxed"
               />
+              {fieldErrors.note && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.note}</p>}
             </div>
 
             {/* Action Buttons */}
@@ -1604,7 +1609,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 You're Scheduled!
               </h2>
               <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1 max-w-md mx-auto">
-                A calendar invitation with video conference details has been reserved for your session.
+                Your session is booked. The meeting link will be sent to you on WhatsApp.
               </p>
             </div>
 
@@ -1630,97 +1635,42 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
               </div>
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <span className="text-zinc-400 shrink-0">Meeting Method:</span>
-                {bookingResult.meeting?.meeting_mode === 'in_person' ? (
-                  <span className="font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1 text-right">
-                    <Building2 className="w-3.5 h-3.5" />
-                    <span>In-Person (Reamarc Office)</span>
-                  </span>
-                ) : bookingResult.meeting?.meeting_mode === 'zoom' ? (
-                  <span className="font-semibold text-blue-600 dark:text-blue-400 flex items-center gap-1 text-right">
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Zoom (Link on WhatsApp)</span>
-                  </span>
-                ) : bookingResult.meeting?.meeting_mode === 'teams' ? (
-                  <span className="font-semibold text-indigo-600 dark:text-indigo-400 flex items-center gap-1 text-right">
-                    <Users className="w-3.5 h-3.5" />
-                    <span>Microsoft Teams (via WhatsApp)</span>
-                  </span>
-                ) : bookingResult.meeting?.join_url && /^https:\/\//i.test(bookingResult.meeting.join_url) ? (
-                  <a
-                    href={bookingResult.meeting.join_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-blue-600 hover:underline flex items-center gap-1"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Join Google Meet</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                ) : (
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">Google Meet</span>
-                )}
+                <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-right">
+                  {MEETING_MODE_OPTIONS.find((opt) => opt.value === bookingResult.meeting?.meeting_mode)?.label
+                    || bookingResult.meeting?.location_label
+                    || 'Google Meet'}
+                </span>
               </div>
             </div>
 
-            {/* Context Note for Selected Meeting Mode */}
             {bookingResult.meeting?.meeting_mode === 'in_person' ? (
               <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-left space-y-2 text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-amber-800 dark:text-amber-200">
-                  <MapPin className="w-4 h-4 text-amber-600" />
-                  <span>Office Visit &amp; Directions</span>
+                <div className="font-bold text-amber-800 dark:text-amber-200">
+                  Office visit
                 </div>
                 <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
                   {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
                 </p>
-                <div className="pt-1 flex flex-wrap items-center gap-3">
-                  <a
-                    href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-semibold text-amber-700 dark:text-amber-300 underline flex items-center gap-1"
-                  >
-                    <span>View on Google Maps</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                  {bookingResult.meeting?.join_url && (
-                    <span className="text-zinc-500 dark:text-zinc-400">
-                      &bull; Online backup:{' '}
-                      <a href={bookingResult.meeting.join_url} target="_blank" rel="noopener noreferrer" className="underline text-blue-600 dark:text-blue-400">
-                        Google Meet
-                      </a>
-                    </span>
-                  )}
-                </div>
+                <a
+                  href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-semibold text-amber-700 dark:text-amber-300 underline inline-flex items-center gap-1"
+                >
+                  <span>View on Google Maps</span>
+                  <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
-            ) : (bookingResult.meeting?.meeting_mode === 'zoom' || bookingResult.meeting?.meeting_mode === 'teams') ? (
-              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-blue-500/10 border border-blue-500/25 text-left space-y-2 text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-blue-700 dark:text-blue-300">
-                  <MessageSquare className="w-4 h-4 text-blue-500" />
-                  <span>Direct {bookingResult.meeting?.location_label || 'Meeting'} Link via WhatsApp</span>
-                </div>
+            ) : (
+              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-blue-500/10 border border-blue-500/25 text-left text-xs">
                 <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
-                  Your host will send your custom {bookingResult.meeting?.location_label || 'room'} link directly to your WhatsApp and email prior to the call.
+                  The sales person in charge will send the meeting link on WhatsApp before the call.
                 </p>
-                {bookingResult.meeting?.join_url && (
-                  <div className="pt-1 text-[11px] text-zinc-500 dark:text-zinc-400">
-                    Alternative backup room:{' '}
-                    <a
-                      href={bookingResult.meeting.join_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-semibold text-blue-600 dark:text-blue-400 underline inline-flex items-center gap-0.5"
-                    >
-                      <span>Join Google Meet</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </a>
-                  </div>
-                )}
               </div>
-            ) : null}
+            )}
 
-            {/* Calendar Buttons */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 pt-2 max-w-sm sm:max-w-none mx-auto">
-              {bookingResult.meeting?.meeting_mode === 'in_person' ? (
+              {bookingResult.meeting?.meeting_mode === 'in_person' && (
                 <a
                   href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
                   target="_blank"
@@ -1729,20 +1679,6 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 >
                   <MapPin className="w-4 h-4" />
                   <span>View Office Map</span>
-                </a>
-              ) : (
-                <a
-                  href={bookingResult.meeting?.join_url || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 cursor-pointer touch-manipulation"
-                >
-                  <Video className="w-4 h-4" />
-                  <span>
-                    {bookingResult.meeting?.meeting_mode === 'google_meet'
-                      ? 'Join Google Meet'
-                      : 'Join Google Meet (Backup)'}
-                  </span>
                 </a>
               )}
 

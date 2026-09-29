@@ -53,6 +53,20 @@ def _actor_name(user: Dict[str, Any]) -> str:
     return str(user.get("full_name") or user.get("name") or user.get("email") or "User")
 
 
+def _help_service_label(help_with: list, help_other: Optional[str]) -> Optional[str]:
+    detail = (help_other or "").strip()
+    parts = []
+    for item in help_with or []:
+        text = str(item).strip()
+        if not text:
+            continue
+        if text == "Other" and detail:
+            parts.append(f"Other: {detail}")
+        else:
+            parts.append(text)
+    return ", ".join(parts) or None
+
+
 def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
     e164 = doc.get("phone_e164")
     valid = bool(doc.get("phone_valid"))
@@ -76,6 +90,7 @@ def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
         "employee_count": doc.get("employee_count"),
         "sales_team": doc.get("sales_team"),
         "help_with": doc.get("help_with") or [],
+        "help_other": doc.get("help_other"),
         "objective": doc.get("objective"),
         "start_timeline": doc.get("start_timeline"),
         "brief": doc.get("brief"),
@@ -429,7 +444,7 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
         "phone_e164": e164,
         "phone_valid": valid,
         "city": (payload.city or "").strip() or None,
-        "service": (payload.service or "").strip() or (payload.help_with[0] if payload.help_with else None),
+        "service": _help_service_label(payload.help_with, payload.help_other) or (payload.service or "").strip() or None,
         "budget": payload.budget,
         "no_website": bool(payload.no_website),
         "role": payload.role,
@@ -438,6 +453,7 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
         "employee_count": payload.employee_count,
         "sales_team": payload.sales_team,
         "help_with": list(payload.help_with),
+        "help_other": (payload.help_other or "").strip() or None,
         "objective": payload.objective,
         "start_timeline": payload.start_timeline,
         "brief": payload.brief,
@@ -530,7 +546,9 @@ async def update_lead(lead_id: str, payload: CrmLeadUpdate, user: Dict[str, Any]
         help_with = dumped.pop("help_with") or []
         fields["help_with"] = help_with
         if help_with and "service" not in dumped:
-            fields["service"] = help_with[0]
+            fields["service"] = _help_service_label(help_with, dumped.get("help_other"))
+    if "help_other" in dumped:
+        fields["help_other"] = (dumped.pop("help_other") or "").strip() or None
     for key in (
         "name", "email", "company", "website", "city", "service", "budget", "source", "campaign",
         "tags", "next_follow_up_at", "proposal_config",

@@ -4,7 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { dailyLogService } from '../services/dailyLogService';
 import { NotificationBell } from './NotificationBell';
 const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
-import { getInitials, getRoleLabel } from '../utils/badgeStyles';
+import { getInitials } from '../utils/badgeStyles';
 import { canAccessCrm, canAssignCrmLeads } from '../utils/crmAccess';
 import type { CrmSubSection } from '../types/crm';
 import type { AttendanceSubSection } from '../types/attendance';
@@ -545,11 +545,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-bold text-zinc-950 dark:text-zinc-200 truncate leading-tight">{displayName}</p>
-                {user && (
-                  <span className="inline-flex mt-0.5 px-1.5 py-0.5 text-[9px] font-extrabold rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                    {getRoleLabel(user.role)}
-                  </span>
-                )}
               </div>
             </div>
 

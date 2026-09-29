@@ -16,7 +16,77 @@ def _validate_url_scheme(val: Optional[str]) -> Optional[str]:
     return cleaned
 
 
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_EMAIL_RE = re.compile(r"^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$")
+_LETTER_RE = re.compile(r"[^\W\d_]", re.UNICODE)
+_NAME_RE = re.compile(
+    r"^(?=.{3,80}$)[^\W\d_](?:[^\W\d_]|['’.\-]){1,}(?: [^\W\d_](?:[^\W\d_]|['’.\-]){1,})+$",
+    re.UNICODE,
+)
+_WEBSITE_RE = re.compile(
+    r"^(https?://)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,}([/?#][^\s]*)?$",
+    re.IGNORECASE,
+)
+_CITY_RE = re.compile(r"^(?=.{2,60}$)[^\W\d_](?:[^\W\d_]|[ .'’-])*$", re.UNICODE)
+_PHONE_CHARS_RE = re.compile(r"^[+\d\s().-]+$")
+
+
+def letter_count(text: str) -> int:
+    return len(_LETTER_RE.findall(text or ""))
+
+
+def require_person_name(value: str) -> str:
+    cleaned = " ".join(str(value or "").split())
+    if not _NAME_RE.match(cleaned):
+        raise ValueError("Enter a full name using letters only, such as Sara Ahmed.")
+    return cleaned
+
+
+def require_company_name(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if len(cleaned) < 2 or len(cleaned) > 160 or letter_count(cleaned) < 2:
+        raise ValueError("Enter a company name that includes letters.")
+    if re.search(r"[<>{}|\\^~`]", cleaned):
+        raise ValueError("Company name contains characters that are not allowed.")
+    return cleaned
+
+
+def require_phone_number(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if not cleaned or not _PHONE_CHARS_RE.match(cleaned):
+        raise ValueError("Enter a valid phone number, including the country code.")
+    digits = re.sub(r"\D", "", cleaned)
+    if len(digits) < 10 or len(digits) > 15:
+        raise ValueError("Enter a valid phone number, including the country code.")
+    return cleaned
+
+
+def require_public_website(value: Optional[str]) -> Optional[str]:
+    normalized = _normalize_website(value)
+    if not normalized:
+        return None
+    if ".." in normalized or not _WEBSITE_RE.match(normalized):
+        raise ValueError("Enter a valid website, such as company.com.")
+    return normalized
+
+
+def require_city_name(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = " ".join(str(value).split())
+    if not cleaned:
+        return None
+    if not _CITY_RE.match(cleaned) or letter_count(cleaned) < 2:
+        raise ValueError("City can only contain letters.")
+    return cleaned
+
+
+def require_description(value: str, label: str) -> str:
+    cleaned = str(value or "").strip()
+    if letter_count(cleaned) <= 6:
+        raise ValueError(f"{label} needs more than 6 letters.")
+    if len(cleaned) > 4000:
+        raise ValueError(f"{label} is too long.")
+    return cleaned
 
 LEAD_ROLES = (
     "Owner / Founder",
@@ -239,6 +309,7 @@ class CrmLeadCreate(BaseModel):
     employee_count: str = Field(..., max_length=40)
     sales_team: str = Field(..., max_length=80)
     help_with: List[str] = Field(..., min_length=1)
+    help_other: Optional[str] = Field(None, max_length=500)
     objective: str = Field(..., max_length=80)
     start_timeline: str = Field(..., max_length=40)
     city: Optional[str] = None
@@ -253,10 +324,30 @@ class CrmLeadCreate(BaseModel):
     next_follow_up_at: Optional[str] = None
     attribution: Optional[CrmAttribution] = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: str) -> str:
+        return require_person_name(v)
+
+    @field_validator("company")
+    @classmethod
+    def validate_company(cls, v: str) -> str:
+        return require_company_name(v)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        return require_phone_number(v)
+
+    @field_validator("city")
+    @classmethod
+    def validate_city(cls, v: Optional[str]) -> Optional[str]:
+        return require_city_name(v)
+
     @field_validator("website")
     @classmethod
     def validate_website(cls, v: Optional[str]) -> Optional[str]:
-        return _normalize_website(v)
+        return require_public_website(v)
 
     @field_validator("email")
     @classmethod
@@ -314,10 +405,15 @@ class CrmLeadCreate(BaseModel):
     @field_validator("brief")
     @classmethod
     def validate_brief(cls, v: str) -> str:
-        cleaned = (v or "").strip()
-        if not cleaned:
-            raise ValueError("Describe what you need.")
-        return cleaned
+        return require_description(v, "The description")
+
+    @field_validator("help_other")
+    @classmethod
+    def validate_help_other(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        return cleaned or None
 
     @model_validator(mode="after")
     def website_or_none(self) -> "CrmLeadCreate":
@@ -325,6 +421,10 @@ class CrmLeadCreate(BaseModel):
             self.website = None
         elif not self.website:
             raise ValueError("Website is required unless the business has no website.")
+        if "Other" in self.help_with:
+            self.help_other = require_description(self.help_other or "", "The specific need")
+        else:
+            self.help_other = None
         for label, value in (
             ("Role", self.role),
             ("Business type", self.industry),
@@ -352,6 +452,7 @@ class CrmLeadUpdate(BaseModel):
     employee_count: Optional[str] = None
     sales_team: Optional[str] = None
     help_with: Optional[List[str]] = None
+    help_other: Optional[str] = Field(None, max_length=500)
     objective: Optional[str] = None
     start_timeline: Optional[str] = None
     brief: Optional[str] = Field(None, max_length=4000)
@@ -366,10 +467,36 @@ class CrmLeadUpdate(BaseModel):
     proposal_config: Optional[Dict[str, Any]] = None
     attribution: Optional[CrmAttribution] = None
 
+    @field_validator("name")
+    @classmethod
+    def validate_update_name(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return require_person_name(v)
+
+    @field_validator("company")
+    @classmethod
+    def validate_update_company(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return require_company_name(v)
+
+    @field_validator("phone")
+    @classmethod
+    def validate_update_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return require_phone_number(v)
+
+    @field_validator("city")
+    @classmethod
+    def validate_update_city(cls, v: Optional[str]) -> Optional[str]:
+        return require_city_name(v)
+
     @field_validator("website")
     @classmethod
     def validate_lead_update_website(cls, v: Optional[str]) -> Optional[str]:
-        return _normalize_website(v)
+        return require_public_website(v)
 
     @field_validator("email")
     @classmethod
@@ -433,12 +560,19 @@ class CrmLeadUpdate(BaseModel):
     def validate_update_brief(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return None
-        return v.strip() or None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        return require_description(cleaned, "The description")
 
     @model_validator(mode="after")
     def clear_website_when_absent(self) -> "CrmLeadUpdate":
         if self.no_website:
             self.website = None
+        if self.help_with is not None and "Other" in self.help_with:
+            self.help_other = require_description(self.help_other or "", "The specific need")
+        elif self.help_other:
+            self.help_other = self.help_other.strip() or None
         return self
 
     @field_validator("proposal_config")

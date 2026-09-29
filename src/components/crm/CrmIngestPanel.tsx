@@ -72,7 +72,6 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
     working_days: [1, 2, 3, 4, 5, 6],
     start_hour: '11:00',
     end_hour: '23:00',
-    meeting_link: 'https://meet.google.com/lookup/reamarc-strategy',
     timezone: 'Asia/Karachi',
   });
   const [savingSchedulerConfig, setSavingSchedulerConfig] = useState(false);
@@ -907,7 +906,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                   </div>
 
                   {/* Host & Meeting Details */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
                         Host Name
@@ -932,17 +931,6 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                       />
                     </div>
 
-                    <div>
-                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block mb-1">
-                        Meeting / Google Meet Link
-                      </label>
-                      <input
-                        type="url"
-                        value={schedulerConfig.meeting_link}
-                        onChange={(e) => setSchedulerConfig({ ...schedulerConfig, meeting_link: e.target.value })}
-                        className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                      />
-                    </div>
                   </div>
 
                   {/* Public Greeting / Description */}

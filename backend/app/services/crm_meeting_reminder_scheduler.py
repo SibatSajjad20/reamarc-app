@@ -1,7 +1,7 @@
 """Automated 10-Minute Meeting Reminder Scheduler.
 
 Periodically polls CRM leads for scheduled meetings starting in 0-15 minutes
-and dispatches high-priority reminder emails with the Google Meet join link.
+and dispatches reminder emails. Meeting links are sent separately on WhatsApp.
 """
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
 from app.database import get_database
-from app.services.crm_scheduler import is_https_url
 
 logger = logging.getLogger("app.crm.meeting_reminder")
 
@@ -31,10 +30,6 @@ def build_meeting_reminder_10m_html(
     """Render a responsive, high-converting HTML reminder email for the upcoming meeting."""
     event_name = html_escape.escape(str(meeting_info.get("event_name") or "Digital Services Consultancy Session"))
     host_name = html_escape.escape(str(meeting_info.get("host_name") or "Muhammad Faizan Khan"))
-    join_url = str(meeting_info.get("join_url") or "").strip()
-    if not is_https_url(join_url):
-        join_url = "https://meet.google.com"
-    clean_join_url = html_escape.escape(join_url)
     date_str = html_escape.escape(str(meeting_info.get("date") or ""))
     slot_time = html_escape.escape(str(meeting_info.get("slot_time") or ""))
     time_label = html_escape.escape(str(meeting_info.get("time_label") or slot_time))
@@ -46,51 +41,27 @@ def build_meeting_reminder_10m_html(
     office_address = html_escape.escape(str(meeting_info.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan"))
     office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"))
 
-    if meeting_mode == "google_meet":
-        body_intro = "This is a quick reminder that your session is starting in approximately <strong>10 minutes</strong>. Click below to enter the meeting room:"
-        location_line = """<div>
-          <span style="color: #64748b; display: inline-block; width: 90px;">Location:</span>
-          <span style="color: #0f172a;">Google Meet</span>
-        </div>"""
-        action_button = f"""<a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 15px; padding: 14px 32px; border-radius: 12px; text-decoration: none; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);">
-          &#9654; Join Google Meet Room
-        </a>
-        <p style="font-size: 11px; color: #94a3b8; margin-top: 8px;">
-          Or copy link: <a href="{clean_join_url}" style="color: #2563eb; word-break: break-all;">{clean_join_url}</a>
-        </p>"""
-        tip_box = """<div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #1e40af; line-height: 1.5;">
-        <strong>Tip:</strong> When you open the link, click <em>&ldquo;Ask to join&rdquo;</em> and the host will admit you immediately. Please ensure your camera and microphone permissions are enabled.
-      </div>"""
-    elif meeting_mode in ("zoom", "teams"):
-        body_intro = f"This is a quick reminder that your session is starting in approximately <strong>10 minutes</strong>. Your host will be connecting with you via <strong>{mode_label}</strong> (link sent to WhatsApp &amp; Email)."
-        location_line = f"""<div>
-          <span style="color: #64748b; display: inline-block; width: 90px;">Platform:</span>
-          <span style="color: #0f172a; font-weight: 600;">{mode_label}</span>
-          <span style="display: block; font-size: 11px; color: #64748b; margin-top: 2px;">Direct link via WhatsApp &bull; Backup: Google Meet</span>
-        </div>"""
-        action_button = f"""<a href="{clean_join_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #2563eb; color: #ffffff; font-weight: 700; font-size: 15px; padding: 14px 32px; border-radius: 12px; text-decoration: none; box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);">
-          &#9654; Join Backup Google Meet Room
-        </a>
-        <p style="font-size: 11px; color: #94a3b8; margin-top: 8px;">
-          Backup room link: <a href="{clean_join_url}" style="color: #2563eb; word-break: break-all;">{clean_join_url}</a>
-        </p>"""
-        tip_box = f"""<div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #1e40af; line-height: 1.5;">
-        <strong>{mode_label} Notice:</strong> Please check your WhatsApp for the custom room link from your host. If you experience any connectivity difficulties, the backup Google Meet room above is active and ready.
-      </div>"""
-    else:  # in_person
-        body_intro = f"This is a quick reminder that your in-person session at Reamarc Office is starting in approximately <strong>10 minutes</strong>. We look forward to meeting with you!"
+    if meeting_mode == "in_person":
+        body_intro = "This is a quick reminder that your in-person session is starting in approximately <strong>10 minutes</strong>."
         location_line = f"""<div>
           <span style="color: #64748b; display: inline-block; width: 90px;">Location:</span>
           <strong style="color: #0f172a;">In-Person &bull; {office_address}</strong>
         </div>"""
-        action_button = f"""<a href="{office_map_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-weight: 700; font-size: 15px; padding: 14px 32px; border-radius: 12px; text-decoration: none; box-shadow: 0 4px 14px rgba(15, 23, 42, 0.35);">
-          &#128205; View Office Location on Google Maps
-        </a>
-        <p style="font-size: 11px; color: #94a3b8; margin-top: 8px;">
-          Remote backup room: <a href="{clean_join_url}" style="color: #2563eb; word-break: break-all;">{clean_join_url}</a>
-        </p>"""
+        action_button = f"""<a href="{office_map_url}" target="_blank" rel="noopener noreferrer" style="display: inline-block; background-color: #0f172a; color: #ffffff; font-weight: 700; font-size: 15px; padding: 14px 32px; border-radius: 12px; text-decoration: none;">
+          View Office Location on Google Maps
+        </a>"""
         tip_box = f"""<div style="background-color: #fef3c7; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #92400e; line-height: 1.5;">
-        <strong>Office Directions:</strong> Please arrive at <strong>{office_address}</strong> and check in at reception. If you are unable to attend in person, you can join online using the backup Google Meet room.
+        <strong>Office Directions:</strong> Please arrive at <strong>{office_address}</strong> and check in at reception.
+      </div>"""
+    else:
+        body_intro = f"This is a quick reminder that your <strong>{mode_label}</strong> session is starting in approximately <strong>10 minutes</strong>."
+        location_line = f"""<div>
+          <span style="color: #64748b; display: inline-block; width: 90px;">Platform:</span>
+          <span style="color: #0f172a; font-weight: 600;">{mode_label}</span>
+        </div>"""
+        action_button = ""
+        tip_box = f"""<div style="background-color: #eff6ff; border-left: 4px solid #3b82f6; padding: 12px 16px; border-radius: 6px; font-size: 12px; color: #1e40af; line-height: 1.5;">
+        <strong>{mode_label}:</strong> Check WhatsApp for the meeting link from your sales person.
       </div>"""
 
     return f"""<!DOCTYPE html>

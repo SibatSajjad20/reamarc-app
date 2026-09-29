@@ -27,7 +27,7 @@ import type {
   CrmPipelineStage,
   CrmTemplate,
 } from '../../../src/types/crm';
-import { CallLogModal, type CallLogAnswers } from '../../../src/components/crm/CallLogModal';
+import { CallLogModal } from '../../../src/components/crm/CallLogModal';
 import { LostReasonModal } from '../../../src/components/crm/LostReasonModal';
 import { DealModal } from '../../../src/components/crm/DealModal';
 import { StageSheet } from '../../../src/components/crm/StageSheet';
@@ -222,27 +222,17 @@ export default function LeadDetailScreen() {
     }
   };
 
-  const handleSaveCallLog = async (answers: CallLogAnswers) => {
+  const handleSaveCallLog = async (outcome: string, note?: string) => {
     if (!lead) return;
     try {
-      const updated = await crmApi.updateLead(lead.id, {
-        role: answers.role,
-        business_stage: answers.business_stage,
-        employee_count: answers.employee_count,
-        sales_team: answers.sales_team,
-        objective: answers.objective,
-        ...(answers.budget ? { budget: answers.budget } : {}),
-      });
-      const outcomeNote = `[Call: ${answers.outcome.replace(/_/g, ' ')}] ${answers.note || ''}`.trim();
+      const outcomeNote = `[Call: ${outcome.replace(/_/g, ' ')}] ${note || ''}`.trim();
       await crmApi.addNote(lead.id, outcomeNote);
-      if (answers.outcome === 'connected') {
+      if (outcome === 'connected') {
         await crmApi.markContacted(lead.id);
       }
-      setLead((prev) => (prev ? { ...prev, ...updated } : prev));
       loadLead();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not log call.');
-      throw err;
     }
   };
 

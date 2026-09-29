@@ -29,7 +29,7 @@ import type {
 } from '../../src/types/crm';
 import { LeadCard } from '../../src/components/crm/LeadCard';
 import { CreateLeadModal } from '../../src/components/crm/CreateLeadModal';
-import { CallLogModal, type CallLogAnswers } from '../../src/components/crm/CallLogModal';
+import { CallLogModal } from '../../src/components/crm/CallLogModal';
 import { DealModal } from '../../src/components/crm/DealModal';
 import {
   filterSummary,
@@ -357,20 +357,12 @@ export default function PipelineScreen() {
   };
 
   // Log Call Outcome from sheet
-  const handleSaveCallLog = async (answers: CallLogAnswers) => {
+  const handleSaveCallLog = async (outcome: string, note?: string) => {
     if (!callLogLead) return;
     try {
-      await crmApi.updateLead(callLogLead.id, {
-        role: answers.role,
-        business_stage: answers.business_stage,
-        employee_count: answers.employee_count,
-        sales_team: answers.sales_team,
-        objective: answers.objective,
-        ...(answers.budget ? { budget: answers.budget } : {}),
-      });
-      const outcomeNote = `[Call: ${answers.outcome.replace(/_/g, ' ')}] ${answers.note || ''}`.trim();
+      const outcomeNote = `[Call: ${outcome.replace(/_/g, ' ')}] ${note || ''}`.trim();
       await crmApi.addNote(callLogLead.id, outcomeNote);
-      if (answers.outcome === 'connected') {
+      if (outcome === 'connected') {
         await crmApi.markContacted(callLogLead.id);
         setLeads((prev) =>
           prev.map((l) => (l.id === callLogLead.id ? { ...l, contacted: true } : l))
@@ -379,7 +371,6 @@ export default function PipelineScreen() {
       loadData();
     } catch (err: any) {
       Alert.alert('Log Error', err?.message || 'Could not save call log.');
-      throw err;
     }
   };
 
