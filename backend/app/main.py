@@ -103,6 +103,9 @@ async def lifespan(app: FastAPI):
     from app.services.crm_lead_processor import start_crm_lead_queue_scheduler
     lead_queue_task = asyncio.create_task(start_crm_lead_queue_scheduler())
 
+    from app.services.crm_ingest import start_meta_form_poll_scheduler
+    meta_poll_task = asyncio.create_task(start_meta_form_poll_scheduler())
+
     from app.services.crm_meeting_reminder_scheduler import start_crm_meeting_reminder_scheduler
     meeting_reminder_task = asyncio.create_task(start_crm_meeting_reminder_scheduler())
 
@@ -114,6 +117,7 @@ async def lifespan(app: FastAPI):
     reminder_task.cancel()
     sla_task.cancel()
     lead_queue_task.cancel()
+    meta_poll_task.cancel()
     meeting_reminder_task.cancel()
     sync_task.cancel()
     shutdown_attendance_scheduler()

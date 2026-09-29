@@ -69,6 +69,35 @@ async def get_page_credentials(page_id: Optional[str] = None) -> Optional[Dict[s
     return None
 
 
+async def active_page_credentials() -> List[Dict[str, Any]]:
+    """Active page tokens for lead polling. Tokens stay server-side."""
+    db = _db()
+    pages: List[Dict[str, Any]] = []
+    cursor = db.crm_meta_pages.find({"is_active": {"$ne": False}}, {"_id": 0})
+    async for doc in cursor:
+        token = decrypt_string(doc.get("access_token_encrypted") or "")
+        page_id = str(doc.get("page_id") or "").strip()
+        if not page_id or not token:
+            continue
+        pages.append({
+            "page_id": page_id,
+            "page_name": doc.get("page_name") or "Connected Page",
+            "access_token": token,
+            "default_campaign": doc.get("default_campaign"),
+        })
+
+    env_page = (settings.CRM_META_PAGE_ID or "").strip()
+    env_token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
+    if env_token and not any(p["page_id"] == env_page for p in pages):
+        pages.append({
+            "page_id": env_page,
+            "page_name": "Default Environment Page",
+            "access_token": env_token,
+            "default_campaign": None,
+        })
+    return pages
+
+
 async def list_connected_pages() -> List[Dict[str, Any]]:
     """List all connected Meta pages (database and .env), with tokens masked."""
     db = _db()

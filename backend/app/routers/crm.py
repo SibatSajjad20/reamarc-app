@@ -445,7 +445,7 @@ async def delete_ingest_source(source_id: str, current_user: dict = Depends(get_
 
 @router.post("/meta/poll")
 async def poll_meta_leads(current_user: dict = Depends(get_current_user)):
-    """Backup: poll configured Meta lead forms (CRM_META_FORM_IDS)."""
+    """Backup: pull recent leads from connected Meta pages when a webhook stays pending."""
     if not can_assign_leads(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only managers can poll Meta forms.")
     return await crm_ingest.poll_configured_meta_forms()

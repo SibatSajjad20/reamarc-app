@@ -1,9 +1,11 @@
 """CRM Phase 4 — signed website ingest + Meta leadgen with E.164 + 30-day dedupe."""
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -26,6 +28,8 @@ INGEST_MAX_CUSTOM_FIELDS = 40
 INGEST_MAX_FIELD_CHARS = 2_000
 INGEST_MAX_RAW_CHARS = 8_192
 SYSTEM_ACTOR = {"id": "system:crm_ingest", "full_name": "CRM Ingest", "name": "CRM Ingest"}
+META_POLL_LOOKBACK_HOURS = 48
+META_POLL_INTERVAL_SECONDS = 600
 
 _PHONE_KEYS = (
     "phone",
@@ -43,6 +47,46 @@ _CITY_KEYS = ("city", "town", "location")
 _SERVICE_KEYS = ("service", "product", "interest", "looking_for")
 _BUDGET_KEYS = ("budget", "monthly_budget", "ad_budget")
 _WEBSITE_KEYS = ("website", "website_url", "site", "web_url", "url")
+
+# ---------------------------------------------------------------------------
+# Smart company / website splitter
+# Handles the "Company / Website Name" single-field pattern used by the
+# Reamarc chat widget and other forms that combine both into one field.
+# ---------------------------------------------------------------------------
+
+_URL_RE = re.compile(
+    r"(?:"
+    r"https?://[^\s/$.?#][^\s]*"
+    r"|(?<![.\w])www\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z]{2,})+(?:/\S*)?"
+    r"|(?<![.\w])[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?[.](?:com|net|org|io|co|pk|uk|ae|sa|de|au|in|us|ca|biz|info|online|store|shop|agency|digital|media|tech|solutions|app|dev|ai|xyz|me|tv|fm|cc|gg|blog|site|web|cloud|global|marketing|brand|design|studio|works|ventures|group|services)(?:/\S*)?(?![.\w])"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _split_company_or_url(raw_value):
+    """Split a combined Company/Website field into (company, website).
+
+    Scenarios:
+      'Acme Clothing'               -> ('Acme Clothing', None)
+      'mybrand.com'                 -> (None, 'mybrand.com')
+      'https://mybrand.com'         -> (None, 'https://mybrand.com')
+      'Acme Clothing / mybrand.com' -> ('Acme Clothing', 'mybrand.com')
+      'Acme mybrand.com'            -> ('Acme', 'mybrand.com')
+    """
+    if not raw_value:
+        return None, None
+    value = raw_value.strip()
+    if not value:
+        return None, None
+    url_match = _URL_RE.search(value)
+    if not url_match:
+        return value, None
+    url_part = url_match.group(0).strip().rstrip("/")
+    remainder = value[: url_match.start()] + value[url_match.end():]
+    company_part = re.sub(r"[\s/,|\\-]+", " ", remainder).strip()
+    return (company_part or None), (url_part or None)
+
 
 
 def _now() -> str:
@@ -172,14 +216,25 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "surname",
         "source",
     }
+    # Smart company/website split
+    raw_company = _clip_str(_first_str(raw, _COMPANY_KEYS), 300)
+    raw_website = _clip_str(_first_str(raw, _WEBSITE_KEYS), 300)
+    if raw_company and not raw_website:
+        split_company, split_website = _split_company_or_url(raw_company)
+        company = _clip_str(split_company, 160)
+        website = _clip_str(split_website, 200)
+    else:
+        company = _clip_str(raw_company, 160)
+        website = _clip_str(raw_website, 200)
+
     return {
         "name": _pick_name(raw)[:160],
         "phone_raw": phone_raw,
         "phone_e164": e164,
         "phone_valid": valid,
         "email": email[:200] if email else None,
-        "company": _clip_str(_first_str(raw, _COMPANY_KEYS), 160),
-        "website": _clip_str(_first_str(raw, _WEBSITE_KEYS), 200),
+        "company": company,
+        "website": website,
         "city": _clip_str(_first_str(raw, _CITY_KEYS), 80),
         "service": _clip_str(_first_str(raw, _SERVICE_KEYS), 120),
         "budget": _clip_str(_first_str(raw, _BUDGET_KEYS), 80),
@@ -648,10 +703,37 @@ def meta_field_data_to_dict(field_data: Any) -> Dict[str, Any]:
         if not name:
             continue
         if isinstance(values, list) and values:
-            out[name] = values[0] if len(values) == 1 else values
+            value = values[0] if len(values) == 1 else values
         else:
-            out[name] = values
+            value = values
+        out[name] = value
+        tail = name.split("/")[-1].strip()
+        if tail and tail not in out:
+            out[tail] = value
     return out
+
+
+def meta_lead_is_recent(created_time: Optional[str], *, lookback_hours: int, now: Optional[datetime] = None) -> bool:
+    """True when a Graph lead timestamp falls inside the poll window.
+
+    Missing or unparseable timestamps are skipped so a backup poll cannot
+    import an entire historical form the first time it runs.
+    """
+    text = str(created_time or "").strip()
+    if not text:
+        return False
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    if len(text) >= 5 and text[-5] in "+-" and text[-3] != ":":
+        text = text[:-2] + ":" + text[-2:]
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return False
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    return parsed >= current - timedelta(hours=max(int(lookback_hours), 1))
 
 
 def meta_credentials_configured() -> bool:
@@ -831,58 +913,168 @@ async def process_meta_webhook_payload(payload: Dict[str, Any]) -> Dict[str, Any
     return {"created": created, "duplicates": duplicates, "skipped": skipped, "errors": errors}
 
 
-async def poll_meta_form_leads(form_id: str, *, limit: int = 25) -> Dict[str, Any]:
-    """Backup poller: GET /{form_id}/leads."""
-    token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
+async def _graph_get(path: str, token: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    url = f"{META_GRAPH_BASE_URL}/{path.lstrip('/')}"
+    query = {"access_token": token, **(params or {})}
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        res = await _execute_meta_request_with_retry(client, url, query)
+    data = res.json() if res is not None else {}
+    if res is None or res.status_code != 200 or not isinstance(data, dict) or "error" in data:
+        message = data.get("error", {}).get("message") if isinstance(data, dict) else "no response"
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Meta request failed: {message}")
+    return data
+
+
+async def poll_meta_form_leads(
+    form_id: str,
+    *,
+    limit: int = 25,
+    access_token: Optional[str] = None,
+    page_id: Optional[str] = None,
+    lookback_hours: int = META_POLL_LOOKBACK_HOURS,
+    default_campaign: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Backup poller: GET /{form_id}/leads for leads newer than the lookback."""
+    token = (access_token or settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
     if not token:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="CRM_META_PAGE_ACCESS_TOKEN is not configured.",
+            detail="Meta Page Access Token is not configured.",
         )
-    url = f"{META_GRAPH_BASE_URL}/{form_id}/leads"
-    params = {
-        "access_token": token,
-        "fields": "id,created_time,field_data,ad_id,ad_name,campaign_id,campaign_name,form_id",
-        "limit": min(max(limit, 1), 50),
-    }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        res = await _execute_meta_request_with_retry(client, url, params)
-    data = res.json() if res is not None else {}
-    if res is None or res.status_code != 200 or "error" in data:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Meta form leads poll failed.")
+    data = await _graph_get(
+        f"{form_id}/leads",
+        token,
+        {
+            "fields": "id,created_time,field_data,ad_id,ad_name,campaign_id,campaign_name,form_id",
+            "limit": min(max(limit, 1), 50),
+        },
+    )
 
     created = 0
     duplicates = 0
+    skipped = 0
     for item in data.get("data") or []:
         leadgen_id = str(item.get("id") or "").strip()
         if not leadgen_id:
+            continue
+        if not meta_lead_is_recent(item.get("created_time"), lookback_hours=lookback_hours):
+            skipped += 1
             continue
         fields = meta_field_data_to_dict(item.get("field_data"))
         result = await ingest_lead(
             fields=fields,
             source_label="meta",
-            campaign=item.get("campaign_name") or item.get("ad_name"),
+            campaign=item.get("campaign_name") or item.get("ad_name") or default_campaign,
             external_id=f"meta_lead_{leadgen_id}",
             raw_payload={"meta_lead": item, "field_data": fields, "polled_form_id": form_id},
+            attribution={
+                "platform": "meta",
+                "campaign_id": _clip_str(item.get("campaign_id"), 100),
+                "campaign_name": _clip_str(item.get("campaign_name"), 160),
+                "ad_id": _clip_str(item.get("ad_id"), 100),
+                "ad_name": _clip_str(item.get("ad_name"), 160),
+                "form_id": _clip_str(item.get("form_id") or form_id, 100),
+                "page_id": _clip_str(page_id, 100),
+            },
         )
         if result.get("duplicate"):
             duplicates += 1
         elif result.get("created"):
             created += 1
-    return {"form_id": form_id, "created": created, "duplicates": duplicates}
+    return {"form_id": form_id, "created": created, "duplicates": duplicates, "skipped": skipped}
+
+
+async def poll_connected_meta_pages(*, lookback_hours: int = META_POLL_LOOKBACK_HOURS) -> Dict[str, Any]:
+    """Pull recent leads from every form on each connected page.
+
+    This is the backup for a Meta webhook that stays pending. Leads older than
+    the lookback are left alone so the first run does not import form history.
+    """
+    from app.services import crm_meta_accounts
+
+    pages = await crm_meta_accounts.active_page_credentials()
+    if not pages:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="No connected Meta page with an access token.",
+        )
+
+    results: List[Dict[str, Any]] = []
+    errors: List[str] = []
+    for page in pages:
+        page_id = str(page.get("page_id") or "").strip()
+        token = str(page.get("access_token") or "").strip()
+        try:
+            forms = await _graph_get(
+                f"{page_id}/leadgen_forms",
+                token,
+                {"fields": "id,name,status", "limit": 100},
+            )
+        except HTTPException as exc:
+            errors.append(f"{page_id}: {exc.detail}")
+            continue
+        for form in forms.get("data") or []:
+            form_id = str(form.get("id") or "").strip()
+            if not form_id or str(form.get("status") or "ACTIVE").upper() not in ("ACTIVE", ""):
+                continue
+            try:
+                results.append(
+                    await poll_meta_form_leads(
+                        form_id,
+                        access_token=token,
+                        page_id=page_id or None,
+                        lookback_hours=lookback_hours,
+                        default_campaign=page.get("default_campaign"),
+                    )
+                )
+            except HTTPException as exc:
+                errors.append(f"{form_id}: {exc.detail}")
+    return {"forms": results, "errors": errors}
 
 
 async def poll_configured_meta_forms() -> Dict[str, Any]:
-    form_ids = [f.strip() for f in (settings.CRM_META_FORM_IDS or "").split(",") if f.strip()]
-    if not form_ids:
+    """Poll connected pages, plus any explicit CRM_META_FORM_IDS."""
+    page_result: Dict[str, Any] = {"forms": [], "errors": []}
+    try:
+        page_result = await poll_connected_meta_pages()
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_503_SERVICE_UNAVAILABLE:
+            raise
+        page_result = {"forms": [], "errors": [str(exc.detail)]}
+
+    extra_ids = [f.strip() for f in (settings.CRM_META_FORM_IDS or "").split(",") if f.strip()]
+    seen = {str(row.get("form_id")) for row in page_result.get("forms") or []}
+    for form_id in extra_ids:
+        if form_id in seen:
+            continue
+        try:
+            page_result["forms"].append(await poll_meta_form_leads(form_id))
+        except HTTPException as exc:
+            page_result.setdefault("errors", []).append(f"{form_id}: {exc.detail}")
+
+    if not page_result.get("forms") and page_result.get("errors"):
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Set CRM_META_FORM_IDS (comma-separated) to poll Meta lead forms.",
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Meta form poll failed. " + "; ".join(page_result["errors"])[:400],
         )
-    results = []
-    for form_id in form_ids:
-        results.append(await poll_meta_form_leads(form_id))
-    return {"forms": results}
+    return page_result
+
+
+async def start_meta_form_poll_scheduler() -> None:
+    """Catch leads Meta never pushed. First pass shortly after boot, then every 10 minutes."""
+    logger.info("[CRM Meta] Form poll scheduler started (%ss interval).", META_POLL_INTERVAL_SECONDS)
+    await asyncio.sleep(20)
+    while True:
+        try:
+            summary = await poll_connected_meta_pages()
+            created = sum(int(row.get("created") or 0) for row in summary.get("forms") or [])
+            if created or summary.get("errors"):
+                logger.info("[CRM Meta] Form poll created=%s errors=%s", created, summary.get("errors"))
+        except asyncio.CancelledError:
+            raise
+        except Exception as err:
+            logger.warning("[CRM Meta] Form poll failed: %s", err)
+        await asyncio.sleep(META_POLL_INTERVAL_SECONDS)
 
 
 
