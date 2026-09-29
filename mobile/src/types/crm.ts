@@ -56,6 +56,16 @@ export interface CrmLead {
   city?: string | null;
   service?: string | null;
   budget?: string | null;
+  no_website?: boolean;
+  role?: string | null;
+  industry?: string | null;
+  business_stage?: string | null;
+  employee_count?: string | null;
+  sales_team?: string | null;
+  help_with?: string[];
+  objective?: string | null;
+  start_timeline?: string | null;
+  brief?: string | null;
   source: string;
   campaign?: string | null;
   stage: string;
@@ -117,12 +127,21 @@ export interface CrmAssignee {
 
 export interface CrmLeadCreatePayload {
   name: string;
-  phone?: string;
-  email?: string;
-  company?: string;
+  phone: string;
+  email: string;
+  company: string;
   website?: string;
+  no_website?: boolean;
+  role: string;
+  industry: string;
+  business_stage: string;
+  employee_count: string;
+  sales_team: string;
+  help_with: string[];
+  objective: string;
+  start_timeline: string;
+  brief: string;
   city?: string;
-  service?: string;
   budget?: string;
   source?: string;
   note?: string;

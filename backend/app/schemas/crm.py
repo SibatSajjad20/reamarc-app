@@ -1,6 +1,7 @@
+import re
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 def _validate_url_scheme(val: Optional[str]) -> Optional[str]:
@@ -12,6 +13,125 @@ def _validate_url_scheme(val: Optional[str]) -> Optional[str]:
         raise ValueError("Insecure URL scheme.")
     if not (lower.startswith("http://") or lower.startswith("https://") or lower.startswith("/")):
         raise ValueError("URL must start with https://, http://, or /")
+    return cleaned
+
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+LEAD_ROLES = (
+    "Owner / Founder",
+    "CEO / Director",
+    "Partner",
+    "Marketing Head / Manager",
+    "Sales Head / Manager",
+    "Business Development",
+    "Operations / Project Manager",
+    "Other Management",
+    "Employee / Team Member",
+    "Consultant",
+    "Other",
+)
+LEAD_INDUSTRIES = (
+    "Real Estate",
+    "Architecture / Construction",
+    "Hospitality",
+    "Education",
+    "Healthcare",
+    "Apparel / Fashion",
+    "E-commerce",
+    "Manufacturing",
+    "SaaS / Technology",
+    "Professional Services",
+    "Other",
+)
+LEAD_BUSINESS_STAGES = (
+    "Idea / Pre-launch",
+    "New / Recently launched",
+    "Growing",
+    "Established",
+    "Expanding / Scaling",
+)
+LEAD_EMPLOYEE_COUNTS = (
+    "Just me",
+    "2-5",
+    "6-10",
+    "11-25",
+    "26-50",
+    "51-100",
+    "100+",
+)
+LEAD_SALES_TEAMS = (
+    "Yes, dedicated sales team",
+    "Yes, 1-2 salespeople",
+    "Sales handled by management / owners",
+    "No sales team",
+    "Building a sales team",
+)
+LEAD_HELP_WITH = (
+    "Strategy / Consultancy",
+    "Branding",
+    "Website Design & Development",
+    "Social Media Management",
+    "Performance Marketing / Lead Generation",
+    "SEO",
+    "Video Production",
+    "Software Development",
+    "App Development",
+    "AI Application Development",
+    "Other",
+)
+LEAD_OBJECTIVES = (
+    "Launch a new project / business",
+    "Improve branding / rebrand",
+    "Improve our website / digital presence",
+    "Generate qualified leads",
+    "Increase sales",
+    "Build a complete marketing system",
+    "Other",
+)
+LEAD_START_TIMELINES = (
+    "Immediately",
+    "Within 30 days",
+    "1-3 months",
+    "3-6 months",
+    "Just researching",
+)
+LEAD_BUDGETS = (
+    "Under PKR 100K / month",
+    "PKR 100K-250K / month",
+    "PKR 250K-500K / month",
+    "PKR 500K-1M / month",
+    "PKR 1M-2.5M / month",
+    "PKR 2.5M-5M / month",
+    "PKR 5M+ / month",
+    "Not decided yet",
+    "Prefer to discuss with our sales team",
+)
+
+
+def _choice(value: Optional[str], allowed: tuple, label: str) -> Optional[str]:
+    if value is None:
+        return None
+    cleaned = str(value).strip()
+    if not cleaned:
+        return None
+    if cleaned not in allowed:
+        raise ValueError(f"{label} must be one of the listed options.")
+    return cleaned
+
+
+def _help_with(values: Optional[List[str]], *, required: bool) -> List[str]:
+    if not values:
+        if required:
+            raise ValueError("Select at least one option for what you need help with.")
+        return []
+    cleaned: List[str] = []
+    for item in values:
+        choice = _choice(item, LEAD_HELP_WITH, "Help needed")
+        if choice and choice not in cleaned:
+            cleaned.append(choice)
+    if required and not cleaned:
+        raise ValueError("Select at least one option for what you need help with.")
     return cleaned
 
 
@@ -108,10 +228,19 @@ class CrmAttribution(BaseModel):
 
 class CrmLeadCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=160)
-    phone: Optional[str] = None
-    email: Optional[str] = None
-    company: Optional[str] = None
+    phone: str = Field(..., min_length=1, max_length=40)
+    email: str = Field(..., min_length=3, max_length=160)
+    company: str = Field(..., min_length=1, max_length=160)
     website: Optional[str] = None
+    no_website: bool = False
+    role: str = Field(..., max_length=80)
+    industry: str = Field(..., max_length=80)
+    business_stage: str = Field(..., max_length=80)
+    employee_count: str = Field(..., max_length=40)
+    sales_team: str = Field(..., max_length=80)
+    help_with: List[str] = Field(..., min_length=1)
+    objective: str = Field(..., max_length=80)
+    start_timeline: str = Field(..., max_length=40)
     city: Optional[str] = None
     service: Optional[str] = None
     budget: Optional[str] = None
@@ -119,6 +248,7 @@ class CrmLeadCreate(BaseModel):
     campaign: Optional[str] = None
     tags: List[str] = Field(default_factory=list)
     note: Optional[str] = None
+    brief: str = Field(..., min_length=1, max_length=4000)
     assigned_to: Optional[str] = None
     next_follow_up_at: Optional[str] = None
     attribution: Optional[CrmAttribution] = None
@@ -128,6 +258,86 @@ class CrmLeadCreate(BaseModel):
     def validate_website(cls, v: Optional[str]) -> Optional[str]:
         return _normalize_website(v)
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        cleaned = (v or "").strip().lower()
+        if not _EMAIL_RE.match(cleaned):
+            raise ValueError("Enter a valid work email.")
+        return cleaned
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        return _choice(v, LEAD_ROLES, "Role") or ""
+
+    @field_validator("industry")
+    @classmethod
+    def validate_industry(cls, v: str) -> str:
+        return _choice(v, LEAD_INDUSTRIES, "Business type") or ""
+
+    @field_validator("business_stage")
+    @classmethod
+    def validate_business_stage(cls, v: str) -> str:
+        return _choice(v, LEAD_BUSINESS_STAGES, "Business stage") or ""
+
+    @field_validator("employee_count")
+    @classmethod
+    def validate_employee_count(cls, v: str) -> str:
+        return _choice(v, LEAD_EMPLOYEE_COUNTS, "Employee count") or ""
+
+    @field_validator("sales_team")
+    @classmethod
+    def validate_sales_team(cls, v: str) -> str:
+        return _choice(v, LEAD_SALES_TEAMS, "Sales team") or ""
+
+    @field_validator("objective")
+    @classmethod
+    def validate_objective(cls, v: str) -> str:
+        return _choice(v, LEAD_OBJECTIVES, "Objective") or ""
+
+    @field_validator("start_timeline")
+    @classmethod
+    def validate_start_timeline(cls, v: str) -> str:
+        return _choice(v, LEAD_START_TIMELINES, "Start timeline") or ""
+
+    @field_validator("budget")
+    @classmethod
+    def validate_budget(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_BUDGETS, "Budget")
+
+    @field_validator("help_with")
+    @classmethod
+    def validate_help_with(cls, v: List[str]) -> List[str]:
+        return _help_with(v, required=True)
+
+    @field_validator("brief")
+    @classmethod
+    def validate_brief(cls, v: str) -> str:
+        cleaned = (v or "").strip()
+        if not cleaned:
+            raise ValueError("Describe what you need.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def website_or_none(self) -> "CrmLeadCreate":
+        if self.no_website:
+            self.website = None
+        elif not self.website:
+            raise ValueError("Website is required unless the business has no website.")
+        for label, value in (
+            ("Role", self.role),
+            ("Business type", self.industry),
+            ("Business stage", self.business_stage),
+            ("Employee count", self.employee_count),
+            ("Sales team", self.sales_team),
+            ("Objective", self.objective),
+            ("Start timeline", self.start_timeline),
+        ):
+            if not value:
+                raise ValueError(f"{label} is required.")
+        return self
+
 
 class CrmLeadUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=160)
@@ -135,6 +345,16 @@ class CrmLeadUpdate(BaseModel):
     email: Optional[str] = None
     company: Optional[str] = None
     website: Optional[str] = None
+    no_website: Optional[bool] = None
+    role: Optional[str] = None
+    industry: Optional[str] = None
+    business_stage: Optional[str] = None
+    employee_count: Optional[str] = None
+    sales_team: Optional[str] = None
+    help_with: Optional[List[str]] = None
+    objective: Optional[str] = None
+    start_timeline: Optional[str] = None
+    brief: Optional[str] = Field(None, max_length=4000)
     city: Optional[str] = None
     service: Optional[str] = None
     budget: Optional[str] = None
@@ -150,6 +370,76 @@ class CrmLeadUpdate(BaseModel):
     @classmethod
     def validate_lead_update_website(cls, v: Optional[str]) -> Optional[str]:
         return _normalize_website(v)
+
+    @field_validator("email")
+    @classmethod
+    def validate_update_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().lower()
+        if cleaned and not _EMAIL_RE.match(cleaned):
+            raise ValueError("Enter a valid work email.")
+        return cleaned or None
+
+    @field_validator("role")
+    @classmethod
+    def validate_update_role(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_ROLES, "Role")
+
+    @field_validator("industry")
+    @classmethod
+    def validate_update_industry(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_INDUSTRIES, "Business type")
+
+    @field_validator("business_stage")
+    @classmethod
+    def validate_update_business_stage(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_BUSINESS_STAGES, "Business stage")
+
+    @field_validator("employee_count")
+    @classmethod
+    def validate_update_employee_count(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_EMPLOYEE_COUNTS, "Employee count")
+
+    @field_validator("sales_team")
+    @classmethod
+    def validate_update_sales_team(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_SALES_TEAMS, "Sales team")
+
+    @field_validator("objective")
+    @classmethod
+    def validate_update_objective(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_OBJECTIVES, "Objective")
+
+    @field_validator("start_timeline")
+    @classmethod
+    def validate_update_start_timeline(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_START_TIMELINES, "Start timeline")
+
+    @field_validator("budget")
+    @classmethod
+    def validate_update_budget(cls, v: Optional[str]) -> Optional[str]:
+        return _choice(v, LEAD_BUDGETS, "Budget")
+
+    @field_validator("help_with")
+    @classmethod
+    def validate_update_help_with(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is None:
+            return None
+        return _help_with(v, required=False)
+
+    @field_validator("brief")
+    @classmethod
+    def validate_update_brief(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return v.strip() or None
+
+    @model_validator(mode="after")
+    def clear_website_when_absent(self) -> "CrmLeadUpdate":
+        if self.no_website:
+            self.website = None
+        return self
 
     @field_validator("proposal_config")
     @classmethod
@@ -207,6 +497,16 @@ class CrmLeadResponse(BaseModel):
     city: Optional[str] = None
     service: Optional[str] = None
     budget: Optional[str] = None
+    no_website: bool = False
+    role: Optional[str] = None
+    industry: Optional[str] = None
+    business_stage: Optional[str] = None
+    employee_count: Optional[str] = None
+    sales_team: Optional[str] = None
+    help_with: List[str] = Field(default_factory=list)
+    objective: Optional[str] = None
+    start_timeline: Optional[str] = None
+    brief: Optional[str] = None
     source: str = "manual"
     campaign: Optional[str] = None
     stage: str = "new"

@@ -21,7 +21,6 @@ import {
   Download,
   User,
   UserCheck,
-  Megaphone,
   Video,
   X,
 } from 'lucide-react';
@@ -180,10 +179,28 @@ interface CrmLeadDrawerProps {
   onEditProposal?: () => void;
   onCreateDeal?: () => void;
   onEditDeal?: (deal: CrmDeal) => void;
-  initialTab?: 'overview' | 'activity' | 'deals';
+  initialTab?: 'overview' | 'brief' | 'activity' | 'deals';
 }
 
-type DrawerTab = 'overview' | 'activity' | 'deals';
+type DrawerTab = 'overview' | 'brief' | 'activity' | 'deals';
+
+function BriefGroup({ title, rows }: { title: string; rows: Array<[string, string | null | undefined]> }) {
+  const visible = rows.filter(([, value]) => value);
+  if (!visible.length) return null;
+  return (
+    <section>
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-2">{title}</h3>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+        {visible.map(([label, value]) => (
+          <div key={label} className={String(value).length > 42 ? 'col-span-2' : undefined}>
+            <dt className="text-[11px] text-zinc-400">{label}</dt>
+            <dd className="text-xs text-zinc-900 dark:text-zinc-100 mt-0.5 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}
 
 export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   lead,
@@ -493,6 +510,18 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           >
             <User className="w-3.5 h-3.5" />
             <span>Overview</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('brief')}
+            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+              activeTab === 'brief'
+                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-xs'
+                : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Brief</span>
           </button>
           <button
             type="button"
@@ -871,7 +900,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             </div>
           )}
 
-          {/* Contact Info Details Grid */}
           <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20 p-3.5">
             <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
               <div>
@@ -890,7 +918,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   )}
                 </dd>
               </div>
-
               <div>
                 <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Email</dt>
                 <dd className="text-zinc-900 dark:text-zinc-100 break-all mt-0.5">
@@ -903,131 +930,24 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   )}
                 </dd>
               </div>
-
-              <div>
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">City</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5">{lead.city || '—'}</dd>
-              </div>
-
-              {lead.company && (
-                <div>
-                  <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Company</dt>
-                  <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5 truncate">{lead.company}</dd>
-                </div>
-              )}
-
-              {lead.website && (
-                <div className="col-span-2">
-                  <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Website</dt>
-                  <dd className="mt-0.5">
-                    <a
-                      href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-indigo-600 dark:text-indigo-400 hover:underline text-xs break-all inline-flex items-center gap-1"
-                    >
-                      {lead.website}
-                      <ExternalLink className="w-3 h-3 shrink-0 opacity-70" />
-                    </a>
-                  </dd>
-                </div>
-              )}
-
-              <div>
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Primary Service</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100 mt-0.5">{lead.service || '—'}</dd>
-              </div>
-
-              <div className="col-span-2 pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800/60 flex items-center justify-between">
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Assigned Owner</dt>
+              <div className="col-span-2 flex items-center justify-between pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800/60">
+                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Owner</dt>
                 <dd className="text-zinc-900 dark:text-zinc-100 font-medium">
-                  {lead.assigned_to_name ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                      {lead.assigned_to_name}
-                    </span>
-                  ) : (
-                    <span className="text-amber-600 dark:text-amber-400 italic">Unassigned (Claim pool)</span>
-                  )}
+                  {lead.assigned_to_name || <span className="text-amber-600 dark:text-amber-400">Unassigned</span>}
                 </dd>
               </div>
             </dl>
           </div>
 
-          {/* Campaign & Attribution Insight Card */}
-          {(lead.attribution || lead.source || lead.campaign) && (
-            <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20 p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <Megaphone className="w-3.5 h-3.5 text-indigo-500" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                    Source &amp; Attribution
-                  </span>
-                </div>
-                <span className="px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
-                  {lead.attribution?.platform || lead.source || 'Direct'}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
-                {(lead.attribution?.campaign_name || lead.campaign) && (
-                  <div className="col-span-2">
-                    <span className="text-[10px] text-zinc-400 font-medium block">Campaign</span>
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                      {lead.attribution?.campaign_name || lead.campaign}
-                    </span>
-                  </div>
-                )}
-
-                {lead.attribution?.adset_name && (
-                  <div>
-                    <span className="text-[10px] text-zinc-400 font-medium block">Ad Set</span>
-                    <span className="text-zinc-700 dark:text-zinc-300 truncate block" title={lead.attribution.adset_name}>
-                      {lead.attribution.adset_name}
-                    </span>
-                  </div>
-                )}
-
-                {lead.attribution?.ad_name && (
-                  <div>
-                    <span className="text-[10px] text-zinc-400 font-medium block">Ad Creative</span>
-                    <span className="text-zinc-700 dark:text-zinc-300 truncate block" title={lead.attribution.ad_name}>
-                      {lead.attribution.ad_name}
-                    </span>
-                  </div>
-                )}
-
-                {lead.attribution?.form_name && (
-                  <div className="col-span-2">
-                    <span className="text-[10px] text-zinc-400 font-medium block">Lead Form</span>
-                    <span className="text-zinc-700 dark:text-zinc-300">{lead.attribution.form_name}</span>
-                  </div>
-                )}
-
-                {lead.attribution?.utm_source && (
-                  <div>
-                    <span className="text-[10px] text-zinc-400 font-medium block">UTM Source</span>
-                    <span className="text-zinc-700 dark:text-zinc-300">{lead.attribution.utm_source}</span>
-                  </div>
-                )}
-
-                {lead.attribution?.utm_medium && (
-                  <div>
-                    <span className="text-[10px] text-zinc-400 font-medium block">UTM Medium</span>
-                    <span className="text-zinc-700 dark:text-zinc-300">{lead.attribution.utm_medium}</span>
-                  </div>
-                )}
-
-                {lead.attribution?.click_id && (
-                  <div className="col-span-2">
-                    <span className="text-[10px] text-zinc-400 font-medium block">Click ID</span>
-                    <code className="text-[10px] text-zinc-500 font-numeric break-all bg-zinc-100 dark:bg-zinc-800/60 px-1 py-0.5 rounded">
-                      {lead.attribution.click_id}
-                    </code>
-                  </div>
-                )}
-              </div>
-            </div>
+          {lead.brief && (
+            <button
+              type="button"
+              onClick={() => setActiveTab('brief')}
+              className="w-full text-left rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 px-3.5 py-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
+            >
+              <p className="text-[11px] font-medium text-zinc-400">Need</p>
+              <p className="mt-1 text-xs text-zinc-800 dark:text-zinc-200 line-clamp-3">{lead.brief}</p>
+            </button>
           )}
 
           {/* Pipeline Stage & Assignment Dropdowns */}
@@ -1132,6 +1052,50 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               />
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === 'brief' && (
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div>
+            <p className="text-[11px] font-medium text-zinc-400">What they need</p>
+            <p className="mt-1 text-sm text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap">
+              {lead.brief || 'No description yet.'}
+            </p>
+          </div>
+          <BriefGroup
+            title="Business"
+            rows={[
+              ['Company', lead.company],
+              ['Website', lead.no_website ? 'No website' : lead.website],
+              ['Role', lead.role],
+              ['Business', lead.industry],
+              ['Stage', lead.business_stage],
+              ['Employees', lead.employee_count],
+              ['Sales team', lead.sales_team],
+              ['City', lead.city],
+            ]}
+          />
+          <BriefGroup
+            title="Need"
+            rows={[
+              ['Help with', (lead.help_with || []).join(', ') || lead.service],
+              ['Objective', lead.objective],
+              ['Start', lead.start_timeline],
+              ['Budget', lead.budget],
+            ]}
+          />
+          <BriefGroup
+            title="Source"
+            rows={[
+              ['Source', lead.source],
+              ['Campaign', lead.attribution?.campaign_name || lead.campaign],
+              ['Ad set', lead.attribution?.adset_name],
+              ['Ad', lead.attribution?.ad_name],
+              ['Form', lead.attribution?.form_name],
+              ['UTM', [lead.attribution?.utm_source, lead.attribution?.utm_medium].filter(Boolean).join(' / ') || null],
+            ]}
+          />
         </div>
       )}
 

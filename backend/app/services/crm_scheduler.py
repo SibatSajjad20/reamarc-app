@@ -24,6 +24,7 @@ from pymongo.errors import DuplicateKeyError
 
 from app.config import settings
 from app.database import get_database
+from app.schemas.crm import LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES
 from app.services import crm_ingest
 from app.services.crm_phone import digits_only, normalize_phone_e164
 
@@ -695,10 +696,45 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         host_email = "faizan@reamarc.com"
 
     company = _sanitize_text(payload.get("company"), max_len=160)
-    website_raw = _sanitize_text(payload.get("website"), max_len=300)
-    website = website_raw if (not website_raw or is_https_url(website_raw) or re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", website_raw)) else ""
+    if not company:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Company / business name is required.")
+    no_website = bool(payload.get("no_website"))
+    website_raw = "" if no_website else _sanitize_text(payload.get("website"), max_len=300)
+    website_ok = (
+        not website_raw
+        or is_https_url(website_raw)
+        or website_raw.lower().startswith("http://")
+        or re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", website_raw)
+    )
+    website = website_raw if website_ok else ""
+    if not no_website and not website:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Website is required unless the business has no website.",
+        )
+    industry = _sanitize_text(payload.get("industry"), max_len=80)
+    if industry not in LEAD_INDUSTRIES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select what the business does.")
+    start_timeline = _sanitize_text(payload.get("start_timeline"), max_len=40)
+    if start_timeline not in LEAD_START_TIMELINES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select when you are looking to start.")
+    raw_help = payload.get("help_with")
+    help_with: list[str] = []
+    if isinstance(raw_help, list):
+        for item in raw_help:
+            cleaned = _sanitize_text(item, max_len=80)
+            if cleaned and cleaned not in help_with:
+                if cleaned not in LEAD_HELP_WITH:
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select a listed option for what you need help with.")
+                help_with.append(cleaned)
     service = _sanitize_text(payload.get("service"), max_len=300)
+    if help_with:
+        service = ", ".join(help_with)
+    elif not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Select at least one thing you need help with.")
     note = _sanitize_text(payload.get("note"), max_len=2000, allow_newlines=True)
+    if not note:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Briefly describe what you need.")
 
     raw_mode = _sanitize_text(payload.get("meeting_mode") or payload.get("location_preference") or "google_meet", max_len=40).lower()
     meeting_mode = raw_mode if raw_mode in {"google_meet", "zoom", "teams", "in_person"} else "google_meet"
@@ -713,14 +749,14 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
     office_map_url = sched_settings.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"
 
     qa_list = [
-        {"question": "What services do you require?", "answer": service or "Consultancy"},
+        {"question": "Company / Business Name", "answer": company},
+        {"question": "Website / Business URL", "answer": "No website" if no_website else website},
+        {"question": "What does your business do?", "answer": industry},
+        {"question": "What do you need help with?", "answer": service},
+        {"question": "When are you looking to start?", "answer": start_timeline},
         {"question": "Preferred Meeting Mode", "answer": meeting_mode_label},
-        {"question": "Please share a brief of your requirement", "answer": note or "No brief provided."},
+        {"question": "Briefly describe what you need", "answer": note},
     ]
-    if company:
-        qa_list.append({"question": "Business / Company Name", "answer": company})
-    if website:
-        qa_list.append({"question": "Website URL", "answer": website})
 
     meeting_dict: Dict[str, Any] = {
         "event_name": event_title,
@@ -745,10 +781,15 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         "name": name,
         "email": email,
         "phone": phone,
-        "company": company or None,
-        "website": website or None,
+        "company": company,
+        "website": None if no_website else (website or None),
+        "no_website": no_website,
+        "industry": industry,
+        "help_with": help_with,
+        "start_timeline": start_timeline,
+        "brief": note,
         "service": service or None,
-        "note": note or None,
+        "note": note,
         "budget": payload.get("budget"),
     }
 
@@ -783,6 +824,21 @@ async def book_meeting(payload: Dict[str, Any]) -> Dict[str, Any]:
         )
         lead = ingest_result["lead"]
         lead_id = lead["id"]
+        await db.crm_leads.update_one(
+            {"id": lead_id},
+            {
+                "$set": {
+                    "company": company,
+                    "website": None if no_website else (website or None),
+                    "no_website": no_website,
+                    "industry": industry,
+                    "help_with": help_with,
+                    "service": (help_with[0] if help_with else service) or None,
+                    "start_timeline": start_timeline,
+                    "brief": note,
+                }
+            },
+        )
         await db.crm_scheduler_slots.update_one(
             {"date": target_date, "slot_time": slot_time},
             {"$set": {"lead_id": lead_id}},

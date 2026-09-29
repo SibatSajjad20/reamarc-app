@@ -69,6 +69,16 @@ def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
         "city": doc.get("city"),
         "service": doc.get("service"),
         "budget": doc.get("budget"),
+        "no_website": bool(doc.get("no_website")),
+        "role": doc.get("role"),
+        "industry": doc.get("industry"),
+        "business_stage": doc.get("business_stage"),
+        "employee_count": doc.get("employee_count"),
+        "sales_team": doc.get("sales_team"),
+        "help_with": doc.get("help_with") or [],
+        "objective": doc.get("objective"),
+        "start_timeline": doc.get("start_timeline"),
+        "brief": doc.get("brief"),
         "source": doc.get("source") or "manual",
         "campaign": doc.get("campaign"),
         "stage": doc.get("stage") or "new",
@@ -311,6 +321,8 @@ async def list_leads(
                     {"name": {"$regex": q, "$options": "i"}},
                     {"company": {"$regex": q, "$options": "i"}},
                     {"email": {"$regex": q, "$options": "i"}},
+                    {"brief": {"$regex": q, "$options": "i"}},
+                    {"industry": {"$regex": q, "$options": "i"}},
                     {"phone_raw": {"$regex": q, "$options": "i"}},
                     {"phone_e164": {"$regex": q, "$options": "i"}},
                 ]
@@ -417,8 +429,18 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
         "phone_e164": e164,
         "phone_valid": valid,
         "city": (payload.city or "").strip() or None,
-        "service": (payload.service or "").strip() or None,
-        "budget": (payload.budget or "").strip() or None,
+        "service": (payload.service or "").strip() or (payload.help_with[0] if payload.help_with else None),
+        "budget": payload.budget,
+        "no_website": bool(payload.no_website),
+        "role": payload.role,
+        "industry": payload.industry,
+        "business_stage": payload.business_stage,
+        "employee_count": payload.employee_count,
+        "sales_team": payload.sales_team,
+        "help_with": list(payload.help_with),
+        "objective": payload.objective,
+        "start_timeline": payload.start_timeline,
+        "brief": payload.brief,
         "source": (payload.source or "manual").strip().lower(),
         "campaign": (payload.campaign or "").strip() or None,
         "stage": "new",
@@ -458,8 +480,9 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
         from app.services.crm_assignment import apply_assignment_engine
 
         await apply_assignment_engine(doc["id"], actor=user)
-    if payload.note:
-        await append_activity(doc["id"], "note", payload.note.strip(), user)
+    note = (payload.note or payload.brief or "").strip()
+    if note:
+        await append_activity(doc["id"], "note", note, user)
     fresh = await db.crm_leads.find_one({"id": doc["id"]}, {"_id": 0})
     return serialize_lead(fresh or doc)
 
@@ -496,9 +519,23 @@ async def update_lead(lead_id: str, payload: CrmLeadUpdate, user: Dict[str, Any]
                 user,
                 {"from": lead.get("stage"), "to": stage},
             )
+    if dumped.get("no_website"):
+        fields["no_website"] = True
+        fields["website"] = None
+        dumped.pop("website", None)
+        dumped.pop("no_website", None)
+    elif "no_website" in dumped:
+        fields["no_website"] = bool(dumped.pop("no_website"))
+    if "help_with" in dumped:
+        help_with = dumped.pop("help_with") or []
+        fields["help_with"] = help_with
+        if help_with and "service" not in dumped:
+            fields["service"] = help_with[0]
     for key in (
         "name", "email", "company", "website", "city", "service", "budget", "source", "campaign",
         "tags", "next_follow_up_at", "proposal_config",
+        "role", "industry", "business_stage", "employee_count", "sales_team",
+        "objective", "start_timeline", "brief",
     ):
         if key in dumped:
             val = dumped[key]

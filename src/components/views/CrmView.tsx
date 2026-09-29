@@ -195,7 +195,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup' | 'settings'>('board');
   const [proposalModalLead, setProposalModalLead] = useState<CrmLead | null>(null);
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
-  const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'activity' | 'deals'>('overview');
+  const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'brief' | 'activity' | 'deals'>('overview');
   const [pipelineDeals, setPipelineDeals] = useState<CrmDeal[]>([]);
   const [dealStages, setDealStages] = useState<CrmPipelineStage[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);

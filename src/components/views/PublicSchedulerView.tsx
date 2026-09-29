@@ -27,6 +27,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../services/apiClient';
+import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
 
 interface SchedulerConfig {
   title: string;
@@ -460,6 +461,9 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const [phone, setPhone] = useState('');
   const [company, setCompany] = useState('');
   const [website, setWebsite] = useState('');
+  const [noWebsite, setNoWebsite] = useState(false);
+  const [industry, setIndustry] = useState('');
+  const [startTimeline, setStartTimeline] = useState('');
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [note, setNote] = useState('');
   const [meetingMode, setMeetingMode] = useState<MeetingMode>('google_meet');
@@ -519,6 +523,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const handleTopicChange = (newTopic: MeetingTopic) => {
     setTopic(newTopic);
     setIsTopicDropdownOpen(false);
+    setSelectedServices([]);
     setBookingError(null);
     setCandidateError(null);
     if (newTopic !== 'jobs_and_career') {
@@ -712,10 +717,42 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     // Read UTMs from parent / current window URL
     const urlParams = new URLSearchParams(window.location.search);
 
+    if (!company.trim()) {
+      setBookingError('Company / business name is required.');
+      setSubmitting(false);
+      return;
+    }
+    if (!noWebsite && !website.trim()) {
+      setBookingError('Website is required, or mark that there is no website.');
+      setSubmitting(false);
+      return;
+    }
+    if (!industry) {
+      setBookingError('Select what the business does.');
+      setSubmitting(false);
+      return;
+    }
+    if (selectedServices.length === 0) {
+      setBookingError('Select at least one thing you need help with.');
+      setSubmitting(false);
+      return;
+    }
+    if (!startTimeline) {
+      setBookingError('Select when you are looking to start.');
+      setSubmitting(false);
+      return;
+    }
+    if (!note.trim()) {
+      setBookingError('Briefly describe what you need.');
+      setSubmitting(false);
+      return;
+    }
+
     const fullPhone = `${countryCode} ${phone.trim()}`;
 
     const topicLabel = (topic && TOPIC_LABELS[topic]) || 'Branding and Marketing';
-    const activeServices = selectedServices.length > 0 ? selectedServices.join(', ') : topicLabel;
+    const helpOptions = topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH;
+    const helpWith = selectedServices.filter((item) => helpOptions.includes(item));
 
     const payload = {
       name: name.trim(),
@@ -723,10 +760,14 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
       phone: fullPhone,
       date: dateStr,
       slot_time: selectedSlot.time,
-      company: company.trim() || undefined,
-      website: website.trim() || undefined,
-      service: activeServices,
-      note: note.trim() || undefined,
+      company: company.trim(),
+      website: noWebsite ? undefined : website.trim(),
+      no_website: noWebsite,
+      industry,
+      help_with: topic === 'collaboration_and_partnership' ? undefined : helpWith,
+      service: helpWith.join(', '),
+      start_timeline: startTimeline,
+      note: note.trim(),
       topic: topicLabel,
       meeting_mode: meetingMode,
       utm_source: urlParams.get('utm_source') || 'website_scheduler',
@@ -1308,14 +1349,13 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 </div>
               </div>
 
-              {/* Company Name */}
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Building2 className="w-3.5 h-3.5 text-zinc-400" />
-                  Company / Organization
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Company / business name <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
+                  required
                   placeholder="e.g. Acme Corp"
                   value={company}
                   onChange={(e) => setCompany(e.target.value)}
@@ -1323,48 +1363,94 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
                 />
               </div>
 
-              {/* Website URL */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  What does your business do? <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  required
+                  value={industry}
+                  onChange={(e) => setIndustry(e.target.value)}
+                  className="w-full h-10 px-3 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Select</option>
+                  {LEAD_INDUSTRIES.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="sm:col-span-2 space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Globe className="w-3.5 h-3.5 text-zinc-400" />
-                  Website / Store URL (if any)
+                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                  Website / business URL {!noWebsite && <span className="text-rose-500">*</span>}
                 </label>
                 <input
-                  type="url"
+                  type="text"
+                  required={!noWebsite}
+                  disabled={noWebsite}
                   placeholder="https://acmecorp.com"
                   value={website}
                   onChange={(e) => setWebsite(e.target.value)}
-                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 />
+                <label className="flex items-center gap-2 text-xs text-zinc-600 dark:text-zinc-400 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={noWebsite}
+                    onChange={(e) => {
+                      setNoWebsite(e.target.checked);
+                      if (e.target.checked) setWebsite('');
+                    }}
+                    className="w-3.5 h-3.5 rounded border-zinc-300"
+                  />
+                  No website
+                </label>
               </div>
             </div>
 
-            {/* Services Multi-Select */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                 {topic === 'collaboration_and_partnership'
-                  ? 'What type of collaboration or partnership are you interested in?'
-                  : 'What services are you looking to explore?'}
+                  ? 'What type of collaboration are you interested in?'
+                  : 'What do you need help with?'}{' '}
+                <span className="text-rose-500">*</span>
               </label>
-              <div className="flex flex-wrap gap-2">
-                {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : config.services).map((srv) => {
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH).map((srv) => {
                   const active = selectedServices.includes(srv);
                   return (
-                    <button
+                    <label
                       key={srv}
-                      type="button"
-                      onClick={() => toggleService(srv)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition cursor-pointer touch-manipulation ${
-                        active
-                          ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                          : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-blue-500'
-                      }`}
+                      className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-700 dark:text-zinc-300 cursor-pointer"
                     >
-                      {srv}
-                    </button>
+                      <input
+                        type="checkbox"
+                        checked={active}
+                        onChange={() => toggleService(srv)}
+                        className="w-3.5 h-3.5 rounded border-zinc-300"
+                      />
+                      <span>{srv}</span>
+                    </label>
                   );
                 })}
               </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                When are you looking to start? <span className="text-rose-500">*</span>
+              </label>
+              <select
+                required
+                value={startTimeline}
+                onChange={(e) => setStartTimeline(e.target.value)}
+                className="w-full h-10 px-3 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">Select</option>
+                {LEAD_START_TIMELINES.map((item) => (
+                  <option key={item} value={item}>{item}</option>
+                ))}
+              </select>
             </div>
 
             {/* Preferred Meeting Method Selector */}
@@ -1463,11 +1549,12 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
             {/* Project Brief */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Please share a brief of your current goals, challenges, or requirements:
+                Briefly describe what you need <span className="text-rose-500">*</span>
               </label>
               <textarea
+                required
                 rows={3}
-                placeholder="Tell us about your current marketing goals, timeline, or challenges..."
+                placeholder="What are you trying to achieve, and what problem are you facing?"
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none leading-relaxed"

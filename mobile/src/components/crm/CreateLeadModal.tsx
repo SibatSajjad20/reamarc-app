@@ -24,7 +24,48 @@ interface CreateLeadModalProps {
 }
 
 const SOURCES = ['manual', 'website', 'referral', 'meta', 'google', 'other'];
-const SERVICES = ['Branding', 'Website', 'Performance Marketing', 'Social Media', 'SEO', 'Other'];
+const ROLES = ['Owner / Founder', 'CEO / Director', 'Partner', 'Marketing Head / Manager', 'Sales Head / Manager', 'Business Development', 'Operations / Project Manager', 'Other Management', 'Employee / Team Member', 'Consultant', 'Other'];
+const INDUSTRIES = ['Real Estate', 'Architecture / Construction', 'Hospitality', 'Education', 'Healthcare', 'Apparel / Fashion', 'E-commerce', 'Manufacturing', 'SaaS / Technology', 'Professional Services', 'Other'];
+const STAGES = ['Idea / Pre-launch', 'New / Recently launched', 'Growing', 'Established', 'Expanding / Scaling'];
+const EMPLOYEES = ['Just me', '2-5', '6-10', '11-25', '26-50', '51-100', '100+'];
+const SALES = ['Yes, dedicated sales team', 'Yes, 1-2 salespeople', 'Sales handled by management / owners', 'No sales team', 'Building a sales team'];
+const HELP = ['Strategy / Consultancy', 'Branding', 'Website Design & Development', 'Social Media Management', 'Performance Marketing / Lead Generation', 'SEO', 'Video Production', 'Software Development', 'App Development', 'AI Application Development', 'Other'];
+const OBJECTIVES = ['Launch a new project / business', 'Improve branding / rebrand', 'Improve our website / digital presence', 'Generate qualified leads', 'Increase sales', 'Build a complete marketing system', 'Other'];
+const STARTS = ['Immediately', 'Within 30 days', '1-3 months', '3-6 months', 'Just researching'];
+const BUDGETS = ['Under PKR 100K / month', 'PKR 100K-250K / month', 'PKR 250K-500K / month', 'PKR 500K-1M / month', 'PKR 1M-2.5M / month', 'PKR 2.5M-5M / month', 'PKR 5M+ / month', 'Not decided yet', 'Prefer to discuss with our sales team'];
+
+function ChoiceRow({
+  label,
+  options,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (value: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>
+        {label} {required ? <Text style={styles.required}>*</Text> : null}
+      </Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        {options.map((item) => (
+          <TouchableOpacity
+            key={item}
+            style={[styles.chip, value === item ? styles.chipActive : null]}
+            onPress={() => onChange(value === item ? '' : item)}
+          >
+            <Text style={[styles.chipText, value === item ? styles.chipTextActive : null]}>{item}</Text>
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
 
 export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   visible,
@@ -37,8 +78,18 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [company, setCompany] = useState('');
+  const [website, setWebsite] = useState('');
+  const [noWebsite, setNoWebsite] = useState(false);
   const [city, setCity] = useState('');
-  const [service, setService] = useState('');
+  const [role, setRole] = useState('');
+  const [industry, setIndustry] = useState('');
+  const [businessStage, setBusinessStage] = useState('');
+  const [employeeCount, setEmployeeCount] = useState('');
+  const [salesTeam, setSalesTeam] = useState('');
+  const [helpWith, setHelpWith] = useState<string[]>([]);
+  const [objective, setObjective] = useState('');
+  const [startTimeline, setStartTimeline] = useState('');
+  const [budget, setBudget] = useState('');
   const [source, setSource] = useState('manual');
   const [assignedTo, setAssignedTo] = useState('');
   const [note, setNote] = useState('');
@@ -50,8 +101,18 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
     setPhone('');
     setEmail('');
     setCompany('');
+    setWebsite('');
+    setNoWebsite(false);
     setCity('');
-    setService('');
+    setRole('');
+    setIndustry('');
+    setBusinessStage('');
+    setEmployeeCount('');
+    setSalesTeam('');
+    setHelpWith([]);
+    setObjective('');
+    setStartTimeline('');
+    setBudget('');
     setSource('manual');
     setAssignedTo('');
     setNote('');
@@ -64,8 +125,24 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   };
 
   const handleSubmit = async () => {
-    if (!name.trim()) {
-      setError('Lead name is required.');
+    if (!name.trim() || !company.trim() || !email.trim() || !phone.trim()) {
+      setError('Name, company, email, and phone are required.');
+      return;
+    }
+    if (!noWebsite && !website.trim()) {
+      setError('Website is required, or mark that there is no website.');
+      return;
+    }
+    if (!role || !industry || !businessStage || !employeeCount || !salesTeam || !objective || !startTimeline) {
+      setError('Complete the business and need questions.');
+      return;
+    }
+    if (helpWith.length === 0) {
+      setError('Select at least one thing they need help with.');
+      return;
+    }
+    if (!note.trim()) {
+      setError('Describe what they need.');
       return;
     }
     setSaving(true);
@@ -73,14 +150,24 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
     try {
       await onSubmit({
         name: name.trim(),
-        phone: phone.trim() || undefined,
-        email: email.trim() || undefined,
-        company: company.trim() || undefined,
+        phone: phone.trim(),
+        email: email.trim(),
+        company: company.trim(),
+        website: noWebsite ? undefined : website.trim(),
+        no_website: noWebsite,
+        role,
+        industry,
+        business_stage: businessStage,
+        employee_count: employeeCount,
+        sales_team: salesTeam,
+        help_with: helpWith,
+        objective,
+        start_timeline: startTimeline,
+        budget: budget || undefined,
+        brief: note.trim(),
         city: city.trim() || undefined,
-        service: service || undefined,
         source: source || 'manual',
         assigned_to: assignedTo || undefined,
-        note: note.trim() || undefined,
       });
       reset();
       onClose();
@@ -120,7 +207,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
             {/* Name */}
             <View style={styles.inputGroup}>
               <Text style={styles.label}>
-                Name <Text style={styles.required}>*</Text>
+                Full name <Text style={styles.required}>*</Text>
               </Text>
               <TextInput
                 style={styles.input}
@@ -134,7 +221,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
 
             {/* Phone */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Phone / WhatsApp</Text>
+              <Text style={styles.label}>
+                WhatsApp / phone <Text style={styles.required}>*</Text>
+              </Text>
               <TextInput
                 style={styles.input}
                 placeholder="e.g. +923001234567"
@@ -147,7 +236,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
 
             {/* Email */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Email Address</Text>
+              <Text style={styles.label}>
+                Work email <Text style={styles.required}>*</Text>
+              </Text>
               <TextInput
                 style={styles.input}
                 placeholder="e.g. john@example.com"
@@ -162,7 +253,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
             {/* Company & City */}
             <View style={styles.row}>
               <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
-                <Text style={styles.label}>Company</Text>
+                <Text style={styles.label}>
+                  Company <Text style={styles.required}>*</Text>
+                </Text>
                 <TextInput
                   style={styles.input}
                   placeholder="e.g. Acme Corp"
@@ -183,23 +276,54 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
               </View>
             </View>
 
-            {/* Service Interested */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Service</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                {SERVICES.map((s) => (
-                  <TouchableOpacity
-                    key={s}
-                    style={[styles.chip, service === s ? styles.chipActive : null]}
-                    onPress={() => setService(service === s ? '' : s)}
-                  >
-                    <Text style={[styles.chipText, service === s ? styles.chipTextActive : null]}>
-                      {s}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <Text style={styles.label}>
+                Website {!noWebsite ? <Text style={styles.required}>*</Text> : null}
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="https://company.com"
+                placeholderTextColor="#A1A1AA"
+                autoCapitalize="none"
+                editable={!noWebsite}
+                value={website}
+                onChangeText={setWebsite}
+              />
+              <TouchableOpacity style={styles.checkRow} onPress={() => setNoWebsite((v) => !v)}>
+                <Ionicons name={noWebsite ? 'checkbox' : 'square-outline'} size={18} color="#4F46E5" />
+                <Text style={styles.checkText}>No website</Text>
+              </TouchableOpacity>
             </View>
+
+            <ChoiceRow label="Role" required options={ROLES} value={role} onChange={setRole} />
+            <ChoiceRow label="Business" required options={INDUSTRIES} value={industry} onChange={setIndustry} />
+            <ChoiceRow label="Stage" required options={STAGES} value={businessStage} onChange={setBusinessStage} />
+            <ChoiceRow label="Employees" required options={EMPLOYEES} value={employeeCount} onChange={setEmployeeCount} />
+            <ChoiceRow label="Sales team" required options={SALES} value={salesTeam} onChange={setSalesTeam} />
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>
+                Help with <Text style={styles.required}>*</Text>
+              </Text>
+              <View style={styles.wrap}>
+                {HELP.map((item) => {
+                  const on = helpWith.includes(item);
+                  return (
+                    <TouchableOpacity
+                      key={item}
+                      style={[styles.chip, on ? styles.chipActive : null]}
+                      onPress={() =>
+                        setHelpWith((prev) => (on ? prev.filter((x) => x !== item) : [...prev, item]))
+                      }
+                    >
+                      <Text style={[styles.chipText, on ? styles.chipTextActive : null]}>{item}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            </View>
+            <ChoiceRow label="Objective" required options={OBJECTIVES} value={objective} onChange={setObjective} />
+            <ChoiceRow label="Start" required options={STARTS} value={startTimeline} onChange={setStartTimeline} />
+            <ChoiceRow label="Budget" options={BUDGETS} value={budget} onChange={setBudget} />
 
             {/* Source */}
             <View style={styles.inputGroup}>
@@ -260,7 +384,9 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
 
             {/* Notes */}
             <View style={styles.inputGroup}>
-              <Text style={styles.label}>Initial Requirement / Note</Text>
+              <Text style={styles.label}>
+                What they need <Text style={styles.required}>*</Text>
+              </Text>
               <TextInput
                 style={[styles.input, styles.textArea]}
                 placeholder="What did the client request? Initial thoughts..."
@@ -390,6 +516,22 @@ const styles = StyleSheet.create({
   },
   chipScroll: {
     flexDirection: 'row',
+  },
+  wrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  checkText: {
+    fontSize: 12,
+    color: '#3F3F46',
+    fontWeight: '600',
   },
   chip: {
     backgroundColor: '#F4F4F5',

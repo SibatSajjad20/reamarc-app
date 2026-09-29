@@ -27,7 +27,7 @@ import type {
   CrmPipelineStage,
   CrmTemplate,
 } from '../../../src/types/crm';
-import { CallLogModal } from '../../../src/components/crm/CallLogModal';
+import { CallLogModal, type CallLogAnswers } from '../../../src/components/crm/CallLogModal';
 import { LostReasonModal } from '../../../src/components/crm/LostReasonModal';
 import { DealModal } from '../../../src/components/crm/DealModal';
 import { StageSheet } from '../../../src/components/crm/StageSheet';
@@ -222,17 +222,27 @@ export default function LeadDetailScreen() {
     }
   };
 
-  const handleSaveCallLog = async (outcome: string, note?: string) => {
+  const handleSaveCallLog = async (answers: CallLogAnswers) => {
     if (!lead) return;
     try {
-      const outcomeNote = `[Call: ${outcome.replace(/_/g, ' ')}] ${note || ''}`.trim();
+      const updated = await crmApi.updateLead(lead.id, {
+        role: answers.role,
+        business_stage: answers.business_stage,
+        employee_count: answers.employee_count,
+        sales_team: answers.sales_team,
+        objective: answers.objective,
+        ...(answers.budget ? { budget: answers.budget } : {}),
+      });
+      const outcomeNote = `[Call: ${answers.outcome.replace(/_/g, ' ')}] ${answers.note || ''}`.trim();
       await crmApi.addNote(lead.id, outcomeNote);
-      if (outcome === 'connected') {
+      if (answers.outcome === 'connected') {
         await crmApi.markContacted(lead.id);
       }
+      setLead((prev) => (prev ? { ...prev, ...updated } : prev));
       loadLead();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not log call.');
+      throw err;
     }
   };
 
@@ -630,7 +640,16 @@ export default function LeadDetailScreen() {
 
               <View style={styles.infoCard}>
                 <Text style={styles.cardHeader}>Requirement</Text>
-                <Field label="Service" value={lead.service || '—'} />
+                <Field label="Service" value={(lead.help_with || []).join(', ') || lead.service || '—'} />
+                {lead.role ? <Field label="Role" value={lead.role} /> : null}
+                {lead.industry ? <Field label="Business" value={lead.industry} /> : null}
+                {lead.business_stage ? <Field label="Stage" value={lead.business_stage} /> : null}
+                {lead.employee_count ? <Field label="Employees" value={lead.employee_count} /> : null}
+                {lead.sales_team ? <Field label="Sales team" value={lead.sales_team} /> : null}
+                {lead.objective ? <Field label="Objective" value={lead.objective} /> : null}
+                {lead.start_timeline ? <Field label="Start" value={lead.start_timeline} /> : null}
+                {lead.budget ? <Field label="Budget" value={lead.budget} /> : null}
+                {lead.brief ? <Field label="Need" value={lead.brief} /> : null}
                 <Field
                   label="Source"
                   value={lead.source ? titleCaseName(lead.source) : 'Manual'}
