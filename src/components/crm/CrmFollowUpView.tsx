@@ -3,15 +3,13 @@ import { createPortal } from 'react-dom';
 import {
   Clock,
   Calendar,
-  MessageSquare,
   Check,
-  Phone,
   User,
   ChevronDown,
 } from 'lucide-react';
 import type { CrmLead } from '../../types/crm';
 import { crmService } from '../../services/crmService';
-import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
+import { followUpBucket } from '../../utils/followUpBuckets';
 
 interface CrmFollowUpViewProps {
   leads: CrmLead[];
@@ -153,27 +151,23 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
     return d.getTime();
   }, []);
 
-  const { todayLeads, scheduledLeads, idleLeads } = useMemo(() => {
+  const { overdueLeads, todayLeads, scheduledLeads, idleLeads } = useMemo(() => {
+    const overdue: CrmLead[] = [];
     const today: CrmLead[] = [];
     const scheduled: CrmLead[] = [];
     const idle: CrmLead[] = [];
 
     for (const lead of activeLeads) {
-      if (!lead.next_follow_up_at) {
-        idle.push(lead);
-        continue;
-      }
-      const t = new Date(lead.next_follow_up_at).getTime();
-      if (Number.isNaN(t)) {
-        idle.push(lead);
-        continue;
-      }
-      if (t <= endOfToday) today.push(lead);
-      else scheduled.push(lead);
+      const bucket = followUpBucket(lead, now);
+      if (bucket === 'overdue') overdue.push(lead);
+      else if (bucket === 'today') today.push(lead);
+      else if (bucket === 'scheduled') scheduled.push(lead);
+      else if (bucket === 'idle') idle.push(lead);
     }
 
     const byTime = (a: CrmLead, b: CrmLead) =>
       new Date(a.next_follow_up_at!).getTime() - new Date(b.next_follow_up_at!).getTime();
+    overdue.sort(byTime);
     today.sort(byTime);
     scheduled.sort(byTime);
     idle.sort(
@@ -182,12 +176,12 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
         new Date(a.last_activity_at || a.updated_at).getTime()
     );
 
-    return { todayLeads: today, scheduledLeads: scheduled, idleLeads: idle };
-  }, [activeLeads, endOfToday]);
+    return { overdueLeads: overdue, todayLeads: today, scheduledLeads: scheduled, idleLeads: idle };
+  }, [activeLeads, now]);
 
   const formatFollowUpTime = (
     iso: string | null | undefined,
-    bucket: 'today' | 'scheduled' | 'idle'
+    bucket: 'today' | 'scheduled' | 'idle' | 'overdue'
   ) => {
     if (!iso) return null;
     const d = new Date(iso);
@@ -234,22 +228,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
     }
   };
 
-  const handleOpenWhatsApp = async (lead: CrmLead) => {
-    const wa = toSafeWhatsAppUrl(lead.wa_url);
-    if (!wa) return;
-    window.open(wa, '_blank', 'noopener,noreferrer');
-    try {
-      await crmService.logWhatsappOpened(lead.id);
-      onOptimisticUpdate?.(lead.id, {
-        whatsapp_opened_at: new Date().toISOString(),
-        contacted: true,
-      });
-    } catch {
-      /* non-blocking */
-    }
-  };
-
-  const renderFollowUpRow = (lead: CrmLead, bucket: 'today' | 'scheduled' | 'idle') => {
+  const renderFollowUpRow = (lead: CrmLead, bucket: 'overdue' | 'today' | 'scheduled' | 'idle') => {
     const timeInfo = formatFollowUpTime(lead.next_follow_up_at, bucket);
     const isSelected = selectedId === lead.id;
     const isRescheduling = rescheduleLeadId === lead.id;
@@ -277,21 +256,10 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
           </p>
         </div>
 
-        {/* Stage & Service Badges */}
         <div className="hidden sm:flex items-center gap-1.5 shrink-0">
           <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 capitalize">
             {lead.stage.replace(/_/g, ' ')}
           </span>
-          {lead.service && (
-            <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-              {lead.service}
-            </span>
-          )}
-          {lead.total_deal_value ? (
-            <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-semibold font-numeric text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-              ${lead.total_deal_value.toLocaleString()}
-            </span>
-          ) : null}
           {lead.assigned_to_name && (
             <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
               <User className="w-3 h-3" />
@@ -315,7 +283,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
               <Clock className="w-3 h-3 shrink-0" />
               <span>{timeInfo.text}</span>
             </span>
-          ) : (
+          ) : bucket === 'idle' ? null : (
             <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
               No follow-up set
             </span>
@@ -327,25 +295,6 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
           className="flex items-center gap-1.5 shrink-0"
           onClick={(e) => e.stopPropagation()}
         >
-          {lead.wa_url ? (
-            <button
-              type="button"
-              onClick={() => void handleOpenWhatsApp(lead)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-semibold transition cursor-pointer border border-emerald-500/20"
-            >
-              <MessageSquare className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">WhatsApp</span>
-            </button>
-          ) : lead.phone_raw ? (
-            <a
-              href={`tel:${lead.phone_raw}`}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 text-zinc-700 dark:text-zinc-300 text-xs font-semibold transition"
-            >
-              <Phone className="w-3.5 h-3.5" />
-              <span className="hidden md:inline">Call</span>
-            </a>
-          ) : null}
-
           <div className="relative">
             <button
               type="button"
@@ -356,7 +305,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
               className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer"
             >
               <Calendar className="w-3.5 h-3.5 text-zinc-500" />
-              <span className="hidden md:inline">Reschedule</span>
+              <span className="hidden md:inline">{bucket === 'idle' ? 'Set follow-up' : 'Reschedule'}</span>
               <ChevronDown className="w-3 h-3 text-zinc-400" />
             </button>
 
@@ -390,27 +339,42 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
 
   return (
     <div className="flex-1 overflow-y-auto p-4 space-y-4">
-      {/* Category 1: Today & Overdue */}
+      {/* Overdue */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-rose-500 motion-safe:animate-pulse" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-            Today &amp; Overdue
-          </h3>
+          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Overdue</h3>
           <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400">
+            {overdueLeads.length}
+          </span>
+        </div>
+        {overdueLeads.length > 0 ? (
+          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+            {overdueLeads.map((l) => renderFollowUpRow(l, 'overdue'))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-6 text-center bg-zinc-50/50 dark:bg-zinc-900/20">
+            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">No overdue follow-ups</p>
+          </div>
+        )}
+      </section>
+
+      {/* Today */}
+      <section className="space-y-2">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-amber-500" />
+          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Today</h3>
+          <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400">
             {todayLeads.length}
           </span>
         </div>
-
         {todayLeads.length > 0 ? (
           <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
             {todayLeads.map((l) => renderFollowUpRow(l, 'today'))}
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-6 text-center bg-zinc-50/50 dark:bg-zinc-900/20">
-            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-              No follow-ups due today
-            </p>
+            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">No follow-ups later today</p>
           </div>
         )}
       </section>
@@ -443,7 +407,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-zinc-400" />
           <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-            No follow-up set
+            Idle
           </h3>
           <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
             {idleLeads.length}

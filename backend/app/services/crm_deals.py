@@ -57,6 +57,22 @@ _WORKSPACE_DRAFT_FIELDS = (
     "lost_reason",
 )
 
+DEAL_REQUIRES_WON_LEAD = "A deal can only be created for a lead that has been marked won."
+
+
+def lead_is_won(lead: Dict[str, Any]) -> bool:
+    """True only when the lead outcome is exactly won, including pending operations approval."""
+    return str(lead.get("outcome") or "").strip() == "won"
+
+
+def assert_lead_can_receive_deal(lead: Dict[str, Any]) -> None:
+    if not lead_is_won(lead):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=DEAL_REQUIRES_WON_LEAD,
+        )
+
+
 _LEGACY_STAGE_MAP = {
     # Old dual-pipeline stages
     "proposal": "opportunity_created",
@@ -191,6 +207,14 @@ def deal_pipeline_stages() -> List[Dict[str, Any]]:
     return list(DEFAULT_DEAL_STAGES)
 
 
+def lead_mirror_from_deal(deal: Dict[str, Any]) -> Dict[str, Any]:
+    """Commercial mirror kept on the lead. The deal's proposal file stays on the deal."""
+    conf = proposal_config_from_deal(deal)
+    for key in ("proposal_url", "proposal_name", "proposal_size"):
+        conf.pop(key, None)
+    return conf
+
+
 def proposal_config_from_deal(deal: Dict[str, Any]) -> Dict[str, Any]:
     """Thin proposal_config mirror kept on the lead for legacy workspace conversion."""
     services = [deal.get("service")] if deal.get("service") else []
@@ -321,7 +345,12 @@ async def create_deal(lead_id: str, payload: CrmDealCreate, user: Dict[str, Any]
     from app.services.crm_leads import append_activity, get_lead_or_404
 
     lead = await get_lead_or_404(lead_id, user)
+    assert_lead_can_receive_deal(lead)
     db = _db()
+    # Re-read at write time so a reopen between the permission check and insert cannot sneak a deal in.
+    still_won = await db.crm_leads.find_one({"id": lead_id, "outcome": "won"}, {"_id": 0, "id": 1})
+    if not still_won:
+        assert_lead_can_receive_deal({"outcome": None})
     now = _now()
     deal_id = f"deal-{uuid.uuid4().hex[:10]}"
 
@@ -376,7 +405,7 @@ async def create_deal(lead_id: str, payload: CrmDealCreate, user: Dict[str, Any]
     doc.pop("_id", None)
 
     # Mirror thin proposal_config on lead for legacy convert path
-    p_conf = proposal_config_from_deal(doc)
+    p_conf = lead_mirror_from_deal(doc)
     await db.crm_leads.update_one(
         {"id": lead_id},
         {"$set": {"proposal_config": p_conf, "updated_at": now}},
@@ -465,7 +494,7 @@ async def update_deal(deal_id: str, payload: CrmDealUpdate, user: Dict[str, Any]
     updated.pop("_id", None)
 
     # Refresh mirrored proposal_config when commercial/workspace fields change
-    p_conf = proposal_config_from_deal(updated)
+    p_conf = lead_mirror_from_deal(updated)
     await db.crm_leads.update_one(
         {"id": lead_id},
         {"$set": {"proposal_config": p_conf, "updated_at": _now()}},
@@ -635,8 +664,8 @@ async def approve_won_deal(
     user: Dict[str, Any],
     payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Ops approve a won deal → create/link Active Client workspace on the lead."""
-    from app.services.crm_leads import append_activity, convert_to_workspace, get_lead_or_404
+    """Operations confirms a deal that was marked won. This does not create a client workspace."""
+    from app.services.crm_leads import append_activity, get_lead_or_404
 
     if not can_manage_outcomes(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operations and admins can approve won deals.")
@@ -672,19 +701,6 @@ async def approve_won_deal(
         ) or existing
         existing.pop("_id", None)
 
-    # Mirror onto lead proposal_config so convert_to_workspace can prefer deal fields
-    p_conf = proposal_config_from_deal(existing)
-    await db.crm_leads.update_one({"id": lead_id}, {"$set": {"proposal_config": p_conf}})
-
-    converted = await convert_to_workspace(
-        lead_id,
-        user,
-        workspace_id=payload.get("workspace_id"),
-        note=payload.get("note"),
-        preferred_deal_id=deal_id,
-    )
-
-    ws_id = converted.get("converted_workspace_id")
     now = _now()
     updated = await db.crm_deals.find_one_and_update(
         {"id": deal_id},
@@ -692,7 +708,6 @@ async def approve_won_deal(
             "$set": {
                 "approval_status": "approved",
                 "payment_cleared": True,
-                "converted_workspace_id": ws_id,
                 "updated_at": now,
             }
         },
@@ -701,14 +716,14 @@ async def approve_won_deal(
     if updated:
         updated.pop("_id", None)
     else:
-        updated = {**existing, "approval_status": "approved", "payment_cleared": True, "converted_workspace_id": ws_id}
+        updated = {**existing, "approval_status": "approved", "payment_cleared": True}
 
     await append_activity(
         lead_id,
         "deal_won_approved",
-        f"Operations approved won deal '{existing.get('title')}' and confirmed payment clearance.",
+        f"Operations confirmed won deal '{existing.get('title')}'.",
         user,
-        {"deal_id": deal_id, "workspace_id": ws_id},
+        {"deal_id": deal_id},
     )
 
     if lead.get("assigned_to"):
@@ -717,14 +732,14 @@ async def approve_won_deal(
             val = float(existing.get("value") or 0.0)
             await notify_users(
                 [lead["assigned_to"]],
-                "✅ Deal Approved!",
-                f"Your deal '{existing.get('title')}' (${val:,.0f}) for {lead.get('name')} was approved by Operations! Client workspace created.",
+                "Deal confirmed",
+                f"Operations confirmed won deal '{existing.get('title')}' (${val:,.0f}) for {lead.get('name')}.",
                 data={"type": "crm_lead", "lead_id": lead_id},
             )
         except Exception as err:
             logger.warning("Failed to notify rep on deal approval: %s", err)
 
-    return serialize_deal(updated, converted)
+    return serialize_deal(updated, lead)
 
 
 async def delete_deal(deal_id: str, user: Dict[str, Any]) -> None:
@@ -783,7 +798,7 @@ async def migrate_proposal_configs_to_deals(user: Optional[Dict[str, Any]] = Non
         p_conf = lead.get("proposal_config") or {}
         stage = lead.get("stage")
 
-        if lid not in leads_with_deals and p_conf:
+        if lid not in leads_with_deals and p_conf and lead_is_won(lead):
             deal_stage = "negotiation" if stage == "negotiation" else "opportunity_created"
             deal_status = "open"
             approval_status = None

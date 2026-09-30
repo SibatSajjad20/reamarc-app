@@ -264,7 +264,7 @@ DEAL_LOST_REASONS = (
     "other",
 )
 
-OUTCOMES = ("won", "lost", "disqualified")
+OUTCOMES = ("won", "lost", "disqualified", "trashed")
 DISQUALIFY_REASONS = ("spam", "test", "competitor", "duplicate", "unqualified")
 LEAD_LOST_REASONS = (
     "budget",
@@ -464,6 +464,7 @@ class CrmLeadUpdate(BaseModel):
     tags: Optional[List[str]] = None
     stage: Optional[str] = None
     next_follow_up_at: Optional[str] = None
+    mark_form_complete: Optional[bool] = None
     proposal_config: Optional[Dict[str, Any]] = None
     attribution: Optional[CrmAttribution] = None
 
@@ -594,6 +595,10 @@ class CrmDisqualifyRequest(BaseModel):
     note: Optional[str] = None
 
 
+class CrmTrashRequest(BaseModel):
+    reason: str = Field(..., min_length=1, max_length=2000)
+
+
 class CrmOutcomeRequest(BaseModel):
     outcome: str = Field(..., description="won or lost")
     note: Optional[str] = None
@@ -643,6 +648,7 @@ class CrmLeadResponse(BaseModel):
     employee_count: Optional[str] = None
     sales_team: Optional[str] = None
     help_with: List[str] = Field(default_factory=list)
+    help_other: Optional[str] = None
     objective: Optional[str] = None
     start_timeline: Optional[str] = None
     brief: Optional[str] = None
@@ -652,6 +658,8 @@ class CrmLeadResponse(BaseModel):
     outcome: Optional[str] = None
     disqualify_reason: Optional[str] = None
     lost_reason: Optional[str] = None
+    trash_reason: Optional[str] = None
+    form_completed_at: Optional[str] = None
     approval_status: Optional[str] = None
     payment_cleared: bool = False
     proposal_config: Optional[Dict[str, Any]] = None
@@ -688,6 +696,77 @@ class CrmApproveWonRequest(BaseModel):
     services: Optional[List[str]] = None
     project_cycle: Optional[str] = None
     note: Optional[str] = None
+
+
+class CrmRegisterClientRequest(BaseModel):
+    """Same fields as the admin Add Client Workspace form. The proposal here is the client's, not a deal's."""
+
+    name: str = Field(..., min_length=1, max_length=120)
+    initials: Optional[str] = Field(None, max_length=8)
+    brandColor: Optional[str] = Field("#4f46e5", max_length=32)
+    status: str = "active"
+    proposal_url: Optional[str] = None
+    proposal_name: Optional[str] = None
+    proposal_size: Optional[int] = None
+    project_cycle: str = "Retainer"
+    priority: str = "Medium"
+    health: str = "Good"
+    contract_start_date: str = Field(..., min_length=1, max_length=40)
+    contract_end_date: str = Field(..., min_length=1, max_length=40)
+    services: List[str] = Field(default_factory=list)
+    poc_name: Optional[str] = None
+    poc_email: Optional[str] = None
+    poc_phone: Optional[str] = None
+    billing_name: Optional[str] = None
+    billing_email: Optional[str] = None
+    billing_phone: Optional[str] = None
+
+    @field_validator("proposal_url")
+    @classmethod
+    def validate_client_proposal_url(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_url_scheme(v)
+
+    @field_validator("status")
+    @classmethod
+    def validate_client_status(cls, v: str) -> str:
+        if v not in ("active", "inactive"):
+            raise ValueError("Status must be active or inactive.")
+        return v
+
+    @field_validator("project_cycle")
+    @classmethod
+    def validate_client_cycle(cls, v: str) -> str:
+        if v not in ("Retainer", "One-Time Project"):
+            raise ValueError("Project cycle must be Retainer or One-Time Project.")
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def validate_client_priority(cls, v: str) -> str:
+        if v not in ("High", "Medium", "Low"):
+            raise ValueError("Invalid priority.")
+        return v
+
+    @field_validator("health")
+    @classmethod
+    def validate_client_health(cls, v: str) -> str:
+        if v not in ("Excellent", "Good", "Moderate", "Emergency"):
+            raise ValueError("Invalid health.")
+        return v
+
+    @field_validator("services")
+    @classmethod
+    def validate_client_services(cls, v: List[str]) -> List[str]:
+        cleaned = [str(item).strip() for item in v or [] if str(item).strip()]
+        if not cleaned:
+            raise ValueError("Select at least one service.")
+        return cleaned
+
+    @model_validator(mode="after")
+    def validate_contract_dates(self):
+        if self.contract_end_date.strip() < self.contract_start_date.strip():
+            raise ValueError("Contract end date cannot be earlier than contract start date.")
+        return self
 
 
 class CrmReopenRequest(BaseModel):

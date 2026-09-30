@@ -138,7 +138,7 @@ export const DealModal: React.FC<DealModalProps> = ({
               <View style={[styles.inputGroup, { flex: 1 }]}>
                 <Text style={styles.label}>Currency</Text>
                 <View style={styles.currencyToggle}>
-                  {['USD', 'PKR', 'AED'].map((c) => (
+                  {['PKR', 'USD'].map((c) => (
                     <TouchableOpacity
                       key={c}
                       style={[styles.currencyBtn, currency === c ? styles.currencyBtnActive : null]}

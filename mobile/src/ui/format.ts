@@ -94,22 +94,22 @@ export function isMissedAlert(kind?: string | null) {
   return key === 'late_checkin' || key.includes('missed');
 }
 
-/** Display names for pipeline stages — avoids reusing “Contacted” for outreach. */
+/** Same labels the web pipeline shows for these stage ids. */
 const CRM_STAGE_LABELS: Record<string, string> = {
   new: 'New',
-  contacted: 'Reached',
+  contacted: 'Contacted',
   qualified: 'Qualified',
-  session_booked: 'Meeting booked',
-  session_done: 'Meeting done',
+  session_booked: 'Meeting Booked',
+  session_done: 'Meeting Completed',
   opportunity_created: 'Opportunity',
-  requirement_confirmed: 'Requirements',
-  proposal_sent: 'Proposal sent',
+  requirement_confirmed: 'Requirement Confirmed',
+  proposal_sent: 'Proposal',
   negotiation: 'Negotiation',
-  verbal_approval: 'Verbal yes',
-  contract_sent: 'Contract sent',
-  contract_signed: 'Signed',
-  payment_pending: 'Payment pending',
-  payment_done: 'Paid',
+  verbal_approval: 'Verbal Approval',
+  contract_sent: 'Contract / Agreement Sent',
+  contract_signed: 'Contract Signed',
+  payment_pending: 'Payment Pending',
+  payment_done: 'Payment Done',
 };
 
 export function titleCaseName(name?: string | null): string {
@@ -119,6 +119,29 @@ export function titleCaseName(name?: string | null): string {
     .split(/\s+/)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
     .join(' ');
+}
+
+const DEAL_SYMBOLS: Record<string, string> = {
+  USD: '$',
+  PKR: '₨',
+};
+
+export function formatDealMoney(value: number | null | undefined, currency?: string | null): string {
+  const code = (currency || 'PKR').trim().toUpperCase() || 'PKR';
+  const amount = Number(value || 0).toLocaleString(undefined, { maximumFractionDigits: 0 });
+  const symbol = DEAL_SYMBOLS[code];
+  if (symbol) return `${symbol}${amount}`;
+  return `${code} ${amount}`;
+}
+
+export function formatLeadOutcome(outcome?: string | null): string {
+  const key = String(outcome || '').toLowerCase();
+  if (key === 'trashed') return 'Trashed';
+  if (key === 'disqualified') return 'Disqualified';
+  if (key === 'won') return 'Won';
+  if (key === 'lost') return 'Lost';
+  if (!key) return '';
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 export function formatCrmStage(stage?: string | null): string {

@@ -3,7 +3,8 @@ import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
 import type { CrmLead } from '../../types/crm';
-import { formatCrmStage, getOutreachStatus, titleCaseName } from '../../ui/format';
+import { formatCrmStage, formatLeadOutcome, getOutreachStatus, titleCaseName } from '../../ui/format';
+import { formatFollowUpStamp } from '../../lib/followUpBuckets';
 
 interface LeadCardProps {
   lead: CrmLead;
@@ -68,7 +69,7 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
                   lead.outcome === 'won' ? styles.wonText : styles.lostText,
                 ]}
               >
-                {lead.outcome.toUpperCase()}
+                {formatLeadOutcome(lead.outcome)}
               </Text>
             </View>
           ) : onChangeStage ? (
@@ -93,6 +94,11 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
       </View>
 
       <View style={styles.tagsRow}>
+        {lead.next_follow_up_at ? (
+          <View style={styles.metaChip}>
+            <Text style={styles.metaChipText}>{formatFollowUpStamp(lead.next_follow_up_at)}</Text>
+          </View>
+        ) : null}
         <View style={styles.metaChip}>
           <Text style={styles.metaChipText}>{titleCaseName(lead.source) || 'Lead'}</Text>
         </View>
@@ -204,7 +210,7 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
         </View>
 
         <View style={styles.buttonsContainer}>
-          {isUnassigned && onClaim ? (
+          {!isClosed && isUnassigned && onClaim ? (
             <TouchableOpacity
               style={styles.claimButton}
               onPress={() => onClaim(lead)}
@@ -214,7 +220,7 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
             </TouchableOpacity>
           ) : null}
 
-          {lead.phone_valid ? (
+          {!isClosed && lead.phone_valid ? (
             <>
               <TouchableOpacity
                 style={styles.iconAction}
@@ -233,9 +239,9 @@ export const LeadCard: React.FC<LeadCardProps> = memo(({
                 <Ionicons name="call" size={17} color={colors.indigo} />
               </TouchableOpacity>
             </>
-          ) : (
+          ) : !isClosed ? (
             <Text style={styles.noPhoneText}>No phone</Text>
-          )}
+          ) : null}
         </View>
       </View>
     </TouchableOpacity>

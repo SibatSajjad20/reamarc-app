@@ -234,6 +234,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
   onSave,
 }) => {
   const isEdit = Boolean(deal?.id);
+  const createBlocked = !isEdit && lead?.outcome !== 'won';
   const [workspaceName, setWorkspaceName] = useState('');
   const [brandColor, setBrandColor] = useState('#4f46e5');
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
@@ -306,36 +307,37 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
       return;
     }
 
-    const existing = lead.proposal_config || {};
-    setWorkspaceName(existing.workspace_name || lead.company || lead.name || '');
-    setBrandColor(existing.brand_color || '#4f46e5');
-    setSelectedServices(
-      existing.services || (lead.service ? [lead.service] : ['Website Dev'])
+    // A new deal starts blank. The lead's saved proposal is the previous deal.
+    const alreadyHasDeal = Boolean(
+      lead.proposal_config?.source_deal_id || (lead.deals_count || 0) > 0 || (lead.deals || []).length
     );
-    setProjectCycle(existing.project_cycle || 'Retainer');
-    setPriority(existing.priority || 'Medium');
-    setBudget(existing.budget || lead.budget || '');
-    setContractStartDate(existing.contract_start_date || new Date().toISOString().slice(0, 10));
-    setContractEndDate(existing.contract_end_date || '');
+    setError(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    setWorkspaceName(lead.company || lead.name || '');
+    setBrandColor('#4f46e5');
+    setSelectedServices(alreadyHasDeal ? [] : lead.service ? [lead.service] : []);
+    setProjectCycle('Retainer');
+    setPriority('Medium');
+    setBudget(alreadyHasDeal ? '' : lead.budget || '');
+    setContractStartDate(new Date().toISOString().slice(0, 10));
+    setContractEndDate('');
 
-    setPocName(existing.poc_name || lead.name || '');
-    setPocEmail(existing.poc_email || lead.email || '');
-    setPocPhone(existing.poc_phone || lead.phone_e164 || lead.phone_raw || '');
+    setPocName(lead.name || '');
+    setPocEmail(lead.email || '');
+    setPocPhone(lead.phone_e164 || lead.phone_raw || '');
 
-    setBillingName(existing.billing_name || existing.poc_name || lead.name || '');
-    setBillingEmail(existing.billing_email || existing.poc_email || lead.email || '');
-    setBillingPhone(
-      existing.billing_phone || existing.poc_phone || lead.phone_e164 || lead.phone_raw || ''
-    );
+    setBillingName(lead.name || '');
+    setBillingEmail(lead.email || '');
+    setBillingPhone(lead.phone_e164 || lead.phone_raw || '');
 
-    setProposalUrl(existing.proposal_url || null);
-    setProposalName(existing.proposal_name || null);
-    setProposalSize(existing.proposal_size || null);
-    setProposalNotes(existing.proposal_notes || '');
+    setProposalUrl(null);
+    setProposalName(null);
+    setProposalSize(null);
+    setProposalNotes('');
     setDealType('new_business');
     setProbability(60);
     setExpectedRevenueManual(false);
-    const seedValue = parseBudgetValue(existing.budget || lead.budget || '');
+    const seedValue = parseBudgetValue(lead.budget || '');
     setExpectedRevenue(Math.round((seedValue * 60) / 100));
     setExpectedCloseDate('');
     setPaymentStatus('pending');
@@ -391,6 +393,10 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isEdit && lead?.outcome !== 'won') {
+      setError('Mark this lead as won before creating a deal.');
+      return;
+    }
     if (!workspaceName.trim()) {
       setError('Client / Workspace Name is required.');
       return;
@@ -477,6 +483,12 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
         </header>
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-6">
+          {createBlocked && (
+            <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-200">
+              This lead is not won yet. Mark it as won before a deal can be created.
+            </div>
+          )}
+
           {error && (
             <div className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300">
               {error}
@@ -896,7 +908,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || createBlocked}
             className="px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
           >
             {isSubmitting ? (

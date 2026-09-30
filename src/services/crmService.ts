@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import type { WorkspaceCreatePayload } from './workspaceService';
 import type {
   CrmApproveWonPayload,
   CrmAssignee,
@@ -31,6 +32,8 @@ export interface CrmLeadQuery {
   assigned_to?: string;
   include_junk?: boolean;
   uncontacted?: boolean;
+  outcome?: string;
+  limit?: number;
 }
 
 function toQuery(params?: CrmLeadQuery): string {
@@ -41,6 +44,8 @@ function toQuery(params?: CrmLeadQuery): string {
   if (params.assigned_to) sp.set('assigned_to', params.assigned_to);
   if (params.include_junk) sp.set('include_junk', 'true');
   if (params.uncontacted) sp.set('uncontacted', 'true');
+  if (params.outcome) sp.set('outcome', params.outcome);
+  if (params.limit) sp.set('limit', String(params.limit));
   const q = sp.toString();
   return q ? `?${q}` : '';
 }
@@ -83,6 +88,10 @@ export const crmService = {
     return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/assign`, { user_id: userId });
   },
 
+  trashLead(id: string, reason: string): Promise<CrmLead> {
+    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/trash`, { reason });
+  },
+
   disqualifyLead(id: string, reason: string, note?: string): Promise<CrmLead> {
     return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/disqualify`, { reason, note });
   },
@@ -99,6 +108,10 @@ export const crmService = {
     return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/convert`, {
       workspace_id: workspaceId || null,
     });
+  },
+
+  registerClient(id: string, payload: WorkspaceCreatePayload): Promise<CrmLead> {
+    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/register-client`, payload);
   },
 
   approveWonLead(id: string, payload?: CrmApproveWonPayload): Promise<CrmLead> {

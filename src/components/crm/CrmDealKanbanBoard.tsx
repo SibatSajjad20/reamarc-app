@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import type { CrmDeal, CrmPipelineStage } from '../../types/crm';
+import { formatDealMoney } from '../../utils/money';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
 
@@ -24,7 +25,7 @@ interface CrmDealKanbanBoardProps {
   onLost: (dealId: string) => Promise<void>;
   onReopen?: (dealId: string, stage?: string) => Promise<void>;
   onApproveWon?: (dealId: string) => Promise<void>;
-  onCreateDeal?: () => void;
+  createDealAction?: React.ReactNode;
 }
 
 function formatStageTitle(name: string): string {
@@ -44,12 +45,11 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
   onLost,
   onReopen,
   onApproveWon,
-  onCreateDeal,
+  createDealAction,
 }) => {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [showClosed, setShowClosed] = useState(false);
 
   const openStages = useMemo(
     () => [...stages].sort((a, b) => a.order - b.order),
@@ -75,8 +75,6 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
     }
     return map;
   }, [deals, openStages]);
-
-  const closedCount = (byStage['won']?.length || 0) + (byStage['lost']?.length || 0);
 
   const drop = async (target: DropTarget) => {
     if (!draggingId) return;
@@ -130,8 +128,8 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
       currentStageIndex >= 0 &&
       currentStageIndex < openStages.length - 1;
     const nextStage = hasNextStage ? openStages[currentStageIndex + 1] : null;
-    const pendingOps =
-      isWon && deal.approval_status === 'pending_operations' && !deal.converted_workspace_id;
+    const pendingOps = isWon && deal.approval_status === 'pending_operations';
+    const confirmed = isWon && deal.approval_status === 'approved';
 
     return (
       <article
@@ -180,8 +178,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
             <span className={NEUTRAL_METADATA_BADGE_COMPACT_CLASS}>{deal.service}</span>
           )}
           <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} font-numeric font-semibold`}>
-            {deal.currency === 'PKR' ? '₨' : '$'}
-            {Number(deal.value || 0).toLocaleString()}
+            {formatDealMoney(deal.value, deal.currency)}
           </span>
           {deal.probability != null && (
             <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} font-numeric`}>
@@ -197,10 +194,10 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
 
         {isWon && (
           <div className="mt-2">
-            {deal.converted_workspace_id ? (
+            {confirmed ? (
               <div className="flex items-center gap-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
                 <CheckCircle2 className="w-3 h-3" />
-                <span>Workspace active</span>
+                <span>Confirmed</span>
               </div>
             ) : pendingOps ? (
               <div className="flex items-center justify-between gap-2">
@@ -217,7 +214,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                     }}
                     className="text-[11px] font-bold h-7 px-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-500 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                   >
-                    Approve
+                    Confirm
                   </button>
                 )}
               </div>
@@ -349,18 +346,6 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           );
         })}
 
-        <div className="min-w-[120px] flex-shrink-0 flex flex-col gap-2 py-1">
-          <button
-            type="button"
-            onClick={() => setShowClosed((v) => !v)}
-            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 whitespace-nowrap"
-          >
-            {showClosed ? 'Hide closed' : `Closed (${closedCount})`}
-          </button>
-        </div>
-
-        {showClosed && (
-          <>
             <div
               className={`${columnClass('outcome:won')} flex flex-col max-h-full`}
               onDragOver={(e) => {
@@ -412,25 +397,17 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                 )}
               </div>
             </div>
-          </>
-        )}
       </div>
 
-      {totalOpen === 0 && deals.length === 0 && onCreateDeal && (
+      {totalOpen === 0 && deals.length === 0 && createDealAction && (
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="pointer-events-auto text-center p-6 rounded-xl border border-dashed border-zinc-300 dark:border-zinc-700 bg-white/90 dark:bg-zinc-950/90 max-w-sm">
             <Briefcase className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
             <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">No deals yet</p>
             <p className="text-xs text-zinc-500 mt-1 mb-3">
-              Create a deal from a qualified lead to start the commercial pipeline.
+              A deal can only be created for a lead that has already been marked won.
             </p>
-            <button
-              type="button"
-              onClick={onCreateDeal}
-              className="h-8 px-3.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-            >
-              Create Deal
-            </button>
+            <div className="inline-flex justify-center">{createDealAction}</div>
           </div>
         </div>
       )}

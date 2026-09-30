@@ -3,6 +3,7 @@ import { CheckCircle2, ChevronRight, Clock, RotateCcw, Sparkles, XCircle } from 
 import { getInitials, NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import type { CrmLead, CrmPipelineStage } from '../../types/crm';
 import { CrmStatusDot } from './CrmStatusBadge';
+import { formatLeadOpenValue } from '../../utils/money';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
 
@@ -41,7 +42,6 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
-  const [showClosed, setShowClosed] = useState(false);
 
   const openStages = useMemo(
     () => [...stages].sort((a, b) => a.order - b.order),
@@ -53,12 +53,15 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
     for (const s of openStages) map[s.id] = [];
     map['won'] = [];
     map['lost'] = [];
+    map['trash'] = [];
 
     for (const lead of leads) {
       if (lead.outcome === 'won') {
         map['won'].push(lead);
-      } else if (lead.outcome === 'lost' || lead.outcome === 'disqualified') {
+      } else if (lead.outcome === 'lost') {
         map['lost'].push(lead);
+      } else if (lead.outcome === 'trashed' || lead.outcome === 'disqualified') {
+        map['trash'].push(lead);
       } else {
         const stage = lead.stage || 'new';
         if (!map[stage]) map[stage] = [];
@@ -68,7 +71,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
     return map;
   }, [leads, openStages]);
 
-  const closedCount = (byStage['won']?.length || 0) + (byStage['lost']?.length || 0);
+  const [pendingMove, setPendingMove] = useState<{ id: string; stage: string; name: string; label: string } | null>(null);
 
   const drop = async (target: DropTarget) => {
     if (!draggingId) return;
@@ -79,16 +82,17 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
 
     if (target.kind === 'stage') {
       if (lead.stage === target.stage && !lead.outcome) return;
-      setBusyId(lead.id);
-      try {
-        if (lead.outcome && onReopen) {
+      if (lead.outcome && onReopen) {
+        setBusyId(lead.id);
+        try {
           await onReopen(lead.id, target.stage);
-        } else {
-          await onMoveStage(lead.id, target.stage);
+        } finally {
+          setBusyId(null);
         }
-      } finally {
-        setBusyId(null);
+        return;
       }
+      const label = openStages.find((stage) => stage.id === target.stage)?.name || target.stage;
+      setPendingMove({ id: lead.id, stage: target.stage, name: lead.name, label });
       return;
     }
 
@@ -117,7 +121,8 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
       lead.next_follow_up_at && new Date(lead.next_follow_up_at).getTime() < Date.now();
     const isSelected = selectedId === lead.id;
     const isWon = lead.outcome === 'won';
-    const isLost = lead.outcome === 'lost' || lead.outcome === 'disqualified';
+    const isLost = lead.outcome === 'lost';
+    const isTrash = lead.outcome === 'trashed' || lead.outcome === 'disqualified';
     const hasNextStage =
       currentStageIndex !== undefined &&
       currentStageIndex >= 0 &&
@@ -137,7 +142,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         className={`group relative rounded-lg border bg-white dark:bg-zinc-950 p-2.5 transition-all cursor-grab active:cursor-grabbing ${
           isWon
             ? 'border-emerald-500/30 dark:border-emerald-500/20'
-            : isLost
+              : isLost || isTrash
               ? 'border-rose-500/30 dark:border-rose-500/20 opacity-85'
               : 'border-zinc-200/90 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
         } ${isSelected ? 'ring-2 ring-indigo-500 border-indigo-500' : ''} ${
@@ -152,12 +157,12 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             <span className="inline-flex items-center gap-1 text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60 shrink-0">
               Won
             </span>
-          ) : isLost ? (
+          ) : isLost || isTrash ? (
             <span
               className="inline-flex items-center text-[11px] font-semibold px-1.5 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/60 shrink-0 capitalize max-w-[72px] truncate"
-              title={lead.lost_reason || lead.disqualify_reason || 'Lost'}
+              title={lead.trash_reason || lead.lost_reason || lead.disqualify_reason || (isTrash ? 'Trash' : 'Lost')}
             >
-              {lead.lost_reason || lead.disqualify_reason || 'Lost'}
+              {isTrash ? 'Trash' : lead.lost_reason || 'Lost'}
             </span>
           ) : (
             <CrmStatusDot lead={lead} />
@@ -175,7 +180,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             )}
             {lead.total_deal_value ? (
               <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} font-numeric font-semibold`}>
-                ${lead.total_deal_value.toLocaleString()}
+                {formatLeadOpenValue(lead)}
                 {lead.deals_count && lead.deals_count > 1 ? ` (${lead.deals_count})` : ''}
               </span>
             ) : lead.budget ? (
@@ -202,8 +207,10 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
 
         {!lead.outcome && lead.next_follow_up_at && (
           <div
-            className={`mt-1.5 flex items-center gap-1 text-[11px] font-numeric ${
-              isOverdue ? 'text-rose-600 dark:text-rose-400 font-semibold' : 'text-zinc-400'
+            className={`mt-1.5 inline-flex items-center gap-1 text-[11px] font-bold font-numeric px-2 py-0.5 rounded-full border ${
+              isOverdue
+                ? 'text-rose-700 dark:text-rose-300 bg-rose-100 dark:bg-rose-950/60 border-rose-300 dark:border-rose-800 motion-safe:animate-pulse'
+                : 'text-amber-800 dark:text-amber-200 bg-amber-100 dark:bg-amber-950/50 border-amber-300 dark:border-amber-800'
             }`}
           >
             <Clock className="w-3 h-3" />
@@ -229,7 +236,12 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                 aria-label={`Advance to ${formatStageTitle(nextStage.name)}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  void onMoveStage(lead.id, nextStage.id);
+                  setPendingMove({
+                    id: lead.id,
+                    stage: nextStage.id,
+                    name: lead.name,
+                    label: formatStageTitle(nextStage.name),
+                  });
                 }}
                 className="inline-flex items-center justify-center size-7 rounded-md bg-zinc-100 hover:bg-indigo-50 dark:bg-zinc-800 dark:hover:bg-indigo-950/50 text-zinc-600 hover:text-indigo-700 dark:text-zinc-300 dark:hover:text-indigo-300 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
               >
@@ -355,18 +367,6 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
           );
         })}
 
-        <div className="min-w-[120px] flex-shrink-0 flex flex-col gap-2 py-1">
-          <button
-            type="button"
-            onClick={() => setShowClosed((v) => !v)}
-            className="h-9 px-3 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 whitespace-nowrap"
-          >
-            {showClosed ? 'Hide closed' : `Closed (${closedCount})`}
-          </button>
-        </div>
-
-        {showClosed && (
-          <>
             <section
               className={`${columnClass('outcome:won')} flex flex-col max-h-full border-emerald-500/20`}
               onDragOver={(e) => {
@@ -418,9 +418,48 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                 )}
               </div>
             </section>
-          </>
-        )}
+
+            <section className={`${columnClass('outcome:trash')} flex flex-col max-h-full border-zinc-400/30`}>
+              <header className="px-3 py-2.5 border-b border-zinc-200/80 dark:border-zinc-800/80 flex items-center justify-between gap-2">
+                <h3 className="text-xs font-bold text-zinc-700 dark:text-zinc-200">Trash</h3>
+                <span className="font-numeric text-[11px] font-bold px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+                  {(byStage['trash'] || []).length}
+                </span>
+              </header>
+              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+                {(byStage['trash'] || []).map((lead) => renderCard(lead))}
+                {(byStage['trash'] || []).length === 0 && (
+                  <div className="h-20 flex items-center justify-center text-[11px] text-zinc-400">None</div>
+                )}
+              </div>
+            </section>
       </div>
+      {pendingMove && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-4 shadow-xl">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Move {pendingMove.name} to {pendingMove.label}?
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setPendingMove(null)} className="h-8 px-3 rounded-lg text-xs font-semibold text-zinc-600 cursor-pointer">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const move = pendingMove;
+                  setPendingMove(null);
+                  setBusyId(move.id);
+                  void onMoveStage(move.id, move.stage).finally(() => setBusyId(null));
+                }}
+                className="h-8 px-3 rounded-lg text-xs font-semibold bg-indigo-600 text-white cursor-pointer"
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

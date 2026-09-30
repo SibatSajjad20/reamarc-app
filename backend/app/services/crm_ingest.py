@@ -24,6 +24,8 @@ from app.services.meta_ads import META_GRAPH_BASE_URL, _execute_meta_request_wit
 logger = logging.getLogger("app.crm.ingest")
 
 DEDUPE_WINDOW_DAYS = 30
+# A finished deal starts a new sales cycle. Junk stays attached so it cannot re-enter.
+_CLOSED_DEAL_OUTCOMES = ("won", "lost")
 INGEST_MAX_BODY_BYTES = 65_536
 INGEST_MAX_CUSTOM_FIELDS = 40
 INGEST_MAX_FIELD_CHARS = 2_000
@@ -501,7 +503,11 @@ async def find_recent_duplicate(
     email: Optional[str],
     external_id: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
-    """Match external_id (any age) or phone/email within 30 days."""
+    """Match external_id (any age) or phone/email within 30 days.
+
+    The same external id still matches a won or lost lead, so a poll replay
+    does not create another card. A later enquiry with a new id does.
+    """
     db = _db()
     if external_id:
         hit = await db.crm_leads.find_one({"external_id": external_id}, {"_id": 0})
@@ -518,7 +524,11 @@ async def find_recent_duplicate(
         return None
 
     cursor = db.crm_leads.find(
-        {"$or": clauses, "created_at": {"$gte": cutoff}},
+        {
+            "$or": clauses,
+            "created_at": {"$gte": cutoff},
+            "outcome": {"$nin": list(_CLOSED_DEAL_OUTCOMES)},
+        },
         {"_id": 0},
     ).sort("created_at", -1)
     rows = await cursor.to_list(5)
@@ -530,6 +540,34 @@ async def find_recent_duplicate(
         if created and created >= window_start:
             return row
     return None
+
+
+def _same_external_replay(existing: Dict[str, Any], ext: Optional[str]) -> bool:
+    """True when this payload is the lead we already stored, seen again.
+
+    Meta's backup poll and webhook retries resend the same leadgen id.
+    That is not a new submission and must not touch the timeline.
+    """
+    incoming = (ext or "").strip()
+    stored = str(existing.get("external_id") or "").strip()
+    return bool(incoming) and incoming == stored
+
+
+async def _duplicate_submission_already_logged(lead_id: str, ext: Optional[str]) -> bool:
+    """One timeline row per incoming id that matched a different lead."""
+    incoming = (ext or "").strip()
+    if not incoming:
+        return False
+    db = _db()
+    hit = await db.crm_activities.find_one(
+        {
+            "lead_id": lead_id,
+            "type": "duplicate_ingest",
+            "meta.external_id": incoming,
+        },
+        {"_id": 1},
+    )
+    return hit is not None
 
 
 async def ingest_lead(
@@ -565,17 +603,21 @@ async def ingest_lead(
             external_id=ext,
         )
     if existing:
-        await append_activity(
-            existing["id"],
-            "duplicate_ingest",
-            f"Duplicate ingest from {source_label} for {normalized.get('name')}.",
-            SYSTEM_ACTOR,
-            {
-                "source": source_label,
-                "ingest_source_id": ingest_source_id,
-                "external_id": ext,
-            },
-        )
+        # Same external id: poll or webhook replay. Do not write activity
+        # and do not bump last_activity_at (append_activity is what does that).
+        if not _same_external_replay(existing, ext):
+            if not await _duplicate_submission_already_logged(existing["id"], ext):
+                await append_activity(
+                    existing["id"],
+                    "duplicate_ingest",
+                    f"Duplicate ingest from {source_label} for {normalized.get('name')}.",
+                    SYSTEM_ACTOR,
+                    {
+                        "source": source_label,
+                        "ingest_source_id": ingest_source_id,
+                        "external_id": ext,
+                    },
+                )
         if ingest_source_id:
             await _touch_source(ingest_source_id)
         return {
@@ -634,13 +676,8 @@ async def ingest_lead(
         if ext:
             raced = await db.crm_leads.find_one({"external_id": ext}, {"_id": 0})
             if raced:
-                await append_activity(
-                    raced["id"],
-                    "duplicate_ingest",
-                    f"Concurrent duplicate ingest from {source_label}.",
-                    SYSTEM_ACTOR,
-                    {"external_id": ext},
-                )
+                # The other writer already stored this external id and its
+                # created event. A second timeline row would be a replay.
                 return {"lead": serialize_lead(raced), "created": False, "duplicate": True}
         logger.exception("CRM ingest insert failed: %s", err)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not store lead.") from err
@@ -738,6 +775,27 @@ def meta_field_data_to_dict(field_data: Any) -> Dict[str, Any]:
         if tail and tail not in out:
             out[tail] = value
     return out
+
+
+_META_TEST_LEAD_MARKER = "test lead: dummy data"
+
+
+def is_meta_test_lead(fields: Optional[Dict[str, Any]]) -> bool:
+    """True for Meta's Lead Ads test tool, which fills answers with dummy placeholders.
+
+    A real submission never uses that marker. Skipping it here stops the backup
+    poll from recreating the same test lead after someone deletes it.
+    """
+    if not isinstance(fields, dict):
+        return False
+    for value in fields.values():
+        if isinstance(value, str) and _META_TEST_LEAD_MARKER in value.lower():
+            return True
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and _META_TEST_LEAD_MARKER in item.lower():
+                    return True
+    return False
 
 
 def meta_source_label(platform: Optional[str]) -> str:
@@ -847,6 +905,9 @@ async def ingest_meta_leadgen(
 
     meta = await fetch_meta_lead(leadgen_id, access_token=creds["access_token"])
     fields = meta_field_data_to_dict(meta.get("field_data"))
+    if is_meta_test_lead(fields):
+        logger.info("Skipping Meta test lead %s", leadgen_id)
+        return {"created": False, "duplicate": False, "skipped": True, "reason": "meta_test_lead"}
     campaign = meta.get("campaign_name") or meta.get("ad_name") or creds.get("default_campaign")
     source = meta_source_label(platform or meta.get("platform"))
 
@@ -951,7 +1012,9 @@ async def process_meta_webhook_payload(payload: Dict[str, Any]) -> Dict[str, Any
                     page_id=value.get("page_id") or entry.get("id"),
                     platform=value.get("platform"),
                 )
-                if result.get("duplicate"):
+                if result.get("skipped"):
+                    skipped += 1
+                elif result.get("duplicate"):
                     duplicates += 1
                 elif result.get("created"):
                     created += 1
@@ -1012,6 +1075,9 @@ async def poll_meta_form_leads(
             skipped += 1
             continue
         fields = meta_field_data_to_dict(item.get("field_data"))
+        if is_meta_test_lead(fields):
+            skipped += 1
+            continue
         source = meta_source_label(item.get("platform"))
         result = await ingest_lead(
             fields=fields,

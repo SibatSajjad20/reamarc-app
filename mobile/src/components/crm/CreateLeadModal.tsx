@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,14 +14,16 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../../theme';
-import type { CrmAssignee, CrmLeadCreatePayload } from '../../types/crm';
+import type { CrmAssignee, CrmLead, CrmLeadCreatePayload } from '../../types/crm';
 
 interface CreateLeadModalProps {
   visible: boolean;
   assignees: CrmAssignee[];
   canAssign: boolean;
+  mode?: 'create' | 'edit';
+  initialLead?: CrmLead | null;
   onClose: () => void;
-  onSubmit: (payload: CrmLeadCreatePayload) => Promise<void>;
+  onSubmit: (payload: CrmLeadCreatePayload & { mark_form_complete?: boolean }) => Promise<void>;
 }
 
 const SOURCES = ['manual', 'website', 'referral', 'meta', 'google', 'other'];
@@ -34,43 +37,126 @@ const OBJECTIVES = ['Launch a new project / business', 'Improve branding / rebra
 const STARTS = ['Immediately', 'Within 30 days', '1-3 months', '3-6 months', 'Just researching'];
 const BUDGETS = ['Under PKR 100K / month', 'PKR 100K-250K / month', 'PKR 250K-500K / month', 'PKR 500K-1M / month', 'PKR 1M-2.5M / month', 'PKR 2.5M-5M / month', 'PKR 5M+ / month', 'Not decided yet', 'Prefer to discuss with our sales team'];
 
-function ChoiceRow({
+function DropdownField({
   label,
   options,
   value,
   onChange,
   required,
+  placeholder = 'Select',
 }: {
   label: string;
-  options: string[];
+  options: { value: string; label: string }[];
   value: string;
   onChange: (value: string) => void;
   required?: boolean;
+  placeholder?: string;
 }) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((item) => item.value === value);
   return (
     <View style={styles.inputGroup}>
       <Text style={styles.label}>
         {label} {required ? <Text style={styles.required}>*</Text> : null}
       </Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-        {options.map((item) => (
-          <TouchableOpacity
-            key={item}
-            style={[styles.chip, value === item ? styles.chipActive : null]}
-            onPress={() => onChange(value === item ? '' : item)}
-          >
-            <Text style={[styles.chipText, value === item ? styles.chipTextActive : null]}>{item}</Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      <TouchableOpacity style={styles.dropdown} onPress={() => setOpen(true)}>
+        <Text numberOfLines={1} style={selected ? styles.dropdownValue : styles.dropdownPlaceholder}>
+          {selected?.label || placeholder}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="#71717A" />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setOpen(false)}>
+          <Pressable style={styles.menuCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.menuTitle}>{label}</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {options.map((item) => (
+                <TouchableOpacity
+                  key={item.value || 'blank'}
+                  style={styles.menuRow}
+                  onPress={() => {
+                    onChange(item.value);
+                    setOpen(false);
+                  }}
+                >
+                  <Text style={[styles.menuRowText, item.value === value ? styles.menuRowTextActive : null]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
+}
+
+function MultiDropdownField({
+  label,
+  options,
+  values,
+  onChange,
+  required,
+}: {
+  label: string;
+  options: string[];
+  values: string[];
+  onChange: (values: string[]) => void;
+  required?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <View style={styles.inputGroup}>
+      <Text style={styles.label}>
+        {label} {required ? <Text style={styles.required}>*</Text> : null}
+      </Text>
+      <TouchableOpacity style={styles.dropdown} onPress={() => setOpen(true)}>
+        <Text numberOfLines={1} style={values.length ? styles.dropdownValue : styles.dropdownPlaceholder}>
+          {values.length ? values.join(', ') : 'Select'}
+        </Text>
+        <Ionicons name="chevron-down" size={16} color="#71717A" />
+      </TouchableOpacity>
+      <Modal visible={open} transparent animationType="fade" onRequestClose={() => setOpen(false)}>
+        <Pressable style={styles.menuBackdrop} onPress={() => setOpen(false)}>
+          <Pressable style={styles.menuCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.menuTitle}>{label}</Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {options.map((item) => {
+                const on = values.includes(item);
+                return (
+                  <TouchableOpacity
+                    key={item}
+                    style={styles.menuRow}
+                    onPress={() =>
+                      onChange(on ? values.filter((value) => value !== item) : [...values, item])
+                    }
+                  >
+                    <Text style={[styles.menuRowText, on ? styles.menuRowTextActive : null]}>{item}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity style={styles.menuDone} onPress={() => setOpen(false)}>
+              <Text style={styles.menuDoneText}>Done</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+function asOptions(options: string[]) {
+  return options.map((item) => ({ value: item, label: item }));
 }
 
 export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   visible,
   assignees,
   canAssign,
+  mode = 'create',
+  initialLead,
   onClose,
   onSubmit,
 }) => {
@@ -87,6 +173,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
   const [employeeCount, setEmployeeCount] = useState('');
   const [salesTeam, setSalesTeam] = useState('');
   const [helpWith, setHelpWith] = useState<string[]>([]);
+  const [helpOther, setHelpOther] = useState('');
   const [objective, setObjective] = useState('');
   const [startTimeline, setStartTimeline] = useState('');
   const [budget, setBudget] = useState('');
@@ -110,6 +197,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
     setEmployeeCount('');
     setSalesTeam('');
     setHelpWith([]);
+    setHelpOther('');
     setObjective('');
     setStartTimeline('');
     setBudget('');
@@ -118,6 +206,34 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
     setNote('');
     setError(null);
   };
+
+  useEffect(() => {
+    if (!visible) return;
+    if (mode === 'edit' && initialLead) {
+      setName(initialLead.name || '');
+      setPhone(initialLead.phone_e164 ? `+${initialLead.phone_e164}` : initialLead.phone_raw || '');
+      setEmail(initialLead.email || '');
+      setCompany(initialLead.company || '');
+      setWebsite(initialLead.website || '');
+      setNoWebsite(Boolean(initialLead.no_website));
+      setCity(initialLead.city || '');
+      setRole(initialLead.role || '');
+      setIndustry(initialLead.industry || '');
+      setBusinessStage(initialLead.business_stage || '');
+      setEmployeeCount(initialLead.employee_count || '');
+      setSalesTeam(initialLead.sales_team || '');
+      setHelpWith(initialLead.help_with || []);
+      setHelpOther(initialLead.help_other || '');
+      setObjective(initialLead.objective || '');
+      setStartTimeline(initialLead.start_timeline || '');
+      setBudget(initialLead.budget || '');
+      setSource(initialLead.source || 'manual');
+      setNote(initialLead.brief || '');
+      setError(null);
+      return;
+    }
+    reset();
+  }, [visible, mode, initialLead?.id]);
 
   const handleClose = () => {
     reset();
@@ -141,6 +257,10 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
       setError('Select at least one thing they need help with.');
       return;
     }
+    if (helpWith.includes('Other') && helpOther.replace(/[^a-zA-Z]/g, '').length <= 6) {
+      setError('The specific need needs more than 6 letters.');
+      return;
+    }
     if (!note.trim()) {
       setError('Describe what they need.');
       return;
@@ -161,13 +281,13 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
         employee_count: employeeCount,
         sales_team: salesTeam,
         help_with: helpWith,
+        help_other: helpWith.includes('Other') ? helpOther.trim() : undefined,
         objective,
         start_timeline: startTimeline,
         budget: budget || undefined,
         brief: note.trim(),
         city: city.trim() || undefined,
-        source: source || 'manual',
-        assigned_to: assignedTo || undefined,
+        ...(mode === 'create' ? { source: source || 'manual', assigned_to: assignedTo || undefined } : { mark_form_complete: true }),
       });
       reset();
       onClose();
@@ -188,7 +308,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
           {/* Header */}
           <View style={styles.header}>
             <View>
-              <Text style={styles.title}>New Lead</Text>
+              <Text style={styles.title}>{mode === 'edit' ? 'Lead form' : 'New Lead'}</Text>
               <Text style={styles.subtitle}>Enter contact and requirements</Text>
             </View>
             <TouchableOpacity style={styles.closeBtn} onPress={handleClose}>
@@ -295,91 +415,53 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
               </TouchableOpacity>
             </View>
 
-            <ChoiceRow label="Role" required options={ROLES} value={role} onChange={setRole} />
-            <ChoiceRow label="Business" required options={INDUSTRIES} value={industry} onChange={setIndustry} />
-            <ChoiceRow label="Stage" required options={STAGES} value={businessStage} onChange={setBusinessStage} />
-            <ChoiceRow label="Employees" required options={EMPLOYEES} value={employeeCount} onChange={setEmployeeCount} />
-            <ChoiceRow label="Sales team" required options={SALES} value={salesTeam} onChange={setSalesTeam} />
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>
-                Help with <Text style={styles.required}>*</Text>
-              </Text>
-              <View style={styles.wrap}>
-                {HELP.map((item) => {
-                  const on = helpWith.includes(item);
-                  return (
-                    <TouchableOpacity
-                      key={item}
-                      style={[styles.chip, on ? styles.chipActive : null]}
-                      onPress={() =>
-                        setHelpWith((prev) => (on ? prev.filter((x) => x !== item) : [...prev, item]))
-                      }
-                    >
-                      <Text style={[styles.chipText, on ? styles.chipTextActive : null]}>{item}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-            <ChoiceRow label="Objective" required options={OBJECTIVES} value={objective} onChange={setObjective} />
-            <ChoiceRow label="Start" required options={STARTS} value={startTimeline} onChange={setStartTimeline} />
-            <ChoiceRow label="Budget" options={BUDGETS} value={budget} onChange={setBudget} />
-
-            {/* Source */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.label}>Source</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                {SOURCES.map((s) => (
-                  <TouchableOpacity
-                    key={s}
-                    style={[styles.chip, source === s ? styles.chipActive : null]}
-                    onPress={() => setSource(s)}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        source === s ? styles.chipTextActive : null,
-                        { textTransform: 'capitalize' },
-                      ]}
-                    >
-                      {s}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-
-            {/* Assignee (if permitted) */}
-            {canAssign && assignees.length > 0 ? (
+            <DropdownField label="Role" required options={asOptions(ROLES)} value={role} onChange={setRole} />
+            <DropdownField label="Business" required options={asOptions(INDUSTRIES)} value={industry} onChange={setIndustry} />
+            <DropdownField label="Stage" required options={asOptions(STAGES)} value={businessStage} onChange={setBusinessStage} />
+            <DropdownField label="Employees" required options={asOptions(EMPLOYEES)} value={employeeCount} onChange={setEmployeeCount} />
+            <DropdownField label="Sales team" required options={asOptions(SALES)} value={salesTeam} onChange={setSalesTeam} />
+            <MultiDropdownField label="Help with" required options={HELP} values={helpWith} onChange={setHelpWith} />
+            {helpWith.includes('Other') ? (
               <View style={styles.inputGroup}>
-                <Text style={styles.label}>Assign To</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-                  <TouchableOpacity
-                    style={[styles.chip, !assignedTo ? styles.chipActive : null]}
-                    onPress={() => setAssignedTo('')}
-                  >
-                    <Text style={[styles.chipText, !assignedTo ? styles.chipTextActive : null]}>
-                      Unassigned Pool
-                    </Text>
-                  </TouchableOpacity>
-                  {assignees.map((a) => (
-                    <TouchableOpacity
-                      key={a.id}
-                      style={[styles.chip, assignedTo === a.id ? styles.chipActive : null]}
-                      onPress={() => setAssignedTo(a.id)}
-                    >
-                      <Text
-                        style={[
-                          styles.chipText,
-                          assignedTo === a.id ? styles.chipTextActive : null,
-                        ]}
-                      >
-                        {a.full_name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </ScrollView>
+                <Text style={styles.label}>
+                  Specific need <Text style={styles.required}>*</Text>
+                </Text>
+                <TextInput
+                  style={styles.input}
+                  placeholder="What else do they need help with?"
+                  placeholderTextColor="#A1A1AA"
+                  value={helpOther}
+                  onChangeText={setHelpOther}
+                />
               </View>
+            ) : null}
+            <DropdownField label="Objective" required options={asOptions(OBJECTIVES)} value={objective} onChange={setObjective} />
+            <DropdownField label="Start" required options={asOptions(STARTS)} value={startTimeline} onChange={setStartTimeline} />
+            <DropdownField
+              label="Budget"
+              options={asOptions(BUDGETS)}
+              value={budget}
+              onChange={setBudget}
+              placeholder="Not provided"
+            />
+            {mode === 'create' ? (
+              <DropdownField
+                label="Source"
+                options={SOURCES.map((item) => ({ value: item, label: item.charAt(0).toUpperCase() + item.slice(1) }))}
+                value={source}
+                onChange={setSource}
+              />
+            ) : null}
+            {mode === 'create' && canAssign && assignees.length > 0 ? (
+              <DropdownField
+                label="Assign To"
+                options={[
+                  { value: '', label: 'Unassigned Pool' },
+                  ...assignees.map((person) => ({ value: person.id, label: person.full_name })),
+                ]}
+                value={assignedTo}
+                onChange={setAssignedTo}
+              />
             ) : null}
 
             {/* Notes */}
@@ -415,7 +497,7 @@ export const CreateLeadModal: React.FC<CreateLeadModalProps> = ({
               ) : (
                 <>
                   <Ionicons name="add" size={18} color="#FFFFFF" />
-                  <Text style={styles.submitText}>Create Lead</Text>
+                  <Text style={styles.submitText}>{mode === 'edit' ? 'Save form' : 'Create Lead'}</Text>
                 </>
               )}
             </TouchableOpacity>
@@ -513,6 +595,71 @@ const styles = StyleSheet.create({
   textArea: {
     minHeight: 70,
     textAlignVertical: 'top',
+  },
+  dropdown: {
+    marginTop: 6,
+    minHeight: 44,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E4E4E7',
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  dropdownValue: {
+    flex: 1,
+    fontSize: 14,
+    color: '#18181B',
+  },
+  dropdownPlaceholder: {
+    flex: 1,
+    fontSize: 14,
+    color: '#A1A1AA',
+  },
+  menuBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'flex-end',
+  },
+  menuCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 16,
+    paddingBottom: 28,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#18181B',
+    marginBottom: 8,
+  },
+  menuRow: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F4F4F5',
+  },
+  menuRowText: {
+    fontSize: 14,
+    color: '#3F3F46',
+  },
+  menuRowTextActive: {
+    color: '#4F46E5',
+    fontWeight: '700',
+  },
+  menuDone: {
+    marginTop: 12,
+    backgroundColor: '#4F46E5',
+    borderRadius: 12,
+    alignItems: 'center',
+    paddingVertical: 12,
+  },
+  menuDoneText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   chipScroll: {
     flexDirection: 'row',

@@ -43,6 +43,7 @@ from app.schemas.crm import (
     CrmOutcomeRequest,
     CrmPipelineResponse,
     CrmPipelineStage,
+    CrmRegisterClientRequest,
     CrmReopenRequest,
     CrmRuleCreate,
     CrmRuleResponse,
@@ -50,6 +51,7 @@ from app.schemas.crm import (
     CrmTemplateCreate,
     CrmTemplateResponse,
     CrmTemplateUpdate,
+    CrmTrashRequest,
     CrmWhatsAppOpenRequest,
     CrmWhatsAppOpenResponse,
 )
@@ -107,6 +109,7 @@ async def list_leads(
     assigned_to: Optional[str] = Query(None),
     include_junk: bool = Query(False),
     uncontacted: Optional[bool] = Query(None),
+    outcome: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=500),
     skip: int = Query(0, ge=0),
 ):
@@ -117,6 +120,7 @@ async def list_leads(
         assigned_to=assigned_to,
         include_junk=include_junk,
         uncontacted=uncontacted,
+        outcome=outcome,
         limit=limit,
         skip=skip,
     )
@@ -158,6 +162,14 @@ async def disqualify_lead(lead_id: str, payload: CrmDisqualifyRequest, current_u
     )
 
 
+@router.post("/leads/{lead_id}/trash", response_model=CrmLeadResponse)
+async def trash_lead(lead_id: str, payload: CrmTrashRequest, current_user: dict = Depends(get_current_user)):
+    """Move a lead to trash. This is not a lost outcome."""
+    return CrmLeadResponse(
+        **await crm.set_outcome(lead_id, "trashed", current_user, reason=payload.reason)
+    )
+
+
 @router.post("/leads/{lead_id}/outcome", response_model=CrmLeadResponse)
 async def set_outcome(lead_id: str, payload: CrmOutcomeRequest, current_user: dict = Depends(get_current_user)):
     if payload.outcome not in ("won", "lost"):
@@ -183,6 +195,16 @@ async def convert_lead(
     return CrmLeadResponse(
         **await crm.convert_to_workspace(lead_id, current_user, workspace_id=payload.workspace_id)
     )
+
+
+@router.post("/leads/{lead_id}/register-client", response_model=CrmLeadResponse)
+async def register_client(
+    lead_id: str,
+    payload: CrmRegisterClientRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Mark the lead won and create the active client from the workspace form."""
+    return CrmLeadResponse(**await crm.register_lead_as_client(lead_id, payload.model_dump(), current_user))
 
 
 @router.post("/leads/{lead_id}/approve-won", response_model=CrmLeadResponse)

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Loader2, Plus, X } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
-import type { CrmAssignee, CrmLeadCreatePayload } from '../../types/crm';
+import type { CrmAssignee, CrmLead, CrmLeadCreatePayload } from '../../types/crm';
 import {
   LEAD_BUDGETS,
   LEAD_BUSINESS_STAGES,
@@ -37,8 +37,10 @@ interface CrmCreateLeadModalProps {
   isOpen: boolean;
   assignees: CrmAssignee[];
   canAssign: boolean;
+  mode?: 'create' | 'edit';
+  initialLead?: CrmLead | null;
   onClose: () => void;
-  onSubmit: (payload: CrmLeadCreatePayload) => Promise<void>;
+  onSubmit: (payload: CrmLeadCreatePayload & { mark_form_complete?: boolean }) => Promise<void>;
 }
 
 interface FormState {
@@ -120,10 +122,37 @@ function validate(form: FormState): FieldErrors {
   return errors;
 }
 
+function leadToForm(lead: CrmLead): FormState {
+  return {
+    name: lead.name || '',
+    company: lead.company || '',
+    email: lead.email || '',
+    phone: lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '',
+    website: lead.website || '',
+    noWebsite: Boolean(lead.no_website),
+    role: lead.role || '',
+    industry: lead.industry || '',
+    businessStage: lead.business_stage || '',
+    employeeCount: lead.employee_count || '',
+    salesTeam: lead.sales_team || '',
+    helpWith: lead.help_with || [],
+    helpOther: lead.help_other || '',
+    objective: lead.objective || '',
+    startTimeline: lead.start_timeline || '',
+    budget: lead.budget || '',
+    brief: lead.brief || '',
+    city: lead.city || '',
+    source: lead.source || 'manual',
+    assignedTo: '',
+  };
+}
+
 export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
   isOpen,
   assignees,
   canAssign,
+  mode = 'create',
+  initialLead,
   onClose,
   onSubmit,
 }) => {
@@ -134,10 +163,10 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
 
   useEffect(() => {
     if (!isOpen) return;
-    setForm(EMPTY);
+    setForm(mode === 'edit' && initialLead ? leadToForm(initialLead) : EMPTY);
     setError(null);
     setFieldErrors({});
-  }, [isOpen]);
+  }, [isOpen, mode, initialLead]);
 
   if (!isOpen) return null;
 
@@ -192,8 +221,9 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
         budget: form.budget || undefined,
         brief: form.brief.trim(),
         city: form.city.trim() || undefined,
-        source: form.source,
-        assigned_to: form.assignedTo || undefined,
+        ...(mode === 'create'
+          ? { source: form.source, assigned_to: form.assignedTo || undefined }
+          : { mark_form_complete: true }),
       });
       onClose();
     } catch (err: any) {
@@ -212,7 +242,9 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200 dark:border-zinc-800">
           <div>
-            <h2 className="text-sm font-bold text-zinc-950 dark:text-zinc-50">Create new lead</h2>
+            <h2 className="text-sm font-bold text-zinc-950 dark:text-zinc-50">
+              {mode === 'edit' ? 'Lead form' : 'Create new lead'}
+            </h2>
             <p className="text-xs text-zinc-500">Qualification answers used by sales to judge fit.</p>
           </div>
           <button type="button" onClick={onClose} className="p-1 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 cursor-pointer">
@@ -333,13 +365,15 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
 
           <Section title="Internal" />
           <TextField label="City" value={form.city} error={fieldErrors.city} onChange={(v) => set('city', v)} />
-          <div className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-            Source
-            <div className="mt-1">
-              <CustomSelect value={form.source} onChange={(v) => set('source', v)} options={SOURCES} size="sm" />
+          {mode === 'create' && (
+            <div className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+              Source
+              <div className="mt-1">
+                <CustomSelect value={form.source} onChange={(v) => set('source', v)} options={SOURCES} size="sm" />
+              </div>
             </div>
-          </div>
-          {canAssign && (
+          )}
+          {mode === 'create' && canAssign && (
             <div className="col-span-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">
               Assign to
               <div className="mt-1">
@@ -369,7 +403,7 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
             className="h-8.5 px-4 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1.5 cursor-pointer disabled:opacity-60"
           >
             {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-            Create lead
+            {mode === 'edit' ? 'Save form' : 'Create lead'}
           </button>
         </div>
       </form>

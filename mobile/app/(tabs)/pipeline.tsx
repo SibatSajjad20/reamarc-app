@@ -18,27 +18,33 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../src/theme';
 import { useAuth } from '../../src/context/AuthContext';
 import { canAccessCrm, canAssignCrmLeads } from '../../src/lib/roles';
+import { followUpBucket } from '../../src/lib/followUpBuckets';
 import { crmApi } from '../../src/lib/crmApi';
 import type {
   CrmAssignee,
   CrmCounts,
   CrmDeal,
+  CrmDealCreatePayload,
   CrmLead,
   CrmLeadCreatePayload,
   CrmPipelineStage,
+  CrmTemplate,
 } from '../../src/types/crm';
 import { LeadCard } from '../../src/components/crm/LeadCard';
 import { CreateLeadModal } from '../../src/components/crm/CreateLeadModal';
 import { CallLogModal } from '../../src/components/crm/CallLogModal';
 import { DealModal } from '../../src/components/crm/DealModal';
+import { WonLeadPicker } from '../../src/components/crm/WonLeadPicker';
+import { ClientWorkspaceModal } from '../../src/components/crm/ClientWorkspaceModal';
 import {
   filterSummary,
   PipelineFilterSheet,
   type QuickFilter,
 } from '../../src/components/crm/PipelineFilterSheet';
 import { StageSheet } from '../../src/components/crm/StageSheet';
+import { WhatsAppTemplateSheet } from '../../src/components/crm/WhatsAppTemplateSheet';
 import { openWhatsApp } from '../../src/lib/whatsapp';
-import { formatCrmStage } from '../../src/ui/format';
+import { formatCrmStage, formatDealMoney } from '../../src/ui/format';
 import { PipelineListSkeleton } from '../../src/ui/Skeleton';
 import {
   CRM_SETTLE_MS,
@@ -82,9 +88,14 @@ export default function PipelineScreen() {
 
   // Modals state
   const [createLeadOpen, setCreateLeadOpen] = useState(false);
-  const [createDealOpen, setCreateDealOpen] = useState(false);
+  const [wonPickerOpen, setWonPickerOpen] = useState(false);
+  const [dealLead, setDealLead] = useState<CrmLead | null>(null);
+  const [clientLead, setClientLead] = useState<CrmLead | null>(null);
   const [callLogLead, setCallLogLead] = useState<CrmLead | null>(null);
   const [stageSheetLead, setStageSheetLead] = useState<CrmLead | null>(null);
+  const [waLead, setWaLead] = useState<CrmLead | null>(null);
+  const [waTemplates, setWaTemplates] = useState<CrmTemplate[]>([]);
+  const [waTemplatesLoading, setWaTemplatesLoading] = useState(false);
   const [updatingStageId, setUpdatingStageId] = useState<string | null>(null);
   const isUpdatingStageRef = useRef(false);
   const hasSettledOnce = useRef(false);
@@ -155,7 +166,7 @@ export default function PipelineScreen() {
         crmApi.getDealPipeline().catch(() => []),
         crmApi.getCounts().catch(() => null),
         crmApi.getAssignees().catch(() => []),
-        crmApi.listLeads({ limit: 100 }).catch((e) => {
+        crmApi.listLeads({ limit: 100, include_junk: true }).catch((e) => {
           setLoadError(e?.message || 'Could not load leads.');
           return { items: [], total: 0 };
         }),
@@ -281,18 +292,18 @@ export default function PipelineScreen() {
       // Quick filter
       if (quickFilter === 'uncontacted') {
         if (lead.contacted || lead.whatsapp_opened_at || lead.outcome) return false;
-      } else if (quickFilter === 'due') {
-        if (!lead.next_follow_up_at || lead.outcome) return false;
-        if (new Date(lead.next_follow_up_at).getTime() > Date.now() + 86400000) return false;
-      } else if (quickFilter === 'won') {
-        if (lead.outcome !== 'won') return false;
-      } else if (quickFilter === 'lost') {
-        if (lead.outcome !== 'lost' && lead.outcome !== 'disqualified') return false;
+      } else if (quickFilter !== 'all') {
+        if (followUpBucket(lead) !== quickFilter) return false;
       }
 
-      // Stage filter
-      if (selectedStage !== 'all') {
-        if (lead.stage !== selectedStage) return false;
+      if (selectedStage === 'won') {
+        if (lead.outcome !== 'won') return false;
+      } else if (selectedStage === 'lost') {
+        if (lead.outcome !== 'lost') return false;
+      } else if (selectedStage === 'trash') {
+        if (lead.outcome !== 'trashed' && lead.outcome !== 'disqualified') return false;
+      } else if (selectedStage !== 'all' && lead.stage !== selectedStage) {
+        return false;
       }
 
       return true;
@@ -321,11 +332,27 @@ export default function PipelineScreen() {
       Alert.alert('Invalid Phone', 'This lead does not have a valid phone number.');
       return;
     }
+    setWaLead(lead);
+    if (waTemplates.length === 0) {
+      setWaTemplatesLoading(true);
+      try {
+        setWaTemplates(await crmApi.listTemplates());
+      } catch {
+        setWaTemplates([]);
+      } finally {
+        setWaTemplatesLoading(false);
+      }
+    }
+  };
 
+  const handleWhatsAppSelect = async (templateId: string | null) => {
+    const lead = waLead;
+    setWaLead(null);
+    if (!lead?.phone_e164) return;
     try {
-      const res = await crmApi.logWhatsappOpened(lead.id);
+      const res = await crmApi.logWhatsappOpened(lead.id, templateId || undefined);
       setLeads((prev) =>
-        prev.map((l) => (l.id === lead.id ? { ...l, whatsapp_opened_at: new Date().toISOString() } : l))
+        prev.map((item) => (item.id === lead.id ? { ...item, whatsapp_opened_at: new Date().toISOString() } : item))
       );
       await openWhatsApp({
         phoneE164: lead.phone_e164,
@@ -386,6 +413,14 @@ export default function PipelineScreen() {
   };
 
   // Create Lead
+  const handleCreateDeal = async (payload: CrmDealCreatePayload) => {
+    if (!dealLead || dealLead.outcome !== 'won') {
+      throw new Error('Mark the lead as won before creating a deal.');
+    }
+    await crmApi.createDeal(dealLead.id, payload);
+    loadData({ force: true });
+  };
+
   const handleCreateLead = async (payload: CrmLeadCreatePayload) => {
     const created = await crmApi.createLead(payload);
     setLeads((prev) => [created, ...prev]);
@@ -668,7 +703,7 @@ export default function PipelineScreen() {
                 </View>
                 <View style={styles.dealValueBadge}>
                   <Text style={styles.dealValueText}>
-                    ${item.value?.toLocaleString()} {item.currency}
+                    {formatDealMoney(item.value, item.currency)}
                   </Text>
                 </View>
               </View>
@@ -692,7 +727,9 @@ export default function PipelineScreen() {
             <View style={styles.emptyContainer}>
               <Ionicons name="briefcase-outline" size={48} color={colors.muted} />
               <Text style={styles.emptyTitle}>No commercial deals</Text>
-              <Text style={styles.emptySubtitle}>Deals attached to leads will appear here.</Text>
+              <Text style={styles.emptySubtitle}>
+                Deals can only be created for leads that have been marked won.
+              </Text>
             </View>
           }
         />
@@ -702,10 +739,13 @@ export default function PipelineScreen() {
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.85}
-        onPress={() => setCreateLeadOpen(true)}
+        onPress={() => {
+          if (activeTab === 'deals') setWonPickerOpen(true);
+          else setCreateLeadOpen(true);
+        }}
       >
         <Ionicons name="add" size={24} color="#FFFFFF" />
-        <Text style={styles.fabText}>New Lead</Text>
+        <Text style={styles.fabText}>{activeTab === 'deals' ? 'New deal' : 'New Lead'}</Text>
       </TouchableOpacity>
 
       {/* Modals */}
@@ -732,6 +772,44 @@ export default function PipelineScreen() {
         onSubmit={handleCreateLead}
       />
 
+      <WonLeadPicker
+        visible={wonPickerOpen}
+        onClose={() => setWonPickerOpen(false)}
+        onSelect={(lead) => {
+          if (lead.outcome !== 'won') return;
+          setWonPickerOpen(false);
+          setDealLead(lead);
+        }}
+      />
+
+      <ClientWorkspaceModal
+        visible={Boolean(clientLead)}
+        lead={clientLead}
+        onClose={() => setClientLead(null)}
+        onSubmit={async (payload) => {
+          if (!clientLead) return;
+          await crmApi.registerClient(clientLead.id, payload);
+          setClientLead(null);
+          loadData({ force: true });
+        }}
+      />
+
+      <DealModal
+        visible={Boolean(dealLead)}
+        leadName={dealLead ? [dealLead.name, dealLead.company].filter(Boolean).join(' · ') : undefined}
+        onClose={() => setDealLead(null)}
+        onSubmit={handleCreateDeal}
+      />
+
+      <WhatsAppTemplateSheet
+        visible={Boolean(waLead)}
+        templates={waTemplates}
+        loading={waTemplatesLoading}
+        leadName={waLead?.name}
+        onClose={() => setWaLead(null)}
+        onSelect={(templateId) => void handleWhatsAppSelect(templateId)}
+      />
+
       <CallLogModal
         visible={Boolean(callLogLead)}
         lead={callLogLead}
@@ -754,24 +832,11 @@ export default function PipelineScreen() {
           if (!stageSheetLead) return;
           const target = stageSheetLead;
           setStageSheetLead(null);
-          Alert.alert(
-            'Mark as Won',
-            `Confirm marking "${target.name}" as WON? Deals will be submitted for Operations approval.`,
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Confirm Won',
-                onPress: async () => {
-                  try {
-                    await crmApi.setOutcome(target.id, 'won');
-                    loadData({ force: true });
-                  } catch (err: any) {
-                    Alert.alert('Error', err?.message || 'Could not mark won.');
-                  }
-                },
-              },
-            ]
-          );
+          if (target.converted_workspace_id) {
+            Alert.alert('Already a client', `${target.name} already has a workspace.`);
+            return;
+          }
+          setClientLead(target);
         }}
         onMarkLost={() => {
           if (!stageSheetLead) return;

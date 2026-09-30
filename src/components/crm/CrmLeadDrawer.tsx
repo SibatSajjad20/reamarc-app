@@ -36,7 +36,10 @@ import type {
   CrmPipelineStage,
   CrmTemplate,
 } from '../../types/crm';
+import type { CrmLeadCreatePayload } from '../../types/crm';
 import { crmService } from '../../services/crmService';
+import { formatDealMoney, formatOpenDealTotals } from '../../utils/money';
+import { CrmCreateLeadModal } from './CrmCreateLeadModal';
 
 const AVAILABLE_SERVICES = [
   'Website Dev',
@@ -163,17 +166,17 @@ interface CrmLeadDrawerProps {
   onClose: () => void;
   onAssign: (userId: string) => Promise<void>;
   onStage: (stage: string) => Promise<void>;
+  onSaveForm: (payload: CrmLeadCreatePayload & { mark_form_complete?: boolean }) => Promise<void>;
   onNote: (body: string) => Promise<void>;
   onWhatsApp: (templateId?: string) => Promise<void>;
   onContacted: () => Promise<void>;
   onFollowUp: (iso: string | null) => Promise<void>;
   onClaim?: () => Promise<void>;
   onApplyRules?: () => Promise<void>;
-  onDisqualify: (reason: string) => Promise<void>;
+  onTrash: (reason: string) => Promise<void>;
   onLost: () => Promise<void>;
-  onWon: () => Promise<void>;
+  onWon: () => void | Promise<void>;
   onReopen?: (leadId: string, stage?: string) => Promise<void>;
-  onApproveWon?: (leadId: string) => Promise<void>;
   onReloadLead?: () => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
   onEditProposal?: () => void;
@@ -212,17 +215,17 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   onClose,
   onAssign,
   onStage,
+  onSaveForm,
   onNote,
   onWhatsApp,
   onContacted,
   onFollowUp,
   onClaim,
   onApplyRules,
-  onDisqualify,
+  onTrash,
   onLost,
   onWon,
   onReopen,
-  onApproveWon,
   onReloadLead,
   onDelete,
   onEditProposal,
@@ -232,8 +235,11 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
   const [note, setNote] = useState('');
-  const [junkReason, setJunkReason] = useState('spam');
-  const [templateId, setTemplateId] = useState('');
+  const [templateMenuOpen, setTemplateMenuOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [stagePrompt, setStagePrompt] = useState<string | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashReason, setTrashReason] = useState('');
   const [followUpLocal, setFollowUpLocal] = useState('');
   const [copiedPhone, setCopiedPhone] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -254,24 +260,28 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab, lead?.id]);
 
-  // Operations Approval State
-  const [paymentVerified, setPaymentVerified] = useState(false);
-  const [approvingWon, setApprovingWon] = useState(false);
-
   // Admin Reopen State
   const [reopenTargetStage, setReopenTargetStage] = useState('contacted');
   const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
     setNote('');
-    const def = templates.find((t) => t.is_default) || templates[0];
-    setTemplateId(def?.id || '');
     setFollowUpLocal(toLocalInputValue(lead?.next_follow_up_at));
     setCopiedPhone(false);
     setConfirmDelete(false);
     setIsAddingDeal(false);
-    setPaymentVerified(Boolean(lead?.payment_cleared));
-  }, [lead?.id, lead?.next_follow_up_at, lead?.payment_cleared, templates]);
+  }, [lead?.id, lead?.next_follow_up_at]);
+
+  useEffect(() => {
+    setFormOpen(false);
+    setTemplateMenuOpen(false);
+    setStagePrompt(null);
+    setTrashOpen(false);
+    setTrashReason('');
+    if (lead && !lead.form_completed_at && !lead.outcome) {
+      setFormOpen(true);
+    }
+  }, [lead?.id]);
 
   useEffect(() => {
     if (!lead) {
@@ -315,14 +325,13 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
 
   const activities: CrmActivity[] = lead.activities || [];
   const closed = Boolean(lead.outcome);
+  const canCreateDeal = lead.outcome === 'won';
   const followUpOverdue =
     Boolean(lead.next_follow_up_at) &&
     !lead.outcome &&
     new Date(lead.next_follow_up_at as string).getTime() < Date.now();
 
-  const totalDealsValue = deals
-    .filter((deal) => deal.status === 'open')
-    .reduce((acc, deal) => acc + (Number(deal.value) || 0), 0);
+  const openDealLabel = formatOpenDealTotals(deals);
 
   const handleCopyPhone = (num: string) => {
     void navigator.clipboard.writeText(num);
@@ -331,7 +340,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   };
 
   const handleCreateDeal = async () => {
-    if (!newDealTitle.trim()) return;
+    if (lead.outcome !== 'won' || !newDealTitle.trim()) return;
     setSavingDeal(true);
     try {
       const created = await crmService.createDeal(lead.id, {
@@ -434,15 +443,50 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       {!closed && (
         <div className="px-5 py-2.5 bg-zinc-50/80 dark:bg-zinc-900/40 border-b border-zinc-200/80 dark:border-zinc-800/80 flex flex-wrap items-center gap-2">
           {lead.phone_valid ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onWhatsApp(templateId || undefined)}
-              className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold cursor-pointer transition shadow-2xs"
-            >
-              <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-              WhatsApp
-            </button>
+            <div className="relative">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  if (!templates.length) {
+                    void onWhatsApp(undefined);
+                    return;
+                  }
+                  setTemplateMenuOpen((open) => !open);
+                }}
+                className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold cursor-pointer transition shadow-2xs"
+              >
+                <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                WhatsApp
+              </button>
+              {templateMenuOpen && (
+                <div className="absolute z-30 top-9 left-0 w-56 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1">
+                  {templates.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      className="w-full text-left px-3 py-2 text-xs text-zinc-800 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer"
+                      onClick={() => {
+                        setTemplateMenuOpen(false);
+                        void onWhatsApp(template.id);
+                      }}
+                    >
+                      {template.is_default ? `${template.name} (default)` : template.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer"
+                    onClick={() => {
+                      setTemplateMenuOpen(false);
+                      void onWhatsApp(undefined);
+                    }}
+                  >
+                    Open chat only
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (
             <span className="h-8 px-2.5 inline-flex items-center text-[11px] text-zinc-400 italic">
               WhatsApp unavailable
@@ -597,6 +641,12 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 Lost
               </span>
             )}
+
+            {(lead.outcome === 'trashed' || lead.outcome === 'disqualified') && (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                {lead.outcome === 'trashed' ? 'Trashed' : 'Disqualified'}
+              </span>
+            )}
           </div>
 
           {/* Operations Approval & Payment Clearance Panel (Won Leads) */}
@@ -610,14 +660,12 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 )}
                 <div className="min-w-0 flex-1">
                   <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    {lead.converted_workspace_id
-                      ? 'Workspace linked'
-                      : 'Pending ops approval'}
+                    {lead.converted_workspace_id ? 'Active client' : 'Client form still needed'}
                   </h4>
                   <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
                     {lead.converted_workspace_id
                       ? `Workspace ID: ${lead.converted_workspace_id}`
-                      : 'Verify payment before creating the client workspace.'}
+                      : 'Save the client workspace form to finish registering this lead. The client proposal is attached on that form.'}
                   </p>
                 </div>
               </div>
@@ -656,38 +704,14 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 </div>
               )}
 
-              {/* Operations Approval Action (if not yet converted) */}
-              {!lead.converted_workspace_id && canAssign && onApproveWon && (
-                <div className="pt-2 border-t border-emerald-500/20 space-y-2">
-                  <label className="flex items-center gap-2 text-xs font-medium text-zinc-800 dark:text-zinc-200 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={paymentVerified}
-                      onChange={(e) => setPaymentVerified(e.target.checked)}
-                      className="w-4 h-4 rounded border-zinc-300 text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>Payment has been cleared &amp; verified by Operations</span>
-                  </label>
-
+              {!lead.converted_workspace_id && (
+                <div className="pt-2 border-t border-emerald-500/20">
                   <button
                     type="button"
-                    disabled={!paymentVerified || approvingWon}
-                    onClick={async () => {
-                      setApprovingWon(true);
-                      try {
-                        await onApproveWon(lead.id);
-                      } finally {
-                        setApprovingWon(false);
-                      }
-                    }}
-                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer"
+                    onClick={() => void onWon()}
+                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
                   >
-                    {approvingWon ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                    )}
-                    <span>Approve &amp; Create Active Client Workspace</span>
+                    Complete client workspace
                   </button>
                 </div>
               )}
@@ -853,10 +877,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           {/* Proposal Document Card (Visible across all stages whenever attached or during proposal/negotiation) */}
           {(lead.proposal_config?.proposal_url ||
             (lead.deals && lead.deals.length > 0) ||
-            ((lead.stage === 'qualified' ||
-              lead.stage === 'session_booked' ||
-              lead.stage === 'session_done') &&
-              (onEditProposal || onCreateDeal))) && (
+            canCreateDeal) && (
             <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3.5 space-y-2.5">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -869,14 +890,20 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                         : 'Commercial Deal'}
                   </p>
                   <p className="text-[11px] text-zinc-400 mt-0.5">
-                    {lead.total_deal_value
-                      ? `Open value $${Number(lead.total_deal_value).toLocaleString()}`
+                    {formatOpenDealTotals(lead.deals || [])
+                      ? `Open value ${formatOpenDealTotals(lead.deals || [])}`
+                      : lead.total_deal_value
+                        ? `Open value ${formatDealMoney(lead.total_deal_value, 'PKR')}`
                       : lead.proposal_config?.proposal_url
-                        ? 'Document ready — create a deal to track it commercially'
-                        : 'Create a deal to enter the proposal pipeline'}
+                        ? canCreateDeal
+                          ? 'Document ready — create a deal to track it commercially'
+                          : 'Mark this lead as won before creating a deal'
+                        : canCreateDeal
+                          ? 'Create a deal to enter the proposal pipeline'
+                          : 'Mark this lead as won before creating a deal'}
                   </p>
                 </div>
-                {(onCreateDeal || onEditProposal) && (
+                {canCreateDeal && (onCreateDeal || onEditProposal) && (
                   <button
                     type="button"
                     onClick={() => (onCreateDeal ? onCreateDeal() : onEditProposal?.())}
@@ -957,7 +984,11 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Stage</p>
                 <CustomSelect
                   value={lead.stage}
-                  onChange={(v) => void onStage(v)}
+                  onChange={(v) => {
+                    if (!v || v === lead.stage) return;
+                    const label = stages.find((s) => s.id === v)?.name || v;
+                    setStagePrompt(label + '\n' + v);
+                  }}
                   options={stages.map((s) => ({ value: s.id, label: s.name }))}
                   size="sm"
                   disabled={busy}
@@ -1032,25 +1063,14 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             </div>
           )}
 
-          {/* WhatsApp Template Selector (if open & valid phone) */}
-          {!closed && lead.phone_valid && (
-            <div className="space-y-1.5">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">WhatsApp message template</p>
-              <CustomSelect
-                value={templateId}
-                onChange={setTemplateId}
-                options={
-                  templates.length
-                    ? templates.map((t) => ({
-                        value: t.id,
-                        label: t.is_default ? `${t.name} (default)` : t.name,
-                      }))
-                    : [{ value: '', label: 'No templates available' }]
-                }
-                size="sm"
-                disabled={busy || templates.length === 0}
-              />
-            </div>
+          {!closed && (
+            <button
+              type="button"
+              onClick={() => setFormOpen(true)}
+              className="w-full h-9 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 cursor-pointer"
+            >
+              {lead.form_completed_at ? 'Edit form' : 'Fill form'}
+            </button>
           )}
         </div>
       )}
@@ -1186,15 +1206,17 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   <span>
                     Open pipeline:{' '}
                     <strong className="text-emerald-600 dark:text-emerald-400 font-numeric font-semibold">
-                      ${totalDealsValue.toLocaleString()}
+                      {openDealLabel}
                     </strong>
                   </span>
-                ) : (
+                ) : canCreateDeal ? (
                   'Create a deal to enter the commercial pipeline'
+                ) : (
+                  'Mark this lead as won before a deal can be created'
                 )}
               </p>
             </div>
-            {!isAddingDeal && (
+            {canCreateDeal && !isAddingDeal && (
               <button
                 type="button"
                 onClick={() => {
@@ -1212,8 +1234,14 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             )}
           </div>
 
+          {!canCreateDeal && deals.length > 0 && (
+            <p className="text-[11px] text-amber-700 dark:text-amber-300">
+              Existing deals stay on this lead. A new deal can be added after it is marked won.
+            </p>
+          )}
+
           {/* Add Deal Form (fallback if no modal handler) */}
-          {isAddingDeal && !onCreateDeal && (
+          {canCreateDeal && isAddingDeal && !onCreateDeal && (
             <div className="p-3.5 rounded-2xl border border-indigo-500/30 bg-indigo-50/20 dark:bg-indigo-950/20 space-y-2.5 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
                 <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Add New Commercial Deal</h4>
@@ -1314,8 +1342,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   <p className="text-[11px] text-zinc-400 mt-1">
                     {deal.service} •{' '}
                     <span className="font-numeric font-semibold text-emerald-600 dark:text-emerald-400">
-                      {deal.currency === 'PKR' ? '₨' : '$'}
-                      {deal.value.toLocaleString()} {deal.currency}
+                      {formatDealMoney(deal.value, deal.currency)}
                     </span>
                     {deal.probability != null && (
                       <span className="ml-1 text-zinc-400">· {deal.probability}%</span>
@@ -1344,7 +1371,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 </div>
               </div>
             ))}
-            {deals.length === 0 && !isAddingDeal && (
+            {deals.length === 0 && !isAddingDeal && canCreateDeal && (
               <div className="py-12 px-4 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/20">
                 <Briefcase className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
                 <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">No deals attached yet</p>
@@ -1381,7 +1408,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               className="flex-1 h-9 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-50 transition-all shadow-xs inline-flex items-center justify-center gap-1.5"
             >
               <Sparkles className="w-3.5 h-3.5" />
-              Won → Opportunity
+              Register as client
             </button>
             <button
               type="button"
@@ -1393,31 +1420,99 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             </button>
           </div>
 
-          <div className="flex gap-2 items-center">
-            <div className="flex-1">
-              <CustomSelect
-                value={junkReason}
-                onChange={setJunkReason}
-                options={[
-                  { value: 'spam', label: 'Reason: Spam' },
-                  { value: 'test', label: 'Reason: Test' },
-                  { value: 'competitor', label: 'Reason: Competitor' },
-                  { value: 'duplicate', label: 'Reason: Duplicate' },
-                  { value: 'unqualified', label: 'Reason: Unqualified' },
-                ]}
-                size="sm"
-              />
-            </div>
+          <div className="flex justify-end">
             <button
               type="button"
               disabled={busy}
-              onClick={() => void onDisqualify(junkReason)}
-              className="h-8 px-3 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition cursor-pointer shadow-2xs shrink-0"
+              onClick={() => {
+                setTrashReason('');
+                setTrashOpen(true);
+              }}
+              className="h-8 w-8 inline-flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
+              title="Move to trash"
             >
-              Disqualify
+              <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
+      )}
+
+      {stagePrompt && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-4 shadow-xl">
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+              Move {lead.name} to {stagePrompt.split('\n')[0]}?
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button type="button" onClick={() => setStagePrompt(null)} className="h-8 px-3 rounded-lg text-xs font-semibold text-zinc-600 cursor-pointer">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = stagePrompt.split('\n')[1];
+                  setStagePrompt(null);
+                  if (next) void onStage(next);
+                }}
+                className="h-8 px-3 rounded-lg text-xs font-semibold bg-indigo-600 text-white cursor-pointer"
+              >
+                Move
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {trashOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+          <form
+            className="w-full max-w-md rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-4 shadow-xl"
+            onSubmit={(e) => {
+              e.preventDefault();
+              const reason = trashReason.trim();
+              if (reason.length < 10) return;
+              setTrashOpen(false);
+              void onTrash(reason);
+            }}
+          >
+            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Move {lead.name} to trash</p>
+            <p className="mt-1 text-xs text-zinc-500">Trash is not the same as lost. Write the reason.</p>
+            <textarea
+              value={trashReason}
+              onChange={(e) => setTrashReason(e.target.value)}
+              rows={4}
+              className="mt-3 w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
+              placeholder="Why is this lead being trashed?"
+            />
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={() => setTrashOpen(false)} className="h-8 px-3 rounded-lg text-xs font-semibold text-zinc-600 cursor-pointer">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={trashReason.trim().length < 10 || busy}
+                className="h-8 px-3 rounded-lg text-xs font-semibold bg-rose-600 text-white disabled:opacity-50 cursor-pointer"
+              >
+                Trash lead
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {lead && (
+        <CrmCreateLeadModal
+          isOpen={formOpen}
+          mode="edit"
+          initialLead={lead}
+          assignees={assignees}
+          canAssign={false}
+          onClose={() => setFormOpen(false)}
+          onSubmit={async (payload) => {
+            await onSaveForm(payload);
+            setFormOpen(false);
+          }}
+        />
       )}
     </aside>
   );

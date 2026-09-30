@@ -16,6 +16,8 @@ import { useToast } from '../../context/ToastContext';
 import { crmService } from '../../services/crmService';
 import { canAssignCrmLeads } from '../../utils/crmAccess';
 import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
+import { followUpBucket, isClosedLeadOutcome } from '../../utils/followUpBuckets';
+import { formatOpenDealTotals } from '../../utils/money';
 import { NEUTRAL_METADATA_BADGE_CLASS } from '../../utils/badgeStyles';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CrmCreateLeadModal } from '../crm/CrmCreateLeadModal';
@@ -23,6 +25,9 @@ import { CrmKanbanBoard } from '../crm/CrmKanbanBoard';
 import { CrmDealKanbanBoard } from '../crm/CrmDealKanbanBoard';
 import { CrmFollowUpView } from '../crm/CrmFollowUpView';
 import { CrmProposalModal, dealFormConfigToPayload } from '../crm/CrmProposalModal';
+import { CrmWonLeadMenu } from '../crm/CrmWonLeadMenu';
+import { WorkspaceModal, type WorkspaceFormSeed } from '../modals/WorkspaceModal';
+import type { WorkspaceCreatePayload } from '../../services/workspaceService';
 import { CrmLeadDrawer, CrmLeadDrawerSkeleton } from '../crm/CrmLeadDrawer';
 import { CrmSettingsView } from '../crm/settings/CrmSettingsView';
 import type { CrmSettingsTab } from '../crm/settings/CrmSettingsView';
@@ -157,7 +162,7 @@ const EMPTY_COUNTS: CrmCounts = {
   win_rate: null,
 };
 
-type QuickFilter = 'all' | 'uncontacted' | 'due' | 'junk';
+type QuickFilter = 'all' | 'overdue' | 'today' | 'scheduled' | 'idle';
 
 export interface CrmViewProps {
   activeSection?: CrmSubSection;
@@ -195,6 +200,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup' | 'settings'>('board');
   const [proposalModalLead, setProposalModalLead] = useState<CrmLead | null>(null);
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
+  const [newDealFormKey, setNewDealFormKey] = useState(0);
   const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'brief' | 'activity' | 'deals'>('overview');
   const [pipelineDeals, setPipelineDeals] = useState<CrmDeal[]>([]);
   const [dealStages, setDealStages] = useState<CrmPipelineStage[]>([]);
@@ -256,7 +262,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     try {
       const signal = controller.signal;
       const [list, countDoc, pipe, people, tpls, dealPipe, dealList] = await Promise.all([
-        // Always include junk so All/Uncontacted/Due/Disqualified tabs filter client-side instantly
+        // Include junk so trashed and legacy disqualified leads stay available for the Trash column.
         crmService.listLeads(
           {
             search: search.trim() || undefined,
@@ -497,23 +503,16 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
 
   // Client-side quick filters — instant tab switches, no network round-trip
   const displayLeads = useMemo(() => {
-    const now = Date.now();
-    if (quickFilter === 'uncontacted') {
-      return leads.filter((l) => !l.outcome && !l.contacted);
-    }
-    if (quickFilter === 'due') {
-      return leads.filter(
-        (l) => !l.outcome && l.next_follow_up_at && new Date(l.next_follow_up_at).getTime() < now
-      );
-    }
-    if (quickFilter === 'junk') {
-      return leads.filter((l) => l.outcome === 'disqualified');
-    }
-    return leads.filter((l) => l.outcome !== 'disqualified');
+    const closed = leads.filter((lead) => isClosedLeadOutcome(lead.outcome));
+    const open = leads.filter((lead) => !isClosedLeadOutcome(lead.outcome));
+    if (quickFilter === 'all') return [...open, ...closed];
+    // Follow-up filters are for open leads only. Closed leads (won, lost, trashed)
+    // stay on All and in the board's outcome columns.
+    return open.filter((lead) => followUpBucket(lead) === quickFilter);
   }, [leads, quickFilter]);
 
   const activeLeadCount = useMemo(
-    () => leads.filter((l) => l.outcome !== 'disqualified').length,
+    () => leads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length,
     [leads]
   );
 
@@ -533,19 +532,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     ).length;
   }, [leads]);
 
-  const junkCount = useMemo(
-    () => leads.filter((l) => l.outcome === 'disqualified').length,
-    [leads]
-  );
+  const [clientFormLead, setClientFormLead] = useState<CrmLead | null>(null);
 
-  const pendingOpsLeadCount = useMemo(
-    () =>
-      leads.filter(
-        (l) =>
-          l.outcome === 'won' &&
-          !l.converted_workspace_id &&
-          l.approval_status === 'pending_operations'
-      ).length,
+  const pendingClientFormCount = useMemo(
+    () => leads.filter((l) => l.outcome === 'won' && !l.converted_workspace_id).length,
     [leads]
   );
 
@@ -561,10 +551,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   );
 
   const openDeals = useMemo(() => pipelineDeals.filter((d) => d.status === 'open'), [pipelineDeals]);
-  const openDealValue = useMemo(
-    () => openDeals.reduce((sum, d) => sum + (Number(d.value) || 0), 0),
-    [openDeals]
-  );
+  const openDealValueLabel = useMemo(() => formatOpenDealTotals(openDeals), [openDeals]);
 
   const drawerReady = Boolean(detail && selectedId && detail.id === selectedId);
   const showDrawerSkeleton = Boolean(selectedId && !drawerReady);
@@ -575,7 +562,61 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       : counts.uncontacted > 0 ||
         overdueFollowUpCount > 0 ||
         counts.opened_not_confirmed > 0 ||
-        pendingOpsLeadCount > 0;
+        pendingClientFormCount > 0;
+
+  const openRegisterClient = (lead: CrmLead) => {
+    if (lead.converted_workspace_id) {
+      addToast('Already a client', `${lead.company || lead.name} already has a workspace.`, 'info');
+      return;
+    }
+    if (lead.outcome && lead.outcome !== 'won') {
+      addToast('Lead is closed', 'Reopen this lead before registering it as a client.', 'warning');
+      return;
+    }
+    setClientFormLead(lead);
+  };
+
+  const clientFormSeed = useMemo((): WorkspaceFormSeed | null => {
+    if (!clientFormLead) return null;
+    const phone = clientFormLead.phone_e164
+      ? `+${clientFormLead.phone_e164}`
+      : clientFormLead.phone_raw || '';
+    const knownServices = [
+      'Branding',
+      'Website Dev',
+      'Web Maintenance',
+      'SEO',
+      'Performance Marketing',
+      'Video Shoot',
+      'Software Dev',
+      'Mobile App Dev',
+      'UI/UX Designing',
+      'Social Media Management',
+    ];
+    const service = clientFormLead.service && knownServices.includes(clientFormLead.service)
+      ? [clientFormLead.service]
+      : [];
+    return {
+      name: clientFormLead.company || clientFormLead.name,
+      poc_name: clientFormLead.name,
+      poc_email: clientFormLead.email || '',
+      poc_phone: phone,
+      billing_name: clientFormLead.name,
+      billing_email: clientFormLead.email || '',
+      billing_phone: phone,
+      services: service,
+    };
+  }, [clientFormLead]);
+
+  const openDealForWonLead = (lead: CrmLead) => {
+    if (lead.outcome !== 'won') {
+      addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
+      return;
+    }
+    setEditingDeal(null);
+    setNewDealFormKey((n) => n + 1);
+    setProposalModalLead(lead);
+  };
 
   if (viewMode === 'settings') {
     return (
@@ -605,7 +646,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-numeric shrink-0">
               {viewMode === 'deals'
                 ? `${pipelineDeals.length}`
-                : `${quickFilter === 'junk' ? junkCount : quickFilter === 'all' ? activeLeadCount : displayLeads.length}`}
+                : `${quickFilter === 'all' ? activeLeadCount : displayLeads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length}`}
             </span>
             {isRefreshing && (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 dark:text-zinc-500">
@@ -627,14 +668,18 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                 <span className="hidden sm:inline">Settings</span>
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => setCreateOpen(true)}
-              className="h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              New lead
-            </button>
+            {viewMode === 'deals' ? (
+              <CrmWonLeadMenu onSelect={openDealForWonLead} />
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreateOpen(true)}
+                className="h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                New lead
+              </button>
+            )}
           </div>
         </header>
 
@@ -661,9 +706,9 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                       {openDeals.length}
                     </span>
                     <span className="text-zinc-500 dark:text-zinc-400 font-medium">open</span>
-                    {openDealValue > 0 && (
+                    {openDealValueLabel && (
                       <span className="font-numeric font-semibold text-zinc-700 dark:text-zinc-300">
-                        · {openDealValue.toLocaleString()}
+                        · {openDealValueLabel}
                       </span>
                     )}
                   </div>
@@ -689,22 +734,18 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             ) : (
               <>
                 {counts.uncontacted > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setQuickFilter('uncontacted')}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-                  >
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
                     <span className="w-2 h-2 rounded-full bg-amber-500 motion-safe:animate-pulse" />
                     <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
                       {counts.uncontacted}
                     </span>
                     <span className="text-amber-700 dark:text-amber-400 font-medium">uncontacted</span>
-                  </button>
+                  </div>
                 )}
                 {overdueFollowUpCount > 0 && (
                   <button
                     type="button"
-                    onClick={() => setQuickFilter('due')}
+                    onClick={() => setQuickFilter('overdue')}
                     className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-rose-200/80 dark:border-rose-800/60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
                   >
                     <span className="w-2 h-2 rounded-full bg-rose-500 motion-safe:animate-pulse" />
@@ -723,13 +764,13 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                     <span className="text-amber-700 dark:text-amber-400 font-medium">opened, not confirmed</span>
                   </div>
                 )}
-                {pendingOpsLeadCount > 0 && (
+                {pendingClientFormCount > 0 && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
                     <span className="w-2 h-2 rounded-full bg-amber-500 motion-safe:animate-pulse" />
                     <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
-                      {pendingOpsLeadCount}
+                      {pendingClientFormCount}
                     </span>
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">pending ops</span>
+                    <span className="text-amber-700 dark:text-amber-400 font-medium">need client form</span>
                   </div>
                 )}
               </>
@@ -769,59 +810,28 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
 
             {viewMode !== 'deals' && viewMode !== 'followup' && (
               <div className="flex items-center gap-1 bg-zinc-100/80 dark:bg-zinc-800/80 p-0.5 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60">
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter('all')}
-                  className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                    quickFilter === 'all'
-                      ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                  }`}
-                >
-                  All
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter('uncontacted')}
-                  className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                    quickFilter === 'uncontacted'
-                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-amber-600'
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                  Uncontacted
-                  {counts.uncontacted > 0 && (
-                    <span className="font-numeric text-[11px]">({counts.uncontacted})</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter('due')}
-                  className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                    quickFilter === 'due'
-                      ? 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-rose-600'
-                  }`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                  Due
-                  {overdueFollowUpCount > 0 && (
-                    <span className="font-numeric text-[11px]">({overdueFollowUpCount})</span>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setQuickFilter('junk')}
-                  className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                    quickFilter === 'junk'
-                      ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                  }`}
-                >
-                  Disqualified
-                  {junkCount > 0 && <span className="font-numeric text-[11px]">({junkCount})</span>}
-                </button>
+                {(
+                  [
+                    ['all', 'All'],
+                    ['overdue', 'Overdue'],
+                    ['today', 'Today'],
+                    ['scheduled', 'Scheduled'],
+                    ['idle', 'Idle'],
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setQuickFilter(id)}
+                    className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
+                      quickFilter === id
+                        ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'
+                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
             )}
           </div>
@@ -910,7 +920,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                 )
               );
               await crmService.markDealWon(dealId);
-              addToast('Deal marked Won', 'Pending Operations verification and payment clearance.', 'success');
+              addToast('Deal marked won', 'Waiting for operations to confirm this deal.', 'success');
               await loadDeals();
             }}
             onLost={async (dealId) => {
@@ -923,26 +933,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             }}
             onApproveWon={async (dealId) => {
               const approved = await crmService.approveWonDeal(dealId, { payment_cleared: true });
-              addToast(
-                'Won Approved',
-                approved.converted_workspace_id
-                  ? `Workspace created: ${approved.converted_workspace_id}`
-                  : 'Payment cleared and workspace ready.',
-                'success'
-              );
+              addToast('Deal confirmed', `${approved.title} is a confirmed won deal.`, 'success');
               await load();
             }}
-            onCreateDeal={() => {
-              const candidate =
-                leads.find((l) => !l.outcome && (l.stage === 'qualified' || l.stage === 'session_done')) ||
-                leads.find((l) => !l.outcome);
-              if (candidate) {
-                setEditingDeal(null);
-                setProposalModalLead(candidate);
-              } else {
-                addToast('No open lead', 'Create or qualify a lead first, then create a deal.', 'warning');
-              }
-            }}
+            createDealAction={<CrmWonLeadMenu label="Choose won lead" onSelect={openDealForWonLead} />}
           />
         ) : viewMode === 'board' ? (
           <CrmKanbanBoard
@@ -967,17 +961,8 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               }
             }}
             onWon={async (leadId) => {
-              setLeads((prev) =>
-                prev.map((l) =>
-                  l.id === leadId
-                    ? { ...l, outcome: 'won', approval_status: 'pending_operations', payment_cleared: false }
-                    : l
-                )
-              );
-              await crmService.setOutcome(leadId, 'won');
-              addToast('Opportunity created', 'Pending Operations verification and payment clearance.', 'success');
-              await load();
-              if (selectedId === leadId) await refreshOpen(leadId);
+              const lead = leads.find((item) => item.id === leadId);
+              if (lead) openRegisterClient(lead);
             }}
             onLost={async (leadId) => {
               setLostTarget({ kind: 'lead', id: leadId });
@@ -1170,22 +1155,24 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               ? () => run(() => crmService.applyRules(detail.id))
               : undefined
           }
-          onDisqualify={(reason) => run(() => crmService.disqualifyLead(detail.id, reason))}
+          onSaveForm={(payload) =>
+            run(async () => {
+              const updated = await crmService.updateLead(detail.id, payload);
+              setDetail((prev) => (prev ? { ...prev, ...updated } : prev));
+              setLeads((prev) => prev.map((lead) => (lead.id === updated.id ? { ...lead, ...updated } : lead)));
+            })
+          }
+          onTrash={(reason) =>
+            run(async () => {
+              await crmService.trashLead(detail.id, reason);
+              addToast('Moved to trash', detail.name, 'success');
+              await load();
+            })
+          }
           onLost={async () => {
             setLostTarget({ kind: 'lead', id: detail.id });
           }}
-          onWon={() =>
-            run(async () => {
-              await crmService.setOutcome(detail.id, 'won');
-              addToast('Opportunity created', 'Pending Operations verification and payment clearance.', 'success');
-            })
-          }
-          onApproveWon={async (leadId) => {
-            await run(async () => {
-              const converted = await crmService.approveWonLead(leadId, { payment_cleared: true });
-              addToast('Won Approved', `Workspace created: ${converted.converted_workspace_id}`, 'success');
-            });
-          }}
+          onWon={() => openRegisterClient(detail)}
           onReopen={async (leadId, stageName) => {
             await run(async () => {
               await crmService.reopenLead(leadId, { stage: stageName });
@@ -1196,11 +1183,20 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             if (selectedId) await refreshOpen(selectedId);
           }}
           onEditProposal={() => {
+            if (detail.outcome !== 'won') {
+              addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
+              return;
+            }
             setEditingDeal(null);
             setProposalModalLead(detail);
           }}
           onCreateDeal={() => {
+            if (detail.outcome !== 'won') {
+              addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
+              return;
+            }
             setEditingDeal(null);
+            setNewDealFormKey((n) => n + 1);
             setProposalModalLead(detail);
             setDrawerInitialTab('deals');
           }}
@@ -1226,7 +1222,22 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         }}
       />
 
+      <WorkspaceModal
+        isOpen={Boolean(clientFormLead)}
+        seed={clientFormSeed}
+        onClose={() => setClientFormLead(null)}
+        onSave={async (payload) => {
+          if (!clientFormLead) return;
+          const saved = await crmService.registerClient(clientFormLead.id, payload as WorkspaceCreatePayload);
+          addToast('Active client created', saved.company || saved.name, 'success');
+          setClientFormLead(null);
+          await load();
+          if (selectedId === clientFormLead.id) await refreshOpen(clientFormLead.id);
+        }}
+      />
+
       <CrmProposalModal
+        key={editingDeal?.id || `new-${newDealFormKey}`}
         isOpen={Boolean(proposalModalLead)}
         lead={proposalModalLead}
         deal={editingDeal}
@@ -1241,6 +1252,8 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             if (editingDeal?.id) {
               await crmService.updateDeal(editingDeal.id, payload);
               addToast('Deal updated', payload.title, 'success');
+            } else if (proposalModalLead.outcome !== 'won') {
+              throw new Error('Mark the lead as won before creating a deal.');
             } else {
               await crmService.createDeal(proposalModalLead.id, payload);
               addToast('Deal created', `${payload.title} · Opportunity Created`, 'success');

@@ -54,6 +54,15 @@ def _actor_name(user: Dict[str, Any]) -> str:
     return str(user.get("full_name") or user.get("name") or user.get("email") or "User")
 
 
+def require_open_lead(lead: Dict[str, Any]) -> None:
+    """Block pipeline work on won, lost, trashed, and disqualified leads."""
+    if lead.get("outcome"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This lead is closed. Reopen it before continuing.",
+        )
+
+
 def _help_service_label(help_with: list, help_other: Optional[str]) -> Optional[str]:
     detail = (help_other or "").strip()
     parts = []
@@ -116,6 +125,8 @@ def serialize_lead(doc: Dict[str, Any]) -> Dict[str, Any]:
         "outcome": doc.get("outcome"),
         "disqualify_reason": doc.get("disqualify_reason"),
         "lost_reason": doc.get("lost_reason"),
+        "trash_reason": doc.get("trash_reason"),
+        "form_completed_at": doc.get("form_completed_at"),
         "approval_status": doc.get("approval_status"),
         "payment_cleared": bool(doc.get("payment_cleared")),
         "proposal_config": doc.get("proposal_config"),
@@ -322,16 +333,25 @@ async def list_leads(
     assigned_to: Optional[str] = None,
     include_junk: bool = False,
     uncontacted: Optional[bool] = None,
+    outcome: Optional[str] = None,
     limit: int = 200,
     skip: int = 0,
 ) -> Tuple[List[Dict[str, Any]], int]:
+    outcome_filter: Optional[str] = None
+    if outcome and str(outcome).strip():
+        outcome_filter = str(outcome).strip().lower()
+        if outcome_filter not in OUTCOMES:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid lead outcome filter.")
+
     db = _db()
     clauses: List[Dict[str, Any]] = []
     vis = await visibility_filter(user)
     if vis:
         clauses.append(vis)
     if not include_junk:
-        clauses.append({"outcome": {"$ne": "disqualified"}})
+        clauses.append({"outcome": {"$nin": ["disqualified", "trashed"]}})
+    if outcome_filter:
+        clauses.append({"outcome": outcome_filter})
     if stage:
         clauses.append({"stage": stage})
     if assigned_to == "unassigned":
@@ -494,6 +514,7 @@ async def create_lead(payload: CrmLeadCreate, user: Dict[str, Any]) -> Dict[str,
         "created_by": user.get("id"),
         "created_at": now,
         "updated_at": now,
+        "form_completed_at": now,
     }
     # Omit external_id when absent — Mongo unique indexes treat null as a real key.
     await db.crm_leads.insert_one(doc)
@@ -524,7 +545,8 @@ async def update_lead(lead_id: str, payload: CrmLeadUpdate, user: Dict[str, Any]
     db = _db()
     lead = await get_lead_or_404(lead_id, user)
     dumped = payload.model_dump(exclude_unset=True)
-    if not dumped:
+    mark_form_complete = bool(dumped.pop("mark_form_complete", False))
+    if not dumped and not mark_form_complete:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update.")
 
     fields: Dict[str, Any] = {}
@@ -579,6 +601,10 @@ async def update_lead(lead_id: str, payload: CrmLeadUpdate, user: Dict[str, Any]
             elif isinstance(val, str) and key not in ("tags", "proposal_config"):
                 val = val.strip() or None
             fields[key] = val
+    if mark_form_complete:
+        fields["form_completed_at"] = _now()
+    if not fields:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update.")
     fields["updated_at"] = _now()
     await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
     fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
@@ -633,32 +659,14 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
 async def set_outcome(lead_id: str, outcome: str, user: Dict[str, Any], *, reason: Optional[str] = None, note: Optional[str] = None) -> Dict[str, Any]:
     if outcome not in OUTCOMES:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid outcome.")
+    if outcome == "won":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A lead becomes won by registering an active client. Submit the client workspace form.",
+        )
     db = _db()
     lead = await get_lead_or_404(lead_id, user)
     now = _now()
-
-    if outcome == "won":
-        # Opportunity created — does not immediately create workspace
-        fields: Dict[str, Any] = {
-            "outcome": "won",
-            "disqualify_reason": None,
-            "lost_reason": None,
-            "approval_status": "pending_operations",
-            "payment_cleared": False,
-            "updated_at": now,
-        }
-        await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
-        await append_activity(
-            lead_id,
-            "outcome_set",
-            "Opportunity created (Pending Operations Approval & Payment Clearance).",
-            user,
-            {"outcome": "won", "approval_status": "pending_operations"},
-        )
-        if note:
-            await append_activity(lead_id, "note", note.strip(), user)
-        fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
-        return serialize_lead(fresh or lead)
 
     if outcome in ("lost", "disqualified") and not can_manage_outcomes(user):
         if outcome == "lost":
@@ -670,6 +678,7 @@ async def set_outcome(lead_id: str, outcome: str, user: Dict[str, Any], *, reaso
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid disqualify reason.")
         fields["disqualify_reason"] = reason_val
         fields["lost_reason"] = None
+        fields["trash_reason"] = None
     elif outcome == "lost":
         from app.schemas.crm import LEAD_LOST_REASONS
 
@@ -681,14 +690,36 @@ async def set_outcome(lead_id: str, outcome: str, user: Dict[str, Any], *, reaso
             )
         fields["lost_reason"] = reason_val
         fields["disqualify_reason"] = None
+        fields["trash_reason"] = None
+    elif outcome == "trashed":
+        reason_text = (reason or "").strip()
+        if len(reason_text) < 10:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="A detailed trash reason is required.",
+            )
+        if len(reason_text) > 2000:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Trash reason is too long.")
+        fields["trash_reason"] = reason_text
+        fields["disqualify_reason"] = None
+        fields["lost_reason"] = None
     else:
         fields["disqualify_reason"] = None
         fields["lost_reason"] = None
+        fields["trash_reason"] = None
     await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
     label = outcome if outcome != "disqualified" else f"disqualified ({fields.get('disqualify_reason')})"
     if outcome == "lost":
         label = f"lost ({fields.get('lost_reason')})"
-    await append_activity(lead_id, "outcome_set", f"Marked {label}.", user, {"outcome": outcome, "reason": fields.get("lost_reason") or fields.get("disqualify_reason")})
+    if outcome == "trashed":
+        label = "trashed"
+    await append_activity(
+        lead_id,
+        "outcome_set",
+        f"Marked {label}.",
+        user,
+        {"outcome": outcome, "reason": fields.get("lost_reason") or fields.get("disqualify_reason") or fields.get("trash_reason")},
+    )
     if note:
         await append_activity(lead_id, "note", note.strip(), user)
     fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
@@ -701,6 +732,96 @@ def _workspace_initials(name: str) -> str:
         return (parts[0][0] + parts[1][0]).upper()[:2]
     cleaned = "".join(ch for ch in name if ch.isalnum())
     return (cleaned[:2] or "CL").upper()
+
+
+async def register_lead_as_client(lead_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    """Mark the lead won and create its active client from the workspace form.
+
+    The proposal file on this payload is the client's proposal. Deal proposals are not copied.
+    """
+    lead = await get_lead_or_404(lead_id, user)
+    if lead.get("converted_workspace_id"):
+        return serialize_lead(lead)
+    if lead.get("outcome") in ("lost", "disqualified", "trashed"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Reopen this lead before registering it as a client.",
+        )
+    db = _db()
+
+    name = str(payload.get("name") or "").strip()
+    services = [str(item).strip() for item in (payload.get("services") or []) if str(item).strip()]
+    start = str(payload.get("contract_start_date") or "").strip()
+    end = str(payload.get("contract_end_date") or "").strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Client / Brand name is required.")
+    if not services:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Please select at least one service.")
+    if not start or not end:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Contract start and end dates are required.")
+    if end < start:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Contract end date cannot be earlier than contract start date.",
+        )
+
+    now = _now()
+    ws_id = f"ws-{uuid.uuid4().hex[:8]}"
+    initials = str(payload.get("initials") or "").strip().upper() or _workspace_initials(name)
+    brand = str(payload.get("brandColor") or "#4f46e5").strip() or "#4f46e5"
+    proposal_url = (str(payload.get("proposal_url") or "").strip() or None)
+    ws_doc = {
+        "id": ws_id,
+        "name": name[:120],
+        "initials": initials[:8],
+        "brandColor": brand,
+        "brand_color": brand,
+        "status": payload.get("status") if payload.get("status") in ("active", "inactive") else "active",
+        "proposal_url": proposal_url,
+        "proposal_name": (str(payload.get("proposal_name") or "").strip() or None) if proposal_url else None,
+        "proposal_size": payload.get("proposal_size") if proposal_url else None,
+        "project_cycle": payload.get("project_cycle") or "Retainer",
+        "priority": payload.get("priority") or "Medium",
+        "contract_start_date": start,
+        "contract_end_date": end,
+        "services": services,
+        "health": payload.get("health") or "Good",
+        "poc_name": (str(payload.get("poc_name") or "").strip() or None),
+        "poc_email": (str(payload.get("poc_email") or "").strip() or None),
+        "poc_phone": (str(payload.get("poc_phone") or "").strip() or None),
+        "billing_name": (str(payload.get("billing_name") or "").strip() or None),
+        "billing_email": (str(payload.get("billing_email") or "").strip() or None),
+        "billing_phone": (str(payload.get("billing_phone") or "").strip() or None),
+        "brandGuidelines": "",
+        "brand_guidelines": "",
+        "isDefault": False,
+        "user_id": user.get("id"),
+        "created_at": now,
+        "updated_at": now,
+        "source_crm_lead_id": lead_id,
+    }
+    await db.workspaces.insert_one(ws_doc)
+
+    fields = {
+        "outcome": "won",
+        "disqualify_reason": None,
+        "lost_reason": None,
+        "trash_reason": None,
+        "approval_status": None,
+        "payment_cleared": False,
+        "converted_workspace_id": ws_id,
+        "updated_at": now,
+    }
+    await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
+    await append_activity(
+        lead_id,
+        "converted",
+        f"Registered as active client {name}.",
+        user,
+        {"workspace_id": ws_id, "outcome": "won"},
+    )
+    fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
+    return serialize_lead(fresh or {**lead, **fields})
 
 
 async def convert_to_workspace(
@@ -727,24 +848,11 @@ async def convert_to_workspace(
     ws_id = (workspace_id or "").strip() or None
     created_new = False
 
-    # Resolve commercial + workspace draft from deal first, then proposal_config
-    deal_doc: Optional[Dict[str, Any]] = None
-    if preferred_deal_id:
-        deal_doc = await db.crm_deals.find_one({"id": preferred_deal_id, "lead_id": lead_id}, {"_id": 0})
-    if not deal_doc:
-        won_cursor = db.crm_deals.find({"lead_id": lead_id, "status": "won"}, {"_id": 0}).sort("updated_at", -1).limit(1)
-        won_list = await won_cursor.to_list(1)
-        deal_doc = won_list[0] if won_list else None
-    if not deal_doc:
-        any_cursor = db.crm_deals.find({"lead_id": lead_id}, {"_id": 0}).sort("updated_at", -1).limit(1)
-        any_list = await any_cursor.to_list(1)
-        deal_doc = any_list[0] if any_list else None
-
-    p_conf = lead.get("proposal_config") or {}
-    if deal_doc:
-        from app.services.crm_deals import proposal_config_from_deal
-
-        p_conf = {**p_conf, **{k: v for k, v in proposal_config_from_deal(deal_doc).items() if v is not None}}
+    if not ws_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Register the lead with the client workspace form. A deal does not create the client.",
+        )
 
     if ws_id:
         existing_ws = await db.workspaces.find_one(
@@ -782,58 +890,6 @@ async def convert_to_workspace(
                 detail="Workspace is already linked to another won lead.",
             )
         ws_name = existing_ws.get("name") or ws_id
-    else:
-        ws_name = (p_conf.get("workspace_name") or lead.get("company") or lead.get("name") or "New client").strip()[:120]
-        ws_id = f"ws-{uuid.uuid4().hex[:8]}"
-        phone = lead.get("phone_e164")
-        poc_phone = f"+{phone}" if phone else (lead.get("phone_raw") or None)
-
-        brand_color = p_conf.get("brand_color") or p_conf.get("brandColor") or "bg-zinc-700"
-        services = p_conf.get("services") or ([lead["service"]] if lead.get("service") else [])
-        project_cycle = p_conf.get("project_cycle") or "Retainer"
-        priority = p_conf.get("priority") or "Medium"
-        proposal_url = p_conf.get("proposal_url")
-        proposal_name = p_conf.get("proposal_name")
-        proposal_size = p_conf.get("proposal_size")
-        start_date = p_conf.get("contract_start_date") or now[:10]
-        end_date = p_conf.get("contract_end_date")
-        poc_name = p_conf.get("poc_name") or lead.get("name")
-        poc_email = p_conf.get("poc_email") or lead.get("email")
-        poc_phone_val = p_conf.get("poc_phone") or poc_phone
-        billing_name = p_conf.get("billing_name") or lead.get("name")
-        billing_email = p_conf.get("billing_email") or lead.get("email")
-        billing_phone_val = p_conf.get("billing_phone") or poc_phone
-
-        ws_doc = {
-            "id": ws_id,
-            "name": ws_name,
-            "brandColor": brand_color,
-            "brand_color": brand_color,
-            "status": "active",
-            "initials": _workspace_initials(ws_name),
-            "proposal_url": proposal_url,
-            "proposal_name": proposal_name,
-            "proposal_size": proposal_size,
-            "project_cycle": project_cycle,
-            "priority": priority,
-            "contract_start_date": start_date,
-            "contract_end_date": end_date,
-            "services": services,
-            "health": "Good",
-            "poc_name": poc_name,
-            "poc_email": poc_email,
-            "poc_phone": poc_phone_val,
-            "billing_name": billing_name,
-            "billing_email": billing_email,
-            "billing_phone": billing_phone_val,
-            "isDefault": False,
-            "created_at": now,
-            "updated_at": now,
-            "source_crm_lead_id": lead_id,
-            "source_crm_deal_id": (deal_doc or {}).get("id"),
-        }
-        await db.workspaces.insert_one(ws_doc)
-        created_new = True
 
     fields = {
         "outcome": "won",
@@ -855,7 +911,7 @@ async def convert_to_workspace(
         "converted",
         f"{action} Active Client workspace {ws_name}.",
         user,
-        {"workspace_id": ws_id, "created": created_new, "deal_id": (deal_doc or {}).get("id")},
+        {"workspace_id": ws_id, "created": created_new},
     )
     await append_activity(lead_id, "outcome_set", "Marked won and approved.", user, {"outcome": "won", "workspace_id": ws_id})
     if note:
@@ -869,36 +925,11 @@ async def approve_won_lead(
     user: Dict[str, Any],
     payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    if not can_manage_outcomes(user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operations and admins can approve won deals.")
-    db = _db()
-    lead = await get_lead_or_404(lead_id, user)
-    if lead.get("outcome") != "won":
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Lead is not marked as won.")
-    if lead.get("converted_workspace_id"):
-        return serialize_lead(lead)
-
-    if payload:
-        p_conf = lead.get("proposal_config") or {}
-        for k in ("workspace_name", "brand_color", "services", "project_cycle", "note"):
-            if payload.get(k):
-                p_conf[k] = payload[k]
-        await db.crm_leads.update_one({"id": lead_id}, {"$set": {"proposal_config": p_conf}})
-        lead["proposal_config"] = p_conf
-
-    converted = await convert_to_workspace(lead_id, user, note=(payload or {}).get("note"))
-    await db.crm_leads.update_one(
-        {"id": lead_id},
-        {"$set": {"approval_status": "approved", "payment_cleared": True, "updated_at": _now()}},
+    del lead_id, user, payload
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Leads are registered with the client workspace form. Operations approval confirms a won deal.",
     )
-    await append_activity(
-        lead_id,
-        "won_approved",
-        "Operations approved won deal and confirmed payment clearance. Active client workspace created.",
-        user,
-    )
-    fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
-    return serialize_lead(fresh or converted)
 
 
 async def reopen_lead(
@@ -917,6 +948,8 @@ async def reopen_lead(
     fields: Dict[str, Any] = {
         "outcome": None,
         "disqualify_reason": None,
+        "lost_reason": None,
+        "trash_reason": None,
         "approval_status": None,
         "stage": target_stage,
         "updated_at": now,
@@ -966,6 +999,7 @@ async def log_whatsapp_opened(
 
     db = _db()
     lead = await get_lead_or_404(lead_id, user)
+    require_open_lead(lead)
     if not lead.get("phone_valid") or not lead.get("phone_e164"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Phone number is not valid for WhatsApp.")
     preview = await preview_for_lead(template_id, lead)
@@ -1028,6 +1062,7 @@ async def set_follow_up(
 async def mark_contacted(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     db = _db()
     lead = await get_lead_or_404(lead_id, user)
+    require_open_lead(lead)
     now = _now()
     stage = lead.get("stage") or "new"
     fields: Dict[str, Any] = {

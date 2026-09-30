@@ -13,7 +13,22 @@ import { colors } from '../../theme';
 import { formatCrmStage } from '../../ui/format';
 import type { CrmPipelineStage } from '../../types/crm';
 
-export type QuickFilter = 'all' | 'uncontacted' | 'due' | 'won' | 'lost';
+export type QuickFilter = 'all' | 'uncontacted' | 'overdue' | 'today' | 'scheduled' | 'idle';
+
+const STATUS_OPTIONS: { id: QuickFilter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'uncontacted', label: 'Uncontacted' },
+  { id: 'overdue', label: 'Overdue' },
+  { id: 'today', label: 'Today' },
+  { id: 'scheduled', label: 'Scheduled' },
+  { id: 'idle', label: 'Idle' },
+];
+
+const CLOSED_STAGE_OPTIONS = [
+  { id: 'won', label: 'Won' },
+  { id: 'lost', label: 'Lost' },
+  { id: 'trash', label: 'Trash' },
+];
 
 interface PipelineFilterSheetProps {
   visible: boolean;
@@ -26,14 +41,6 @@ interface PipelineFilterSheetProps {
   onChangeStage: (value: string) => void;
   onClear: () => void;
 }
-
-const STATUS_OPTIONS: { id: QuickFilter; label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'uncontacted', label: 'Uncontacted' },
-  { id: 'due', label: 'Due' },
-  { id: 'won', label: 'Won' },
-  { id: 'lost', label: 'Lost' },
-];
 
 export function filterSummary(quickFilter: QuickFilter, selectedStage: string): string | null {
   const parts: string[] = [];
@@ -66,11 +73,9 @@ export const PipelineFilterSheet: React.FC<PipelineFilterSheetProps> = ({
         <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
           <View style={styles.handle} />
           <View style={styles.headerRow}>
-            <View>
+            <View style={styles.titleRow}>
+              <Ionicons name="options-outline" size={18} color={colors.text} />
               <Text style={styles.title}>Filters</Text>
-              <Text style={styles.subtitle}>
-                {mode === 'leads' ? 'Narrow the lead list' : 'Narrow the deal list'}
-              </Text>
             </View>
             {hasFilters ? (
               <TouchableOpacity onPress={onClear} hitSlop={8}>
@@ -81,7 +86,7 @@ export const PipelineFilterSheet: React.FC<PipelineFilterSheetProps> = ({
 
           {mode === 'leads' ? (
             <>
-              <Text style={styles.sectionLabel}>Status</Text>
+              <Text style={styles.sectionLabel}>Follow-Up Status</Text>
               <View style={styles.chipWrap}>
                 {STATUS_OPTIONS.map((opt) => {
                   const active = quickFilter === opt.id;
@@ -101,7 +106,7 @@ export const PipelineFilterSheet: React.FC<PipelineFilterSheetProps> = ({
             </>
           ) : null}
 
-          <Text style={styles.sectionLabel}>Stage</Text>
+          <Text style={styles.sectionLabel}>{mode === 'leads' ? 'Lead Stage' : 'Deal Stage'}</Text>
           <ScrollView style={styles.stageScroll} showsVerticalScrollIndicator={false}>
             <View style={styles.chipWrap}>
               <TouchableOpacity
@@ -131,6 +136,22 @@ export const PipelineFilterSheet: React.FC<PipelineFilterSheetProps> = ({
                   </TouchableOpacity>
                 );
               })}
+              {mode === 'leads'
+                ? CLOSED_STAGE_OPTIONS.map((option) => {
+                    const active = selectedStage === option.id;
+                    return (
+                      <TouchableOpacity
+                        key={option.id}
+                        style={[styles.chip, active ? styles.chipActive : null]}
+                        onPress={() => onChangeStage(option.id)}
+                      >
+                        <Text style={[styles.chipText, active ? styles.chipTextActive : null]}>
+                          {option.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })
+                : null}
             </View>
           </ScrollView>
 
@@ -171,6 +192,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
     marginBottom: 16,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   title: {
     fontSize: 17,

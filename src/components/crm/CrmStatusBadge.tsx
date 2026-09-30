@@ -24,8 +24,8 @@ export function leadOperationalStatus(lead: Pick<
   dotClass: string;
 } {
   if (lead.outcome === 'won') {
-    if (!lead.converted_workspace_id && lead.approval_status === 'pending_operations') {
-      return { kind: 'pending', label: 'Pending ops', dotClass: 'bg-amber-500' };
+    if (!lead.converted_workspace_id) {
+      return { kind: 'pending', label: 'Needs client form', dotClass: 'bg-amber-500' };
     }
     return { kind: 'won', label: 'Won', dotClass: 'bg-emerald-500' };
   }
@@ -34,6 +34,9 @@ export function leadOperationalStatus(lead: Pick<
   }
   if (lead.outcome === 'disqualified') {
     return { kind: 'inert', label: 'Disqualified', dotClass: 'bg-zinc-400' };
+  }
+  if (lead.outcome === 'trashed') {
+    return { kind: 'inert', label: 'Trashed', dotClass: 'bg-zinc-400' };
   }
   const isOverdue =
     Boolean(lead.next_follow_up_at) && new Date(lead.next_follow_up_at as string).getTime() < Date.now();
@@ -66,7 +69,12 @@ export const CrmStatusBadge: React.FC<{
 export const CrmStatusDot: React.FC<{
   lead: Pick<CrmLead, 'outcome' | 'contacted' | 'next_follow_up_at'>;
 }> = ({ lead }) => {
-  if (lead.outcome === 'won' || lead.outcome === 'lost' || lead.outcome === 'disqualified') {
+  if (
+    lead.outcome === 'won' ||
+    lead.outcome === 'lost' ||
+    lead.outcome === 'disqualified' ||
+    lead.outcome === 'trashed'
+  ) {
     return null;
   }
   const isOverdue =

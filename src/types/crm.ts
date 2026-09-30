@@ -28,7 +28,7 @@ export type CrmLostReason =
   | 'unqualified'
   | 'other';
 
-export type CrmOutcome = 'won' | 'lost' | 'disqualified';
+export type CrmOutcome = 'won' | 'lost' | 'disqualified' | 'trashed';
 
 export type CrmDisqualifyReason = 'spam' | 'test' | 'competitor' | 'duplicate' | 'unqualified';
 
@@ -107,6 +107,8 @@ export interface CrmLead {
   outcome?: CrmOutcome | null;
   disqualify_reason?: string | null;
   lost_reason?: string | null;
+  trash_reason?: string | null;
+  form_completed_at?: string | null;
   approval_status?: 'pending_operations' | 'approved' | 'rejected' | null;
   payment_cleared?: boolean;
   proposal_config?: Record<string, any> | null;
@@ -280,6 +282,7 @@ export interface CrmLeadUpdatePayload extends Partial<CrmLeadCreatePayload> {
   stage?: string;
   next_follow_up_at?: string | null;
   proposal_config?: Record<string, any>;
+  mark_form_complete?: boolean;
 }
 
 export interface CrmApproveWonPayload {

@@ -37,6 +37,7 @@ export const crmApi = {
     assigned_to?: string;
     include_junk?: boolean;
     uncontacted?: boolean;
+    outcome?: string;
     limit?: number;
     skip?: number;
   }): Promise<{ items: CrmLead[]; total: number }> {
@@ -44,6 +45,7 @@ export const crmApi = {
     if (params?.search) query.append('search', params.search);
     if (params?.stage) query.append('stage', params.stage);
     if (params?.assigned_to) query.append('assigned_to', params.assigned_to);
+    if (params?.outcome) query.append('outcome', params.outcome);
     if (params?.include_junk) query.append('include_junk', 'true');
     if (params?.uncontacted !== undefined) query.append('uncontacted', String(params.uncontacted));
     if (params?.limit) query.append('limit', String(params.limit));
@@ -64,7 +66,10 @@ export const crmApi = {
     });
   },
 
-  async updateLead(id: string, payload: Partial<CrmLead>): Promise<CrmLead> {
+  async updateLead(
+    id: string,
+    payload: Partial<CrmLead> & { mark_form_complete?: boolean; phone?: string }
+  ): Promise<CrmLead> {
     return api<CrmLead>(`/crm/leads/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -124,6 +129,35 @@ export const crmApi = {
     return api<CrmTemplate[]>('/crm/templates');
   },
 
+  async registerClient(
+    id: string,
+    payload: {
+      name: string;
+      initials?: string;
+      brandColor?: string;
+      status?: 'active' | 'inactive';
+      proposal_url?: string | null;
+      proposal_name?: string | null;
+      project_cycle?: 'Retainer' | 'One-Time Project';
+      priority?: 'High' | 'Medium' | 'Low';
+      health?: 'Excellent' | 'Good' | 'Moderate' | 'Emergency';
+      contract_start_date: string;
+      contract_end_date: string;
+      services: string[];
+      poc_name?: string | null;
+      poc_email?: string | null;
+      poc_phone?: string | null;
+      billing_name?: string | null;
+      billing_email?: string | null;
+      billing_phone?: string | null;
+    }
+  ): Promise<CrmLead> {
+    return api<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/register-client`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
   async setOutcome(
     id: string,
     outcome: 'won' | 'lost',
@@ -133,6 +167,20 @@ export const crmApi = {
     return api<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/outcome`, {
       method: 'POST',
       body: JSON.stringify({ outcome, reason, note }),
+    });
+  },
+
+  async reopenLead(id: string, targetStage?: string): Promise<CrmLead> {
+    return api<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/reopen`, {
+      method: 'POST',
+      body: JSON.stringify({ target_stage: targetStage || 'contacted' }),
+    });
+  },
+
+  async trashLead(id: string, reason: string): Promise<CrmLead> {
+    return api<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/trash`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
     });
   },
 

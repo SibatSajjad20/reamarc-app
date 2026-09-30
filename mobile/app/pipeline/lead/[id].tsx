@@ -4,6 +4,7 @@ import {
   Alert,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
@@ -17,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme';
 import { useAuth } from '../../../src/context/AuthContext';
-import { canAccessCrm } from '../../../src/lib/roles';
+import { canAccessCrm, canReopenCrmLeads } from '../../../src/lib/roles';
 import { toSafeHttpsUrl } from '../../../src/lib/safeUrl';
 import { crmApi } from '../../../src/lib/crmApi';
 import type {
@@ -30,12 +31,16 @@ import type {
 import { CallLogModal } from '../../../src/components/crm/CallLogModal';
 import { LostReasonModal } from '../../../src/components/crm/LostReasonModal';
 import { DealModal } from '../../../src/components/crm/DealModal';
+import { ClientWorkspaceModal } from '../../../src/components/crm/ClientWorkspaceModal';
+import { CreateLeadModal } from '../../../src/components/crm/CreateLeadModal';
 import { StageSheet } from '../../../src/components/crm/StageSheet';
 import { FollowUpSheet } from '../../../src/components/crm/FollowUpSheet';
 import { WhatsAppTemplateSheet } from '../../../src/components/crm/WhatsAppTemplateSheet';
 import { openWhatsApp } from '../../../src/lib/whatsapp';
 import {
   formatCrmStage,
+  formatLeadOutcome,
+  formatDealMoney,
   formatFollowUp,
   formatPhoneDisplay,
   getOutreachStatus,
@@ -89,7 +94,11 @@ export default function LeadDetailScreen() {
   const [templates, setTemplates] = useState<CrmTemplate[]>([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [lostModalOpen, setLostModalOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashReason, setTrashReason] = useState('');
   const [dealModalOpen, setDealModalOpen] = useState(false);
+  const [clientFormOpen, setClientFormOpen] = useState(false);
   const [callLogOpen, setCallLogOpen] = useState(false);
   const [updatingStageId, setUpdatingStageId] = useState<string | null>(null);
   const isUpdatingStageRef = useRef(false);
@@ -102,6 +111,14 @@ export default function LeadDetailScreen() {
     }, 6000);
     return () => clearTimeout(watchdog);
   }, [loading]);
+
+  const promptedFormFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!lead || lead.form_completed_at || lead.outcome) return;
+    if (promptedFormFor.current === lead.id) return;
+    promptedFormFor.current = lead.id;
+    setFormOpen(true);
+  }, [lead]);
 
   const loadLead = useCallback(async (opts?: { force?: boolean }) => {
     if (!id || !hasAccess) return;
@@ -316,27 +333,14 @@ export default function LeadDetailScreen() {
     [lead]
   );
 
-  const handleMarkWon = async () => {
+  const handleMarkWon = () => {
     if (!lead) return;
     setStageSheetOpen(false);
-    Alert.alert(
-      'Mark as won',
-      'Commercial deals will be submitted for Operations approval.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          onPress: async () => {
-            try {
-              await crmApi.setOutcome(lead.id, 'won');
-              loadLead({ force: true });
-            } catch (err: any) {
-              Alert.alert('Error', err?.message || 'Could not mark won.');
-            }
-          },
-        },
-      ]
-    );
+    if (lead.converted_workspace_id) {
+      Alert.alert('Already a client', `${lead.name} already has a workspace.`);
+      return;
+    }
+    setClientFormOpen(true);
   };
 
   const handleMarkLost = async (reason: string, note?: string) => {
@@ -346,6 +350,26 @@ export default function LeadDetailScreen() {
       loadLead({ force: true });
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Could not mark lost.');
+    }
+  };
+
+  const handleSaveForm = async (payload: import('../../../src/types/crm').CrmLeadCreatePayload) => {
+    if (!lead) return;
+    const { assigned_to: _ignored, ...fields } = payload;
+    const updated = await crmApi.updateLead(lead.id, { ...fields, mark_form_complete: true });
+    setLead((prev) => (prev ? { ...prev, ...updated } : prev));
+    setFormOpen(false);
+  };
+
+  const handleTrash = async () => {
+    if (!lead || trashReason.trim().length < 10) return;
+    try {
+      const updated = await crmApi.trashLead(lead.id, trashReason.trim());
+      setLead((prev) => (prev ? { ...prev, ...updated } : prev));
+      setTrashOpen(false);
+      setTrashReason('');
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Could not trash this lead.');
     }
   };
 
@@ -364,9 +388,23 @@ export default function LeadDetailScreen() {
   };
 
   const handleCreateDeal = async (payload: CrmDealCreatePayload) => {
-    if (!lead) return;
+    if (!lead || lead.outcome !== 'won') {
+      throw new Error('Mark this lead as won before creating a deal.');
+    }
     await crmApi.createDeal(lead.id, payload);
     loadLead({ force: true });
+  };
+
+  const handleReopen = async () => {
+    if (!lead) return;
+    const targetStage = stages.some((stage) => stage.id === lead.stage) ? lead.stage : 'contacted';
+    try {
+      const updated = await crmApi.reopenLead(lead.id, targetStage);
+      setLead((prev) => (prev ? { ...prev, ...updated, outcome: null } : prev));
+      loadLead({ force: true });
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'Could not reopen this lead.');
+    }
   };
 
   if (!hasAccess) {
@@ -387,9 +425,9 @@ export default function LeadDetailScreen() {
 
   const outreach = getOutreachStatus(lead);
   const displayName = titleCaseName(lead.name);
-  const stageLabel = lead.outcome
-    ? String(lead.outcome).toUpperCase()
-    : formatCrmStage(lead.stage);
+  const closed = Boolean(lead.outcome);
+  const canReopen = canReopenCrmLeads(user);
+  const stageLabel = closed ? formatLeadOutcome(lead.outcome) : formatCrmStage(lead.stage);
   const isUnassigned = !lead.assigned_to;
   const activities = lead.activities || [];
 
@@ -419,15 +457,33 @@ export default function LeadDetailScreen() {
             ) : null}
           </View>
 
-          <TouchableOpacity
-            style={styles.stagePickerBtn}
-            onPress={() => setStageSheetOpen(true)}
-          >
-            <Text style={styles.stagePickerText} numberOfLines={1}>
-              {stageLabel}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={colors.indigo} />
-          </TouchableOpacity>
+          {!lead.outcome ? (
+            <TouchableOpacity
+              style={styles.stagePickerBtn}
+              onPress={() => setTrashOpen(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="trash-outline" size={18} color="#BE123C" />
+            </TouchableOpacity>
+          ) : null}
+
+          {closed ? (
+            <View style={styles.closedStatusPill}>
+              <Text style={styles.closedStatusText} numberOfLines={1}>
+                {stageLabel}
+              </Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.stagePickerBtn}
+              onPress={() => setStageSheetOpen(true)}
+            >
+              <Text style={styles.stagePickerText} numberOfLines={1}>
+                {stageLabel}
+              </Text>
+              <Ionicons name="chevron-down" size={14} color={colors.indigo} />
+            </TouchableOpacity>
+          )}
         </View>
 
         <View style={styles.tabBar}>
@@ -469,6 +525,20 @@ export default function LeadDetailScreen() {
         >
           {activeTab === 'overview' && (
             <View style={styles.sectionContainer}>
+              {lead.outcome === 'won' && !lead.converted_workspace_id ? (
+                <TouchableOpacity style={styles.formBtn} onPress={() => setClientFormOpen(true)}>
+                  <Ionicons name="business-outline" size={16} color={colors.indigo} />
+                  <Text style={styles.formBtnText}>Complete client workspace</Text>
+                </TouchableOpacity>
+              ) : null}
+              {!closed ? (
+                <TouchableOpacity style={styles.formBtn} onPress={() => setFormOpen(true)}>
+                  <Ionicons name="document-text-outline" size={16} color={colors.indigo} />
+                  <Text style={styles.formBtnText}>
+                    {lead.form_completed_at ? 'Edit form' : 'Fill form'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
               {/* Scheduled Meeting Card (Video Consultation / Meeting Scheduler) */}
               {lead.meeting ? (
                 <View
@@ -663,15 +733,17 @@ export default function LeadDetailScreen() {
               <View style={styles.infoCard}>
                 <View style={styles.cardHeaderRow}>
                   <Text style={styles.cardHeader}>Follow-up</Text>
-                  <TouchableOpacity
-                    style={styles.inlineAction}
-                    onPress={() => setFollowUpSheetOpen(true)}
-                  >
-                    <Ionicons name="calendar-outline" size={14} color={colors.indigo} />
-                    <Text style={styles.inlineActionText}>
-                      {lead.next_follow_up_at ? 'Change' : 'Set'}
-                    </Text>
-                  </TouchableOpacity>
+                  {!closed ? (
+                    <TouchableOpacity
+                      style={styles.inlineAction}
+                      onPress={() => setFollowUpSheetOpen(true)}
+                    >
+                      <Ionicons name="calendar-outline" size={14} color={colors.indigo} />
+                      <Text style={styles.inlineActionText}>
+                        {lead.next_follow_up_at ? 'Change' : 'Set'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <Field
                   label="Next follow-up"
@@ -687,17 +759,23 @@ export default function LeadDetailScreen() {
 
           {activeTab === 'deals' && (
             <View style={styles.sectionContainer}>
-              <TouchableOpacity style={styles.addDealBtn} onPress={() => setDealModalOpen(true)}>
-                <Ionicons name="add-circle" size={18} color={colors.indigo} />
-                <Text style={styles.addDealText}>Create deal</Text>
-              </TouchableOpacity>
+              {lead.outcome === 'won' ? (
+                <TouchableOpacity style={styles.addDealBtn} onPress={() => setDealModalOpen(true)}>
+                  <Ionicons name="add-circle" size={18} color={colors.indigo} />
+                  <Text style={styles.addDealText}>Create deal</Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={styles.dealLockedText}>
+                  Mark this lead as won before a deal can be created.
+                </Text>
+              )}
 
               {deals.map((d) => (
                 <View key={d.id} style={styles.dealCardItem}>
                   <View style={styles.dealItemHeader}>
                     <Text style={styles.dealItemTitle}>{d.title}</Text>
                     <Text style={styles.dealItemValue}>
-                      ${d.value?.toLocaleString()} {d.currency}
+                      {formatDealMoney(d.value, d.currency)}
                     </Text>
                   </View>
                   <View style={styles.dealItemMeta}>
@@ -712,10 +790,10 @@ export default function LeadDetailScreen() {
                 </View>
               ))}
 
-              {deals.length === 0 ? (
+              {deals.length === 0 && lead.outcome === 'won' ? (
                 <View style={styles.emptyTabBox}>
                   <Ionicons name="briefcase-outline" size={32} color={colors.muted} />
-                  <Text style={styles.emptyTabText}>No deals yet. Create one when ready.</Text>
+                  <Text style={styles.emptyTabText}>No deals yet. Create one for this won lead.</Text>
                 </View>
               ) : null}
             </View>
@@ -781,7 +859,16 @@ export default function LeadDetailScreen() {
         </ScrollView>
 
         <View style={styles.bottomBar}>
-          {isUnassigned ? (
+          {closed ? (
+            canReopen ? (
+              <TouchableOpacity style={styles.reopenBtn} onPress={handleReopen}>
+                <Ionicons name="refresh" size={18} color="#FFFFFF" />
+                <Text style={styles.heroBtnText}>Reopen</Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={styles.closedHint}>Closed. An admin can reopen this lead.</Text>
+            )
+          ) : isUnassigned ? (
             <TouchableOpacity style={styles.claimHeroBtn} onPress={handleClaim}>
               <Ionicons name="hand-right" size={18} color="#FFFFFF" />
               <Text style={styles.heroBtnText}>Claim lead</Text>
@@ -859,6 +946,59 @@ export default function LeadDetailScreen() {
           visible={lostModalOpen}
           onClose={() => setLostModalOpen(false)}
           onSubmit={handleMarkLost}
+        />
+
+        <CreateLeadModal
+          visible={formOpen}
+          mode="edit"
+          initialLead={lead}
+          assignees={[]}
+          canAssign={false}
+          onClose={() => setFormOpen(false)}
+          onSubmit={handleSaveForm}
+        />
+
+        <Modal visible={trashOpen} transparent animationType="fade" onRequestClose={() => setTrashOpen(false)}>
+          <View style={styles.trashBackdrop}>
+            <View style={styles.trashCard}>
+              <Text style={styles.trashTitle}>Trash {displayName}</Text>
+              <Text style={styles.trashHint}>Write why this lead is being trashed. This is not a lost deal.</Text>
+              <TextInput
+                style={styles.trashInput}
+                value={trashReason}
+                onChangeText={setTrashReason}
+                placeholder="Reason"
+                placeholderTextColor={colors.muted}
+                multiline
+              />
+              <View style={styles.trashActions}>
+                <TouchableOpacity onPress={() => setTrashOpen(false)}>
+                  <Text style={styles.trashCancel}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => void handleTrash()}
+                  disabled={trashReason.trim().length < 10}
+                >
+                  <Text style={[styles.trashSubmit, trashReason.trim().length < 10 && styles.trashSubmitDisabled]}>
+                    Trash lead
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        <ClientWorkspaceModal
+          visible={clientFormOpen}
+          lead={lead}
+          onClose={() => setClientFormOpen(false)}
+          onSubmit={async (payload) => {
+            if (!lead) return;
+            const saved = await crmApi.registerClient(lead.id, payload);
+            setLead((prev) => (prev ? { ...prev, ...saved } : prev));
+            setClientFormOpen(false);
+            loadLead({ force: true });
+          }}
         />
 
         <DealModal
@@ -1038,6 +1178,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.indigo,
   },
+  dealLockedText: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: colors.muted,
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
   dealCardItem: {
     backgroundColor: colors.card,
     borderRadius: 14,
@@ -1191,6 +1340,36 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.line,
     gap: 8,
+  },
+  closedStatusPill: {
+    maxWidth: 120,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F4F4F5',
+    borderWidth: 1,
+    borderColor: colors.line,
+  },
+  closedStatusText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.slate,
+  },
+  closedHint: {
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.muted,
+    paddingVertical: 8,
+  },
+  reopenBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: colors.indigo,
+    paddingVertical: 14,
+    borderRadius: 14,
   },
   markContactedBtn: {
     alignSelf: 'center',
@@ -1399,5 +1578,71 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
     marginTop: 2,
+  },
+  formBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  formBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  trashBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  trashCard: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+  },
+  trashTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  trashHint: {
+    fontSize: 12,
+    color: colors.muted,
+  },
+  trashInput: {
+    minHeight: 90,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: 10,
+    padding: 10,
+    color: colors.text,
+    textAlignVertical: 'top',
+  },
+  trashActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 16,
+  },
+  trashCancel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.muted,
+  },
+  trashSubmit: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#BE123C',
+  },
+  trashSubmitDisabled: {
+    opacity: 0.4,
   },
 });

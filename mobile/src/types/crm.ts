@@ -16,7 +16,7 @@ export type CrmDealStageId =
   | 'payment_pending'
   | 'payment_done';
 
-export type CrmOutcome = 'won' | 'lost' | 'disqualified';
+export type CrmOutcome = 'won' | 'lost' | 'disqualified' | 'trashed';
 
 export interface CrmPipelineStage {
   id: string;
@@ -64,6 +64,7 @@ export interface CrmLead {
   employee_count?: string | null;
   sales_team?: string | null;
   help_with?: string[];
+  help_other?: string | null;
   objective?: string | null;
   start_timeline?: string | null;
   brief?: string | null;
@@ -73,6 +74,8 @@ export interface CrmLead {
   outcome?: CrmOutcome | null;
   disqualify_reason?: string | null;
   lost_reason?: string | null;
+  trash_reason?: string | null;
+  form_completed_at?: string | null;
   approval_status?: 'pending_operations' | 'approved' | 'rejected' | null;
   payment_cleared?: boolean;
   deals_count?: number;
@@ -139,6 +142,7 @@ export interface CrmLeadCreatePayload {
   employee_count: string;
   sales_team: string;
   help_with: string[];
+  help_other?: string;
   objective: string;
   start_timeline: string;
   brief: string;

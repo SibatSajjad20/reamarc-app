@@ -29,11 +29,24 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 
+export interface WorkspaceFormSeed {
+  name?: string;
+  poc_name?: string;
+  poc_email?: string;
+  poc_phone?: string;
+  billing_name?: string;
+  billing_email?: string;
+  billing_phone?: string;
+  services?: string[];
+}
+
 interface WorkspaceModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: WorkspaceCreatePayload | WorkspaceUpdatePayload) => Promise<any>;
   workspaceToEdit?: Workspace | null;
+  /** Prefill a new client from a lead. Does not include a deal proposal. */
+  seed?: WorkspaceFormSeed | null;
 }
 
 const BRAND_PRESETS = [
@@ -110,6 +123,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   onClose,
   onSave,
   workspaceToEdit,
+  seed = null,
 }) => {
   // Brand Basics
   const [name, setName] = useState('');
@@ -213,12 +227,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         setPocName('');
         setPocEmail('');
         setPocPhone('');
-        setBillingName('');
-        setBillingEmail('');
-        setBillingPhone('');
+        setBillingName(seed?.billing_name || '');
+        setBillingEmail(seed?.billing_email || '');
+        setBillingPhone(seed?.billing_phone || '');
+        setName(seed?.name || '');
+        setPocName(seed?.poc_name || '');
+        setPocEmail(seed?.poc_email || '');
+        setPocPhone(seed?.poc_phone || '');
+        setSelectedServices(seed?.services || []);
       }
     }
-  }, [workspaceToEdit, isOpen]);
+  }, [workspaceToEdit, isOpen, seed]);
 
   if (!isOpen) return null;
 

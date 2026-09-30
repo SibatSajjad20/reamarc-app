@@ -40,6 +40,17 @@ export function canAccessCrm(user?: {
   return false;
 }
 
+export function canReopenCrmLeads(user?: {
+  role?: string | null;
+  department?: string | null;
+  crm_enabled?: boolean | null;
+} | null): boolean {
+  if (!canAccessCrm(user)) return false;
+  const role = normalizeRole(user?.role);
+  const dept = String(user?.department || '').toLowerCase().trim();
+  return role === 'admin' || role === 'super_admin' || role === 'operations' || dept === 'operations' || dept === 'admin';
+}
+
 export function canAssignCrmLeads(user?: {
   role?: string | null;
   department?: string | null;

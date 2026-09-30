@@ -623,6 +623,14 @@ async def claim_lead(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     return crm.serialize_lead(updated)
 
 
+async def admin_user_ids() -> List[str]:
+    docs = await _db().users.find(
+        {"role": "admin", "is_active": {"$ne": False}},
+        {"id": 1, "_id": 0},
+    ).to_list(100)
+    return [d["id"] for d in docs if d.get("id")]
+
+
 async def manager_user_ids() -> List[str]:
     docs = await _db().users.find(
         {"role": {"$in": ["admin", "operations"]}, "is_active": {"$ne": False}},
@@ -680,8 +688,73 @@ async def run_sla_tick() -> Dict[str, int]:
             await db.crm_leads.update_one({"id": lid}, {"$set": {"sla_60_sent_at": _now()}})
             n60 += 1
 
+    missing = await run_missing_follow_up_tick(now)
     follow_ups = await run_follow_up_tick(now)
-    return {"checked": len(leads), "n15": n15, "n60": n60, "follow_ups": follow_ups}
+    return {"checked": len(leads), "n15": n15, "n60": n60, "follow_ups": follow_ups, "missing_follow_ups": missing}
+
+
+def _lead_clock_start(lead: Dict[str, Any]) -> Optional[datetime]:
+    start = _parse_iso(lead.get("assigned_at") or lead.get("created_at"))
+    if start and start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    return start
+
+
+def missing_follow_up_is_due(lead: Dict[str, Any], now: datetime) -> bool:
+    """True once an open lead has had no follow-up for 60 minutes and has not been alerted."""
+    if lead.get("outcome"):
+        return False
+    if str(lead.get("next_follow_up_at") or "").strip():
+        return False
+    if lead.get("follow_up_missing_nagged_at"):
+        return False
+    start = _lead_clock_start(lead)
+    if not start:
+        return False
+    current = now if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    return (current - start).total_seconds() >= 60 * 60
+
+
+async def run_missing_follow_up_tick(now: Optional[datetime] = None) -> int:
+    """One alert to the assignee and admins when no follow-up is set within 60 minutes."""
+    db = get_database()
+    if db is None:
+        return 0
+    now = now or datetime.now(timezone.utc)
+    cursor = db.crm_leads.find(
+        {
+            "outcome": None,
+            "next_follow_up_at": None,
+            "follow_up_missing_nagged_at": None,
+        },
+        {"_id": 0},
+    )
+    leads = await cursor.to_list(300)
+    admins = await admin_user_ids()
+    sent = 0
+    for lead in leads:
+        if not missing_follow_up_is_due(lead, now):
+            continue
+        lid = lead.get("id")
+        name = lead.get("name") or "A lead"
+        targets = list(admins)
+        assignee = lead.get("assigned_to")
+        if assignee and assignee not in targets:
+            targets.append(assignee)
+        if not targets:
+            continue
+        await notify_users(
+            targets,
+            "No follow-up set",
+            f"{name} has no follow-up 60 minutes after assignment.",
+            data={"type": "crm_lead", "lead_id": lid},
+        )
+        await db.crm_leads.update_one(
+            {"id": lid, "follow_up_missing_nagged_at": None, "next_follow_up_at": None},
+            {"$set": {"follow_up_missing_nagged_at": _now()}},
+        )
+        sent += 1
+    return sent
 
 
 async def run_follow_up_tick(now: Optional[datetime] = None) -> int:
