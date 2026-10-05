@@ -4,6 +4,7 @@ import logging
 import uuid
 import secrets
 import string
+import re
 from datetime import datetime, timezone, timedelta
 
 from app.schemas.user import (
