@@ -96,6 +96,13 @@ class Settings(BaseSettings):
     VAPID_PRIVATE_KEY: str = ""
     VAPID_SUBJECT: str = "mailto:faizan@reamarc.com"
 
+    # Google Drive storage for content-calendar assets (5TB account).
+    GOOGLE_DRIVE_CLIENT_ID: str = ""
+    GOOGLE_DRIVE_CLIENT_SECRET: str = ""
+    GOOGLE_DRIVE_REFRESH_TOKEN: str = ""
+    GOOGLE_DRIVE_FOLDER_ID: str = ""
+    GOOGLE_DRIVE_OAUTH_CLIENT_FILE: str = ""
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

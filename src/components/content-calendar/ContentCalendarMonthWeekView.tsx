@@ -225,7 +225,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
       </div>
 
       {isLoading ? (
-        <div className="flex-1 min-h-0 overflow-x-auto p-4 flex gap-3">
+        <div className="flex-1 min-h-0 overflow-x-auto p-4 flex gap-3 custom-scrollbar">
           {Array.from({ length: viewMode === 'week' ? 7 : 6 }).map((_, idx) => (
             <div
               key={`cal-skeleton-${idx}`}
@@ -354,7 +354,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
         </div>
       ) : (
         /* Month Grid View */
-        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar">
           <div className="grid grid-cols-7 gap-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayHeader) => (
               <div

@@ -38,6 +38,9 @@ export interface CreativeAsset {
   height?: number | null;
   duration_seconds?: number | null;
   thumbnail_url?: string | null;
+  google_drive_file_id?: string | null;
+  google_drive_url?: string | null;
+  google_drive_thumb_file_id?: string | null;
 }
 
 export interface ContentCalendarItem {

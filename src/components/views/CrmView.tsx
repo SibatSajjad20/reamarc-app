@@ -59,7 +59,7 @@ function formatWhen(iso?: string | null): string {
 
 function CrmBoardSkeleton() {
   return (
-    <div className="flex-1 overflow-x-auto overflow-y-hidden px-5 py-4">
+    <div className="flex-1 overflow-x-auto overflow-y-hidden px-5 py-4 custom-scrollbar">
       <div className="h-full flex gap-3 min-w-min">
         {[1, 2, 3, 4, 5].map((col) => (
           <div
@@ -984,7 +984,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         ) : (
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
             <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800/90 bg-white dark:bg-[#11131a] shadow-xs">
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto custom-scrollbar">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
                     <tr className="bg-zinc-50/80 dark:bg-[#161822] text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold uppercase tracking-wider text-[11px]">

@@ -248,6 +248,14 @@ async def delete_upload(db, file_path: str) -> bool:
     except HTTPException:
         return False
 
+    if key.startswith("gdrive/"):
+        from app.services.google_drive_service import delete_file, file_id_from_path
+
+        file_id = file_id_from_path(key)
+        if file_id:
+            await delete_file(file_id)
+        return True
+
     if db is not None:
         try:
             bucket = _gridfs_bucket(db)
@@ -376,6 +384,34 @@ def authorize_upload_key(
 
 async def authorize_stored_upload(db, current_user: dict, file_path: str) -> None:
     relative = normalize_upload_key(file_path)
+    if relative.startswith("gdrive/"):
+        from app.core.security import _MANAGEMENT_ROLES
+        from app.services.content_calendar_access import can_access_content_calendar
+        from app.services.content_calendar_workflow import client_owns, is_client
+        from app.services.google_drive_service import file_id_from_path
+
+        role = current_user.get("role")
+        if role in _MANAGEMENT_ROLES or can_access_content_calendar(current_user):
+            return
+
+        file_id = file_id_from_path(relative)
+        item = None
+        if file_id and db is not None:
+            item = await db.content_calendar_items.find_one(
+                {
+                    "$or": [
+                        {"attachments.google_drive_file_id": file_id},
+                        {"attachments.google_drive_thumb_file_id": file_id},
+                    ]
+                }
+            )
+        if is_client(current_user) and item and client_owns(current_user, item):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this file.",
+        )
+
     if relative.startswith("content_calendar/"):
         from app.core.security import _MANAGEMENT_ROLES
         from app.services.content_calendar_access import can_access_content_calendar
@@ -417,6 +453,15 @@ async def open_upload_response(
 ) -> StreamingResponse | FileResponse:
     """Return an inline view or download response from GridFS first, then disk cache."""
     relative = normalize_upload_key(file_path)
+    if relative.startswith("gdrive/"):
+        from app.services.google_drive_service import file_id_from_path, open_drive_response
+
+        file_id = file_id_from_path(relative)
+        if not file_id:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.")
+        filename = Path(relative).name
+        return await open_drive_response(file_id, filename, download=download, range_header=range_header)
+
     display = _display_name(Path(relative).name)
     ext = Path(display).suffix.lower()
     is_viewable = ext in VIEWABLE_EXTENSIONS

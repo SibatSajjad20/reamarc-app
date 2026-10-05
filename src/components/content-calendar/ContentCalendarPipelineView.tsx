@@ -305,7 +305,7 @@ function StageCardList({
   }
 
   return (
-    <div ref={parentRef} className="flex-1 overflow-y-auto p-2.5 min-h-[150px]">
+    <div ref={parentRef} className="flex-1 overflow-y-auto p-2.5 min-h-[150px] custom-scrollbar">
       <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           if (isLoading) {

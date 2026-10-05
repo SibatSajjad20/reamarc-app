@@ -586,7 +586,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
   return (
     <div
       ref={tableContainerRef}
-      className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col select-none"
+      className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col select-none custom-scrollbar"
     >
       <div
         ref={tableInnerRef}
@@ -1249,9 +1249,9 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         {!isLoading && !error && items.length > 0 && (
           <div
             style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-            className="px-5 py-2.5 bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-4 text-xs select-none sticky bottom-0 z-20 shadow-xs"
+            className="px-4 py-1 h-7 min-h-[28px] bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 text-[11px] select-none sticky bottom-0 z-20 shadow-xs"
           >
-            <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400 font-medium">
+            <div className="flex items-center gap-2.5 text-zinc-500 dark:text-zinc-400 font-medium">
               <span>
                 Showing <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{filteredItems.length}</strong> of {items.length} items
               </span>
@@ -1259,30 +1259,30 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={() => setColumnFilters({})}
-                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1 ml-2"
+                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1 ml-1"
                 >
-                  <X className="w-3 h-3" />
+                  <X className="w-2.5 h-2.5" />
                   Clear {Object.keys(columnFilters).length} active {Object.keys(columnFilters).length === 1 ? 'filter' : 'filters'}
                 </button>
               )}
             </div>
 
             {/* Status & Virtualization Pill */}
-            <div className="flex items-center gap-3 text-[11px] text-zinc-400 dark:text-zinc-500 font-medium">
+            <div className="flex items-center gap-2 text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
               {/* Auto-save status feedback */}
               {saveStatus === 'saving' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold animate-pulse">
-                  <RefreshCw className="w-3 h-3 animate-spin" /> Saving changes...
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold animate-pulse text-[10px]">
+                  <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Saving changes...
                 </span>
               )}
               {saveStatus === 'saved' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold animate-in fade-in">
-                  <Check className="w-3 h-3" /> All changes saved
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-[10px]">
+                  <Check className="w-2.5 h-2.5" /> All changes saved
                 </span>
               )}
               {saveStatus === 'error' && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold">
-                  <AlertCircle className="w-3 h-3" /> Save failed (retrying...)
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold text-[10px]">
+                  <AlertCircle className="w-2.5 h-2.5" /> Save failed (retrying...)
                 </span>
               )}
             </div>

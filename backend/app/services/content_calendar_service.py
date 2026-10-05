@@ -592,6 +592,25 @@ async def update_item(
     if "stage" in update_data:
         update_data["design_owner"] = stage_owner(update_data["stage"])
 
+    if current_doc.get("google_drive_folder_id") and any(
+        key in update_data for key in ("client_name", "serial", "content_concept", "workspace_id")
+    ):
+        from app.services import google_drive_service as gdrive
+        if gdrive.configured():
+            try:
+                renamed = dict(current_doc)
+                renamed.update(update_data)
+                parent = await gdrive.ensure_client_folder(
+                    db, renamed.get("client_name"), renamed.get("workspace_id")
+                )
+                await gdrive.relocate_item_folder(
+                    current_doc["google_drive_folder_id"],
+                    parent,
+                    gdrive.item_folder_name(renamed),
+                )
+            except Exception as exc:
+                logger.warning("Could not move Google Drive folder for %s: %s", item_id, exc)
+
     if "notes" in update_data and update_data["notes"] != current_doc.get("notes"):
         u_name = None
         if viewer:
@@ -734,11 +753,23 @@ async def delete_item(db, item_id: str, viewer: Optional[Dict[str, Any]] = None)
     # Clean up any uploaded creative assets
     attachments = current.get("attachments") or []
     for att in attachments:
-        if isinstance(att, dict) and att.get("url"):
+        if not isinstance(att, dict):
+            continue
+        seen_urls = set()
+        for file_url in (att.get("url"), att.get("thumbnail_url")):
+            if not file_url or file_url in seen_urls:
+                continue
+            seen_urls.add(file_url)
             try:
-                await delete_upload(db, att["url"])
+                await delete_upload(db, file_url)
             except Exception as exc:
-                logger.warning("Error deleting upload %s on item delete: %s", att["url"], exc)
+                logger.warning("Error deleting upload %s on item delete: %s", file_url, exc)
+    if current.get("google_drive_folder_id"):
+        from app.services import google_drive_service as gdrive
+        try:
+            await gdrive.delete_file(current["google_drive_folder_id"])
+        except Exception as exc:
+            logger.warning("Error deleting Drive folder on item delete: %s", exc)
 
     res = await coll.delete_one({"$or": [{"id": item_id}, {"serial": item_id}]})
     return res.deleted_count > 0
@@ -900,6 +931,12 @@ async def attach_assets(
     user_id = viewer.get("id") or str(viewer.get("_id", "")) if viewer else None
     user_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email") if viewer else None
 
+    from app.services import google_drive_service as gdrive
+    use_drive = gdrive.configured()
+    drive_folder_id = None
+    if use_drive:
+        drive_folder_id = await gdrive.ensure_item_folder(db, presented)
+
     for index, file in enumerate(files):
         filename = (file.filename or "upload").strip()
         ext = Path(filename).suffix.lower()
@@ -944,35 +981,51 @@ async def attach_assets(
         asset_id = f"ast_{uuid.uuid4().hex[:10]}"
         safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
         relative_key = f"content_calendar/{presented['id']}/{asset_id}_{safe_fname}"
+        drive_file_id = None
+        drive_url = None
+        drive_thumb_id = None
 
-        stored_url = await save_upload_bytes(
-            db,
-            relative_key=relative_key,
-            content=content,
-            original_name=filename,
-            content_type=content_type,
-            extra_metadata={
-                "workspace_id": presented.get("workspace_id"),
-                "uploaded_by": user_id,
-                "item_id": presented["id"],
-            },
-        )
-
-        thumbnail_url = stored_url if kind == "image" else None
-        if kind == "video" and thumbnail_bytes:
-            thumb_key = f"content_calendar/{presented['id']}/{asset_id}_thumb.jpg"
-            thumbnail_url = await save_upload_bytes(
+        if use_drive:
+            uploaded = await gdrive.upload_bytes(drive_folder_id, safe_fname, content, content_type)
+            drive_file_id = uploaded.get("id")
+            drive_url = uploaded.get("webViewLink")
+            stored_url = gdrive.public_path(drive_file_id, safe_fname)
+        else:
+            stored_url = await save_upload_bytes(
                 db,
-                relative_key=thumb_key,
-                content=thumbnail_bytes,
-                original_name=f"{safe_fname}_thumb.jpg",
-                content_type="image/jpeg",
+                relative_key=relative_key,
+                content=content,
+                original_name=filename,
+                content_type=content_type,
                 extra_metadata={
                     "workspace_id": presented.get("workspace_id"),
                     "uploaded_by": user_id,
                     "item_id": presented["id"],
                 },
             )
+
+        thumbnail_url = stored_url if kind == "image" else None
+        if kind == "video" and thumbnail_bytes:
+            if use_drive:
+                thumb_upload = await gdrive.upload_bytes(
+                    drive_folder_id, f"{asset_id}_thumb.jpg", thumbnail_bytes, "image/jpeg"
+                )
+                drive_thumb_id = thumb_upload.get("id")
+                thumbnail_url = gdrive.public_path(drive_thumb_id, f"{asset_id}_thumb.jpg")
+            else:
+                thumb_key = f"content_calendar/{presented['id']}/{asset_id}_thumb.jpg"
+                thumbnail_url = await save_upload_bytes(
+                    db,
+                    relative_key=thumb_key,
+                    content=thumbnail_bytes,
+                    original_name=f"{safe_fname}_thumb.jpg",
+                    content_type="image/jpeg",
+                    extra_metadata={
+                        "workspace_id": presented.get("workspace_id"),
+                        "uploaded_by": user_id,
+                        "item_id": presented["id"],
+                    },
+                )
 
         item_role = role
         # Auto-tag as carousel slide if multiple assets uploaded and role is primary/carousel
@@ -994,6 +1047,9 @@ async def attach_assets(
             "height": height,
             "duration_seconds": duration_seconds,
             "thumbnail_url": thumbnail_url,
+            "google_drive_file_id": drive_file_id,
+            "google_drive_url": drive_url,
+            "google_drive_thumb_file_id": drive_thumb_id,
         })
 
     now_str = _now_iso()
@@ -1144,11 +1200,15 @@ async def delete_asset(
         raise HTTPException(status_code=404, detail="Asset not found")
 
     # Clean up storage
-    if target_asset.get("url"):
+    seen_urls = set()
+    for file_url in (target_asset.get("url"), target_asset.get("thumbnail_url")):
+        if not file_url or file_url in seen_urls:
+            continue
+        seen_urls.add(file_url)
         try:
-            await delete_upload(db, target_asset["url"])
+            await delete_upload(db, file_url)
         except Exception as exc:
-            logger.warning("Error deleting upload for %s: %s", target_asset["url"], exc)
+            logger.warning("Error deleting upload for %s: %s", file_url, exc)
 
     # Filter out and re-index order
     remaining = [a for a in attachments if a.get("id") != asset_id]

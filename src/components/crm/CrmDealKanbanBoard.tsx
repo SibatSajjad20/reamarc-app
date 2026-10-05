@@ -266,7 +266,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
   const totalOpen = deals.filter((d) => d.status === 'open').length;
 
   return (
-    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3">
+    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3 custom-scrollbar">
       {draggingId && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
           <div
@@ -336,7 +336,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   {columnDeals.length}
                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {columnDeals.map((d) => renderCard(d, stageIndex))}
                 {columnDeals.length === 0 && (
                   <div className="py-6 text-center text-[11px] text-zinc-400">No deals</div>
@@ -364,7 +364,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   {(byStage['won'] || []).length}
                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {(byStage['won'] || []).map((d) => renderCard(d))}
                 {(byStage['won'] || []).length === 0 && (
                   <div className="py-6 text-center text-[11px] text-zinc-400">None</div>
@@ -390,7 +390,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   {(byStage['lost'] || []).length}
                 </span>
               </div>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {(byStage['lost'] || []).map((d) => renderCard(d))}
                 {(byStage['lost'] || []).length === 0 && (
                   <div className="py-6 text-center text-[11px] text-zinc-400">None</div>

@@ -237,6 +237,9 @@ class CreativeAsset(BaseModel):
     height: Optional[int] = Field(default=None, description="Image/video pixel height")
     duration_seconds: Optional[float] = Field(default=None, description="Video duration in seconds")
     thumbnail_url: Optional[str] = Field(default=None, description="Thumbnail URL if generated")
+    google_drive_file_id: Optional[str] = Field(default=None, description="Drive file id when stored in Google Drive")
+    google_drive_url: Optional[str] = Field(default=None, description="Drive web link for this file")
+    google_drive_thumb_file_id: Optional[str] = Field(default=None, description="Drive file id for the video thumbnail")
 
 
 class AssetReorderRequest(BaseModel):

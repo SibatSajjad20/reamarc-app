@@ -283,7 +283,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   };
 
   return (
-    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3">
+    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3 custom-scrollbar">
       {draggingId && canAssign && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700">
           <div
@@ -355,7 +355,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                 </span>
               </header>
 
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {cards.map((lead) => renderCard(lead, idx))}
                 {cards.length === 0 && (
                   <div className="h-20 flex flex-col items-center justify-center text-[11px] text-zinc-400 border border-dashed border-zinc-200 dark:border-zinc-800/80 rounded-lg m-1">
@@ -385,7 +385,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   {(byStage['won'] || []).length}
                 </span>
               </header>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {(byStage['won'] || []).map((lead) => renderCard(lead))}
                 {(byStage['won'] || []).length === 0 && (
                   <div className="h-20 flex items-center justify-center text-[11px] text-zinc-400">None</div>
@@ -411,7 +411,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   {(byStage['lost'] || []).length}
                 </span>
               </header>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {(byStage['lost'] || []).map((lead) => renderCard(lead))}
                 {(byStage['lost'] || []).length === 0 && (
                   <div className="h-20 flex items-center justify-center text-[11px] text-zinc-400">None</div>
@@ -426,7 +426,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   {(byStage['trash'] || []).length}
                 </span>
               </header>
-              <div className="flex-1 overflow-y-auto p-2 space-y-2">
+              <div className="flex-1 overflow-y-auto p-2 space-y-2 custom-scrollbar">
                 {(byStage['trash'] || []).map((lead) => renderCard(lead))}
                 {(byStage['trash'] || []).length === 0 && (
                   <div className="h-20 flex items-center justify-center text-[11px] text-zinc-400">None</div>
