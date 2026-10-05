@@ -239,7 +239,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
           ))}
         </div>
       ) : viewMode === 'week' ? (
-        <div className="flex-1 min-h-0 overflow-x-auto p-4 flex gap-3">
+        <div className="flex-1 min-h-0 overflow-x-auto p-4 flex gap-3 custom-scrollbar">
           {weekDays.map((day) => {
             const dayItems = itemsByDate[day.iso] || [];
             const isToday = day.iso === todayIso;

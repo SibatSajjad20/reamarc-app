@@ -99,11 +99,22 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
   };
 
   useEffect(() => {
+    setAssigneeId(currentItem?.assignee_id || '');
+  }, [currentItem?.assignee_id]);
+
+  const isCreativeStage = Boolean(
+    currentItem && ['Creative Production', 'Creative Revision'].includes(currentItem.stage),
+  );
+
+  useEffect(() => {
     if (!isOpen || !currentItem) return;
     if (!actionsFor(actor, currentItem).some((action) => action.needsAssignee)) return;
     let cancelled = false;
-    contentCalendarService
-      .getCreativeAssignees()
+    const isCreative = ['Creative Production', 'Creative Revision'].includes(currentItem.stage);
+    const fetcher = isCreative
+      ? contentCalendarService.getCreativeAssignees()
+      : contentCalendarService.getContentAssignees();
+    fetcher
       .then((res) => {
         if (!cancelled) setAssignees(res.assignees || []);
       })
@@ -113,7 +124,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, currentItem, actor]);
+  }, [isOpen, currentItem?.stage, currentItem?.id, actor]);
 
   if (!isOpen || !currentItem) return null;
 
@@ -132,9 +143,13 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
       case 'Approved for Campaign':
       case 'Creative Approved':
       case 'Content Approved':
+      case 'Posted':
         return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
       case 'Changes Requested':
+      case 'Rejected':
         return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
+      case 'Content Draft':
+        return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700';
       default:
         return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
     }
@@ -320,7 +335,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                 <div className="w-48">
                   <CustomSelect
                     size="sm"
-                    placeholder="Choose creative"
+                    placeholder={isCreativeStage ? 'Choose creative' : 'Choose content creator'}
                     value={assigneeId}
                     onChange={setAssigneeId}
                     options={assignees.map((person) => ({ value: person.id, label: person.name }))}
@@ -332,7 +347,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   type="text"
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Note for creative"
+                  placeholder={isCreativeStage ? 'Note for creative' : 'Note for writer'}
                   className="flex-1 min-w-[160px] px-2 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700"
                 />
               )}
@@ -340,7 +355,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                 <button
                   key={action.action}
                   type="button"
-                  disabled={isActing}
+                  disabled={isActing || (action.action === 'assign' && !assigneeId)}
                   onClick={async () => {
                     setIsActing(true);
                     try {
@@ -627,13 +642,24 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Notes */}
+          {/* Comments */}
           {currentItem.notes && (
             <div className="space-y-2">
-              <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
-                Notes
-              </h3>
-              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800/80 text-xs text-zinc-600 dark:text-zinc-400">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-zinc-500 uppercase tracking-wider">
+                  Comments
+                </h3>
+                <span className="text-[11px] text-zinc-400 flex items-center gap-1.5 font-medium">
+                  <User className="w-3.5 h-3.5 text-zinc-400" />
+                  <span>
+                    By <strong>{currentItem.notes_author || currentItem.created_by_name || 'Team Member'}</strong>
+                  </span>
+                  {currentItem.notes_updated_at && (
+                    <span className="text-zinc-400">· {new Date(currentItem.notes_updated_at).toLocaleDateString()}</span>
+                  )}
+                </span>
+              </div>
+              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800/80 text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed whitespace-pre-wrap">
                 {currentItem.notes}
               </div>
             </div>

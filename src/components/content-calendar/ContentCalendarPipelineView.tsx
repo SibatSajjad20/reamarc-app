@@ -1,6 +1,19 @@
-import React, { useMemo, useRef, useState, useCallback } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Play, Film, FileText, Image as ImageIcon, Link2, Clock, Paperclip } from 'lucide-react';
+import {
+  Play,
+  Film,
+  FileText,
+  Image as ImageIcon,
+  Link2,
+  Clock,
+  Paperclip,
+  MoreVertical,
+  Copy,
+  Check,
+  MessageCircle,
+  ExternalLink,
+} from 'lucide-react';
 import type { ContentCalendarItem, PipelineStage } from '../../types/contentCalendar';
 import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import {
@@ -136,7 +149,7 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
 
   return (
     <div className="flex-1 min-h-0 flex flex-col bg-slate-50/60 dark:bg-[#090a0f]">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
       {stages.map((stage, stageIdx) => {
         const stageItems = byStage[stage] || [];
         const isColumnOver = dragOverStage === stage && draggingItem && draggingItem.stage !== stage;
@@ -241,6 +254,28 @@ function StageCardList({
 }: StageCardListProps) {
   const parentRef = useRef<HTMLDivElement>(null);
   const count = isLoading ? SKELETON_CARD_COUNT : items.length;
+  const { addToast } = useToast();
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [copiedReviewId, setCopiedReviewId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!menuOpenId) return;
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as Element | null;
+      if (!target?.closest(`[data-review-menu="${menuOpenId}"]`)) {
+        setMenuOpenId(null);
+      }
+    };
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMenuOpenId(null);
+    };
+    document.addEventListener('mousedown', handleDocumentClick);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handleDocumentClick);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [menuOpenId]);
 
   const virtualizer = useVirtualizer({
     count,
@@ -289,6 +324,9 @@ function StageCardList({
           if (!item) return null;
           const isBusy = busyId === item.id;
           const isDragging = draggingId === item.id;
+          const isClientReviewStage =
+            (item.stage === 'Content Client Review' || item.stage === 'Creative Client Review') &&
+            actor?.role !== 'client';
           const primary = actionsFor(actor, item).find(
             (action) => action.action === 'submit' || action.action === 'approve' || action.action === 'post',
           );
@@ -298,7 +336,7 @@ function StageCardList({
               key={item.id}
               ref={virtualizer.measureElement}
               data-index={virtualRow.index}
-              className="absolute left-0 top-0 w-full pb-2.5"
+              className={`absolute left-0 top-0 w-full pb-2.5 ${menuOpenId === item.id ? 'z-30' : 'z-0'}`}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <div
@@ -329,9 +367,106 @@ function StageCardList({
                       </span>
                     )}
                   </div>
-                  <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} shrink-0 text-[10px]`}>
-                    {item.creative_type}
-                  </span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} shrink-0 text-[10px]`}>
+                      {item.creative_type}
+                    </span>
+
+                    {isClientReviewStage && (
+                      <div className="relative" data-review-menu={item.id}>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setMenuOpenId(menuOpenId === item.id ? null : item.id);
+                          }}
+                          className={`p-1 rounded-md transition-colors cursor-pointer ${
+                            menuOpenId === item.id
+                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
+                              : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                          }`}
+                          title="Share Client Review Link"
+                        >
+                          <MoreVertical className="w-3.5 h-3.5" />
+                        </button>
+
+                        {menuOpenId === item.id && (
+                          <div
+                            onClick={(e) => e.stopPropagation()}
+                            className="absolute right-0 top-7 z-40 w-48 rounded-xl bg-white dark:bg-[#181a24] border border-zinc-200 dark:border-zinc-700 shadow-xl py-1 text-xs animate-in fade-in-50 zoom-in-95 duration-150"
+                          >
+                            <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                                Client Review Link
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const token = item.share_token || item.id;
+                                const url = `${window.location.origin}/review/${token}`;
+                                await navigator.clipboard.writeText(url);
+                                setCopiedReviewId(item.id);
+                                addToast('Review Link Copied', 'Client review link copied to clipboard.', 'success');
+                                setTimeout(() => {
+                                  setCopiedReviewId(null);
+                                  setMenuOpenId(null);
+                                }, 1200);
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
+                            >
+                              {copiedReviewId === item.id ? (
+                                <>
+                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                                    Link Copied!
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
+                                  <span>Copy Review Link</span>
+                                </>
+                              )}
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const token = item.share_token || item.id;
+                                const url = `${window.location.origin}/review/${token}`;
+                                const greeting = item.client_name ? `Hi ${item.client_name} team` : 'Hi';
+                                const msg = `${greeting}, please review the draft for "${item.content_concept}" (${item.serial || 'Campaign'}):\n\n🔗 ${url}\n\nPlease submit your feedback or approval when ready!`;
+                                window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+                                setMenuOpenId(null);
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
+                            >
+                              <MessageCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <span>Share via WhatsApp</span>
+                            </button>
+
+                            <a
+                              href={`/review/${item.share_token || item.id}`}
+                              target="_blank"
+                              rel="noreferrer noopener"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setMenuOpenId(null);
+                              }}
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              <span>Open Review Page</span>
+                            </a>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Concept Title */}

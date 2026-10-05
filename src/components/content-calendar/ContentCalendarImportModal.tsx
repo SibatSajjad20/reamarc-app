@@ -14,6 +14,7 @@ import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import { findMatchingClient } from './ContentCalendarModal';
 
 interface Props {
   isOpen: boolean;
@@ -21,6 +22,103 @@ interface Props {
   onSuccess: () => void;
   activeClients: { id: string; name: string }[];
 }
+
+export const deriveClientAbbr = (clientName?: string): string => {
+  if (!clientName) return 'AT';
+  const clean = clientName.replace(/[^a-zA-Z0-9\s]/g, '').trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return 'AT';
+  const legal = new Set([
+    'llc', 'inc', 'corp', 'corporation', 'ltd', 'limited', 'co', 'company',
+    'pvt', 'private', 'plc',
+  ]);
+  const stopWords = new Set(['and', 'the', 'of', 'for', 'in', 'to', 'a', 'an']);
+  const filtered = words.filter((w: string) => !legal.has(w.toLowerCase()));
+  const target = (filtered.length > 0 ? filtered : words).filter((w: string) => !stopWords.has(w.toLowerCase()));
+  const finalWords = target.length > 0 ? target : filtered.length > 0 ? filtered : words;
+  return finalWords.length >= 2
+    ? finalWords.slice(0, 3).map((w: string) => w[0].toUpperCase()).join('')
+    : finalWords[0] ? finalWords[0].slice(0, 3).toUpperCase() : 'AT';
+};
+
+interface RawImportItem {
+  rawNum?: number;
+  detectedClient?: string;
+  item: Partial<ContentCalendarItem>;
+}
+
+const prepareItems = (
+  rawList: RawImportItem[],
+  selectedClient: string,
+  forceSelectedClient: boolean,
+  activeClients: Array<{ id: string; name: string }> = []
+): Partial<ContentCalendarItem>[] => {
+  const limits: Partial<Record<keyof ContentCalendarItem, number>> = {
+    content_concept: 300,
+    primary_text: 8000,
+    headlines_hooks: 4000,
+    content_on_creative: 4000,
+    production_direction: 4000,
+    captions_hashtags: 2000,
+    notes: 8000,
+    client_name: 160,
+  };
+  const knownStages = new Set<string>(PIPELINE_STAGES);
+
+  return rawList.map((raw, idx) => {
+    const next = { ...raw.item };
+    const effectiveClient = (forceSelectedClient || !raw.detectedClient)
+      ? selectedClient
+      : raw.detectedClient;
+
+    const matchedWs = findMatchingClient(effectiveClient, activeClients) || findMatchingClient(selectedClient, activeClients);
+    if (matchedWs) {
+      next.client_name = matchedWs.name;
+      next.workspace_id = matchedWs.id;
+    } else {
+      next.client_name = effectiveClient;
+    }
+
+    const abbr = deriveClientAbbr(next.client_name);
+    const num = raw.rawNum !== undefined ? raw.rawNum : idx + 1;
+    next.serial = `C${abbr}-${String(num).padStart(3, '0')}`;
+
+    if (!next.content_concept) {
+      next.content_concept =
+        next.content_on_creative?.slice(0, 100) ||
+        next.production_direction?.slice(0, 100) ||
+        next.primary_text?.split('\n')[0]?.slice(0, 100) ||
+        `Asset ${next.serial}`;
+    }
+
+    (Object.keys(limits) as (keyof ContentCalendarItem)[]).forEach((field) => {
+      const rawVal = next[field];
+      const limit = limits[field];
+      if (typeof rawVal === 'string' && limit && rawVal.length > limit) {
+        (next as Record<string, string>)[field] = rawVal.slice(0, limit);
+      }
+    });
+
+    for (const field of ['draft_preview_link', 'final_asset_link'] as const) {
+      const link = String(next[field] || '').trim();
+      if (!link) continue;
+      try {
+        const url = new URL(link);
+        if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username) {
+          delete next[field];
+        }
+      } catch {
+        delete next[field];
+      }
+    }
+
+    if (next.stage && !knownStages.has(next.stage)) {
+      next.stage = 'Content';
+    }
+
+    return next;
+  });
+};
 
 export const ContentCalendarImportModal: React.FC<Props> = ({
   isOpen,
@@ -34,11 +132,13 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
   const [file, setFile] = useState<File | null>(null);
   const [isParsing, setIsParsing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rawItems, setRawItems] = useState<RawImportItem[]>([]);
   const [parsedItems, setParsedItems] = useState<Partial<ContentCalendarItem>[]>([]);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Import settings
   const [upsertBySerial, setUpsertBySerial] = useState(true);
+  const [overrideClient, setOverrideClient] = useState(true);
   const [defaultClient, setDefaultClient] = useState(
     activeClients.length > 0 ? activeClients[0].name : 'Apex Transfers LLC'
   );
@@ -120,7 +220,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
       let activeHeaderMap: Record<number, keyof ContentCalendarItem> | null = null;
       let activeChannelMap: Record<number, string> = {};
       let currentSectionClient = defaultClient;
-      const extracted: Partial<ContentCalendarItem>[] = [];
+      const rawExtracted: RawImportItem[] = [];
 
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r];
@@ -311,38 +411,12 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
         // Must have at least a serial, creative type, creative copy, or concept to be a valid campaign record
         if (hasAnyValue && (item.content_concept || item.serial || item.content_on_creative || item.primary_text)) {
-          if (!item.client_name) {
-            item.client_name = currentSectionClient || defaultClient;
-          }
-          const clientVal = item.client_name || defaultClient;
-          const clean = clientVal.replace(/[^a-zA-Z0-9\s]/g, '').trim();
-          const words = clean.split(/\s+/).filter(Boolean);
-          const legal = new Set(['llc', 'inc', 'corp', 'corporation', 'ltd', 'limited', 'co', 'company']);
-          const stopWords = new Set(['and', 'the', 'of', 'for', 'in', 'to', 'a', 'an']);
-          const filtered = words.filter((w: string) => !legal.has(w.toLowerCase()));
-          const meaningful = filtered.filter((w: string) => !stopWords.has(w.toLowerCase()));
-          const target = meaningful.length > 0 ? meaningful : filtered.length > 0 ? filtered : words;
-          const abbr =
-            target.length >= 2
-              ? target.slice(0, 3).map((w: string) => w[0].toUpperCase()).join('')
-              : target[0] ? target[0].slice(0, 3).toUpperCase() : 'AT';
-
-          if (!item.serial) {
-            item.serial = `C${abbr}-${String(extracted.length + 1).padStart(3, '0')}`;
-          } else {
+          let rawNum: number | undefined = undefined;
+          if (item.serial) {
             const numMatch = String(item.serial).match(/(\d+)/);
             if (numMatch) {
-              const num = parseInt(numMatch[1], 10);
-              item.serial = `C${abbr}-${String(num).padStart(3, '0')}`;
+              rawNum = parseInt(numMatch[1], 10);
             }
-          }
-
-          if (!item.content_concept) {
-            item.content_concept =
-              item.content_on_creative?.slice(0, 100) ||
-              item.production_direction?.slice(0, 100) ||
-              item.primary_text?.split('\n')[0]?.slice(0, 100) ||
-              `Asset ${item.serial}`;
           }
 
           if (item.publish_date) {
@@ -360,60 +434,42 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
             }
           }
 
-          extracted.push(item);
+          rawExtracted.push({
+            rawNum,
+            detectedClient: item.client_name || currentSectionClient || undefined,
+            item,
+          });
         }
       }
 
-      if (extracted.length === 0) {
+      if (rawExtracted.length === 0) {
         throw new Error('No valid campaign records found in file. Please verify column headers.');
       }
-      if (extracted.length > 10000) {
+      if (rawExtracted.length > 10000) {
         throw new Error('This file has more than 10,000 campaigns. Split it into smaller workbooks and import those.');
       }
 
-      const limits: Partial<Record<keyof ContentCalendarItem, number>> = {
-        content_concept: 300,
-        primary_text: 8000,
-        headlines_hooks: 4000,
-        content_on_creative: 4000,
-        production_direction: 4000,
-        captions_hashtags: 2000,
-        notes: 8000,
-        client_name: 160,
-      };
-      const knownStages = new Set<string>(PIPELINE_STAGES);
-      const prepared = extracted.map((row) => {
-        const next = { ...row };
-        (Object.keys(limits) as (keyof ContentCalendarItem)[]).forEach((field) => {
-          const raw = next[field];
-          const limit = limits[field];
-          if (typeof raw === 'string' && limit && raw.length > limit) {
-            (next as Record<string, string>)[field] = raw.slice(0, limit);
-          }
-        });
-        for (const field of ['draft_preview_link', 'final_asset_link'] as const) {
-          const link = String(next[field] || '').trim();
-          if (!link) continue;
-          try {
-            const url = new URL(link);
-            if ((url.protocol !== 'http:' && url.protocol !== 'https:') || url.username) {
-              delete next[field];
-            }
-          } catch {
-            delete next[field];
-          }
-        }
-        if (next.stage && !knownStages.has(next.stage)) {
-          next.stage = 'Content';
-        }
-        return next;
-      });
-
+      setRawItems(rawExtracted);
+      const prepared = prepareItems(rawExtracted, defaultClient, overrideClient, activeClients);
       setParsedItems(prepared);
     } catch (err: any) {
       setErrorMsg(err?.message || 'Failed to parse Excel workbook.');
     } finally {
       setIsParsing(false);
+    }
+  };
+
+  const handleClientChange = (val: string) => {
+    setDefaultClient(val);
+    if (rawItems.length > 0) {
+      setParsedItems(prepareItems(rawItems, val, overrideClient, activeClients));
+    }
+  };
+
+  const handleOverrideClientChange = (val: boolean) => {
+    setOverrideClient(val);
+    if (rawItems.length > 0) {
+      setParsedItems(prepareItems(rawItems, defaultClient, val, activeClients));
     }
   };
 
@@ -479,6 +535,64 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
         {/* Modal Body */}
         <div className="p-5 flex-1 overflow-y-auto space-y-4">
+          {/* Target Client & Import Settings */}
+          <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+              <div>
+                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
+                  Target Client
+                </label>
+                <CustomSelect
+                  size="sm"
+                  value={defaultClient}
+                  onChange={handleClientChange}
+                  options={[
+                    ...activeClients.map((c) => ({ value: c.name, label: c.name })),
+                    ...(!activeClients.some((c) => c.name === 'Apex Transfers LLC')
+                      ? [{ value: 'Apex Transfers LLC', label: 'Apex Transfers LLC' }]
+                      : []),
+                  ]}
+                />
+              </div>
+
+              <div className="space-y-2 pt-1 sm:pt-2">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={overrideClient}
+                    onChange={(e) => handleOverrideClientChange(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                      Apply to all imported records
+                    </div>
+                    <div className="text-[11px] text-zinc-400">
+                      Standardize all campaigns and serial IDs to selected client
+                    </div>
+                  </div>
+                </label>
+
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={upsertBySerial}
+                    onChange={(e) => setUpsertBySerial(e.target.checked)}
+                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300"
+                  />
+                  <div>
+                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                      Upsert by Serial
+                    </div>
+                    <div className="text-[11px] text-zinc-400">
+                      Update existing campaigns if Serial ID matches
+                    </div>
+                  </div>
+                </label>
+              </div>
+            </div>
+          </div>
+
           {/* File Upload Zone */}
           {!file ? (
             <div
@@ -524,6 +638,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 type="button"
                 onClick={() => {
                   setFile(null);
+                  setRawItems([]);
                   setParsedItems([]);
                   setErrorMsg(null);
                 }}
@@ -550,85 +665,47 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
             </div>
           )}
 
-          {/* Parsed Preview & Options */}
+          {/* Parsed Preview */}
           {parsedItems.length > 0 && !isParsing && (
-            <div className="space-y-4 animate-in fade-in">
-              {/* Import Options */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800">
-                <div>
-                  <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                    Default Client
-                  </label>
-                  <CustomSelect
-                    size="sm"
-                    value={defaultClient}
-                    onChange={(val) => setDefaultClient(val)}
-                    options={[
-                      ...activeClients.map((c) => ({ value: c.name, label: c.name })),
-                      ...(!activeClients.some((c) => c.name === 'Apex Transfers LLC')
-                        ? [{ value: 'Apex Transfers LLC', label: 'Apex Transfers LLC' }]
-                        : []),
-                    ]}
-                  />
-                </div>
-
-                <div className="flex items-center justify-between pt-4 sm:pt-2">
-                  <div>
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Upsert by Serial
-                    </div>
-                    <div className="text-[11px] text-zinc-400">
-                      Update existing campaigns if Serial ID matches
-                    </div>
-                  </div>
-                  <input
-                    type="checkbox"
-                    checked={upsertBySerial}
-                    onChange={(e) => setUpsertBySerial(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300"
-                  />
-                </div>
+            <div className="space-y-2.5 animate-in fade-in">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
+                  Data Preview (Showing {Math.min(10, parsedItems.length)} of {parsedItems.length} records)
+                </span>
+                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Ready to Import
+                </span>
               </div>
 
-              {/* Data Preview */}
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-                    Data Preview (First 5 of {parsedItems.length} records)
-                  </span>
-                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" /> Ready to Import
-                  </span>
-                </div>
-
-                <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden text-xs">
-                  <table className="w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left">
-                    <thead className="bg-zinc-100 dark:bg-zinc-800/60 font-semibold text-zinc-600 dark:text-zinc-400">
-                      <tr>
-                        <th className="p-2">Serial</th>
-                        <th className="p-2">Client</th>
-                        <th className="p-2">Creative</th>
-                        <th className="p-2">Concept / Title</th>
-                        <th className="p-2">Stage</th>
+              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden text-xs">
+                <table className="w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left">
+                  <thead className="bg-zinc-100 dark:bg-zinc-800/60 font-semibold text-zinc-600 dark:text-zinc-400">
+                    <tr>
+                      <th className="p-2">Serial</th>
+                      <th className="p-2">Client</th>
+                      <th className="p-2">Creative</th>
+                      <th className="p-2">Concept / Title</th>
+                      <th className="p-2">Stage</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                    {parsedItems.slice(0, 10).map((it, idx) => (
+                      <tr key={idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
+                        <td className="p-2 font-numeric font-bold text-indigo-600 dark:text-indigo-400">
+                          {it.serial || '—'}
+                        </td>
+                        <td className="p-2 truncate max-w-[140px]" title={it.client_name || defaultClient}>
+                          {it.client_name || defaultClient}
+                        </td>
+                        <td className="p-2">{it.creative_type || 'Video'}</td>
+                        <td className="p-2 truncate max-w-[180px] font-medium" title={it.content_concept}>
+                          {it.content_concept}
+                        </td>
+                        <td className="p-2">{it.stage || 'Content'}</td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
-                      {parsedItems.slice(0, 5).map((it, idx) => (
-                        <tr key={idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
-                          <td className="p-2 font-numeric font-bold text-indigo-600 dark:text-indigo-400">
-                            {it.serial || '—'}
-                          </td>
-                          <td className="p-2 truncate max-w-[120px]">{it.client_name || defaultClient}</td>
-                          <td className="p-2">{it.creative_type || 'Video'}</td>
-                          <td className="p-2 truncate max-w-[180px] font-medium" title={it.content_concept}>
-                            {it.content_concept}
-                          </td>
-                          <td className="p-2">{it.stage || 'Content'}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           )}

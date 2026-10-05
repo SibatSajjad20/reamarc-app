@@ -3,6 +3,10 @@ import { X, Save, AlertCircle, Calendar } from 'lucide-react';
 import type { ContentCalendarItem, ContentCalendarConstants } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { CustomSelect } from '../ui/CustomSelect';
+import {
+  detectStageOwner,
+  getApprovalStatusesForStage,
+} from '../../utils/contentCalendarWorkflow';
 
 
 interface Props {
@@ -12,6 +16,27 @@ interface Props {
   item?: ContentCalendarItem | null;
   constants?: ContentCalendarConstants | null;
   activeClients?: Array<{ id: string; name: string }>;
+}
+
+export function findMatchingClient(
+  clientName: string | undefined | null,
+  clients: Array<{ id: string; name: string }> = []
+): { id: string; name: string } | undefined {
+  if (!clientName || !clients.length) return undefined;
+  const target = clientName.trim().toLowerCase();
+  const exact = clients.find((c) => c.name.toLowerCase() === target);
+  if (exact) return exact;
+  const cleanTarget = target.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const c of clients) {
+    const cleanC = c.name.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (cleanC === cleanTarget) return c;
+  }
+  const words = cleanTarget.split(' ').filter((w) => w.length > 2);
+  return clients.find((c) => {
+    const cleanC = c.name.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (cleanC.includes(cleanTarget) || cleanTarget.includes(cleanC)) return true;
+    return words.length >= 2 && words.every((w) => cleanC.includes(w));
+  });
 }
 
 export const ContentCalendarModal: React.FC<Props> = ({
@@ -41,49 +66,58 @@ export const ContentCalendarModal: React.FC<Props> = ({
     publish_date: '',
     draft_preview_link: '',
     final_asset_link: '',
-    approval_status: 'Review Content',
+    approval_status: 'Content Draft',
     setup_status: 'Not Started',
     stage: 'Content',
     notes: '',
   });
 
+  const todayStr = useMemo(() => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, []);
+
   const clientOptions = useMemo(() => {
-    if (activeClients && activeClients.length > 0) {
-      return activeClients.map((c) => ({ value: c.name, label: c.name }));
-    }
-    return [{ value: 'Apex Transfers LLC', label: 'Apex Transfers LLC' }];
-  }, [activeClients]);
-
-  const creativeTypeOptions = useMemo(() => {
-    const list = constants?.creative_types || ['Video', 'Reel', 'Carousel', 'Static', 'Story', 'UGC'];
-    return list.map((ct) => ({ value: ct, label: ct }));
-  }, [constants?.creative_types]);
-
-  const OWNER_DEPARTMENTS = ['Content', 'Creative', 'Social Media'];
-
-  const designOwnerOptions = useMemo(() => {
-    const base = OWNER_DEPARTMENTS;
-    if (formData.design_owner && !base.includes(formData.design_owner)) {
-      return [...base, formData.design_owner];
+    const base = activeClients && activeClients.length > 0
+      ? activeClients.map((c) => ({ value: c.name, label: c.name }))
+      : [{ value: 'Apex Transfers LLC', label: 'Apex Transfers LLC' }];
+    if (formData.client_name && !base.some((o) => o.value === formData.client_name)) {
+      return [{ value: formData.client_name, label: formData.client_name }, ...base];
     }
     return base;
-  }, [formData.design_owner]);
+  }, [activeClients, formData.client_name]);
 
-  const designOwnerSelectOptions = useMemo(() => {
-    return designOwnerOptions.map((opt) => ({ value: opt, label: opt }));
-  }, [designOwnerOptions]);
+  const creativeTypeOptions = useMemo(() => {
+    const baseList = constants?.creative_types || ['Video', 'Reel', 'Carousel', 'Static', 'Story', 'UGC'];
+    const current = formData.creative_type;
+    const list = current && !baseList.includes(current) ? [...baseList, current] : baseList;
+    return list.map((ct) => ({ value: ct, label: ct }));
+  }, [constants?.creative_types, formData.creative_type]);
 
   const approvalStatusOptions = useMemo(() => {
-    const list = constants?.approval_statuses || ['Review Content', 'Content Approved', 'Approved for Campaign'];
+    const stageList = getApprovalStatusesForStage(formData.stage);
+    const current = formData.approval_status;
+    const list = current && !stageList.includes(current) ? [current, ...stageList] : stageList;
     return list.map((st) => ({ value: st, label: st }));
-  }, [constants?.approval_statuses]);
+  }, [formData.stage, formData.approval_status]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (item) {
-      setFormData({ ...item });
+      const matchedWs = findMatchingClient(item.client_name, activeClients);
+      const effectiveClientName = matchedWs ? matchedWs.name : (item.client_name || 'Apex Transfers LLC');
+      const effectiveWsId = item.workspace_id || matchedWs?.id;
+      setFormData({
+        ...item,
+        client_name: effectiveClientName,
+        workspace_id: effectiveWsId,
+        design_owner: detectStageOwner(item.stage),
+      });
     } else {
       const defaultClient = activeClients && activeClients.length > 0 ? activeClients[0].name : 'Apex Transfers LLC';
       const defaultWsId = activeClients && activeClients.length > 0 ? activeClients[0].id : undefined;
@@ -102,12 +136,12 @@ export const ContentCalendarModal: React.FC<Props> = ({
         content_on_creative: '',
         cta: '',
         captions_hashtags: '',
-        design_owner: 'Content',
+        design_owner: detectStageOwner('Content'),
         design_due: '',
         publish_date: '',
         draft_preview_link: '',
         final_asset_link: '',
-        approval_status: 'Review Content',
+        approval_status: 'Content Draft',
         setup_status: 'Not Started',
         stage: 'Content',
         notes: '',
@@ -129,18 +163,19 @@ export const ContentCalendarModal: React.FC<Props> = ({
   }, [item, isOpen, activeClients]);
 
   const handleClientChange = (clientName: string) => {
-    const matchedWs = activeClients.find((c) => c.name === clientName);
+    const matchedWs = findMatchingClient(clientName, activeClients);
+    const resolvedName = matchedWs ? matchedWs.name : clientName;
     setFormData((prev) => ({
       ...prev,
-      client_name: clientName,
+      client_name: resolvedName,
       workspace_id: matchedWs?.id || prev.workspace_id,
     }));
 
-    if (item && clientName === item.client_name) {
+    if (item && resolvedName === item.client_name) {
       setFormData((prev) => ({ ...prev, serial: item.serial }));
     } else {
       contentCalendarService
-        .getNextSerial(clientName)
+        .getNextSerial(resolvedName)
         .then((res) => {
           if (res?.serial) {
             setFormData((prev) => ({ ...prev, serial: res.serial }));
@@ -154,17 +189,49 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.client_name?.trim()) {
+      setError('Client (Active) is required');
+      return;
+    }
+    if (!formData.creative_type?.trim()) {
+      setError('Creative Type is required');
+      return;
+    }
     const concept = formData.content_concept?.trim() || '';
     if (!concept) {
-      setError('Content concept / title is required');
+      setError('Content concept / headline is required');
       return;
     }
     if (concept.length > 300) {
       setError('Content concept must be 300 characters or fewer');
       return;
     }
-    if (formData.publish_date && !/^\d{4}-\d{2}-\d{2}$/.test(formData.publish_date)) {
+    if (!formData.primary_text?.trim()) {
+      setError('Primary Text (Ad Copy — Versions A, B, C) is required');
+      return;
+    }
+    if (!formData.content_on_creative?.trim()) {
+      setError('Content On Creative (Overlay Text & Script) is required');
+      return;
+    }
+    if (!formData.design_due) {
+      setError('Design Due date is required');
+      return;
+    }
+    if ((!item || formData.design_due !== item.design_due) && formData.design_due < todayStr) {
+      setError('Design Due cannot be a past date; please select today or a future date');
+      return;
+    }
+    if (!formData.publish_date) {
+      setError('Publish Date is required');
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(formData.publish_date)) {
       setError('Publish date must be a real calendar date');
+      return;
+    }
+    if ((!item || formData.publish_date !== item.publish_date) && formData.publish_date < todayStr) {
+      setError('Publish Date cannot be a past date; please select today or a future date');
       return;
     }
     for (const [label, value] of [
@@ -188,9 +255,13 @@ export const ContentCalendarModal: React.FC<Props> = ({
     setIsSubmitting(true);
     setError(null);
     try {
+      const autoOwner = detectStageOwner(formData.stage);
       await onSave({
         ...formData,
         content_concept: concept,
+        primary_text: formData.primary_text?.trim(),
+        content_on_creative: formData.content_on_creative?.trim(),
+        design_owner: autoOwner,
         serial: formData.serial?.trim() || undefined,
         draft_preview_link: formData.draft_preview_link?.trim() || undefined,
         final_asset_link: formData.final_asset_link?.trim() || undefined,
@@ -250,7 +321,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Client (Active)
+                  Client (Active) *
                 </label>
                 <CustomSelect
                   size="sm"
@@ -262,7 +333,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Creative Type
+                  Creative Type *
                 </label>
                 <CustomSelect
                   size="sm"
@@ -352,10 +423,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Primary Text (Ad Copy — Versions A, B, C)
+                Primary Text (Ad Copy — Versions A, B, C) *
               </label>
               <textarea
                 rows={4}
+                required
                 placeholder="--- Version A ---\nAd copy...\n\n--- Version B ---"
                 value={formData.primary_text || ''}
                 onChange={(e) => setFormData({ ...formData, primary_text: e.target.value })}
@@ -378,10 +450,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Content On Creative (Overlay Text & Script)
+                Content On Creative (Overlay Text & Script) *
               </label>
               <textarea
                 rows={3}
+                required
                 placeholder="Opening (0–5 sec)\nVisual: ...\nVO: ..."
                 value={formData.content_on_creative || ''}
                 onChange={(e) => setFormData({ ...formData, content_on_creative: e.target.value })}
@@ -422,25 +495,15 @@ export const ContentCalendarModal: React.FC<Props> = ({
               Workflow & Statuses
             </h3>
 
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Owner
-                </label>
-                <CustomSelect
-                  size="sm"
-                  value={formData.design_owner || 'Content'}
-                  onChange={(val) => setFormData({ ...formData, design_owner: val })}
-                  options={designOwnerSelectOptions}
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Design Due
+                  Design Due *
                 </label>
                 <input
                   type="date"
+                  required
+                  min={!item ? todayStr : undefined}
                   value={formData.design_due || ''}
                   onChange={(e) => setFormData({ ...formData, design_due: e.target.value })}
                   className="w-full px-3 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 font-numeric font-medium cursor-pointer focus:ring-1 focus:ring-indigo-500"
@@ -449,13 +512,15 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
               <div>
                 <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Publish Date
+                  Publish Date *
                 </label>
                 <input
                   type="date"
+                  required
+                  min={!item ? todayStr : undefined}
                   value={formData.publish_date || ''}
                   onChange={(e) => setFormData({ ...formData, publish_date: e.target.value })}
-                  className="w-full px-3 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100"
+                  className="w-full px-3 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 font-numeric font-medium cursor-pointer focus:ring-1 focus:ring-indigo-500"
                 />
               </div>
 
@@ -465,7 +530,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
                 </label>
                 <CustomSelect
                   size="sm"
-                  value={formData.approval_status || 'Review Content'}
+                  value={formData.approval_status || 'Content Draft'}
                   onChange={(val) => setFormData({ ...formData, approval_status: val })}
                   options={approvalStatusOptions}
                 />
@@ -502,11 +567,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
 
             <div>
               <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                Notes
+                Comments
               </label>
               <textarea
                 rows={2}
-                placeholder="Additional notes or production feedback..."
+                placeholder="Additional comments or production feedback..."
                 value={formData.notes || ''}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 className="w-full px-3 py-1.5 rounded-lg text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100"

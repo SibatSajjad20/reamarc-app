@@ -95,6 +95,44 @@ def stored_stage_aliases(stages: List[str]) -> List[str]:
     return list(names)
 
 
+def stage_owner(stage: Optional[str]) -> str:
+    """Derives department owner based on pipeline stage."""
+    norm = normalize_stage(stage)
+    if norm in CREATIVE_STAGES:
+        return "Creative"
+    if norm in SOCIAL_STAGES:
+        return "Social Media"
+    return "Content"
+
+
+def stage_default_approval_status(stage: Optional[str]) -> str:
+    """Derives the default approval status for a given pipeline stage."""
+    norm = normalize_stage(stage)
+    if norm == "Content":
+        return "Content Draft"
+    if norm == "Content Internal Review":
+        return "Content Internal Review"
+    if norm == "Content Client Review":
+        return "Content Client Review"
+    if norm == "Content Revision":
+        return "Changes Requested"
+    if norm == "Creative Production":
+        return "Creative Production"
+    if norm == "Creative Internal Review":
+        return "Creative Internal Review"
+    if norm == "Creative Client Review":
+        return "Creative Client Review"
+    if norm == "Creative Revision":
+        return "Changes Requested"
+    if norm == "Ready to Post":
+        return "Approved for Campaign"
+    if norm == "Posted":
+        return "Posted"
+    if norm == "Rejected":
+        return "Rejected"
+    return "Content Draft"
+
+
 def _role(user: Optional[Dict[str, Any]]) -> str:
     return str((user or {}).get("role") or "").lower().strip()
 
@@ -268,20 +306,37 @@ def resolve_transition(
         resolved = resolve_stage(dest)
         if not resolved:
             raise WorkflowError(f"Target stage '{dest}' is not valid.")
-        return {"stage": resolved, "submitted_from": None}
+        return {
+            "stage": resolved,
+            "submitted_from": None,
+            "design_owner": stage_owner(resolved),
+            "approval_status": stage_default_approval_status(resolved),
+        }
 
     if action_key == "submit":
         if stage in ("Content", "Content Revision"):
             if not (is_admin(user) or is_content_actor(user)):
                 raise WorkflowError("Only the content team can submit content.")
-            return {"stage": "Content Internal Review", "submitted_from": stage}
+            target = "Content Internal Review"
+            return {
+                "stage": target,
+                "submitted_from": stage,
+                "design_owner": stage_owner(target),
+                "approval_status": target,
+            }
         if stage in ("Creative Production", "Creative Revision"):
             allowed = is_admin(user) or is_creative_lead(user) or (
                 is_creative_actor(user) and _is_assignee(user, item)
             )
             if not allowed:
                 raise WorkflowError("Only the assigned creative, or a creative team lead, can submit this.")
-            return {"stage": "Creative Internal Review", "submitted_from": stage}
+            target = "Creative Internal Review"
+            return {
+                "stage": target,
+                "submitted_from": stage,
+                "design_owner": stage_owner(target),
+                "approval_status": target,
+            }
         raise WorkflowError("This stage cannot be submitted.")
 
     if action_key == "approve":
@@ -289,39 +344,75 @@ def resolve_transition(
             if not (is_admin(user) or is_content_lead(user)):
                 raise WorkflowError("Only a content team lead can approve internal review.")
             _require_workspace(item)
-            return {"stage": "Content Client Review"}
+            target = "Content Client Review"
+            return {
+                "stage": target,
+                "design_owner": stage_owner(target),
+                "approval_status": target,
+            }
         if stage == "Creative Internal Review":
             if not (is_admin(user) or is_creative_lead(user)):
                 raise WorkflowError("Only a creative team lead can approve internal review.")
             _require_workspace(item)
-            return {"stage": "Creative Client Review"}
+            target = "Creative Client Review"
+            return {
+                "stage": target,
+                "design_owner": stage_owner(target),
+                "approval_status": target,
+            }
         if stage == "Content Client Review":
             if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
                 raise WorkflowError("Only the client can approve this content.")
+            target = "Creative Production"
             return {
-                "stage": "Creative Production",
+                "stage": target,
                 "assignee_id": None,
                 "assignee_name": None,
                 "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": target,
             }
         if stage == "Creative Client Review":
             if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
                 raise WorkflowError("Only the client can approve this creative.")
-            return {"stage": "Ready to Post", "submitted_from": None}
+            target = "Ready to Post"
+            return {
+                "stage": target,
+                "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": "Approved for Campaign",
+            }
         raise WorkflowError("This stage cannot be approved.")
 
     if action_key == "send_back":
         origin = normalize_stage(item.get("submitted_from"))
+        send_back_note = str(note or "").strip()
         if stage == "Content Internal Review":
             if not (is_admin(user) or is_content_lead(user)):
                 raise WorkflowError("Only a content team lead can send this back.")
             target = origin if origin in ("Content", "Content Revision") else "Content"
-            return {"stage": target, "submitted_from": None}
+            res = {
+                "stage": target,
+                "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": "Changes Requested",
+            }
+            if send_back_note:
+                res["revision_note"] = send_back_note
+            return res
         if stage == "Creative Internal Review":
             if not (is_admin(user) or is_creative_lead(user)):
                 raise WorkflowError("Only a creative team lead can send this back.")
             target = origin if origin in ("Creative Production", "Creative Revision") else "Creative Production"
-            return {"stage": target, "submitted_from": None}
+            res = {
+                "stage": target,
+                "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": "Changes Requested",
+            }
+            if send_back_note:
+                res["revision_note"] = send_back_note
+            return res
         raise WorkflowError("This stage cannot be sent back.")
 
     if action_key == "request_revision":
@@ -331,11 +422,25 @@ def resolve_transition(
         if stage == "Content Client Review":
             if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
                 raise WorkflowError("Only the client can request a content revision.")
-            return {"stage": "Content Revision", "revision_note": text, "submitted_from": None}
+            target = "Content Revision"
+            return {
+                "stage": target,
+                "revision_note": text,
+                "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": "Changes Requested",
+            }
         if stage == "Creative Client Review":
             if not (is_admin(user) or (is_client(user) and client_owns(user, item))):
                 raise WorkflowError("Only the client can request a creative revision.")
-            return {"stage": "Creative Revision", "revision_note": text, "submitted_from": None}
+            target = "Creative Revision"
+            return {
+                "stage": target,
+                "revision_note": text,
+                "submitted_from": None,
+                "design_owner": stage_owner(target),
+                "approval_status": "Changes Requested",
+            }
         raise WorkflowError("This stage is not waiting on the client.")
 
     if action_key in ("post", "reject", "return_to_creative"):
@@ -344,9 +449,20 @@ def resolve_transition(
         if not (is_admin(user) or is_social_actor(user)):
             raise WorkflowError("Only social media can update a campaign that is ready to post.")
         if action_key == "post":
-            return {"stage": "Posted", "submitted_from": None}
+            return {
+                "stage": "Posted",
+                "submitted_from": None,
+                "design_owner": "Social Media",
+                "approval_status": "Posted",
+            }
         if action_key == "reject":
-            return {"stage": "Rejected", "submitted_from": None, "revision_note": str(note or "").strip() or None}
+            return {
+                "stage": "Rejected",
+                "submitted_from": None,
+                "revision_note": str(note or "").strip() or None,
+                "design_owner": "Social Media",
+                "approval_status": "Rejected",
+            }
         text = str(note or "").strip()
         if not text:
             raise WorkflowError("A note is required when returning a campaign to creative.")
@@ -356,16 +472,23 @@ def resolve_transition(
             "submitted_from": None,
             "assignee_id": None,
             "assignee_name": None,
+            "design_owner": "Creative",
+            "approval_status": "Changes Requested",
         }
 
     if action_key == "assign":
-        if stage not in ("Creative Production", "Creative Revision"):
-            raise WorkflowError("A creative assignee can only be set during creative production or revision.")
-        if not (is_admin(user) or is_creative_lead(user)):
-            raise WorkflowError("Only a creative team lead can assign this campaign.")
+        if stage in ("Content", "Content Revision"):
+            if not (is_admin(user) or is_content_lead(user)):
+                raise WorkflowError("Only a content team lead or admin can assign content.")
+        elif stage in ("Creative Production", "Creative Revision"):
+            if not (is_admin(user) or is_creative_lead(user)):
+                raise WorkflowError("Only a creative team lead or admin can assign creative.")
+        else:
+            raise WorkflowError("Assignees can only be set during content or creative production/revision stages.")
+
         chosen = str(assignee_id or "").strip()
-        if not chosen:
-            raise WorkflowError("Choose a creative team member.")
+        if not chosen or chosen.lower() in ("unassigned", "none"):
+            return {"assignee_id": None, "assignee_name": None}
         return {"assignee_id": chosen, "assignee_name": str(assignee_name or "").strip() or None}
 
     raise WorkflowError(f"Unknown action '{action}'.")

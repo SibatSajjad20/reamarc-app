@@ -596,10 +596,10 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         type="button"
                         onClick={handleRequestRevision}
                         disabled={isSubmitting}
-                        className="w-full py-2 px-3 rounded-lg bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-100 dark:hover:bg-white text-white dark:text-zinc-900 font-semibold text-xs shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-zinc-100 !text-white dark:!text-zinc-900 font-semibold text-xs shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
                       >
                         <Send className="w-3.5 h-3.5" />
-                        <span>Submit Feedback</span>
+                        <span>{isSubmitting ? 'Submitting Feedback...' : 'Submit Feedback'}</span>
                       </button>
                     </div>
                   )}

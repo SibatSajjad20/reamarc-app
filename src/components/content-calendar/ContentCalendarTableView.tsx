@@ -33,7 +33,7 @@ import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
-import { getAssetCounts } from '../../utils/contentCalendarWorkflow';
+import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/contentCalendarWorkflow';
 
 export interface ColumnDef {
   key: keyof ContentCalendarItem | string;
@@ -152,11 +152,6 @@ export const ContentCalendarTableView: React.FC<Props> = ({
   const stageSelectOptions = useMemo(() => {
     return PIPELINE_STAGES.map((st) => ({ value: st, label: st }));
   }, []);
-
-  const approvalStatusSelectOptions = useMemo(() => {
-    const list = constants?.approval_statuses || [];
-    return list.map((as) => ({ value: as, label: as }));
-  }, [constants?.approval_statuses]);
 
   const setupStatusSelectOptions = useMemo(() => {
     const list = constants?.setup_statuses || [];
@@ -1002,7 +997,10 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     commitCellEdit(item.id, col.key, val);
                                   }}
                                   onClose={() => setEditingCell(null)}
-                                  options={ensureOption(approvalStatusSelectOptions, cellEditValue)}
+                                  options={ensureOption(
+                                    getApprovalStatusesForStage(item.stage).map((s) => ({ value: s, label: s })),
+                                    cellEditValue
+                                  )}
                                   className="w-full"
                                 />
                               ) : col.key === 'setup_status' ? (

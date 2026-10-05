@@ -79,6 +79,10 @@ export const contentCalendarService = {
     return apiClient.get<{ assignees: Array<{ id: string; name: string }> }>('/content-calendar/creative-assignees');
   },
 
+  async getContentAssignees(): Promise<{ assignees: Array<{ id: string; name: string }> }> {
+    return apiClient.get<{ assignees: Array<{ id: string; name: string }> }>('/content-calendar/content-assignees');
+  },
+
   async deleteItem(id: string): Promise<{ message: string; id: string }> {
     return apiClient.delete<{ message: string; id: string }>(`/content-calendar/${id}`);
   },

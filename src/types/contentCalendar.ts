@@ -62,6 +62,8 @@ export interface ContentCalendarItem {
   approval_status: string;
   setup_status: string;
   notes?: string | null;
+  notes_author?: string | null;
+  notes_updated_at?: string | null;
   stage: PipelineStage;
   publish_date?: string | null;
   channels?: string[];

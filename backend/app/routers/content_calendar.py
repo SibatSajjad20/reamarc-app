@@ -30,6 +30,7 @@ from app.services.content_calendar_workflow import (
     WorkflowError,
     can_create,
     is_admin,
+    is_content_lead,
     is_creative_lead,
     is_performance,
 )
@@ -128,6 +129,19 @@ async def list_creative_assignees(
     return {"assignees": await content_calendar_service.list_creative_assignees(db)}
 
 
+@router.get("/content-assignees")
+@limiter.limit("120/minute")
+async def list_content_assignees(
+    request: Request,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Content people a content team lead can assign."""
+    if not (is_admin(current_user) or is_content_lead(current_user)):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a content team lead can assign content work.")
+    db = get_database()
+    return {"assignees": await content_calendar_service.list_content_assignees(db)}
+
+
 
 @router.post("", response_model=ContentCalendarItemResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("60/minute")
@@ -189,12 +203,14 @@ async def bulk_import_content_items(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the content team can import campaigns.")
     db = get_database()
     user_id = current_user.get("id") or str(current_user.get("_id", ""))
+    user_name = current_user.get("full_name") or current_user.get("name") or current_user.get("email") or "Content Creator"
     return await content_calendar_service.bulk_import_items(
         db,
         items=payload.items,
         upsert_by_serial=payload.upsert_by_serial,
         default_client_name=payload.default_client_name,
         user_id=user_id,
+        user_name=user_name,
     )
 
 

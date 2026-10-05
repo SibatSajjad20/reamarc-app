@@ -49,6 +49,7 @@ from app.services.content_calendar_workflow import (
     is_social_actor,
     normalize_stage,
     resolve_stage,
+    stage_owner,
     stored_stage_aliases,
     visible_stages,
 )
@@ -130,6 +131,10 @@ def _present_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         doc["submitted_from"] = normalize_stage(doc.get("submitted_from"))
     if "attachments" not in doc or not isinstance(doc["attachments"], list):
         doc["attachments"] = []
+    if not doc.get("design_owner"):
+        doc["design_owner"] = stage_owner(doc["stage"])
+    if doc.get("notes") and not doc.get("notes_author"):
+        doc["notes_author"] = doc.get("created_by_name") or "Team Member"
     if not doc.get("share_token"):
         doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
     return doc
@@ -259,6 +264,28 @@ async def get_items(
 
     async def _fetch_items():
         raw = await cursor.to_list(length=limit)
+        missing_uids = [
+            doc["created_by"]
+            for doc in raw
+            if doc.get("created_by") and not doc.get("created_by_name")
+        ]
+        if missing_uids and db is not None:
+            try:
+                user_docs = await db["users"].find(
+                    {"$or": [{"id": {"$in": missing_uids}}, {"_id": {"$in": missing_uids}}]},
+                    {"id": 1, "_id": 1, "full_name": 1, "name": 1}
+                ).to_list(len(missing_uids))
+                u_map = {}
+                for u in user_docs:
+                    uid = str(u.get("id") or u.get("_id") or "")
+                    uname = str(u.get("full_name") or u.get("name") or "")
+                    if uid and uname:
+                        u_map[uid] = uname
+                for doc in raw:
+                    if doc.get("created_by") in u_map and not doc.get("created_by_name"):
+                        doc["created_by_name"] = u_map[doc["created_by"]]
+            except Exception:
+                pass
         return [_present_doc(doc) for doc in raw]
 
     async def _fetch_counts():
@@ -289,6 +316,16 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
     doc = await coll.find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
     if not doc:
         return None
+    if doc.get("created_by") and not doc.get("created_by_name"):
+        try:
+            u = await db["users"].find_one(
+                {"$or": [{"id": doc["created_by"]}, {"_id": doc["created_by"]}]},
+                {"full_name": 1, "name": 1}
+            )
+            if u:
+                doc["created_by_name"] = str(u.get("full_name") or u.get("name") or "")
+        except Exception:
+            pass
     presented = _present_doc(doc)
     if viewer is not None and not can_view_item(viewer, presented):
         return None
@@ -303,7 +340,10 @@ def get_client_abbreviation(client_name: Optional[str]) -> str:
     words = [w for w in clean.split() if w]
     if not words:
         return "AT"
-    legal_suffixes = {"llc", "inc", "corp", "corporation", "ltd", "limited", "co", "company"}
+    legal_suffixes = {
+        "llc", "inc", "corp", "corporation", "ltd", "limited", "co", "company",
+        "pvt", "private", "plc",
+    }
     stop_words = {"and", "the", "of", "for", "in", "to", "a", "an"}
     filtered = [w for w in words if w.lower() not in legal_suffixes]
     if not filtered:
@@ -438,6 +478,12 @@ async def create_item(
 
     doc = payload.model_dump()
     doc["stage"] = DEFAULT_STAGE
+    doc["design_owner"] = stage_owner(DEFAULT_STAGE)
+    if not doc.get("approval_status") or doc.get("approval_status") == "Review Content":
+        doc["approval_status"] = "Content Draft"
+    if doc.get("notes"):
+        doc["notes_author"] = user_name or "Team Member"
+        doc["notes_updated_at"] = now
     doc["submitted_from"] = None
     doc["assignee_id"] = None
     doc["assignee_name"] = None
@@ -465,6 +511,37 @@ async def create_item(
         del doc["_id"]
     return doc
 
+
+
+async def _resolve_workspace_id_for_client(db, client_name: Optional[str]) -> Optional[str]:
+    """Finds matching active workspace id for a client name using exact, substring, or keyword matching."""
+    if not db or not client_name:
+        return None
+    c_clean = str(client_name).strip().lower()
+    if not c_clean:
+        return None
+    try:
+        workspaces = await db["workspaces"].find(
+            {"status": {"$ne": "inactive"}},
+            {"id": 1, "name": 1}
+        ).to_list(200)
+        for w in workspaces:
+            w_name = str(w.get("name") or "").strip().lower()
+            if w_name == c_clean:
+                return w["id"]
+        for w in workspaces:
+            w_name = str(w.get("name") or "").strip().lower()
+            if c_clean in w_name or w_name in c_clean:
+                return w["id"]
+        words = [w for w in re.split(r"\W+", c_clean) if len(w) > 2]
+        if len(words) >= 2:
+            for w in workspaces:
+                w_name = str(w.get("name") or "").strip().lower()
+                if all(word in w_name for word in words):
+                    return w["id"]
+    except Exception as exc:
+        logger.warning("Error resolving workspace for client '%s': %s", client_name, exc)
+    return None
 
 
 async def update_item(
@@ -505,6 +582,23 @@ async def update_item(
                 new_serial = await get_next_serial(db, new_client)
                 update_data["serial"] = new_serial
 
+    # Auto-link workspace_id if missing from both update and existing document
+    if "workspace_id" not in update_data and not current_doc.get("workspace_id"):
+        target_client = update_data.get("client_name") or current_doc.get("client_name")
+        resolved_ws = await _resolve_workspace_id_for_client(db, target_client)
+        if resolved_ws:
+            update_data["workspace_id"] = resolved_ws
+
+    if "stage" in update_data:
+        update_data["design_owner"] = stage_owner(update_data["stage"])
+
+    if "notes" in update_data and update_data["notes"] != current_doc.get("notes"):
+        u_name = None
+        if viewer:
+            u_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email")
+        update_data["notes_author"] = u_name or current_doc.get("notes_author") or "Team Member"
+        update_data["notes_updated_at"] = _now_iso()
+
     # Sanitize strings against formula injection
     for k, v in update_data.items():
         if isinstance(v, str):
@@ -541,6 +635,14 @@ async def transition_item(
     current = await coll.find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
     if not current:
         return None
+
+    # Auto-link workspace_id if missing so client approval stages aren't blocked
+    if not current.get("workspace_id") and current.get("client_name"):
+        resolved_ws = await _resolve_workspace_id_for_client(db, current.get("client_name"))
+        if resolved_ws:
+            current["workspace_id"] = resolved_ws
+            await coll.update_one({"$or": [{"id": item_id}, {"serial": item_id}]}, {"$set": {"workspace_id": resolved_ws}})
+
     presented = _present_doc(dict(current))
     if not can_view_item(viewer, presented):
         return None
@@ -570,16 +672,43 @@ async def list_creative_assignees(db) -> List[Dict[str, str]]:
         return []
     cursor = db["users"].find(
         {"is_active": {"$ne": False}},
-        {"id": 1, "full_name": 1, "name": 1, "department": 1, "role": 1},
+        {"id": 1, "full_name": 1, "name": 1, "department": 1, "departments": 1, "role": 1},
     )
     people: List[Dict[str, str]] = []
     async for doc in cursor:
         probe = {
             "role": doc.get("role"),
             "department": doc.get("department"),
+            "departments": doc.get("departments"),
             "is_active": True,
         }
         if not is_creative_actor(probe):
+            continue
+        people.append({
+            "id": str(doc.get("id") or doc.get("_id") or ""),
+            "name": str(doc.get("full_name") or doc.get("name") or "Team member"),
+        })
+    people.sort(key=lambda person: person["name"].lower())
+    return people
+
+
+async def list_content_assignees(db) -> List[Dict[str, str]]:
+    """Content team leads and members a content lead can assign."""
+    if db is None:
+        return []
+    cursor = db["users"].find(
+        {"is_active": {"$ne": False}},
+        {"id": 1, "full_name": 1, "name": 1, "department": 1, "departments": 1, "role": 1},
+    )
+    people: List[Dict[str, str]] = []
+    async for doc in cursor:
+        probe = {
+            "role": doc.get("role"),
+            "department": doc.get("department"),
+            "departments": doc.get("departments"),
+            "is_active": True,
+        }
+        if not is_content_actor(probe):
             continue
         people.append({
             "id": str(doc.get("id") or doc.get("_id") or ""),
@@ -1447,10 +1576,11 @@ async def bulk_import_items(
     upsert_by_serial: bool = True,
     default_client_name: Optional[str] = None,
     user_id: Optional[str] = None,
+    user_name: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Imports a batch of content calendar items from an Excel upload.
-    Supports upserting by serial or appending new records.
+    Supports upserting by serial or appending new records, auto-linking workspaces.
     """
     if db is None or not items:
         return {"total_processed": 0, "inserted_count": 0, "updated_count": 0, "errors": []}
@@ -1458,6 +1588,29 @@ async def bulk_import_items(
     coll = db[COLLECTION_NAME]
     now = _now_iso()
     client_default = default_client_name or "Apex Transfers LLC"
+
+    ws_list = []
+    if db is not None:
+        try:
+            ws_list = await db["workspaces"].find({"status": {"$ne": "inactive"}}, {"id": 1, "name": 1}).to_list(200)
+        except Exception:
+            ws_list = []
+
+    def _match_ws(name: str) -> Optional[str]:
+        if not name or not ws_list:
+            return None
+        nc = name.strip().lower()
+        for w in ws_list:
+            wn = str(w.get("name") or "").strip().lower()
+            if wn == nc or nc in wn or wn in nc:
+                return w["id"]
+        words = [w for w in re.split(r"\W+", nc) if len(w) > 2]
+        if len(words) >= 2:
+            for w in ws_list:
+                wn = str(w.get("name") or "").strip().lower()
+                if all(word in wn for word in words):
+                    return w["id"]
+        return None
 
     inserted_count = 0
     updated_count = 0
@@ -1471,6 +1624,11 @@ async def bulk_import_items(
                 c_name = doc.get("client_name") or client_default
                 doc["client_name"] = c_name
                 doc["stage"] = normalize_stage(doc.get("stage"))
+
+                if not doc.get("workspace_id"):
+                    matched_ws_id = _match_ws(c_name)
+                    if matched_ws_id:
+                        doc["workspace_id"] = matched_ws_id
 
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO":
@@ -1486,13 +1644,16 @@ async def bulk_import_items(
 
                 doc["updated_at"] = now
 
-                # Prepare insert fields
+                # Prepare insert-only fields (must have ZERO overlap with doc to prevent Mongo error 40)
                 insert_fields = {
                     "id": f"cc_{uuid.uuid4().hex[:12]}",
                     "share_token": f"cc_tok_{uuid.uuid4().hex}",
                     "created_by": user_id,
+                    "created_by_name": user_name,
                     "created_at": now,
                 }
+                # Defensive check: ensure no keys in insert_fields conflict with doc
+                insert_fields = {k: v for k, v in insert_fields.items() if k not in doc}
 
                 operations.append(
                     UpdateOne(
@@ -1517,6 +1678,11 @@ async def bulk_import_items(
                 doc["client_name"] = c_name
                 doc["stage"] = normalize_stage(doc.get("stage"))
 
+                if not doc.get("workspace_id"):
+                    matched_ws_id = _match_ws(c_name)
+                    if matched_ws_id:
+                        doc["workspace_id"] = matched_ws_id
+
                 serial = doc.get("serial")
                 if not serial or not str(serial).strip() or str(serial).upper() == "AUTO":
                     serial = await get_next_serial(db, c_name)
@@ -1531,11 +1697,11 @@ async def bulk_import_items(
                 doc["id"] = f"cc_{uuid.uuid4().hex[:12]}"
                 doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
                 doc["created_by"] = user_id
+                doc["created_by_name"] = user_name
                 doc["created_at"] = now
                 doc["updated_at"] = now
                 docs.append(doc)
             except Exception as e:
-
                 errors.append(f"Row {idx + 1}: {str(e)}")
 
         if docs:

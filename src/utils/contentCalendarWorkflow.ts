@@ -32,6 +32,103 @@ const CREATIVE_STAGES: PipelineStage[] = PIPELINE_STAGES.slice(4, 8);
 const SOCIAL_STAGES: PipelineStage[] = PIPELINE_STAGES.slice(8);
 export const CLIENT_REVIEW_STAGES: PipelineStage[] = ['Content Client Review', 'Creative Client Review'];
 
+export function detectStageOwner(stage?: string | null): string {
+  const s = stage || 'Content';
+  if (CREATIVE_STAGES.includes(s as PipelineStage)) return 'Creative';
+  if (SOCIAL_STAGES.includes(s as PipelineStage)) return 'Social Media';
+  return 'Content';
+}
+
+export const STAGE_APPROVAL_STATUSES: Record<string, string[]> = {
+  'Content': [
+    'Content Draft',
+    'Review Content',
+    'Changes Requested',
+  ],
+  'Content Internal Review': [
+    'Content Internal Review',
+    'Content Approved',
+    'Changes Requested',
+  ],
+  'Content Client Review': [
+    'Content Client Review',
+    'Content Approved',
+    'Changes Requested',
+  ],
+  'Content Revision': [
+    'Content Revision',
+    'Content Draft',
+    'Changes Requested',
+  ],
+  'Creative Production': [
+    'Creative Production',
+    'Review Creative Draft',
+    'Changes Requested',
+  ],
+  'Creative Internal Review': [
+    'Creative Internal Review',
+    'Creative Approved',
+    'Changes Requested',
+  ],
+  'Creative Client Review': [
+    'Creative Client Review',
+    'Creative Approved',
+    'Changes Requested',
+  ],
+  'Creative Revision': [
+    'Creative Revision',
+    'Review Creative Draft',
+    'Changes Requested',
+  ],
+  'Ready to Post': [
+    'Ready to Post',
+    'Approved for Campaign',
+    'Changes Requested',
+  ],
+  'Posted': [
+    'Posted',
+  ],
+  'Rejected': [
+    'Rejected',
+  ],
+};
+
+export function getApprovalStatusesForStage(stage?: string | null): string[] {
+  if (!stage || !STAGE_APPROVAL_STATUSES[stage]) {
+    return STAGE_APPROVAL_STATUSES['Content'];
+  }
+  return STAGE_APPROVAL_STATUSES[stage];
+}
+
+export function defaultApprovalStatusForStage(stage?: string | null): string {
+  switch (stage) {
+    case 'Content':
+      return 'Content Draft';
+    case 'Content Internal Review':
+      return 'Content Internal Review';
+    case 'Content Client Review':
+      return 'Content Client Review';
+    case 'Content Revision':
+      return 'Changes Requested';
+    case 'Creative Production':
+      return 'Creative Production';
+    case 'Creative Internal Review':
+      return 'Creative Internal Review';
+    case 'Creative Client Review':
+      return 'Creative Client Review';
+    case 'Creative Revision':
+      return 'Changes Requested';
+    case 'Ready to Post':
+      return 'Approved for Campaign';
+    case 'Posted':
+      return 'Posted';
+    case 'Rejected':
+      return 'Rejected';
+    default:
+      return 'Content Draft';
+  }
+}
+
 function roleOf(user?: CalendarActor | null): string {
   return (user?.role || '').toLowerCase().trim();
 }
@@ -108,8 +205,9 @@ export function isTeamLeadOrAdmin(user?: CalendarActor | null): boolean {
   return role === 'admin' || role === 'superadmin' || role === 'team_lead' || role === 'manager' || role === 'operations';
 }
 
-export function canAccessClientReviewLink(stage?: string | null, _user?: CalendarActor | null): boolean {
+export function canAccessClientReviewLink(stage?: string | null, user?: CalendarActor | null): boolean {
   if (!stage) return false;
+  if (roleOf(user) === 'client') return false;
   // Review link option is ONLY available when content is in client review stages:
   // - Content Client Review
   // - Creative Client Review
@@ -143,12 +241,15 @@ export function actionsFor(user: CalendarActor | null | undefined, item: Content
   const actions: StageActionSpec[] = [];
   const admin = isAdmin(user);
 
+  if ((stage === 'Content' || stage === 'Content Revision') && (admin || isContentLead(user))) {
+    actions.push({ action: 'assign', label: 'Assign', needsAssignee: true });
+  }
   if ((stage === 'Content' || stage === 'Content Revision') && (admin || isContentActor(user))) {
     actions.push({ action: 'submit', label: 'Submit for internal review' });
   }
   if (stage === 'Content Internal Review' && (admin || isContentLead(user))) {
     actions.push({ action: 'approve', label: 'Send to client' });
-    actions.push({ action: 'send_back', label: 'Send back' });
+    actions.push({ action: 'send_back', label: 'Send back', needsNote: true });
   }
   if ((stage === 'Creative Production' || stage === 'Creative Revision') && (admin || isCreativeLead(user))) {
     actions.push({ action: 'assign', label: 'Assign', needsAssignee: true });
@@ -161,7 +262,7 @@ export function actionsFor(user: CalendarActor | null | undefined, item: Content
   }
   if (stage === 'Creative Internal Review' && (admin || isCreativeLead(user))) {
     actions.push({ action: 'approve', label: 'Send to client' });
-    actions.push({ action: 'send_back', label: 'Send back' });
+    actions.push({ action: 'send_back', label: 'Send back', needsNote: true });
   }
   if (stage === 'Ready to Post' && (admin || isSocial(user))) {
     actions.push({ action: 'post', label: 'Mark posted' });

@@ -188,13 +188,24 @@ CTA_OPTIONS = [
 ]
 
 APPROVAL_STATUS_OPTIONS = [
+    "Content Draft",
     "Review Content",
+    "Content Internal Review",
+    "Content Client Review",
     "Content Approved",
     "Start Production",
+    "Creative Production",
     "Review Creative Draft",
+    "Creative Internal Review",
+    "Creative Client Review",
     "Creative Approved",
+    "Content Revision",
+    "Creative Revision",
     "Changes Requested",
     "Approved for Campaign",
+    "Ready to Post",
+    "Posted",
+    "Rejected",
 ]
 
 SETUP_STATUS_OPTIONS = [
@@ -256,9 +267,11 @@ class ContentCalendarItemBase(BaseModel):
     design_due: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["design_due"])
     draft_preview_link: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["draft_preview_link"])
     final_asset_link: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["final_asset_link"])
-    approval_status: Optional[str] = Field(default="Review Content", max_length=TEXT_LIMITS["approval_status"])
+    approval_status: Optional[str] = Field(default="Content Draft", max_length=TEXT_LIMITS["approval_status"])
     setup_status: Optional[str] = Field(default="Not Started", max_length=TEXT_LIMITS["setup_status"])
     notes: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["notes"])
+    notes_author: Optional[str] = Field(default=None, max_length=160, description="User who wrote or last updated comments")
+    notes_updated_at: Optional[str] = Field(default=None, description="ISO timestamp when comment was added/updated")
     stage: str = Field(default=DEFAULT_STAGE, description="Pipeline stage")
     publish_date: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["publish_date"], description="ISO date YYYY-MM-DD")
     channels: Optional[List[str]] = Field(default_factory=list, max_length=12)
