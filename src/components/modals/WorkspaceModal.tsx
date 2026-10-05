@@ -913,13 +913,18 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting}
+              disabled={isSubmitting || isUploadingProposal}
               className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>Saving Workspace...</span>
+                </>
+              ) : isUploadingProposal ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Uploading Document...</span>
                 </>
               ) : (
                 <>

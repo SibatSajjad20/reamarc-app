@@ -14,12 +14,18 @@
 
   *, *::before, *::after { box-sizing: border-box; }
 
-  html { font-size: 14px; -webkit-text-size-adjust: 100%; }
+  html {
+    font-size: 14px;
+    -webkit-text-size-adjust: 100%;
+    zoom: 1.1;
+    height: 100%;
+  }
 
   body {
     font-family: var(--font-sans);
     margin: 0;
     padding: 0;
+    height: 100%;
     overflow-x: hidden;
     transition: background-color var(--transition-slow), color var(--transition-base);
     -webkit-font-smoothing: antialiased;
@@ -48,13 +54,33 @@
 
 #root {
   width: 100%;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 100%;
   margin: 0;
   padding: 0;
   text-align: left;
   display: flex;
   flex-direction: column;
 }
+
+/* ─── Public Client Review View (Uniform single background, no scroll split) ─── */
+html.public-review-page,
+body.public-review-page,
+body.public-review-page #root {
+  height: auto !important;
+  min-height: 100% !important;
+  background-color: #ffffff !important;
+}
+
+html.dark.public-review-page,
+html.dark body.public-review-page,
+body.dark.public-review-page,
+body.dark.public-review-page #root {
+  height: auto !important;
+  min-height: 100% !important;
+  background-color: #0c0e14 !important;
+}
+
 
 /* ─── Light Mode Overrides ─────────────────────────── */
 html.light {

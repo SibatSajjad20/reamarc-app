@@ -9,6 +9,60 @@ export interface SelectOption {
   icon?: React.ComponentType<{ className?: string }>;
 }
 
+/**
+ * html { zoom } makes position:fixed use a different pixel space than
+ * getBoundingClientRect(). Measure that mapping once so portaled menus
+ * stay flush with their triggers. Width and position can scale differently.
+ */
+type FixedPositionMetrics = {
+  posScaleX: number;
+  posScaleY: number;
+  originX: number;
+  originY: number;
+  sizeScaleX: number;
+  sizeScaleY: number;
+};
+
+let fixedPositionMetrics: FixedPositionMetrics | null = null;
+
+function safeScale(value: number): number {
+  return Number.isFinite(value) && value > 0.01 && value < 20 ? value : 1;
+}
+
+function readFixedPositionMetrics(): FixedPositionMetrics {
+  if (fixedPositionMetrics) return fixedPositionMetrics;
+  const fallback: FixedPositionMetrics = {
+    posScaleX: 1,
+    posScaleY: 1,
+    originX: 0,
+    originY: 0,
+    sizeScaleX: 1,
+    sizeScaleY: 1,
+  };
+  if (typeof document === 'undefined') return fallback;
+
+  const probe = document.createElement('div');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText =
+    'position:fixed;left:0;top:0;width:100px;height:100px;margin:0;padding:0;border:0;visibility:hidden;pointer-events:none;';
+  document.body.appendChild(probe);
+  const atOrigin = probe.getBoundingClientRect();
+  probe.style.left = '100px';
+  probe.style.top = '100px';
+  const atOffset = probe.getBoundingClientRect();
+  probe.remove();
+
+  fixedPositionMetrics = {
+    posScaleX: safeScale((atOffset.left - atOrigin.left) / 100),
+    posScaleY: safeScale((atOffset.top - atOrigin.top) / 100),
+    originX: atOrigin.left,
+    originY: atOrigin.top,
+    sizeScaleX: safeScale(atOffset.width / 100),
+    sizeScaleY: safeScale(atOffset.height / 100),
+  };
+  return fixedPositionMetrics;
+}
+
 export interface CustomSelectProps {
   value: string;
   onChange: (value: string) => void;
@@ -20,7 +74,9 @@ export interface CustomSelectProps {
   disabled?: boolean;
   align?: 'left' | 'right';
   usePortal?: boolean;
-  size?: 'default' | 'sm';
+  size?: 'default' | 'sm' | 'xs';
+  autoOpen?: boolean;
+  onClose?: () => void;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -35,9 +91,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   align = 'left',
   usePortal = true,
   size = 'default',
+  autoOpen = false,
+  onClose,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
   const [coords, setCoords] = useState<{
@@ -49,13 +108,15 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   } | null>(null);
 
   const updatePosition = () => {
-    if (!dropdownRef.current) return;
-    const rect = dropdownRef.current.getBoundingClientRect();
+    const anchor = buttonRef.current ?? dropdownRef.current;
+    if (!anchor) return;
+    const rect = anchor.getBoundingClientRect();
     if (rect.bottom < 0 || rect.top > window.innerHeight) {
       setIsOpen(false);
       return;
     }
 
+    const metrics = readFixedPositionMetrics();
     const spaceBelow = window.innerHeight - rect.bottom;
     const spaceAbove = rect.top;
 
@@ -63,32 +124,43 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
     const openUp = spaceBelow < 220 && spaceAbove > spaceBelow;
     setOpenDirection(openUp ? 'up' : 'down');
 
-    const width = Math.max(200, rect.width);
-    let left = align === 'right' ? rect.right - width : rect.left;
-    if (left + width > window.innerWidth - 8) {
-      left = window.innerWidth - width - 8;
-    }
-    if (left < 8) {
-      left = 8;
-    }
+    const minW = size === 'xs' ? 140 : 200;
+    const width = Math.max(minW, rect.width / metrics.sizeScaleX);
+    const visualWidth = width * metrics.sizeScaleX;
+    let left =
+      align === 'right'
+        ? (rect.right - metrics.originX - visualWidth) / metrics.posScaleX
+        : (rect.left - metrics.originX) / metrics.posScaleX;
+    const maxLeft =
+      (window.innerWidth - 8 - metrics.originX - visualWidth) / metrics.posScaleX;
+    const minLeft = (8 - metrics.originX) / metrics.posScaleX;
+    if (left > maxLeft) left = maxLeft;
+    if (left < minLeft) left = minLeft;
 
     if (openUp) {
-      const maxHeight = Math.min(256, Math.max(100, spaceAbove - 16));
+      const maxHeight = Math.min(256, Math.max(100, (spaceAbove - 16) / metrics.sizeScaleY));
+      const bottom =
+        (window.innerHeight - (rect.top - 6) - metrics.originY) / metrics.posScaleY;
       setCoords({
-        bottom: window.innerHeight - rect.top + 6,
+        bottom,
         left,
         width,
         maxHeight,
       });
     } else {
-      const maxHeight = Math.min(256, Math.max(100, spaceBelow - 16));
+      const maxHeight = Math.min(256, Math.max(100, (spaceBelow - 16) / metrics.sizeScaleY));
       setCoords({
-        top: rect.bottom + 6,
+        top: (rect.bottom + 6 - metrics.originY) / metrics.posScaleY,
         left,
         width,
         maxHeight,
       });
     }
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+    onClose?.();
   };
 
   const handleToggle = () => {
@@ -97,10 +169,20 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         updatePosition();
         setIsOpen(true);
       } else {
-        setIsOpen(false);
+        handleClose();
       }
     }
   };
+
+  useEffect(() => {
+    if (autoOpen && !disabled) {
+      const timer = setTimeout(() => {
+        updatePosition();
+        setIsOpen(true);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [autoOpen, disabled]);
 
   const selectedOption = options.find((opt) => opt.value === value);
 
@@ -113,6 +195,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       updatePosition();
     };
     const handleResize = () => {
+      fixedPositionMetrics = null;
       updatePosition();
     };
     const handleOutsideClick = (e: MouseEvent) => {
@@ -123,11 +206,12 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       ) {
         return;
       }
-      setIsOpen(false);
+      handleClose();
     };
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsOpen(false);
+        e.stopPropagation();
+        handleClose();
       }
     };
 
@@ -179,9 +263,11 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
             type="button"
             onClick={() => {
               onChange(option.value);
-              setIsOpen(false);
+              handleClose();
             }}
-            className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
+            className={`w-full flex items-center justify-between gap-2 ${
+              size === 'xs' ? 'px-2.5 py-1.5 rounded-lg text-xs' : 'px-3 py-2 rounded-xl text-xs'
+            } font-semibold transition-colors cursor-pointer text-left select-none ${
               isSelected
                 ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
                 : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800/80'
@@ -224,12 +310,17 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       )}
 
       <button
+        ref={buttonRef}
         type="button"
         disabled={disabled}
         onClick={handleToggle}
         className={`w-full ${
-          size === 'sm' ? 'h-8 px-2.5 rounded-lg' : 'h-10 px-3.5 rounded-xl'
-        } flex items-center justify-between gap-2 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed ${
+          size === 'xs'
+            ? 'h-[26px] px-2 py-0 rounded-md text-xs font-medium'
+            : size === 'sm'
+            ? 'h-8 px-2.5 rounded-lg text-xs font-semibold'
+            : 'h-10 px-3.5 rounded-xl text-xs font-semibold'
+        } flex items-center justify-between gap-1.5 bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed ${
           isOpen ? 'ring-2 ring-indigo-500/20 border-indigo-500 dark:border-indigo-500' : ''
         }`}
       >
@@ -244,7 +335,9 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         </div>
 
         <ChevronDown
-          className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-200 shrink-0 ${
+          className={`${
+            size === 'xs' ? 'w-3 h-3' : 'w-3.5 h-3.5'
+          } text-zinc-400 dark:text-zinc-500 transition-transform duration-200 shrink-0 ${
             isOpen ? 'rotate-180 text-indigo-600 dark:text-indigo-400' : ''
           }`}
         />

@@ -46,7 +46,8 @@ function Gate({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (loading) return;
     const onLogin = segments[0] === 'login';
-    if (!user && !onLogin) router.replace('/login');
+    const onReview = segments[0] === 'review';
+    if (!user && !onLogin && !onReview) router.replace('/login');
     if (user && onLogin) router.replace('/(tabs)');
   }, [user, loading, segments, router]);
 
@@ -88,6 +89,7 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="pipeline" />
             <Stack.Screen name="daily-log" />
+            <Stack.Screen name="review" />
           </Stack>
         </Gate>
       </InboxProvider>

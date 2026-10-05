@@ -42,14 +42,61 @@ _PHONE_KEYS = (
     "whatsapp",
     "tel",
     "contact_number",
+    "your phone",
+    "your_phone",
+    "your phone number",
+    "your_phone_number",
 )
-_NAME_KEYS = ("name", "full_name", "fullname_name", "contact_name")
-_EMAIL_KEYS = ("email", "email_address", "work_email")
-_COMPANY_KEYS = ("company", "company_name", "business_name", "organisation", "organization")
+_NAME_KEYS = (
+    "name",
+    "full_name",
+    "fullname_name",
+    "contact_name",
+    "names",
+    "your name",
+    "your_name",
+)
+_EMAIL_KEYS = (
+    "email",
+    "email_address",
+    "work_email",
+    "your email",
+    "your_email",
+)
+_COMPANY_KEYS = (
+    "company",
+    "company_name",
+    "business_name",
+    "organisation",
+    "organization",
+    "input_mask",
+    "company name",
+)
 _CITY_KEYS = ("city", "town", "location")
 _SERVICE_KEYS = ("service", "product", "interest", "looking_for")
 _BUDGET_KEYS = ("budget", "monthly_budget", "ad_budget")
-_WEBSITE_KEYS = ("website", "website_url", "site", "web_url", "url")
+_WEBSITE_KEYS = (
+    "website",
+    "website_url",
+    "site",
+    "web_url",
+    "url",
+    "website url",
+    "your website",
+)
+_NOTE_KEYS = (
+    "note",
+    "message",
+    "comments",
+    "enquiry",
+    "inquiry",
+    "help_with",
+    "what_can_we_help_you_with",
+    "what can we help you with",
+    "what can we help you with?",
+    "description",
+    "details",
+)
 
 # ---------------------------------------------------------------------------
 # Smart company / website splitter
@@ -185,11 +232,65 @@ def _truncate_raw_payload(payload: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     return compact
 
 
+def _expand_wordpress_form_payload(raw: Dict[str, Any]) -> Tuple[Dict[str, Any], set]:
+    """Auto-detect and unpack WordPress (Fluent Forms, WPForms, CF7) input conventions.
+
+    Handles prefixes like 'ff_1_email', 'ff_2_phone', 'names[first_name]',
+    unpacked name fields, and website checkbox toggles.
+    """
+    expanded: Dict[str, Any] = dict(raw)
+    extra_reserved: set = set()
+    no_website_flag = False
+
+    for k, v in list(raw.items()):
+        k_str = str(k).strip()
+        lower_k = k_str.lower()
+
+        # Check if checkbox or field indicates no website
+        if ("website" in lower_k or "checkbox" in lower_k) and is_no_website(v):
+            no_website_flag = True
+            extra_reserved.add(k_str)
+
+        # Strip Fluent Forms prefix (e.g., ff_1_email -> email, ff_2_phone -> phone)
+        clean_k = re.sub(r"^ff_\d+_", "", k_str, flags=re.IGNORECASE).strip("_")
+        if clean_k and clean_k.lower() != k_str.lower():
+            extra_reserved.add(k_str)
+            if clean_k not in expanded:
+                expanded[clean_k] = v
+
+        # Fluent Forms name subfield patterns: names_first_name_ -> first_name
+        if clean_k.lower().startswith("names_"):
+            sub_k = clean_k[6:].strip("_")
+            if sub_k:
+                extra_reserved.add(k_str)
+                if sub_k not in expanded:
+                    expanded[sub_k] = v
+
+        # Simple name field named "names"
+        if clean_k.lower() == "names" and isinstance(v, str) and "name" not in expanded:
+            expanded["name"] = v
+
+        # If field value is a nested dictionary (e.g. {"names": {"first_name": "John", "last_name": "Doe"}})
+        if isinstance(v, dict):
+            for sub_k, sub_v in v.items():
+                compound = f"{clean_k}_{sub_k}"
+                if compound not in expanded:
+                    expanded[compound] = sub_v
+                if sub_k not in expanded:
+                    expanded[sub_k] = sub_v
+
+    if no_website_flag and "no_website" not in expanded:
+        expanded["no_website"] = "yes"
+
+    return expanded, extra_reserved
+
+
 def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
     """Map messy website / Meta field bags into CRM lead fields."""
-    raw = dict(payload or {})
-    phone_raw = _clip_str(_first_str(raw, _PHONE_KEYS), 40)
-    email = (_first_str(raw, _EMAIL_KEYS) or "").lower() or None
+    orig_payload = dict(payload or {})
+    expanded_raw, extra_reserved = _expand_wordpress_form_payload(orig_payload)
+    phone_raw = _clip_str(_first_str(expanded_raw, _PHONE_KEYS), 40)
+    email = (_first_str(expanded_raw, _EMAIL_KEYS) or "").lower() or None
     e164, valid = normalize_phone_e164(phone_raw)
     reserved = {
         *_PHONE_KEYS,
@@ -203,10 +304,7 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "campaign",
         "campaign_name",
         "utm_campaign",
-        "note",
-        "message",
-        "comments",
-        "enquiry",
+        *_NOTE_KEYS,
         "external_id",
         "id",
         "lead_id",
@@ -217,11 +315,16 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "given_name",
         "family_name",
         "surname",
+        "names",
+        "names_first_name",
+        "names_last_name",
         "source",
+        "no_website",
+        *extra_reserved,
     }
     # Smart company/website split
-    raw_company = _clip_str(_first_str(raw, _COMPANY_KEYS), 300)
-    raw_website = _clip_str(_first_str(raw, _WEBSITE_KEYS), 300)
+    raw_company = _clip_str(_first_str(expanded_raw, _COMPANY_KEYS), 300)
+    raw_website = _clip_str(_first_str(expanded_raw, _WEBSITE_KEYS), 300)
     if raw_company and not raw_website:
         split_company, split_website = _split_company_or_url(raw_company)
         company = _clip_str(split_company, 160)
@@ -230,18 +333,18 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         company = _clip_str(raw_company, 160)
         website = _clip_str(raw_website, 200)
 
-    no_website = is_no_website(website)
+    no_website = is_no_website(website) or is_no_website(expanded_raw.get("no_website"))
     if no_website:
         website = None
 
-    custom = _sanitize_custom_fields(raw, reserved)
+    custom = _sanitize_custom_fields(orig_payload, reserved)
     filled, consumed = pull_form_answers(
         custom,
         {
             "role": None,
-            "budget": _clip_str(_first_str(raw, _BUDGET_KEYS), 80),
+            "budget": _clip_str(_first_str(expanded_raw, _BUDGET_KEYS), 80),
             "start_timeline": None,
-            "service": _clip_str(_first_str(raw, _SERVICE_KEYS), 120),
+            "service": _clip_str(_first_str(expanded_raw, _SERVICE_KEYS), 120),
             "objective": None,
         },
     )
@@ -249,7 +352,7 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         custom.pop(key, None)
 
     return {
-        "name": _pick_name(raw)[:160],
+        "name": _pick_name(expanded_raw)[:160],
         "phone_raw": phone_raw,
         "phone_e164": e164,
         "phone_valid": valid,
@@ -257,21 +360,21 @@ def normalize_ingest_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
         "company": company,
         "website": website,
         "no_website": no_website,
-        "city": _clip_str(_first_str(raw, _CITY_KEYS), 80),
+        "city": _clip_str(_first_str(expanded_raw, _CITY_KEYS), 80),
         "service": filled.get("service"),
         "budget": filled.get("budget"),
         "role": filled.get("role"),
         "start_timeline": filled.get("start_timeline"),
         "objective": filled.get("objective"),
-        "campaign": _clip_str(_first_str(raw, ("campaign", "campaign_name", "utm_campaign")), 160),
-        "note": _clip_str(_first_str(raw, ("note", "message", "comments", "enquiry")), 4000),
+        "campaign": _clip_str(_first_str(expanded_raw, ("campaign", "campaign_name", "utm_campaign")), 160),
+        "note": _clip_str(_first_str(expanded_raw, _NOTE_KEYS), 4000),
         "external_id": (
-            f"client_{_clip_str(_first_str(raw, ('external_id', 'id', 'lead_id')), 200)}"
-            if _clip_str(_first_str(raw, ("external_id", "id", "lead_id")), 200)
-            and _clip_str(_first_str(raw, ("external_id", "id", "lead_id")), 200).lower().startswith(
+            f"client_{_clip_str(_first_str(expanded_raw, ('external_id', 'id', 'lead_id')), 200)}"
+            if _clip_str(_first_str(expanded_raw, ("external_id", "id", "lead_id")), 200)
+            and _clip_str(_first_str(expanded_raw, ("external_id", "id", "lead_id")), 200).lower().startswith(
                 ("meta_", "meta_lead_", "google_", "google_lead_", "fb_", "facebook_")
             )
-            else _clip_str(_first_str(raw, ("external_id", "id", "lead_id")), 200)
+            else _clip_str(_first_str(expanded_raw, ("external_id", "id", "lead_id")), 200)
         ),
         "custom_fields": custom,
     }

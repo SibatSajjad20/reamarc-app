@@ -22,4 +22,5 @@ class Department(str, Enum):
     AI = "AI"
     SOFTWARE_DEVELOPMENT = "software development"
     SALES = "sales"
+    SOCIAL_MEDIA = "social media"
 

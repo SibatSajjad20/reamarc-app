@@ -1,4 +1,4 @@
-﻿export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm';
+export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'content-calendar' | 'portal';
 
 export * from './attendance';
 

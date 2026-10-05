@@ -13,6 +13,7 @@ from app.schemas.user import (
     MemberActivityResponse,
     ReminderRequest,
     ReminderResponse,
+    member_phone_from_doc,
 )
 from app.models.user import UserRole, EmploymentType
 from app.services.attendance_golive import purge_pre_joining_attendance
@@ -79,7 +80,7 @@ def _format_member_resp(doc: dict) -> dict:
         "email": doc["email"],
         "full_name": doc.get("full_name") or doc.get("name", "User"),
         "role": role_val,
-        "phone": doc.get("phone"),
+        "phone": member_phone_from_doc(doc),
         "department": dept,
         "joining_date": doc.get("joining_date"),
         "employment_type": employment_type,
@@ -87,7 +88,34 @@ def _format_member_resp(doc: dict) -> dict:
         "probation_end_date": doc.get("probation_end_date"),
         "is_active": doc.get("is_active", True),
         "created_at": doc.get("created_at"),
+        "workspace_ids": [str(value) for value in (doc.get("workspace_ids") or []) if value],
     }
+
+
+async def _client_workspace_ids(db, raw_ids: list) -> list:
+    """Active client workspaces a client login is allowed to review."""
+    cleaned = []
+    for raw in raw_ids or []:
+        workspace_id = str(raw or "").strip()
+        if workspace_id and workspace_id not in cleaned:
+            cleaned.append(workspace_id)
+    if not cleaned:
+        raise HTTPException(
+            status_code=400,
+            detail="A client account must be linked to at least one active client.",
+        )
+    found = await db.workspaces.find(
+        {"id": {"$in": cleaned}, "status": {"$ne": "inactive"}},
+        {"id": 1},
+    ).to_list(length=None)
+    found_ids = {str(doc.get("id")) for doc in found}
+    missing = [workspace_id for workspace_id in cleaned if workspace_id not in found_ids]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail="One or more selected clients are not active.",
+        )
+    return cleaned
 
 
 def _format_workspace_resp(doc: dict) -> dict:
@@ -295,7 +323,7 @@ async def list_members_activity(
             "user_id": uid,
             "full_name": fname,
             "email": u["email"],
-            "phone": u.get("phone"),
+            "phone": member_phone_from_doc(u),
             "department": u.get("department"),
             "role": u.get("role", "team_member"),
             "last_logged_date": last_logged,
@@ -480,6 +508,7 @@ async def create_member(
         dept_val = member_in.department.strip() if member_in.department else None
 
     now_iso = datetime.now(timezone.utc).isoformat()
+    workspace_ids = await _client_workspace_ids(db, member_in.workspace_ids) if member_in.role == UserRole.CLIENT else []
     user_doc = {
         "_id": user_id,
         "id": user_id,
@@ -496,6 +525,7 @@ async def create_member(
         "probation_start_date": member_in.probation_start_date,
         "probation_end_date": member_in.probation_end_date,
         "is_active": member_in.is_active,
+        "workspace_ids": workspace_ids,
         "created_at": now_iso,
         "updated_at": now_iso,
     }
@@ -589,6 +619,17 @@ async def update_member(
         update_fields["crm_enabled"] = bool(member_in.crm_enabled)
     if member_in.crm_paused is not None:
         update_fields["crm_paused"] = bool(member_in.crm_paused)
+    target_role = member_in.role.value if member_in.role else existing_user.get("role")
+    if target_role in (UserRole.CLIENT.value, "client"):
+        if member_in.workspace_ids is not None:
+            update_fields["workspace_ids"] = await _client_workspace_ids(db, member_in.workspace_ids)
+        elif not existing_user.get("workspace_ids"):
+            raise HTTPException(
+                status_code=400,
+                detail="A client account must be linked to at least one active client.",
+            )
+    elif member_in.role is not None:
+        update_fields["workspace_ids"] = []
     if member_in.joining_date is not None:
         update_fields["joining_date"] = member_in.joining_date.strip()
     if member_in.employment_type is not None:

@@ -126,6 +126,108 @@ export const openFileAttachment = async (url: string, filename?: string) => {
           finalBlob = new Blob([blob], { type: contentType });
         }
 
+        const isDocx = lowerName.endsWith('.docx');
+        const isDoc = lowerName.endsWith('.doc');
+
+        if (newTab && !newTab.closed && (isDocx || isDoc)) {
+          const safeTitle = (filename || 'Word Document').replace(/[<>&"]/g, '');
+          newTab.document.title = safeTitle;
+          newTab.document.body.innerHTML = `
+            <div style="min-height:100vh;background:#f1f5f9;font-family:system-ui,-apple-system,sans-serif;margin:0;display:flex;flex-direction:column;">
+              <header style="position:sticky;top:0;z-index:50;height:52px;background:#1e293b;color:white;display:flex;align-items:center;justify-content:space-between;padding:0 24px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
+                <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+                  <span style="font-size:18px;">📄</span>
+                  <span style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;">${safeTitle}</span>
+                  <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:12px;background:#334155;color:#94a3b8;">Word Document</span>
+                </div>
+                <div style="display:flex;align-items:center;gap:10px;">
+                  <button id="printBtn" style="background:#334155;color:white;border:none;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">Print</button>
+                  <button id="dlBtn" style="background:#4f46e5;color:white;border:none;padding:6px 16px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:6px;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    Download
+                  </button>
+                </div>
+              </header>
+              <main style="flex:1;display:flex;justify-content:center;padding:32px 16px;">
+                <div id="docx-output" style="background:white;box-shadow:0 4px 20px rgba(0,0,0,0.08);border-radius:6px;padding:48px;max-width:900px;width:100%;box-sizing:border-box;min-height:600px;">
+                  <div id="docx-loading" style="text-align:center;padding:80px 20px;color:#64748b;">
+                    <div style="display:inline-block;width:36px;height:36px;border:3px solid #cbd5e1;border-top-color:#4f46e5;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+                    <div style="margin-top:16px;font-size:14px;font-weight:600;color:#1e293b;">${isDocx ? 'Rendering Word document in browser...' : 'Legacy Word (.doc) Document'}</div>
+                    <div style="margin-top:6px;font-size:12px;">Please wait while formatting is parsed.</div>
+                  </div>
+                </div>
+              </main>
+            </div>
+            <style>
+              @keyframes spin { to { transform: rotate(360deg); } }
+              .docx-wrapper { background: transparent !important; padding: 0 !important; }
+              .docx-wrapper > section.docx { box-shadow: none !important; margin-bottom: 30px !important; }
+            </style>
+          `;
+
+          const dlBtn = newTab.document.getElementById('dlBtn');
+          if (dlBtn) {
+            dlBtn.onclick = () => {
+              const dlUrl = window.URL.createObjectURL(finalBlob);
+              const a = newTab.document.createElement('a');
+              a.href = dlUrl;
+              a.download = filename || 'document.docx';
+              a.click();
+              setTimeout(() => window.URL.revokeObjectURL(dlUrl), 2000);
+            };
+          }
+          const printBtn = newTab.document.getElementById('printBtn');
+          if (printBtn) {
+            printBtn.onclick = () => newTab.print();
+          }
+
+          if (isDocx) {
+            try {
+              const { renderAsync } = await import('docx-preview');
+              const container = newTab.document.getElementById('docx-output');
+              if (container) {
+                container.innerHTML = '';
+                await renderAsync(finalBlob, container, undefined, {
+                  className: 'docx',
+                  inWrapper: false,
+                  ignoreWidth: false,
+                  ignoreHeight: false,
+                  breakPages: true,
+                });
+              }
+            } catch (renderErr) {
+              console.warn('In-browser docx preview rendering error:', renderErr);
+              const container = newTab.document.getElementById('docx-output');
+              if (container) {
+                container.innerHTML = `
+                  <div style="text-align:center;padding:60px 20px;color:#475569;">
+                    <div style="font-size:36px;margin-bottom:12px;">📄</div>
+                    <h3 style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px 0;">Document Ready to View</h3>
+                    <p style="font-size:13px;color:#64748b;max-width:440px;margin:0 auto 20px auto;">
+                      This document contains specialized formatting. You can view or save the file using the download button above.
+                    </p>
+                  </div>
+                `;
+              }
+            }
+          } else {
+            // .doc legacy format
+            const container = newTab.document.getElementById('docx-output');
+            if (container) {
+              container.innerHTML = `
+                <div style="text-align:center;padding:60px 20px;color:#475569;">
+                  <div style="font-size:36px;margin-bottom:12px;">📄</div>
+                  <h3 style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px 0;">Legacy Word Document (.doc)</h3>
+                  <p style="font-size:13px;color:#64748b;max-width:440px;margin:0 auto 20px auto;">
+                    This file is in legacy binary Word format. Modern in-browser rendering supports .docx files. Use the Download button to open in Microsoft Word.
+                  </p>
+                </div>
+              `;
+            }
+          }
+          return;
+        }
+
         const blobUrl = window.URL.createObjectURL(finalBlob);
 
         if (newTab && !newTab.closed) {

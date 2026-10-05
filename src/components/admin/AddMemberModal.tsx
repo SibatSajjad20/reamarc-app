@@ -17,7 +17,11 @@ import {
 } from 'lucide-react';
 import type { UserRole } from '../../types/auth';
 import type { CreateMemberPayload, EmploymentType } from '../../types/admin';
+import type { Workspace } from '../../types';
+import { workspaceService } from '../../services/workspaceService';
+import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
+import { looksLikeEmail, normalizePhoneForSave, phoneForInput, pickPhoneValue } from '../../utils/phone';
 
 export const DEPARTMENTS = [
   'Website',
@@ -29,6 +33,7 @@ export const DEPARTMENTS = [
   'Software Development',
   'HR',
   'Sales',
+  'Social Media',
 ] as const;
 
 export const ROLES: { id: UserRole; label: string; description: string }[] = [
@@ -74,6 +79,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [passwordMode, setPasswordMode] = useState<'invite' | 'manual'>('manual');
   const [temporaryPassword, setTemporaryPassword] = useState('');
   const [copied, setCopied] = useState(false);
+  const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
+  const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -92,6 +99,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setProbationEndDate('');
       setPasswordMode('manual');
       setTemporaryPassword(generateRandomPassword());
+      setWorkspaceIds([]);
       setCopied(false);
       setErrorMsg(null);
       document.body.style.overflow = 'hidden';
@@ -102,6 +110,52 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       document.body.style.overflow = 'auto';
     };
   }, [isOpen, defaultRole]);
+
+  useEffect(() => {
+    if (!isOpen || role !== 'client') return;
+    let cancelled = false;
+    Promise.all([
+      workspaceService.getWorkspaces(),
+      adminService.getMembers({ role: 'client' }).catch(() => []),
+    ])
+      .then(([workspaces, clientMembers]) => {
+        if (cancelled) return;
+        const existingWorkspaceIds = new Set<string>();
+        const existingEmails = new Set<string>();
+        (clientMembers || []).forEach((m) => {
+          if (m.email) existingEmails.add(m.email.toLowerCase().trim());
+          (m.workspace_ids || []).forEach((wsId) => existingWorkspaceIds.add(String(wsId)));
+        });
+
+        // Filter out inactive workspaces and workspaces that already have a client account
+        const available = (workspaces || []).filter(
+          (workspace) =>
+            workspace.status !== 'inactive' &&
+            !existingWorkspaceIds.has(workspace.id) &&
+            !(workspace.poc_email && existingEmails.has(workspace.poc_email.toLowerCase().trim())) &&
+            !(workspace.billing_email && existingEmails.has(workspace.billing_email.toLowerCase().trim())),
+        );
+        setActiveClients(available);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveClients([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, role]);
+
+  const handleSelectClient = (client: Workspace) => {
+    const isSelected = workspaceIds.includes(client.id);
+    if (isSelected) {
+      setWorkspaceIds([]);
+      return;
+    }
+    setWorkspaceIds([client.id]);
+    setFullName(client.poc_name?.trim() || client.billing_name?.trim() || client.name.trim() || '');
+    setEmail(client.poc_email?.trim() || client.billing_email?.trim() || '');
+    setPhone(phoneForInput(pickPhoneValue(client.poc_phone, client.billing_phone)));
+  };
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -148,23 +202,35 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setErrorMsg('Phone Number is compulsory');
       return;
     }
-    if (!joiningDate.trim()) {
-      setErrorMsg('Joining date is required');
+    if (looksLikeEmail(phone)) {
+      setErrorMsg('Phone Number cannot be an email address');
       return;
     }
-    if (employmentType === 'probation') {
-      const start = (probationStartDate || joiningDate).trim();
-      if (!start) {
-        setErrorMsg('Probation start date is required');
+    const normalizedPhone = normalizePhoneForSave(phone);
+    if (!normalizedPhone) {
+      setErrorMsg('Enter a valid phone number');
+      return;
+    }
+
+    if (role !== 'client') {
+      if (!joiningDate.trim()) {
+        setErrorMsg('Joining date is required');
         return;
       }
-      if (!probationEndDate.trim()) {
-        setErrorMsg('Probation end date is required');
-        return;
-      }
-      if (start > probationEndDate.trim()) {
-        setErrorMsg('Probation start must be on or before the end date');
-        return;
+      if (employmentType === 'probation') {
+        const start = (probationStartDate || joiningDate).trim();
+        if (!start) {
+          setErrorMsg('Probation start date is required');
+          return;
+        }
+        if (!probationEndDate.trim()) {
+          setErrorMsg('Probation end date is required');
+          return;
+        }
+        if (start > probationEndDate.trim()) {
+          setErrorMsg('Probation start must be on or before the end date');
+          return;
+        }
       }
     }
 
@@ -181,6 +247,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       deptValue = 'HR';
     } else if (role === 'client') {
       deptValue = undefined;
+      if (workspaceIds.length === 0) {
+        setErrorMsg('Select a client to link this account');
+        return;
+      }
     }
 
     try {
@@ -188,17 +258,21 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       await onSubmit({
         full_name: fullName.trim(),
         email: normalizedEmail,
-        phone: phone.trim(),
+        phone: normalizedPhone,
         role,
         department: deptValue,
-        joining_date: joiningDate.trim(),
-        employment_type: employmentType,
+        joining_date: role === 'client' ? null : joiningDate.trim(),
+        employment_type: role === 'client' ? 'contract' : employmentType,
         probation_start_date:
-          employmentType === 'probation' ? (probationStartDate.trim() || joiningDate.trim()) : null,
-        probation_end_date: employmentType === 'probation' ? probationEndDate.trim() : null,
+          role !== 'client' && employmentType === 'probation'
+            ? (probationStartDate.trim() || joiningDate.trim())
+            : null,
+        probation_end_date:
+          role !== 'client' && employmentType === 'probation' ? probationEndDate.trim() : null,
         temporary_password: finalPassword,
         send_invite_email: passwordMode === 'invite',
         is_active: true,
+        workspace_ids: role === 'client' ? workspaceIds : [],
       });
       onClose();
     } catch (err: any) {
@@ -226,8 +300,14 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               <UserPlus className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">Add Team Member</h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">Onboard member to the agency directory</p>
+              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+                {role === 'client' ? 'Add Client Account' : 'Add Team Member'}
+              </h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {role === 'client'
+                  ? 'Create a portal login linked to an active client'
+                  : 'Onboard member to the agency directory'}
+              </p>
             </div>
           </div>
           <button
@@ -312,6 +392,51 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           </div>
 
+          {role === 'client' && (
+            <div>
+              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
+                <span>Active clients <span className="text-rose-500">*</span></span>
+              </label>
+              <p className="text-[11px] text-zinc-500 mb-2">
+                This login only sees content and creative reviews for the clients you select.
+              </p>
+              {activeClients.length === 0 ? (
+                <p className="text-xs text-amber-700 dark:text-amber-300">No active clients are available yet.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                  {activeClients.map((client) => {
+                    const selected = workspaceIds.includes(client.id);
+                    return (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => handleSelectClient(client)}
+                        className={`p-2.5 rounded-xl text-xs border text-left cursor-pointer transition-all ${
+                          selected
+                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
+                            : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold">{client.name}</span>
+                          {selected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
+                        </div>
+                        {(client.poc_name || client.poc_email) && (
+                          <div className={`text-[10px] mt-0.5 leading-tight ${selected ? 'text-indigo-100' : 'text-zinc-400'}`}>
+                            {client.poc_name || ''}
+                            {client.poc_name && client.poc_email ? ' • ' : ''}
+                            {client.poc_email || ''}
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Department Selection (Only for Team Lead & Team Member) */}
           {(role === 'team_lead' || role === 'team_member') && (
             <div>
@@ -367,95 +492,100 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               placeholder="+92 300 1234567"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
+              onBlur={() => setPhone(phoneForInput(phone))}
               className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs font-numeric"
             />
           </div>
 
           {/* Joining date & employment type */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-            <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Joining Date <span className="text-rose-500">*</span></span>
-              </label>
-              <input
-                type="date"
-                required
-                value={joiningDate}
-                onChange={(e) => setJoiningDate(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
-              />
-              <p className="mt-1 text-[10px] text-zinc-400">Attendance starts from this date.</p>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Employment Type <span className="text-rose-500">*</span></span>
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {([
-                  { id: 'contract' as EmploymentType, label: 'Contract' },
-                  { id: 'probation' as EmploymentType, label: 'Probation' },
-                ]).map((opt) => {
-                  const isSelected = employmentType === opt.id;
-                  return (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => {
-                        setEmploymentType(opt.id);
-                        if (opt.id === 'probation' && !probationStartDate) {
-                          setProbationStartDate(joiningDate);
-                        }
-                      }}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
-                        isSelected
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
-                          : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {employmentType === 'probation' && (
-            <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 space-y-3">
-              <p className="text-xs font-bold text-amber-800 dark:text-amber-300">Probation Period</p>
+          {role !== 'client' && (
+            <>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    Start Date <span className="text-rose-500">*</span>
+                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                    <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Joining Date <span className="text-rose-500">*</span></span>
                   </label>
                   <input
                     type="date"
                     required
-                    value={probationStartDate || joiningDate}
-                    onChange={(e) => setProbationStartDate(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                    value={joiningDate}
+                    onChange={(e) => setJoiningDate(e.target.value)}
+                    className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
                   />
+                  <p className="mt-1 text-[10px] text-zinc-400">Attendance starts from this date.</p>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                    End Date <span className="text-rose-500">*</span>
+                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
+                    <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
+                    <span>Employment Type <span className="text-rose-500">*</span></span>
                   </label>
-                  <input
-                    type="date"
-                    required
-                    value={probationEndDate}
-                    min={probationStartDate || joiningDate}
-                    onChange={(e) => setProbationEndDate(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
-                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    {([
+                      { id: 'contract' as EmploymentType, label: 'Contract' },
+                      { id: 'probation' as EmploymentType, label: 'Probation' },
+                    ]).map((opt) => {
+                      const isSelected = employmentType === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            setEmploymentType(opt.id);
+                            if (opt.id === 'probation' && !probationStartDate) {
+                              setProbationStartDate(joiningDate);
+                            }
+                          }}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
+                            isSelected
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
+                              : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80">
-                Undertime during probation is not deducted from leave quotas.
-              </p>
-            </div>
+
+              {employmentType === 'probation' && (
+                <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 space-y-3">
+                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300">Probation Period</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                        Start Date <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={probationStartDate || joiningDate}
+                        onChange={(e) => setProbationStartDate(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                        End Date <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={probationEndDate}
+                        min={probationStartDate || joiningDate}
+                        onChange={(e) => setProbationEndDate(e.target.value)}
+                        className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80">
+                    Undertime during probation is not deducted from leave quotas.
+                  </p>
+                </div>
+              )}
+            </>
           )}
 
           {/* Initial Password & Credentials */}
@@ -527,12 +657,12 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             {isSubmitting ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Creating Member...</span>
+                <span>Creating...</span>
               </>
             ) : (
               <>
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Add Member</span>
+                <span>{role === 'client' ? 'Add Client Account' : 'Add Member'}</span>
               </>
             )}
           </button>

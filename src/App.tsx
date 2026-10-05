@@ -11,6 +11,8 @@ import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { ProfileSettingsView } from './components/views/ProfileSettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
 import { CrmView } from './components/views/CrmView';
+import { ContentCalendarView } from './components/views/ContentCalendarView';
+import { ContentCalendarClientReviews } from './components/content-calendar/ContentCalendarClientReviews';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
 import type { AdminSectionType } from './components/admin/AdminSidebarNav';
@@ -20,11 +22,13 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { canAccessCrm } from './utils/crmAccess';
+import { canAccessContentCalendar } from './utils/contentCalendarAccess';
 import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
+import { PublicClientReviewView } from './components/views/PublicClientReviewView';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 
 function AppInner() {
@@ -42,23 +46,24 @@ function AppInner() {
 
   const canSeeMarketing =
     isAdmin ||
-    isClient ||
     ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = user?.role === 'team_lead' || isHR;
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
   const canSeeCrm = canAccessCrm(user);
+  const canSeeContentCalendar = canAccessContentCalendar(user);
 
-  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm'];
+  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm', 'content-calendar', 'portal'];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
-    if (isClient) return 'marketing';
+    if (isClient) return 'portal';
     if (isAdmin) return 'attendance';
     return 'dashboard';
   }, [isClient, isAdmin]);
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
+    if (isClient) return 'portal';
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
     if (saved === 'dashboard' && isAdmin) return 'attendance';
     return saved && v1Views.includes(saved)
@@ -83,7 +88,13 @@ function AppInner() {
       const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
       const currentPath = pathname || hash;
 
-      if (currentPath.startsWith('book') || currentPath.startsWith('schedule') || new URLSearchParams(window.location.search).get('embed') === 'true') {
+      if (
+        currentPath.startsWith('book') ||
+        currentPath.startsWith('schedule') ||
+        currentPath.startsWith('review') ||
+        currentPath.startsWith('client-review') ||
+        new URLSearchParams(window.location.search).get('embed') === 'true'
+      ) {
         return;
       }
 
@@ -114,20 +125,31 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'portal' || currentPath === 'client-portal' || currentPath === 'client_portal') {
+        if (isClient) {
+          window.history.replaceState(null, '', '/portal');
+          setCurrentView('portal');
+          localStorage.setItem('reamarc_active_view', 'portal');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'attendance') {
         if (isClient) {
-          window.history.replaceState(null, '', '/marketing');
-          setCurrentView('marketing');
-          localStorage.setItem('reamarc_active_view', 'marketing');
+          window.history.replaceState(null, '', '/portal');
+          setCurrentView('portal');
+          localStorage.setItem('reamarc_active_view', 'portal');
         } else {
           setCurrentView('attendance');
           localStorage.setItem('reamarc_active_view', 'attendance');
         }
       } else if (currentPath === 'daily-log' || currentPath === 'daily_log') {
         if (isClient) {
-          window.history.replaceState(null, '', '/marketing');
-          setCurrentView('marketing');
-          localStorage.setItem('reamarc_active_view', 'marketing');
+          window.history.replaceState(null, '', '/portal');
+          setCurrentView('portal');
+          localStorage.setItem('reamarc_active_view', 'portal');
         } else {
           setCurrentView('daily-log');
           localStorage.setItem('reamarc_active_view', 'daily-log');
@@ -162,8 +184,22 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'content-calendar' || currentPath === 'calendar' || currentPath === 'content_calendar') {
+        if (canSeeContentCalendar) {
+          setCurrentView('content-calendar');
+          localStorage.setItem('reamarc_active_view', 'content-calendar');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'marketing') {
-        if (canSeeMarketing) {
+        if (isClient) {
+          window.history.replaceState(null, '', '/portal');
+          setCurrentView('portal');
+          localStorage.setItem('reamarc_active_view', 'portal');
+        } else if (canSeeMarketing) {
           setCurrentView('marketing');
           localStorage.setItem('reamarc_active_view', 'marketing');
         } else {
@@ -189,6 +225,11 @@ function AppInner() {
           setCurrentView('dashboard');
           localStorage.setItem('reamarc_active_view', 'dashboard');
         } else if (currentSaved === 'active-clients' && !canSeeActiveClients) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'content-calendar' && !canSeeContentCalendar) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -225,15 +266,17 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
     if (!isAdmin && !isClient) {
       allowedViews.push('dashboard');
     }
+    if (isClient) allowedViews.push('portal');
     if (canSeeActiveClients) allowedViews.push('active-clients');
     if (canSeeCrm) allowedViews.push('crm');
+    if (canSeeContentCalendar) allowedViews.push('content-calendar');
     if (!isClient) {
       allowedViews.push('attendance');
       allowedViews.push('daily-log');
@@ -275,7 +318,7 @@ function AppInner() {
     };
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
+  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
 
   const {
     workspaces,
@@ -353,6 +396,14 @@ function AppInner() {
     return <PublicSchedulerView theme={theme} />;
   }
 
+  const isPublicReview =
+    currentPathLower.startsWith('/review') ||
+    currentPathLower.startsWith('/client-review');
+
+  if (isPublicReview) {
+    return <PublicClientReviewView theme={theme} />;
+  }
+
   if (isAuthLoading) {
     return <LoadingScreen fullScreen message="Verifying session..." title="Reamarc AI" />;
   }
@@ -362,7 +413,7 @@ function AppInner() {
   }
 
   return (
-    <div className="flex h-screen w-screen bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 overflow-hidden antialiased">
+    <div className="flex h-full w-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 overflow-hidden antialiased">
       {/* Real-time prompt when desktop notifications are not yet enabled */}
       <NotificationPromptBanner />
 
@@ -429,7 +480,13 @@ function AppInner() {
           </div>
         )}
 
-        {currentView === 'marketing' && canSeeMarketing && (
+        {currentView === 'portal' && isClient && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <ContentCalendarClientReviews />
+          </div>
+        )}
+
+        {currentView === 'marketing' && canSeeMarketing && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <PerformanceMarketing
               selectedWorkspace={selectedAdAccount}
@@ -453,6 +510,12 @@ function AppInner() {
         {currentView === 'daily-log' && !isClient && (
           <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
             <DailyLogView />
+          </div>
+        )}
+
+        {currentView === 'content-calendar' && canSeeContentCalendar && (
+          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+            <ContentCalendarView />
           </div>
         )}
 

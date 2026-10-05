@@ -8,8 +8,11 @@ import {
   Shield,
   Layers,
   Lock,
+  Briefcase,
 } from 'lucide-react';
+import type { UserRole } from '../../../types/auth';
 import type { AdminMember } from '../../../types/admin';
+import type { Workspace } from '../../../types';
 import { CustomSelect } from '../../ui/CustomSelect';
 import {
   getDeptBadgeClass,
@@ -17,6 +20,7 @@ import {
   getRoleLabel,
   getInitials,
 } from '../../../utils/badgeStyles';
+import { formatPhoneDisplay } from '../../../utils/phone';
 
 export const SYSTEM_DEPARTMENTS = [
   'Website',
@@ -36,13 +40,15 @@ export const SYSTEM_ROLES = [
   { id: 'operations', label: 'Operations' },
   { id: 'team_lead', label: 'Team Lead' },
   { id: 'team_member', label: 'Team Member' },
-  { id: 'client', label: 'Client' },
 ];
+
+type DirectoryTab = 'team' | 'clients';
 
 interface UserManagementSectionProps {
   members: AdminMember[];
+  workspaces?: Workspace[];
   isLoading: boolean;
-  onAddMember: () => void;
+  onAddMember: (defaultRole?: UserRole) => void;
   onEditMember: (member: AdminMember) => void;
   onDeleteMember: (member: AdminMember) => void;
   canManageMembers?: boolean;
@@ -50,21 +56,43 @@ interface UserManagementSectionProps {
 
 export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   members,
+  workspaces = [],
   isLoading,
   onAddMember,
   onEditMember,
   onDeleteMember,
   canManageMembers = true,
 }) => {
+  const [directoryTab, setDirectoryTab] = useState<DirectoryTab>('team');
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
 
+  const workspaceNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    workspaces.forEach((ws) => {
+      map[ws.id] = ws.name;
+    });
+    return map;
+  }, [workspaces]);
+
+  const linkedClientNames = (member: AdminMember) => {
+    const ids = member.workspace_ids || [];
+    if (ids.length === 0) return '—';
+    return ids.map((id) => workspaceNameById[id] || 'Unknown client').join(', ');
+  };
+
+  const tabMembers = useMemo(
+    () => members.filter((m) => (directoryTab === 'clients' ? m.role === 'client' : m.role !== 'client')),
+    [members, directoryTab],
+  );
+
   const filteredMembers = useMemo(() => {
-    return members.filter((m) => {
+    return tabMembers.filter((m) => {
       const q = searchQuery.toLowerCase().trim();
       const isGlobalRole = m.role === 'admin' || m.role === 'operations';
       const effectiveDept = isGlobalRole ? 'All' : m.department || '';
+      const clientLabel = linkedClientNames(m);
 
       const matchesSearch =
         !q ||
@@ -72,17 +100,19 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
         (m.email && m.email.toLowerCase().includes(q)) ||
         (m.phone && m.phone.toLowerCase().includes(q)) ||
         (effectiveDept && effectiveDept.toLowerCase().includes(q)) ||
-        (m.role && m.role.toLowerCase().includes(q));
+        (m.role && m.role.toLowerCase().includes(q)) ||
+        clientLabel.toLowerCase().includes(q);
 
       const matchesRole = roleFilter === 'all' || m.role.toLowerCase() === roleFilter.toLowerCase();
       const matchesDept =
+        directoryTab === 'clients' ||
         departmentFilter === 'all' ||
         (isGlobalRole && departmentFilter === 'All') ||
         (!isGlobalRole && (m.department || '').toLowerCase() === departmentFilter.toLowerCase());
 
       return matchesSearch && matchesRole && matchesDept;
     });
-  }, [members, searchQuery, roleFilter, departmentFilter]);
+  }, [tabMembers, searchQuery, roleFilter, departmentFilter, directoryTab, workspaceNameById]);
 
   const departmentOptions = useMemo(() => {
     return [
@@ -114,18 +144,51 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
             </span>
           </div>
           <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Manage organization members, assign departmental roles, and manage access
+            {directoryTab === 'clients'
+              ? 'Client portal logins, kept separate from the internal team'
+              : 'Manage organization members, assign departmental roles, and manage access'}
           </p>
+          <div className="mt-3 flex items-center gap-1 p-0.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 w-fit">
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryTab('team');
+                setRoleFilter('all');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                directoryTab === 'team'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+              }`}
+            >
+              Team
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDirectoryTab('clients');
+                setRoleFilter('all');
+                setDepartmentFilter('all');
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
+                directoryTab === 'clients'
+                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-50 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+              }`}
+            >
+              Client Accounts
+            </button>
+          </div>
         </div>
 
         {canManageMembers && (
           <button
             type="button"
-            onClick={onAddMember}
+            onClick={() => onAddMember(directoryTab === 'clients' ? 'client' : 'team_member')}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 cursor-pointer select-none"
           >
             <UserPlus className="w-4 h-4" />
-            <span>Add Member</span>
+            <span>{directoryTab === 'clients' ? 'Add Client Account' : 'Add Member'}</span>
           </button>
         )}
       </div>
@@ -137,37 +200,39 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
           <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
           <input
             type="text"
-            placeholder="Search by name, email, department, phone..."
+            placeholder={
+              directoryTab === 'clients'
+                ? 'Search by name, email, phone, or client...'
+                : 'Search by name, email, department, phone...'
+            }
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
           />
         </div>
 
-        {/* Custom Dropdown Filters */}
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Department Filter */}
-          <div className="w-48">
-            <CustomSelect
-              value={departmentFilter}
-              onChange={setDepartmentFilter}
-              options={departmentOptions}
-              icon={Layers}
-              placeholder="All Departments"
-            />
+        {directoryTab === 'team' && (
+          <div className="flex items-center gap-3 flex-wrap">
+            <div className="w-48">
+              <CustomSelect
+                value={departmentFilter}
+                onChange={setDepartmentFilter}
+                options={departmentOptions}
+                icon={Layers}
+                placeholder="All Departments"
+              />
+            </div>
+            <div className="w-40">
+              <CustomSelect
+                value={roleFilter}
+                onChange={setRoleFilter}
+                options={roleOptions}
+                icon={Shield}
+                placeholder="All Roles"
+              />
+            </div>
           </div>
-
-          {/* Role Filter */}
-          <div className="w-40">
-            <CustomSelect
-              value={roleFilter}
-              onChange={setRoleFilter}
-              options={roleOptions}
-              icon={Shield}
-              placeholder="All Roles"
-            />
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Directory Table */}
@@ -177,8 +242,14 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
             <thead>
               <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
                 <th className="py-3 px-4">Member</th>
-                <th className="py-3 px-4">Role</th>
-                <th className="py-3 px-4">Department</th>
+                {directoryTab === 'clients' ? (
+                  <th className="py-3 px-4">Linked clients</th>
+                ) : (
+                  <>
+                    <th className="py-3 px-4">Role</th>
+                    <th className="py-3 px-4">Department</th>
+                  </>
+                )}
                 <th className="py-3 px-4">Contact</th>
                 {canManageMembers && <th className="py-3 px-4 text-right">Actions</th>}
               </tr>
@@ -199,9 +270,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     <td className="py-3.5 px-4">
                       <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
                     </td>
-                    <td className="py-3.5 px-4">
-                      <div className="h-5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-                    </td>
+                    {directoryTab === 'team' && (
+                      <td className="py-3.5 px-4">
+                        <div className="h-5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
+                      </td>
+                    )}
                     <td className="py-3.5 px-4">
                       <div className="h-3.5 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
                     </td>
@@ -214,14 +287,18 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                 ))
               ) : filteredMembers.length === 0 ? (
                 <tr>
-                  <td colSpan={canManageMembers ? 5 : 4} className="py-20 text-center">
+                  <td colSpan={canManageMembers ? (directoryTab === 'clients' ? 4 : 5) : (directoryTab === 'clients' ? 3 : 4)} className="py-20 text-center">
                     <div className="flex flex-col items-center justify-center">
                       <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
-                        <Users className="w-6 h-6" />
+                        {directoryTab === 'clients' ? <Briefcase className="w-6 h-6" /> : <Users className="w-6 h-6" />}
                       </div>
-                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No members found</h3>
+                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                        {directoryTab === 'clients' ? 'No client accounts found' : 'No members found'}
+                      </h3>
                       <p className="text-xs text-zinc-400 mt-1 max-w-sm">
-                        Try adjusting your search query or department/role filters.
+                        {directoryTab === 'clients'
+                          ? 'Client portal logins appear here, separate from the internal team directory.'
+                          : 'Try adjusting your search query or department/role filters.'}
                       </p>
                     </div>
                   </td>
@@ -251,27 +328,33 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                         </div>
                       </td>
 
-                      {/* Role */}
-                      <td className="py-3.5 px-4">
-                        <span className={getRoleBadgeClass(m.role)}>
-                          {getRoleLabel(m.role)}
-                        </span>
-                      </td>
-
-                      {/* Department */}
-                      <td className="py-3.5 px-4">
-                        {!m.department && !isGlobalRole ? (
-                          <span className="text-zinc-400 italic text-[11px]">—</span>
-                        ) : (
-                          <span className={getDeptBadgeClass(m.department)}>
-                            {isGlobalRole ? 'All' : m.department || 'All'}
-                          </span>
-                        )}
-                      </td>
+                      {/* Role / Linked clients */}
+                      {directoryTab === 'clients' ? (
+                        <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 text-[11px]">
+                          {linkedClientNames(m)}
+                        </td>
+                      ) : (
+                        <>
+                          <td className="py-3.5 px-4">
+                            <span className={getRoleBadgeClass(m.role)}>
+                              {getRoleLabel(m.role)}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            {!m.department && !isGlobalRole ? (
+                              <span className="text-zinc-400 italic text-[11px]">—</span>
+                            ) : (
+                              <span className={getDeptBadgeClass(m.department)}>
+                                {isGlobalRole ? 'All' : m.department || 'All'}
+                              </span>
+                            )}
+                          </td>
+                        </>
+                      )}
 
                       {/* Contact Phone */}
                       <td className="py-3.5 px-4 text-zinc-600 dark:text-zinc-400 font-numeric text-[11px]">
-                        {m.phone || '—'}
+                        {formatPhoneDisplay(m.phone)}
                       </td>
 
                       {/* Actions */}

@@ -12,9 +12,9 @@ from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
-from app.core.security import require_internal_user
+from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public, web_push
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public, web_push, content_calendar
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -70,6 +70,8 @@ async def lifespan(app: FastAPI):
                 # Persist any leftover on-disk uploads into Mongo GridFS (survives Render redeploys)
                 from app.core.uploads import migrate_disk_uploads_to_gridfs
                 await migrate_disk_uploads_to_gridfs(db)
+                from app.services.content_calendar_service import ensure_indexes
+                await ensure_indexes(db)
         except Exception as err:
             logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
 
@@ -145,8 +147,8 @@ _cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With"],
-    expose_headers=["X-Hidden-Count", "X-Total-Count"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With", "Range"],
+    expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
 )
 if not settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?"
@@ -194,11 +196,19 @@ async def csrf_protection_middleware(request: Request, call_next):
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
-    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
-    response.headers["Cache-Control"] = "private, no-store"
+
+    is_upload = request.url.path.startswith("/uploads/") or request.url.path.startswith(f"{settings.API_V1_STR}/uploads/")
+    if not is_upload:
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["Cache-Control"] = "private, no-store"
+    else:
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Content-Security-Policy"] = "default-src 'self' blob: data:; media-src 'self' blob: data:; img-src 'self' blob: data:;"
+        response.headers["Cache-Control"] = "private, max-age=3600"
+
     response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
     if settings.IS_PRODUCTION:
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -217,16 +227,17 @@ async def serve_upload(
     file_path: str,
     request: Request,
     download: bool = Query(False, description="Force download attachment"),
-    current_user: dict = Depends(require_internal_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Authenticated upload server for proposals and deliverables.
     Streams directly from MongoDB GridFS with local disk fallback.
-    Supports inline browser viewing for PDFs/images, or attachment download.
+    Supports inline browser viewing for PDFs/images/videos, or attachment download.
     """
     db = get_database()
     await authorize_stored_upload(db, current_user, file_path)
-    return await open_upload_response(db, file_path, download=download)
+    range_header = request.headers.get("range")
+    return await open_upload_response(db, file_path, download=download, range_header=range_header)
 
 
 # Include Active V1.0 Routers
@@ -245,6 +256,7 @@ app.include_router(web_push.router, prefix=settings.API_V1_STR)
 app.include_router(crm.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router)
+app.include_router(content_calendar.router, prefix=settings.API_V1_STR)
 
 
 

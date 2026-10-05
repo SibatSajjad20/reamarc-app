@@ -80,5 +80,6 @@ backend/scripts/
 backend/uploads/
 uploads/
 
-# Audit dumps (do not commit)
+# Audit dumps & PDFs (do not commit)
 SECURITY_AUDIT.pdf
+*.pdf

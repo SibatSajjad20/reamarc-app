@@ -22,13 +22,29 @@ from pymongo.errors import PyMongoError
 logger = logging.getLogger(__name__)
 
 _GRIDFS_BUCKET = "uploads"
-VIEWABLE_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".txt"}
+VIEWABLE_EXTENSIONS = {
+    ".pdf", ".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg", ".txt",
+    ".mp4", ".mov", ".webm", ".m4v"
+}
 
 
 @dataclass(frozen=True)
 class UploadAuthz:
     workspace_id: Optional[str] = None
     uploaded_by: Optional[str] = None
+
+
+def sanitize_svg(content: bytes) -> bytes:
+    """Strip malicious script tags and event handlers from SVG images to prevent XSS."""
+    try:
+        text = content.decode("utf-8", errors="ignore")
+        text = re.sub(r"(?i)<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>", "", text)
+        text = re.sub(r"(?i)javascript:[^\"]*", "", text)
+        text = re.sub(r"(?i)\s+on[a-z]+\s*=\s*\"[^\"]*\"", "", text)
+        text = re.sub(r"(?i)\s+on[a-z]+\s*=\s*'[^']*'", "", text)
+        return text.encode("utf-8")
+    except Exception:
+        return content
 
 
 def _guess_media_type(filename: str, fallback_meta: Optional[str] = None) -> str:
@@ -42,6 +58,18 @@ def _guess_media_type(filename: str, fallback_meta: Optional[str] = None) -> str
         return "application/pdf"
     if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif"):
         return f"image/{ext.lstrip('.')}"
+    if ext == ".svg":
+        return "image/svg+xml"
+    if ext == ".mp4":
+        return "video/mp4"
+    if ext == ".webm":
+        return "video/webm"
+    if ext in (".mov", ".m4v"):
+        return "video/quicktime"
+    if ext == ".docx":
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    if ext == ".doc":
+        return "application/msword"
     return "application/octet-stream"
 
 
@@ -211,6 +239,34 @@ async def save_upload_bytes(
     return stored_path
 
 
+async def delete_upload(db, file_path: str) -> bool:
+    """Delete an upload from MongoDB GridFS and local disk cache if present."""
+    if not file_path:
+        return False
+    try:
+        key = normalize_upload_key(file_path)
+    except HTTPException:
+        return False
+
+    if db is not None:
+        try:
+            bucket = _gridfs_bucket(db)
+            await _delete_gridfs_by_name(bucket, key)
+        except Exception as exc:
+            logger.warning("Failed deleting GridFS file %s: %s", key, exc)
+
+    try:
+        base = uploads_root().resolve()
+        full = (base / key).resolve()
+        full.relative_to(base)
+        if full.is_file():
+            full.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return True
+
+
+
 async def migrate_disk_uploads_to_gridfs(db) -> Tuple[int, int]:
     """Copy any on-disk uploads missing from GridFS. Returns (migrated, skipped)."""
     if db is None:
@@ -319,19 +375,72 @@ def authorize_upload_key(
 
 
 async def authorize_stored_upload(db, current_user: dict, file_path: str) -> None:
+    relative = normalize_upload_key(file_path)
+    if relative.startswith("content_calendar/"):
+        from app.core.security import _MANAGEMENT_ROLES
+        from app.services.content_calendar_access import can_access_content_calendar
+        from app.services.content_calendar_workflow import is_client, client_owns
+
+        role = current_user.get("role")
+        if role in _MANAGEMENT_ROLES or can_access_content_calendar(current_user):
+            return
+
+        if is_client(current_user):
+            meta = await get_upload_authz(db, file_path)
+            client_workspaces = [str(w) for w in (current_user.get("workspace_ids") or [])]
+            if meta.workspace_id and str(meta.workspace_id) in client_workspaces:
+                return
+
+            parts = relative.split("/")
+            if len(parts) >= 2 and db is not None:
+                item_id = parts[1]
+                item = await db.content_calendar_items.find_one(
+                    {"$or": [{"id": item_id}, {"serial": item_id}]}
+                )
+                if item and client_owns(current_user, item):
+                    return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this file.",
+        )
+
     meta = await get_upload_authz(db, file_path)
     authorize_upload_key(current_user, meta.workspace_id, meta.uploaded_by)
 
 
-async def open_upload_response(db, file_path: str, download: bool = False) -> StreamingResponse | FileResponse:
+async def open_upload_response(
+    db,
+    file_path: str,
+    download: bool = False,
+    range_header: Optional[str] = None,
+) -> StreamingResponse | FileResponse:
     """Return an inline view or download response from GridFS first, then disk cache."""
     relative = normalize_upload_key(file_path)
     display = _display_name(Path(relative).name)
     ext = Path(display).suffix.lower()
     is_viewable = ext in VIEWABLE_EXTENSIONS
-    headers = {"Content-Disposition": content_disposition_header(display, inline=not (download or not is_viewable))}
+    headers = {
+        "Content-Disposition": content_disposition_header(display, inline=not (download or not is_viewable)),
+        "Accept-Ranges": "bytes",
+    }
 
-    # 1) Durable GridFS (source of truth — survives Render ephemeral disk)
+    base = uploads_root().resolve()
+    full = (base / relative).resolve()
+    try:
+        full.relative_to(base)
+        if full.is_file():
+            media_type = _guess_media_type(display)
+            return FileResponse(
+                path=str(full),
+                filename=display,
+                media_type=media_type,
+                headers=headers,
+            )
+    except (ValueError, Exception):
+        pass
+
+    # 2) Durable GridFS fallback (source of truth — survives Render ephemeral disk)
     if db is not None:
         bucket = _gridfs_bucket(db)
         try:
@@ -341,16 +450,56 @@ async def open_upload_response(db, file_path: str, download: bool = False) -> St
                 display = _display_name(str(meta["original_name"]))
                 ext = Path(display).suffix.lower()
                 is_viewable = ext in VIEWABLE_EXTENSIONS
-                headers = {
-                    "Content-Disposition": content_disposition_header(
-                        display, inline=not (download or not is_viewable)
-                    )
-                }
+                headers["Content-Disposition"] = content_disposition_header(
+                    display, inline=not (download or not is_viewable)
+                )
 
             media_type = _guess_media_type(
                 display,
                 meta.get("content_type") if isinstance(meta, dict) else None,
             )
+
+            total_size = getattr(grid_out, "length", None)
+            if range_header and total_size and total_size > 0 and range_header.startswith("bytes="):
+                try:
+                    range_val = range_header.replace("bytes=", "").strip()
+                    parts = range_val.split("-")
+                    start = int(parts[0]) if parts[0] else 0
+                    end = int(parts[1]) if len(parts) > 1 and parts[1] else total_size - 1
+                    if start <= end and start < total_size:
+                        end = min(end, total_size - 1)
+                        content_length = end - start + 1
+                        grid_out.seek(start)
+                        headers["Content-Range"] = f"bytes {start}-{end}/{total_size}"
+                        headers["Content-Length"] = str(content_length)
+
+                        async def _iter_range() -> AsyncIterator[bytes]:
+                            remaining = content_length
+                            try:
+                                while remaining > 0:
+                                    chunk_to_read = min(256 * 1024, remaining)
+                                    chunk = await grid_out.read(chunk_to_read)
+                                    if not chunk:
+                                        break
+                                    remaining -= len(chunk)
+                                    yield chunk
+                            finally:
+                                try:
+                                    grid_out.close()
+                                except Exception:
+                                    pass
+
+                        return StreamingResponse(
+                            _iter_range(),
+                            status_code=status.HTTP_206_PARTIAL_CONTENT,
+                            media_type=media_type,
+                            headers=headers,
+                        )
+                except Exception as range_exc:
+                    logger.debug("Failed parsing Range header '%s': %s", range_header, range_exc)
+
+            if total_size is not None and total_size > 0:
+                headers["Content-Length"] = str(total_size)
 
             async def _iter() -> AsyncIterator[bytes]:
                 try:
@@ -371,22 +520,6 @@ async def open_upload_response(db, file_path: str, download: bool = False) -> St
                 headers=headers,
             )
         except Exception:
-            logger.info("GridFS miss for %s — trying disk cache", relative)
-
-    # 2) Local / persistent disk fallback (legacy files not yet migrated)
-    base = uploads_root().resolve()
-    full = (base / relative).resolve()
-    try:
-        full.relative_to(base)
-        if full.is_file():
-            media_type = _guess_media_type(display)
-            return FileResponse(
-                path=str(full),
-                filename=display,
-                media_type=media_type,
-                headers=headers,
-            )
-    except ValueError:
-        pass
+            logger.info("GridFS miss for %s", relative)
 
     raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.")

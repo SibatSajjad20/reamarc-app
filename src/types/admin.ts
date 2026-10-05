@@ -15,6 +15,7 @@ export interface AdminMember {
   probation_end_date?: string | null;
   is_active: boolean;
   created_at?: string;
+  workspace_ids?: string[];
 }
 
 export type AdminUser = AdminMember;
@@ -25,13 +26,14 @@ export interface CreateMemberPayload {
   role: UserRole;
   phone?: string;
   department?: string;
-  joining_date: string;
+  joining_date?: string | null;
   employment_type?: EmploymentType;
   probation_start_date?: string | null;
   probation_end_date?: string | null;
   temporary_password?: string;
   send_invite_email?: boolean;
   is_active?: boolean;
+  workspace_ids?: string[];
 }
 
 export type AdminCreateUserPayload = CreateMemberPayload;
@@ -43,11 +45,12 @@ export interface UpdateMemberPayload {
   password?: string;
   role?: UserRole;
   department?: string;
-  joining_date?: string;
+  joining_date?: string | null;
   employment_type?: EmploymentType;
   probation_start_date?: string | null;
   probation_end_date?: string | null;
   is_active?: boolean;
+  workspace_ids?: string[];
 }
 
 export type AdminUpdateUserPayload = UpdateMemberPayload;

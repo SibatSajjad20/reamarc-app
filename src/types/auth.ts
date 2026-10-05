@@ -26,6 +26,7 @@ export interface AuthUser {
   is_active?: boolean;
   crm_enabled?: boolean;
   crm_paused?: boolean;
+  workspace_ids?: string[];
 }
 
 export interface LoginPayload {

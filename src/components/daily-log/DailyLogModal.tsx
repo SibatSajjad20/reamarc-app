@@ -123,7 +123,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSubmittingAnother, setIsSubmittingAnother] = useState<boolean>(false);
-  const isBusy = isSubmitting || isSubmittingAnother;
+  const isBusy = isSubmitting || isSubmittingAnother || isUploadingFile;
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
 
@@ -1032,7 +1032,7 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            disabled={isBusy}
+            disabled={isSubmitting || isSubmittingAnother}
             className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
           >
             Cancel
@@ -1070,6 +1070,11 @@ export const DailyLogModal: React.FC<DailyLogModalProps> = ({
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   <span>{mode === 'create' ? 'Adding Log...' : 'Saving Changes...'}</span>
+                </>
+              ) : isUploadingFile ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Uploading File...</span>
                 </>
               ) : (
                 <>

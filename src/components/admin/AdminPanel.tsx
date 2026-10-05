@@ -16,6 +16,7 @@ import { EditMemberModal } from './EditMemberModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
 import { AdAccountModal } from '../modals/AdAccountModal';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
+import type { UserRole } from '../../types/auth';
 import type {
   AdminMember,
   CreateMemberPayload,
@@ -83,6 +84,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Modals for Members
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [addMemberDefaultRole, setAddMemberDefaultRole] = useState<UserRole>('team_member');
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [memberToEdit, setMemberToEdit] = useState<AdminMember | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<AdminMember | null>(null);
@@ -274,8 +276,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       {activeSection === 'directory' && (
         <UserManagementSection
           members={members}
+          workspaces={workspaces}
           isLoading={isLoadingMembers}
-          onAddMember={() => setIsAddModalOpen(true)}
+          onAddMember={(role) => {
+            setAddMemberDefaultRole(role || 'team_member');
+            setIsAddModalOpen(true);
+          }}
           onEditMember={(m) => {
             setMemberToEdit(m);
             setIsEditModalOpen(true);
@@ -345,6 +351,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           isOpen={isAddModalOpen}
           onClose={() => setIsAddModalOpen(false)}
           onSubmit={handleCreateMember}
+          defaultRole={addMemberDefaultRole}
         />
       )}
 

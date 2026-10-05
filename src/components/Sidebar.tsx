@@ -6,6 +6,7 @@ import { NotificationBell } from './NotificationBell';
 const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
 import { getInitials } from '../utils/badgeStyles';
 import { canAccessCrm, canAssignCrmLeads } from '../utils/crmAccess';
+import { canAccessContentCalendar } from '../utils/contentCalendarAccess';
 import type { CrmSubSection } from '../types/crm';
 import type { AttendanceSubSection } from '../types/attendance';
 import type { AdminSectionType } from './admin/AdminSidebarNav';
@@ -121,6 +122,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canSeeExceptions = isLead || isHR;
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
   const canSeeCrm = canAccessCrm(user);
+  const canSeeContentCalendar = canAccessContentCalendar(user);
   const canAssign = canAssignCrmLeads(user);
   const isManagementRole = isAdmin || isHR || isOperations;
 
@@ -161,7 +163,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
   const canSeeMarketing =
     isAdmin ||
-    isClient ||
     ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
@@ -174,6 +175,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             id: 'dashboard' as ViewType,
             label: 'Dashboard',
             icon: LayoutDashboard,
+          },
+        ]
+      : []),
+    ...(isClient
+      ? [
+          {
+            id: 'portal' as ViewType,
+            label: 'Client Portal',
+            icon: FolderKanban,
           },
         ]
       : []),
@@ -199,8 +209,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ? [
           {
             id: 'marketing' as ViewType,
-            label: isClient ? 'Client Portal' : 'Performance Marketing',
+            label: 'Performance Marketing',
             icon: TrendingUp,
+          },
+        ]
+      : []),
+    ...(canSeeContentCalendar
+      ? [
+          {
+            id: 'content-calendar' as ViewType,
+            label: 'Content Calendar',
+            icon: Calendar,
           },
         ]
       : []),
@@ -240,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <aside
-      className={`relative flex flex-col h-screen bg-zinc-50 dark:bg-[#0d0f14] border-r border-zinc-200 dark:border-zinc-800/80 transition-all duration-300 ease-in-out z-30 select-none ${
+      className={`relative flex flex-col h-full bg-zinc-50 dark:bg-[#0d0f14] border-r border-zinc-200 dark:border-zinc-800/80 transition-all duration-300 ease-in-out z-30 select-none ${
         isCollapsed ? 'w-20' : 'w-64'
       } shadow-xs`}
     >

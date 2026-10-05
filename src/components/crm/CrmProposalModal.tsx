@@ -406,6 +406,11 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
       return;
     }
 
+    if (isUploading) {
+      setError('Please wait for the proposal file to finish uploading.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -908,13 +913,18 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting || createBlocked}
-            className="px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+            disabled={isSubmitting || isUploading || createBlocked}
+            className="px-5 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none"
           >
             {isSubmitting ? (
               <>
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 <span>{isEdit ? 'Saving Deal...' : 'Creating Deal...'}</span>
+              </>
+            ) : isUploading ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Uploading Proposal...</span>
               </>
             ) : (
               <span>{isEdit ? 'Save Deal' : 'Create Deal → Proposal'}</span>

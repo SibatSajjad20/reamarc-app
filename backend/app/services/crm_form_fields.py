@@ -8,7 +8,25 @@ from typing import Any, Dict, Optional, Set, Tuple
 SOCIAL_SOURCES = frozenset({"facebook", "instagram", "meta", "fb", "ig"})
 
 NO_WEBSITE_VALUES = frozenset(
-    {"no", "none", "n/a", "na", "no website", "nil", "-", "null", "nothing"}
+    {
+        "no",
+        "none",
+        "n/a",
+        "na",
+        "no website",
+        "nil",
+        "-",
+        "null",
+        "nothing",
+        "i don't have a website",
+        "i dont have a website",
+        "don't have a website",
+        "dont have a website",
+        "true",
+        "yes",
+        "1",
+        "on",
+    }
 )
 
 _ROLE_KEYS = frozenset({"job_title", "role", "your_role", "position", "designation"})
@@ -42,7 +60,9 @@ def sources_equivalent(actual: str, expected: str) -> bool:
     return left in SOCIAL_SOURCES and right in SOCIAL_SOURCES
 
 
-def is_no_website(value: Optional[str]) -> bool:
+def is_no_website(value: Any) -> bool:
+    if isinstance(value, (list, tuple)) and value:
+        value = value[0]
     return str(value or "").strip().lower() in NO_WEBSITE_VALUES
 
 
