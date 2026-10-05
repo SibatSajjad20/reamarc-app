@@ -7,7 +7,7 @@ from fastapi import Depends, HTTPException, status
 
 from app.core.security import get_current_user
 from app.models.user import UserRole
-from app.services.content_calendar_workflow import is_client
+from app.services.content_calendar_workflow import is_client, _user_departments
 
 _TEAM_ROLES = {
     UserRole.TEAM_LEAD.value,
@@ -31,20 +31,13 @@ def _role(value: Any) -> str:
     return str(value or "").lower().strip()
 
 
-def _department(value: Any) -> str:
-    text = str(value or "").lower().strip()
-    for ch in ("_", "-"):
-        text = text.replace(ch, " ")
-    return " ".join(text.split())
-
-
 def can_access_content_calendar(user: Dict[str, Any] | None) -> bool:
     if not user or not user.get("is_active", True):
         return False
     role = _role(user.get("role"))
     if role == UserRole.ADMIN.value or role == "admin":
         return True
-    return role in _TEAM_ROLES and _department(user.get("department")) in _ALLOWED_DEPARTMENTS
+    return role in _TEAM_ROLES and bool(_user_departments(user) & _ALLOWED_DEPARTMENTS)
 
 
 async def require_content_calendar_user(current_user: dict = Depends(get_current_user)) -> dict:

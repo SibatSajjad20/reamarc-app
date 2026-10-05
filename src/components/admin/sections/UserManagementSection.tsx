@@ -104,11 +104,22 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
         clientLabel.toLowerCase().includes(q);
 
       const matchesRole = roleFilter === 'all' || m.role.toLowerCase() === roleFilter.toLowerCase();
+      const memberDepts =
+        Array.isArray(m.departments) && m.departments.length > 0
+          ? m.departments.map((d) => d.toLowerCase())
+          : (m.department || '')
+              .toLowerCase()
+              .split(/[,;/]|\band\b|&/i)
+              .map((s) => s.trim())
+              .filter(Boolean);
+
       const matchesDept =
         directoryTab === 'clients' ||
         departmentFilter === 'all' ||
         (isGlobalRole && departmentFilter === 'All') ||
-        (!isGlobalRole && (m.department || '').toLowerCase() === departmentFilter.toLowerCase());
+        (!isGlobalRole &&
+          (memberDepts.includes(departmentFilter.toLowerCase()) ||
+            (m.department || '').toLowerCase() === departmentFilter.toLowerCase()));
 
       return matchesSearch && matchesRole && matchesDept;
     });
@@ -343,10 +354,22 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                           <td className="py-3.5 px-4">
                             {!m.department && !isGlobalRole ? (
                               <span className="text-zinc-400 italic text-[11px]">—</span>
+                            ) : isGlobalRole ? (
+                              <span className={getDeptBadgeClass('All')}>All</span>
                             ) : (
-                              <span className={getDeptBadgeClass(m.department)}>
-                                {isGlobalRole ? 'All' : m.department || 'All'}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-1">
+                                {(Array.isArray(m.departments) && m.departments.length > 0
+                                  ? m.departments
+                                  : (m.department || '')
+                                      .split(/[,;/]|\band\b|&/i)
+                                      .map((s) => s.trim())
+                                      .filter(Boolean)
+                                ).map((d) => (
+                                  <span key={d} className={getDeptBadgeClass(d)}>
+                                    {d}
+                                  </span>
+                                ))}
+                              </div>
                             )}
                           </td>
                         </>

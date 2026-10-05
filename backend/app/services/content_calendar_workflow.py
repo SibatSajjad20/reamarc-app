@@ -4,7 +4,8 @@ Pure functions so the gates can be tested without a database.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Dict, List, Optional, Set
 
 PIPELINE_STAGES = [
     "Content",
@@ -98,11 +99,29 @@ def _role(user: Optional[Dict[str, Any]]) -> str:
     return str((user or {}).get("role") or "").lower().strip()
 
 
-def _department(user: Optional[Dict[str, Any]]) -> str:
-    text = str((user or {}).get("department") or "").lower().strip()
-    for ch in ("_", "-"):
-        text = text.replace(ch, " ")
-    return " ".join(text.split())
+def _user_departments(user: Optional[Dict[str, Any]]) -> Set[str]:
+    if not user:
+        return set()
+    raw_list: List[str] = []
+    if isinstance(user.get("departments"), list):
+        for d in user["departments"]:
+            if d:
+                raw_list.append(str(d))
+    dept_str = user.get("department")
+    if isinstance(dept_str, str) and dept_str:
+        for part in re.split(r"[,;/]|\band\b|&", dept_str, flags=re.IGNORECASE):
+            s = part.strip()
+            if s:
+                raw_list.append(s)
+    depts: Set[str] = set()
+    for item in raw_list:
+        clean = " ".join(re.sub(r"[_-]+", " ", str(item)).lower().split())
+        if clean:
+            depts.add(clean)
+            if clean in ("content and creative", "content & creative"):
+                depts.add("content")
+                depts.add("creative")
+    return depts
 
 
 def _user_id(user: Optional[Dict[str, Any]]) -> str:
@@ -125,32 +144,32 @@ def is_client(user: Optional[Dict[str, Any]]) -> bool:
     return is_active(user) and _role(user) == "client"
 
 
-def is_performance(user: Optional[Dict[str, Any]]) -> bool:
-    return is_active(user) and _department(user) == "performance marketing" and _role(user) in _TEAM_ROLES
-
-
 def _team(user: Optional[Dict[str, Any]]) -> bool:
     return is_active(user) and _role(user) in _TEAM_ROLES
 
 
+def is_performance(user: Optional[Dict[str, Any]]) -> bool:
+    return _team(user) and "performance marketing" in _user_departments(user)
+
+
 def is_content_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and _department(user) in _CONTENT_DEPARTMENTS
+    return _team(user) and "content" in _user_departments(user)
 
 
 def is_content_lead(user: Optional[Dict[str, Any]]) -> bool:
-    return is_active(user) and _role(user) == "team_lead" and _department(user) in _CONTENT_DEPARTMENTS
+    return is_active(user) and _role(user) == "team_lead" and "content" in _user_departments(user)
 
 
 def is_creative_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and _department(user) in _CREATIVE_DEPARTMENTS
+    return _team(user) and "creative" in _user_departments(user)
 
 
 def is_creative_lead(user: Optional[Dict[str, Any]]) -> bool:
-    return is_active(user) and _role(user) == "team_lead" and _department(user) in _CREATIVE_DEPARTMENTS
+    return is_active(user) and _role(user) == "team_lead" and "creative" in _user_departments(user)
 
 
 def is_social_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and _department(user) == "social media"
+    return _team(user) and "social media" in _user_departments(user)
 
 
 def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
@@ -159,16 +178,16 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
         return []
     if is_admin(user) or is_performance(user) or is_client(user):
         return None
-    dept = _department(user)
-    if dept == "content":
-        return list(CONTENT_STAGES)
-    if dept == "creative":
-        return list(CREATIVE_STAGES)
-    if dept in _COMBO_DEPARTMENTS:
-        return list(CONTENT_STAGES) + list(CREATIVE_STAGES)
-    if dept == "social media":
-        return list(SOCIAL_STAGES)
-    return []
+    depts = _user_departments(user)
+    stages: List[str] = []
+    if "content" in depts:
+        stages.extend(CONTENT_STAGES)
+    if "creative" in depts:
+        stages.extend(CREATIVE_STAGES)
+    if "social media" in depts:
+        stages.extend(SOCIAL_STAGES)
+    res = [s for s in PIPELINE_STAGES if s in stages]
+    return res if res else []
 
 
 def client_owns(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:

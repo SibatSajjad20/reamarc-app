@@ -71,7 +71,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>('team_member');
-  const [department, setDepartment] = useState<string>('Website');
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['Website']);
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [probationStartDate, setProbationStartDate] = useState('');
@@ -91,7 +91,13 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setEmail(member.email || '');
       setPhone(phoneForInput(member.phone));
       setRole((member.role as any) === 'member' ? 'team_member' : member.role || 'team_member');
-      setDepartment(member.department && member.department !== 'All' ? member.department : 'Website');
+      const initialDepts: string[] =
+        Array.isArray(member.departments) && member.departments.length > 0
+          ? member.departments.filter(Boolean)
+          : member.department && member.department !== 'All' && member.department !== 'HR'
+          ? member.department.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean)
+          : ['Website'];
+      setSelectedDepartments(initialDepts.length > 0 ? initialDepts : ['Website']);
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
       setProbationStartDate(member.probation_start_date || member.joining_date || '');
@@ -203,13 +209,17 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       }
     }
 
-    let deptValue: string | undefined = department;
+    let deptValue: string | undefined = selectedDepartments.join(', ');
+    let deptsList: string[] | undefined = [...selectedDepartments];
     if (role === 'admin' || role === 'operations') {
       deptValue = 'All';
+      deptsList = ['All'];
     } else if (role === 'hr') {
       deptValue = 'HR';
+      deptsList = ['HR'];
     } else if (role === 'client') {
       deptValue = undefined;
+      deptsList = undefined;
       if (workspaceIds.length === 0) {
         setErrorMsg('Link this login to at least one active client');
         return;
@@ -222,6 +232,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       phone: normalizedPhone,
       role,
       department: deptValue,
+      departments: deptsList,
       joining_date: role === 'client' ? null : joiningDate.trim(),
       employment_type: role === 'client' ? 'contract' : employmentType,
       probation_start_date:
@@ -401,25 +412,38 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           {/* Department Selection (Only for Team Lead & Team Member) */}
           {(role === 'team_lead' || role === 'team_member') && (
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Department <span className="text-rose-500">*</span></span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Departments <span className="text-rose-500">*</span></span>
+                </label>
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">Select one or multiple</span>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {DEPARTMENTS.map((dept) => {
-                  const isSelected = department === dept;
+                  const isSelected = selectedDepartments.includes(dept);
                   return (
                     <button
                       key={dept}
                       type="button"
-                      onClick={() => setDepartment(dept)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
+                      onClick={() => {
+                        setSelectedDepartments((prev) => {
+                          if (prev.includes(dept)) {
+                            if (prev.length === 1) return prev; // keep at least 1
+                            return prev.filter((d) => d !== dept);
+                          } else {
+                            return [...prev, dept];
+                          }
+                        });
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none flex items-center justify-center gap-1.5 ${
                         isSelected
                           ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
                           : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
                       }`}
                     >
-                      {dept}
+                      {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                      <span>{dept}</span>
                     </button>
                   );
                 })}

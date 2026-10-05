@@ -82,6 +82,15 @@ def _format_member_resp(doc: dict) -> dict:
         "role": role_val,
         "phone": member_phone_from_doc(doc),
         "department": dept,
+        "departments": (
+            [str(d).strip() for d in doc.get("departments") if d and str(d).strip()]
+            if isinstance(doc.get("departments"), list) and doc.get("departments")
+            else (
+                [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept, flags=re.IGNORECASE) if p.strip()]
+                if dept and dept not in ("All", "Unassigned")
+                else ([dept] if dept else [])
+            )
+        ),
         "joining_date": doc.get("joining_date"),
         "employment_type": employment_type,
         "probation_start_date": doc.get("probation_start_date"),
@@ -502,10 +511,20 @@ async def create_member(
     # Auto set department: "All" for Admin/Operations, "HR" for HR
     if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
         dept_val = "All"
+        depts_list = ["All"]
     elif member_in.role == UserRole.HR:
         dept_val = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
+        depts_list = [dept_val]
     else:
-        dept_val = member_in.department.strip() if member_in.department else None
+        if member_in.departments and len(member_in.departments) > 0:
+            depts_list = [d.strip() for d in member_in.departments if d and d.strip()]
+            dept_val = member_in.department.strip() if member_in.department else ", ".join(depts_list)
+        elif member_in.department:
+            dept_val = member_in.department.strip()
+            depts_list = [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept_val, flags=re.IGNORECASE) if p.strip()]
+        else:
+            dept_val = None
+            depts_list = []
 
     now_iso = datetime.now(timezone.utc).isoformat()
     workspace_ids = await _client_workspace_ids(db, member_in.workspace_ids) if member_in.role == UserRole.CLIENT else []
@@ -520,6 +539,7 @@ async def create_member(
         "phone": member_in.phone.strip() if member_in.phone else None,
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
+        "departments": depts_list,
         "joining_date": member_in.joining_date.strip(),
         "employment_type": member_in.employment_type.value,
         "probation_start_date": member_in.probation_start_date,
@@ -603,16 +623,29 @@ async def update_member(
         update_fields["role"] = member_in.role.value
         if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
             update_fields["department"] = "All"
+            update_fields["departments"] = ["All"]
         elif member_in.role == UserRole.HR:
             update_fields["department"] = "HR"
+            update_fields["departments"] = ["HR"]
+    if member_in.departments is not None:
+        cleaned_depts = [d.strip() for d in member_in.departments if d and d.strip()]
+        update_fields["departments"] = cleaned_depts
+        if member_in.department is None:
+            update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
     if member_in.department is not None:
         target_role = member_in.role.value if member_in.role else existing_user.get("role")
         if target_role in ("admin", "operations", UserRole.ADMIN.value, UserRole.OPERATIONS.value):
             update_fields["department"] = "All"
+            update_fields["departments"] = ["All"]
         elif target_role in ("hr", UserRole.HR.value):
-            update_fields["department"] = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
+            dept_val = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
+            update_fields["department"] = dept_val
+            update_fields["departments"] = [dept_val]
         else:
-            update_fields["department"] = member_in.department.strip()
+            cleaned_str = member_in.department.strip()
+            update_fields["department"] = cleaned_str
+            if member_in.departments is None:
+                update_fields["departments"] = [p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()]
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
     if member_in.crm_enabled is not None:

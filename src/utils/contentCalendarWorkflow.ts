@@ -23,6 +23,7 @@ export interface CalendarActor {
   id?: string;
   role?: string;
   department?: string;
+  departments?: string[];
   is_active?: boolean;
 }
 
@@ -35,12 +36,31 @@ function roleOf(user?: CalendarActor | null): string {
   return (user?.role || '').toLowerCase().trim();
 }
 
-function departmentOf(user?: CalendarActor | null): string {
-  return (user?.department || '')
-    .toLowerCase()
-    .replace(/[_-]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+export function getActorDepartments(user?: CalendarActor | null): string[] {
+  if (!user) return [];
+  const rawList: string[] = [];
+  if (Array.isArray(user.departments)) {
+    rawList.push(...user.departments);
+  }
+  if (typeof user.department === 'string' && user.department) {
+    const split = user.department
+      .split(/[,;/]|\band\b|&/i)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    rawList.push(...split);
+  }
+  const normalized = new Set<string>();
+  for (const item of rawList) {
+    const cleaned = item.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (cleaned) {
+      normalized.add(cleaned);
+      if (cleaned === 'content and creative' || cleaned === 'content & creative') {
+        normalized.add('content');
+        normalized.add('creative');
+      }
+    }
+  }
+  return Array.from(normalized);
 }
 
 function isAdmin(user?: CalendarActor | null): boolean {
@@ -52,32 +72,34 @@ function isTeam(user?: CalendarActor | null): boolean {
   return !!user && user.is_active !== false && (role === 'team_lead' || role === 'team_member' || role === 'member');
 }
 
-function isContentActor(user?: CalendarActor | null): boolean {
-  const dept = departmentOf(user);
-  return isTeam(user) && (dept === 'content' || dept === 'content and creative' || dept === 'content & creative');
+export function isContentActor(user?: CalendarActor | null): boolean {
+  if (!isTeam(user)) return false;
+  return getActorDepartments(user).includes('content');
 }
 
-function isContentLead(user?: CalendarActor | null): boolean {
-  const dept = departmentOf(user);
-  return !!user && user.is_active !== false && roleOf(user) === 'team_lead' && (dept === 'content' || dept === 'content and creative' || dept === 'content & creative');
+export function isContentLead(user?: CalendarActor | null): boolean {
+  if (!user || user.is_active === false || roleOf(user) !== 'team_lead') return false;
+  return getActorDepartments(user).includes('content');
 }
 
-function isCreativeActor(user?: CalendarActor | null): boolean {
-  const dept = departmentOf(user);
-  return isTeam(user) && (dept === 'creative' || dept === 'content and creative' || dept === 'content & creative');
+export function isCreativeActor(user?: CalendarActor | null): boolean {
+  if (!isTeam(user)) return false;
+  return getActorDepartments(user).includes('creative');
 }
 
-function isCreativeLead(user?: CalendarActor | null): boolean {
-  const dept = departmentOf(user);
-  return !!user && user.is_active !== false && roleOf(user) === 'team_lead' && (dept === 'creative' || dept === 'content and creative' || dept === 'content & creative');
+export function isCreativeLead(user?: CalendarActor | null): boolean {
+  if (!user || user.is_active === false || roleOf(user) !== 'team_lead') return false;
+  return getActorDepartments(user).includes('creative');
 }
 
-function isSocial(user?: CalendarActor | null): boolean {
-  return isTeam(user) && departmentOf(user) === 'social media';
+export function isSocial(user?: CalendarActor | null): boolean {
+  if (!isTeam(user)) return false;
+  return getActorDepartments(user).includes('social media');
 }
 
-function isPerformance(user?: CalendarActor | null): boolean {
-  return isTeam(user) && departmentOf(user) === 'performance marketing';
+export function isPerformance(user?: CalendarActor | null): boolean {
+  if (!isTeam(user)) return false;
+  return getActorDepartments(user).includes('performance marketing');
 }
 
 export function isTeamLeadOrAdmin(user?: CalendarActor | null): boolean {
@@ -101,14 +123,12 @@ export function canCreateCampaign(user?: CalendarActor | null): boolean {
 export function visiblePipelineStages(user?: CalendarActor | null): PipelineStage[] {
   if (!user || user.is_active === false) return [];
   if (isAdmin(user) || isPerformance(user) || roleOf(user) === 'client') return [...PIPELINE_STAGES];
-  const dept = departmentOf(user);
-  if (dept === 'content') return [...CONTENT_STAGES];
-  if (dept === 'creative') return [...CREATIVE_STAGES];
-  if (dept === 'content and creative' || dept === 'content & creative') {
-    return [...CONTENT_STAGES, ...CREATIVE_STAGES];
-  }
-  if (dept === 'social media') return [...SOCIAL_STAGES];
-  return [];
+  const depts = getActorDepartments(user);
+  const stages: PipelineStage[] = [];
+  if (depts.includes('content')) stages.push(...CONTENT_STAGES);
+  if (depts.includes('creative')) stages.push(...CREATIVE_STAGES);
+  if (depts.includes('social media')) stages.push(...SOCIAL_STAGES);
+  return PIPELINE_STAGES.filter((s) => stages.includes(s));
 }
 
 export function actionsFor(user: CalendarActor | null | undefined, item: ContentCalendarItem): StageActionSpec[] {

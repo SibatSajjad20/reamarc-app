@@ -96,60 +96,184 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
         throw new Error('File does not contain enough data rows.');
       }
 
-      // Determine header row: Row 0 or Row 1
-      let headerRowIndex = 0;
-      for (let i = 0; i < Math.min(rows.length, 5); i++) {
-        const rowStr = rows[i].map((c) => String(c).toLowerCase()).join(' ');
-        if (rowStr.includes('serial') || rowStr.includes('concept') || rowStr.includes('campaign')) {
-          headerRowIndex = i;
-          break;
+      // Flexible header and multi-section parser
+      const parseDateValue = (val: any): string | null => {
+        if (!val) return null;
+        const str = String(val).trim();
+        if (!str) return null;
+        const num = Number(str);
+        if (!isNaN(num) && num > 30000 && num < 60000) {
+          const d = new Date(Math.round((num - 25569) * 86400 * 1000));
+          return d.toISOString().split('T')[0];
         }
-      }
+        if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+        const parsed = Date.parse(str);
+        if (!isNaN(parsed)) {
+          const d = new Date(parsed);
+          return d.toISOString().split('T')[0];
+        }
+        return str;
+      };
 
-      const rawHeaders = rows[headerRowIndex].map((h: any) => String(h || '').trim());
-      const headerMap: Record<number, keyof ContentCalendarItem> = {};
+      const CHANNEL_NAMES = ['facebook', 'instagram', 'linkedin', 'tiktok', 'youtube', 'pinterest', 'website', 'twitter', 'x'];
 
-      rawHeaders.forEach((h: string, idx: number) => {
-        const norm = normalizeHeader(h);
-        if (norm === 'serial' || norm === 'serialid') headerMap[idx] = 'serial';
-        else if (norm === 'client' || norm === 'clientname') headerMap[idx] = 'client_name';
-        else if (norm === 'campaigntype' || norm === 'campaign') headerMap[idx] = 'campaign_type';
-        else if (norm === 'creativetype' || norm === 'format') headerMap[idx] = 'creative_type';
-        else if (norm.includes('contentpillar') || norm.includes('pillar')) headerMap[idx] = 'content_pillar';
-        else if (norm.includes('contentconcept') || norm === 'concept' || norm === 'title') headerMap[idx] = 'content_concept';
-        else if (norm === 'offer') headerMap[idx] = 'offer';
-        else if (norm.includes('productiondirection') || norm === 'direction') headerMap[idx] = 'production_direction';
-        else if (norm.includes('primarytext') || norm.includes('adcopy') || norm === 'copy') headerMap[idx] = 'primary_text';
-        else if (norm.includes('headlines') || norm.includes('hooks')) headerMap[idx] = 'headlines_hooks';
-        else if (norm.includes('contentoncreative')) headerMap[idx] = 'content_on_creative';
-        else if (norm === 'cta' || norm.includes('calltoaction')) headerMap[idx] = 'cta';
-        else if (norm.includes('captions') || norm.includes('hashtags')) headerMap[idx] = 'captions_hashtags';
-        else if (norm.includes('designowner') || norm === 'owner') headerMap[idx] = 'design_owner';
-        else if (norm.includes('designdue') || norm === 'due') headerMap[idx] = 'design_due';
-        else if (norm.includes('publishdate') || norm === 'date') headerMap[idx] = 'publish_date';
-        else if (norm.includes('draft') || norm.includes('previewlink')) headerMap[idx] = 'draft_preview_link';
-        else if (norm.includes('final') || norm.includes('assetlink')) headerMap[idx] = 'final_asset_link';
-        else if (norm.includes('approvalstatus') || norm === 'approval') headerMap[idx] = 'approval_status';
-        else if (norm.includes('setupstatus') || norm === 'setup') headerMap[idx] = 'setup_status';
-        else if (norm === 'stage' || norm.includes('pipelinestage')) headerMap[idx] = 'stage';
-        else if (norm === 'notes' || norm === 'note') headerMap[idx] = 'notes';
-      });
-
+      let activeHeaderMap: Record<number, keyof ContentCalendarItem> | null = null;
+      let activeChannelMap: Record<number, string> = {};
+      let currentSectionClient = defaultClient;
       const extracted: Partial<ContentCalendarItem>[] = [];
 
-      for (let r = headerRowIndex + 1; r < rows.length; r++) {
+      for (let r = 0; r < rows.length; r++) {
         const row = rows[r];
         if (!row || row.length === 0) continue;
 
+        const rowJoined = row.map((c: any) => String(c || '').trim()).filter(Boolean);
+        if (rowJoined.length === 0) continue;
+
+        // Detect section client name if available
+        const rowFullText = rowJoined.join(' ').toLowerCase();
+        if (rowJoined.length <= 3 && !rowFullText.includes('serial') && !rowFullText.includes('creative type')) {
+          const candidate = rowJoined.find((c: string) => {
+            const cl = c.toLowerCase();
+            return (
+              cl !== 'essential' &&
+              cl !== 'goal/theme' &&
+              cl !== 'profile details' &&
+              cl !== 'run time tasks' &&
+              c.length > 2 &&
+              c.length < 50
+            );
+          });
+          if (candidate && (candidate.toLowerCase().includes('mall') || candidate.toLowerCase().includes('developer') || candidate.toLowerCase().includes('llc') || candidate.toLowerCase().includes('zem'))) {
+            currentSectionClient = candidate.trim();
+          }
+        }
+
+        const officialNameCol = row.findIndex((c: any) => String(c || '').toLowerCase().includes('official business name'));
+        if (officialNameCol !== -1 && row[officialNameCol + 1]) {
+          const cand = String(row[officialNameCol + 1]).trim();
+          if (cand && cand.length < 50) currentSectionClient = cand;
+        }
+
+        // Check if row is a header row
+        const rowNorms = row.map((c: any) => normalizeHeader(String(c || '')));
+        const hasSerial = rowNorms.some((n: string) => n === 'serial' || n === 'serialid' || n === 'sr' || n === 'sno');
+        const hasConceptOrCampaignOrCreative = rowNorms.some((n: string) =>
+          n.includes('creative') ||
+          n.includes('concept') ||
+          n.includes('campaign') ||
+          n.includes('topic') ||
+          n.includes('postdescription') ||
+          n.includes('date') ||
+          n.includes('status')
+        );
+
+        if (hasSerial && hasConceptOrCampaignOrCreative) {
+          activeHeaderMap = {};
+          activeChannelMap = {};
+
+          row.forEach((h: any, idx: number) => {
+            const norm = normalizeHeader(String(h || ''));
+            if (!norm) return;
+
+            if (norm === 'serial' || norm === 'serialid' || norm === 'sr' || norm === 'sno') {
+              activeHeaderMap![idx] = 'serial';
+            } else if (norm === 'client' || norm === 'clientname') {
+              activeHeaderMap![idx] = 'client_name';
+            } else if (norm === 'campaigntype' || norm === 'campaign') {
+              activeHeaderMap![idx] = 'campaign_type';
+            } else if (norm === 'creativetype' || norm === 'format') {
+              activeHeaderMap![idx] = 'creative_type';
+            } else if (norm.includes('contentpillar') || norm.includes('pillar')) {
+              activeHeaderMap![idx] = 'content_pillar';
+            } else if (
+              norm.includes('contentconcept') ||
+              norm.includes('concept') ||
+              norm.includes('topictheme') ||
+              norm === 'topic' ||
+              norm === 'context' ||
+              norm === 'title'
+            ) {
+              activeHeaderMap![idx] = 'content_concept';
+            } else if (norm === 'offer') {
+              activeHeaderMap![idx] = 'offer';
+            } else if (norm === 'idea' || norm.includes('productiondirection') || norm === 'direction') {
+              activeHeaderMap![idx] = 'production_direction';
+            } else if (
+              norm.includes('designdue') ||
+              norm.includes('designcompletion') ||
+              (norm.includes('design') && norm.includes('date')) ||
+              norm === 'due'
+            ) {
+              activeHeaderMap![idx] = 'design_due';
+            } else if (
+              norm.includes('primarytext') ||
+              norm.includes('adcopy') ||
+              norm === 'copy' ||
+              norm.includes('postdescription') ||
+              norm.includes('description')
+            ) {
+              activeHeaderMap![idx] = 'primary_text';
+            } else if (norm.includes('headlines') || norm.includes('hooks')) {
+              activeHeaderMap![idx] = 'headlines_hooks';
+            } else if (norm.includes('contentoncreative') || norm.includes('copyoncreative')) {
+              activeHeaderMap![idx] = 'content_on_creative';
+            } else if (norm === 'cta' || norm.includes('postcta') || norm.includes('calltoaction')) {
+              activeHeaderMap![idx] = 'cta';
+            } else if (norm.includes('captions') || norm.includes('hashtags') || norm.includes('keywords')) {
+              if (!activeHeaderMap![idx]) activeHeaderMap![idx] = 'captions_hashtags';
+            } else if (norm.includes('designowner') || norm === 'owner') {
+              activeHeaderMap![idx] = 'design_owner';
+            } else if (
+              norm.includes('postingdate') ||
+              norm.includes('publishdate') ||
+              norm.includes('postdate') ||
+              norm.includes('scheduledate') ||
+              norm === 'date'
+            ) {
+              activeHeaderMap![idx] = 'publish_date';
+            } else if (norm.includes('draft') || norm.includes('previewlink')) {
+              activeHeaderMap![idx] = 'draft_preview_link';
+            } else if (norm.includes('final') || norm.includes('assetlink')) {
+              activeHeaderMap![idx] = 'final_asset_link';
+            } else if (norm.includes('approvalstatus') || norm === 'approval' || norm === 'status') {
+              activeHeaderMap![idx] = 'approval_status';
+            } else if (norm.includes('setupstatus') || norm === 'setup' || norm.includes('postingstatus')) {
+              activeHeaderMap![idx] = 'setup_status';
+            } else if (norm === 'stage' || norm.includes('pipelinestage')) {
+              activeHeaderMap![idx] = 'stage';
+            } else if (norm === 'notes' || norm === 'note' || norm.includes('performance')) {
+              activeHeaderMap![idx] = 'notes';
+            }
+
+            const matchedChannel = CHANNEL_NAMES.find((ch) => norm === ch || norm.startsWith(ch));
+            if (matchedChannel) {
+              activeChannelMap[idx] = matchedChannel.charAt(0).toUpperCase() + matchedChannel.slice(1);
+            }
+          });
+          continue;
+        }
+
+        if (!activeHeaderMap) continue;
+
+        // Parse row
         const item: any = {};
+        const channels: string[] = [];
         let hasAnyValue = false;
 
-        Object.entries(headerMap).forEach(([colIdx, fieldKey]) => {
-          const rawVal = row[Number(colIdx)];
+        Object.entries(activeHeaderMap).forEach(([colIdxStr, fieldKey]) => {
+          const colIdx = Number(colIdxStr);
+          const rawVal = row[colIdx];
           if (rawVal !== undefined && rawVal !== null && String(rawVal).trim() !== '') {
             hasAnyValue = true;
             let strVal = String(rawVal).trim();
-            // Sanitize against formula injection
+            // Handle double pipe formatting typos like 'Pending Approval||2026-05-25'
+            if (strVal.includes('||')) {
+              const parts = strVal.split('||').map((p) => p.trim());
+              strVal = parts[0];
+              if (parts[1] && !item['publish_date']) {
+                item['publish_date'] = parseDateValue(parts[1]);
+              }
+            }
             if (strVal.startsWith('=') || strVal.startsWith('+') || strVal.startsWith('-') || strVal.startsWith('@')) {
               strVal = "'" + strVal;
             }
@@ -157,10 +281,38 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
           }
         });
 
-        // Must have at least a concept or serial to be considered a campaign record
-        if (hasAnyValue && (item.content_concept || item.serial)) {
+        // Extract active channels
+        Object.entries(activeChannelMap).forEach(([colIdxStr, channelName]) => {
+          const colIdx = Number(colIdxStr);
+          const val = row[colIdx];
+          if (val !== undefined && val !== null && String(val).trim()) {
+            const valStr = String(val).trim().toLowerCase();
+            if (valStr === 'yes' || valStr === 'y' || valStr === '1' || valStr.includes('video') || valStr.startsWith('http')) {
+              channels.push(channelName);
+            }
+          }
+        });
+
+        if (channels.length > 0) {
+          item.channels = channels;
+        }
+
+        // Filter out repeating headers or non-record rows
+        if (
+          item.serial &&
+          isNaN(Number(item.serial)) &&
+          !item.serial.match(/^C[A-Z0-9-]+$/i) &&
+          !item.content_on_creative &&
+          !item.primary_text &&
+          !item.content_concept
+        ) {
+          continue;
+        }
+
+        // Must have at least a serial, creative type, creative copy, or concept to be a valid campaign record
+        if (hasAnyValue && (item.content_concept || item.serial || item.content_on_creative || item.primary_text)) {
           if (!item.client_name) {
-            item.client_name = defaultClient;
+            item.client_name = currentSectionClient || defaultClient;
           }
           const clientVal = item.client_name || defaultClient;
           const clean = clientVal.replace(/[^a-zA-Z0-9\s]/g, '').trim();
@@ -184,12 +336,32 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
               item.serial = `C${abbr}-${String(num).padStart(3, '0')}`;
             }
           }
+
           if (!item.content_concept) {
-            item.content_concept = `Asset ${item.serial}`;
+            item.content_concept =
+              item.content_on_creative?.slice(0, 100) ||
+              item.production_direction?.slice(0, 100) ||
+              item.primary_text?.split('\n')[0]?.slice(0, 100) ||
+              `Asset ${item.serial}`;
           }
+
+          if (item.publish_date) {
+            item.publish_date = parseDateValue(item.publish_date);
+          }
+          if (item.design_due) {
+            item.design_due = parseDateValue(item.design_due);
+          }
+
+          // If primary_text has hashtags and captions_hashtags is empty
+          if (item.primary_text && !item.captions_hashtags) {
+            const hashMatch = item.primary_text.match(/#\w+/g);
+            if (hashMatch) {
+              item.captions_hashtags = hashMatch.join(' ');
+            }
+          }
+
           extracted.push(item);
         }
-
       }
 
       if (extracted.length === 0) {

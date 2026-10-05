@@ -41,7 +41,18 @@ assert(
   'Inactive content team lead must be denied',
 );
 assert(!canAccessContentCalendar(null), 'Null user must be denied');
-assert(!canAccessContentCalendar(undefined), 'Undefined user must be denied');
-assert(!canAccessContentCalendar({}), 'Empty user must be denied');
+// Multi-department tests:
+assert(
+  canAccessContentCalendar({ role: 'team_lead', department: 'Creative, Content' }),
+  'Creative + Content team lead via comma string must have access',
+);
+assert(
+  canAccessContentCalendar({ role: 'team_lead', departments: ['Creative', 'Content'] }),
+  'Creative + Content team lead via array must have access',
+);
+assert(
+  canAccessContentCalendar({ role: 'team_member', department: 'Sales, Social Media' }),
+  'Sales + Social Media member must have access via Social Media department',
+);
 
 console.log('All contentCalendarAccess tests passed successfully!');

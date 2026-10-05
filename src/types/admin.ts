@@ -9,6 +9,7 @@ export interface AdminMember {
   role: UserRole;
   phone?: string;
   department?: string;
+  departments?: string[];
   joining_date?: string | null;
   employment_type?: EmploymentType;
   probation_start_date?: string | null;
@@ -26,6 +27,7 @@ export interface CreateMemberPayload {
   role: UserRole;
   phone?: string;
   department?: string;
+  departments?: string[];
   joining_date?: string | null;
   employment_type?: EmploymentType;
   probation_start_date?: string | null;
@@ -45,6 +47,7 @@ export interface UpdateMemberPayload {
   password?: string;
   role?: UserRole;
   department?: string;
+  departments?: string[];
   joining_date?: string | null;
   employment_type?: EmploymentType;
   probation_start_date?: string | null;

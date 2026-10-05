@@ -71,7 +71,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>(defaultRole);
-  const [department, setDepartment] = useState<string>('Website');
+  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['Website']);
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [probationStartDate, setProbationStartDate] = useState('');
@@ -91,7 +91,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setEmail('');
       setPhone('');
       setRole(defaultRole === 'member' ? 'team_member' : defaultRole);
-      setDepartment('Website');
+      setSelectedDepartments(['Website']);
       const today = new Date().toISOString().slice(0, 10);
       setJoiningDate(today);
       setEmploymentType('contract');
@@ -240,13 +240,17 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       return;
     }
 
-    let deptValue: string | undefined = department;
+    let deptValue: string | undefined = selectedDepartments.join(', ');
+    let deptsList: string[] | undefined = [...selectedDepartments];
     if (role === 'admin' || role === 'operations') {
       deptValue = 'All';
+      deptsList = ['All'];
     } else if (role === 'hr') {
       deptValue = 'HR';
+      deptsList = ['HR'];
     } else if (role === 'client') {
       deptValue = undefined;
+      deptsList = undefined;
       if (workspaceIds.length === 0) {
         setErrorMsg('Select a client to link this account');
         return;
@@ -261,6 +265,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         phone: normalizedPhone,
         role,
         department: deptValue,
+        departments: deptsList,
         joining_date: role === 'client' ? null : joiningDate.trim(),
         employment_type: role === 'client' ? 'contract' : employmentType,
         probation_start_date:
@@ -440,25 +445,38 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           {/* Department Selection (Only for Team Lead & Team Member) */}
           {(role === 'team_lead' || role === 'team_member') && (
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Department <span className="text-rose-500">*</span></span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                  <span>Departments <span className="text-rose-500">*</span></span>
+                </label>
+                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">Select one or multiple</span>
+              </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                 {DEPARTMENTS.map((dept) => {
-                  const isSelected = department === dept;
+                  const isSelected = selectedDepartments.includes(dept);
                   return (
                     <button
                       key={dept}
                       type="button"
-                      onClick={() => setDepartment(dept)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
+                      onClick={() => {
+                        setSelectedDepartments((prev) => {
+                          if (prev.includes(dept)) {
+                            if (prev.length === 1) return prev; // keep at least 1
+                            return prev.filter((d) => d !== dept);
+                          } else {
+                            return [...prev, dept];
+                          }
+                        });
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none flex items-center justify-center gap-1.5 ${
                         isSelected
                           ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
                           : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
                       }`}
                     >
-                      {dept}
+                      {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                      <span>{dept}</span>
                     </button>
                   );
                 })}
