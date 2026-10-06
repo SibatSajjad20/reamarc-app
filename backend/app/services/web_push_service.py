@@ -110,6 +110,8 @@ def notification_path(kind: str, data: Optional[dict] = None) -> str:
         return "/crm"
     if kind_name in _ATTENDANCE_KINDS or kind_name.startswith("leave_") or kind_name.startswith("attendance_"):
         return "/attendance"
+    if kind_name.startswith("content_calendar") or data_type.startswith("content_calendar"):
+        return "/content-calendar"
     return "/"
 
 

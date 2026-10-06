@@ -53,26 +53,46 @@ export const contentCalendarService = {
   },
 
   async createItem(payload: Partial<ContentCalendarItem>): Promise<ContentCalendarItem> {
-    return apiClient.post<ContentCalendarItem>('/content-calendar', payload);
+    const res = await apiClient.post<ContentCalendarItem>('/content-calendar', payload);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
   },
 
   async updateItem(id: string, payload: Partial<ContentCalendarItem>): Promise<ContentCalendarItem> {
-    return apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}`, payload);
+    const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}`, payload);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
   },
 
   async batchUpdate(updates: BatchUpdateItem[]): Promise<BatchUpdateResponse> {
-    return apiClient.patch<BatchUpdateResponse>('/content-calendar/batch', { updates });
+    const res = await apiClient.patch<BatchUpdateResponse>('/content-calendar/batch', { updates });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
   },
 
   async bulkImport(payload: BulkImportRequest): Promise<BulkImportResponse> {
-    return apiClient.post<BulkImportResponse>('/content-calendar/bulk-import', payload);
+    const res = await apiClient.post<BulkImportResponse>('/content-calendar/bulk-import', payload);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
   },
 
   async transition(
     id: string,
     payload: { action: string; note?: string; assignee_id?: string; assignee_name?: string; target_stage?: string },
   ): Promise<ContentCalendarItem> {
-    return apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}/stage`, payload);
+    const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}/stage`, payload);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
+    }
+    return res;
   },
 
   async getCreativeAssignees(): Promise<{ assignees: Array<{ id: string; name: string }> }> {

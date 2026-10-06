@@ -2,7 +2,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.core.security import require_hr_or_admin, require_internal_user
+from app.core.security import require_hr_or_admin, require_internal_user, get_current_user
 from app.schemas.error import ErrorResponse
 from app.schemas.mobile import (
     AdminOverviewResponse,
@@ -52,20 +52,20 @@ async def get_my_device(current_user: dict = Depends(require_internal_user)):
 
 @router.get("/notifications", response_model=List[MobileNotificationResponse])
 async def get_my_notifications(
-    current_user: dict = Depends(require_internal_user),
+    current_user: dict = Depends(get_current_user),
     limit: int = Query(default=50, ge=1, le=100),
 ):
     return await push_service.list_notifications(current_user.get("id"), limit=limit)
 
 
 @router.post("/notifications/read-all")
-async def mark_notifications_read(current_user: dict = Depends(require_internal_user)):
+async def mark_notifications_read(current_user: dict = Depends(get_current_user)):
     updated = await push_service.mark_all_read(current_user.get("id"))
     return {"updated": updated}
 
 
 @router.delete("/notifications/clear-all")
-async def clear_notifications(current_user: dict = Depends(require_internal_user)):
+async def clear_notifications(current_user: dict = Depends(get_current_user)):
     deleted = await push_service.clear_all_notifications(current_user.get("id"))
     return {"deleted": deleted, "message": "All notifications cleared"}
 

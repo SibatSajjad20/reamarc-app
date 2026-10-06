@@ -568,7 +568,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
 
             <div className="flex items-center gap-1">
-              {!isClient && <NotificationBell collapsed={false} onSelectView={onSelectView} />}
+              <NotificationBell collapsed={false} onSelectView={onSelectView} />
               <button
                 type="button"
                 onClick={() => onSelectView('profile')}
@@ -589,7 +589,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2 mx-auto">
-            {!isClient && <NotificationBell collapsed onSelectView={onSelectView} />}
+            <NotificationBell collapsed onSelectView={onSelectView} />
             <button
               type="button"
               onClick={() => onSelectView('profile')}

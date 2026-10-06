@@ -23,6 +23,7 @@ interface InboxItem {
 interface NotificationBellProps {
   collapsed: boolean;
   onSelectView: (view: ViewType) => void;
+  placement?: 'bottom' | 'top';
 }
 
 function formatWhen(value?: string): string {
@@ -32,7 +33,7 @@ function formatWhen(value?: string): string {
   return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
 
-export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, onSelectView }) => {
+export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, onSelectView, placement = 'bottom' }) => {
   const { addToast } = useToast();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<InboxItem[]>([]);
@@ -60,9 +61,22 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
       if (document.visibilityState === 'visible') void load();
     };
     document.addEventListener('visibilitychange', onVisible);
+
+    const onPush = (e: MessageEvent) => {
+      if (e.data?.type === 'reamarc-push-received') {
+        void load();
+      }
+    };
+    navigator.serviceWorker?.addEventListener('message', onPush);
+
+    const onCustomRefresh = () => void load();
+    window.addEventListener('reamarc-notification-refresh', onCustomRefresh);
+
     return () => {
       window.clearInterval(timer);
       document.removeEventListener('visibilitychange', onVisible);
+      navigator.serviceWorker?.removeEventListener('message', onPush);
+      window.removeEventListener('reamarc-notification-refresh', onCustomRefresh);
     };
   }, [load]);
 
@@ -139,7 +153,11 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
         )}
       </button>
       {open && (
-        <div className="absolute bottom-full left-0 mb-2 w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl z-50 overflow-hidden">
+        <div
+          className={`absolute ${
+            placement === 'top' ? 'top-full right-0 mt-2' : 'bottom-full left-0 mb-2'
+          } w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl z-50 overflow-hidden`}
+        >
           <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
             <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Notifications</p>
             <button

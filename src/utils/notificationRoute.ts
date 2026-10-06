@@ -18,6 +18,9 @@ export function viewForNotificationKind(kind: string | undefined): ViewType {
   if (ATTENDANCE_KINDS.has(name) || name.startsWith('leave_') || name.startsWith('attendance_')) {
     return 'attendance';
   }
+  if (name.startsWith('content_calendar') || name.startsWith('campaign_')) {
+    return 'content-calendar';
+  }
   return 'dashboard';
 }
 
@@ -26,6 +29,8 @@ export function viewFromNotificationPath(path: string): ViewType | null {
   const segment = path.replace(/^\/+|\/+$/g, '').split('/')[0]?.toLowerCase();
   if (segment === 'crm') return 'crm';
   if (segment === 'attendance') return 'attendance';
+  if (segment === 'content-calendar' || segment === 'content_calendar' || segment === 'calendar') return 'content-calendar';
+  if (segment === 'portal' || segment === 'client-portal') return 'portal';
   if (segment === 'dashboard') return 'dashboard';
   return null;
 }

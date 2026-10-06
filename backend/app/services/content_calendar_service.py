@@ -44,6 +44,7 @@ from app.services.content_calendar_workflow import (
     is_client,
     is_performance,
     is_content_actor,
+    is_content_lead,
     is_creative_actor,
     is_creative_lead,
     is_social_actor,
@@ -509,6 +510,18 @@ async def create_item(
     doc["id"] = item_id
     if "_id" in doc:
         del doc["_id"]
+    if doc.get("assignee_id"):
+        try:
+            await notify_content_calendar_event(
+                db,
+                item=doc,
+                action="assign",
+                actor={"id": user_id, "full_name": user_name, "role": "team_member"},
+                assignee_id=doc.get("assignee_id"),
+                assignee_name=doc.get("assignee_name"),
+            )
+        except Exception:
+            pass
     return doc
 
 
@@ -631,7 +644,30 @@ async def update_item(
         return_document=True,
     )
     if result:
-        return _present_doc(result)
+        presented_res = _present_doc(result)
+        try:
+            if "notes" in update_data and update_data["notes"] != current_doc.get("notes"):
+                await notify_content_calendar_event(
+                    db,
+                    item=presented_res,
+                    action="comment",
+                    actor=viewer,
+                    note=update_data["notes"],
+                    old_item=_present_doc(dict(current_doc)),
+                )
+            if "assignee_id" in update_data and update_data["assignee_id"] != current_doc.get("assignee_id"):
+                await notify_content_calendar_event(
+                    db,
+                    item=presented_res,
+                    action="assign",
+                    actor=viewer,
+                    assignee_id=update_data["assignee_id"],
+                    assignee_name=update_data.get("assignee_name"),
+                    old_item=_present_doc(dict(current_doc)),
+                )
+        except Exception as err:
+            logger.warning("Notification on update failed: %s", err)
+        return presented_res
     return None
 
 
@@ -681,7 +717,21 @@ async def transition_item(
         return_document=True,
     )
     if result:
-        return _present_doc(result)
+        presented_res = _present_doc(result)
+        try:
+            await notify_content_calendar_event(
+                db,
+                item=presented_res,
+                action=action,
+                actor=viewer,
+                note=note,
+                assignee_id=assignee_id,
+                assignee_name=assignee_name,
+                old_item=presented,
+            )
+        except Exception as notif_err:
+            logger.warning("Content calendar transition notification failed: %s", notif_err)
+        return presented_res
     return None
 
 
@@ -1946,12 +1996,212 @@ async def action_public_review_item(
     doc_to_present = dict(updated) if updated else dict(presented)
     if not updated and update_fields:
         doc_to_present.update(update_fields)
+    presented_after = _present_doc(doc_to_present)
+    try:
+        await notify_content_calendar_event(
+            db,
+            item=presented_after,
+            action=action_key,
+            actor={"full_name": who, "role": "client"},
+            note=note,
+            old_item=presented,
+        )
+    except Exception as notif_err:
+        logger.warning("Public review notification failed: %s", notif_err)
+
     return {
         "success": True,
         "message": msg,
         "stage": update_fields.get("stage", stage),
-        "item": _present_doc(doc_to_present),
+        "item": presented_after,
     }
+
+
+async def notify_content_calendar_event(
+    db,
+    item: Dict[str, Any],
+    action: str,
+    actor: Optional[Dict[str, Any]] = None,
+    note: Optional[str] = None,
+    assignee_id: Optional[str] = None,
+    assignee_name: Optional[str] = None,
+    old_item: Optional[Dict[str, Any]] = None,
+) -> None:
+    """Dispatches in-app notifications and web-push to all relevant stakeholders upon Content Calendar events."""
+    if db is None:
+        return
+    try:
+        from app.services.push_service import dispatch_to_users
+
+        item_id = str(item.get("id") or item.get("_id") or "")
+        serial = str(item.get("serial") or "Campaign")
+        client_name = str(item.get("client_name") or "Client")
+        stage = str(item.get("stage") or "Content")
+        workspace_id = item.get("workspace_id")
+        creator_id = str(item.get("created_by") or "")
+        effective_assignee = str(assignee_id or item.get("assignee_id") or "")
+
+        actor_name = "Team Member"
+        actor_id = None
+        actor_role = "team_member"
+        if actor:
+            actor_name = str(actor.get("full_name") or actor.get("name") or actor.get("email") or "Team Member")
+            actor_id = str(actor.get("id") or actor.get("_id") or "") or None
+            actor_role = str(actor.get("role") or "team_member")
+
+        async def _find_content_leads() -> List[str]:
+            uids = []
+            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
+                u["is_active"] = True
+                if is_admin(u) or is_content_lead(u):
+                    uids.append(str(u.get("id") or u.get("_id") or ""))
+            return [u for u in uids if u]
+
+        async def _find_creative_leads() -> List[str]:
+            uids = []
+            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
+                u["is_active"] = True
+                if is_admin(u) or is_creative_lead(u):
+                    uids.append(str(u.get("id") or u.get("_id") or ""))
+            return [u for u in uids if u]
+
+        async def _find_client_users() -> List[str]:
+            if not workspace_id:
+                return []
+            uids = []
+            async for u in db.users.find(
+                {"is_active": {"$ne": False}, "role": "client", "$or": [{"workspace_id": workspace_id}, {"workspace_ids": workspace_id}]},
+                {"id": 1, "_id": 1}
+            ):
+                uids.append(str(u.get("id") or u.get("_id") or ""))
+            return [u for u in uids if u]
+
+        async def _find_social_actors() -> List[str]:
+            uids = []
+            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
+                u["is_active"] = True
+                if is_admin(u) or is_social_actor(u) or is_performance(u):
+                    uids.append(str(u.get("id") or u.get("_id") or ""))
+            return [u for u in uids if u]
+
+        recipients: List[str] = []
+        title = f"Campaign Update: {serial}"
+        body = f"{serial} ({client_name}) updated by {actor_name}."
+
+        act = str(action or "").lower().strip().replace(" ", "_")
+
+        if act in ("assign", "assign_creative"):
+            if effective_assignee:
+                recipients = [effective_assignee]
+                title = f"Campaign Assigned: {serial}"
+                body = f"You were assigned to {serial} ({client_name}) for {stage} by {actor_name}."
+
+        elif act == "submit":
+            if stage == "Content Internal Review":
+                recipients = await _find_content_leads()
+                title = f"Content Ready for Review: {serial}"
+                body = f"{actor_name} submitted {serial} ({client_name}) for internal content review."
+            elif stage == "Creative Internal Review":
+                recipients = await _find_creative_leads()
+                title = f"Creative Ready for Review: {serial}"
+                body = f"{actor_name} submitted {serial} ({client_name}) for internal creative review."
+            else:
+                recipients = await _find_content_leads()
+                title = f"Campaign Submitted: {serial}"
+                body = f"{actor_name} submitted {serial} ({client_name}) to {stage}."
+
+        elif act in ("approve", "approved"):
+            if stage in ("Content Client Review", "Creative Client Review"):
+                client_uids = await _find_client_users()
+                content_leads = await _find_content_leads()
+                recipients = client_uids + content_leads
+                title = f"Ready for Client Review: {serial}"
+                body = f"{serial} ({client_name}) is approved internally and ready for client review in {stage}."
+            elif stage == "Creative Production":
+                # Approved by client
+                recipients = await _find_content_leads() + await _find_creative_leads()
+                if creator_id:
+                    recipients.append(creator_id)
+                if effective_assignee:
+                    recipients.append(effective_assignee)
+                title = f"Content Approved by Client: {serial} 🎉"
+                body = f"{actor_name} approved content for {serial} ({client_name}). Advanced to Creative Production."
+            elif stage == "Ready to Post":
+                # Approved by client
+                recipients = await _find_creative_leads() + await _find_social_actors()
+                if creator_id:
+                    recipients.append(creator_id)
+                if effective_assignee:
+                    recipients.append(effective_assignee)
+                title = f"Creative Approved by Client: {serial} 🎉"
+                body = f"{actor_name} approved deliverables for {serial} ({client_name}). Advanced to Ready to Post."
+            else:
+                recipients = await _find_content_leads()
+                title = f"Campaign Approved: {serial}"
+                body = f"{serial} ({client_name}) approved by {actor_name} to {stage}."
+
+        elif act == "send_back":
+            recipients = [u for u in [effective_assignee, creator_id] if u]
+            if not recipients:
+                recipients = await _find_content_leads()
+            title = f"Changes Requested: {serial}"
+            detail = f": {note}" if note else "."
+            body = f"{actor_name} requested changes on {serial} ({client_name}){detail}"
+
+        elif act in ("request_revision", "revision"):
+            recipients = await _find_content_leads() + await _find_creative_leads()
+            if creator_id:
+                recipients.append(creator_id)
+            if effective_assignee:
+                recipients.append(effective_assignee)
+            title = f"Client Requested Revision: {serial} ⚠️"
+            detail = f": {note}" if note else "."
+            body = f"{actor_name} requested revision on {serial} ({client_name}){detail}"
+
+        elif act in ("post", "posted"):
+            recipients = await _find_content_leads() + await _find_client_users()
+            if creator_id:
+                recipients.append(creator_id)
+            title = f"Campaign Posted: {serial} 🚀"
+            body = f"{serial} ({client_name}) marked as posted by {actor_name}."
+
+        elif act == "comment":
+            recipients = [u for u in [effective_assignee, creator_id] if u]
+            if not recipients:
+                recipients = await _find_content_leads()
+            title = f"New Comment on {serial}"
+            body = f"{actor_name}: {note[:120] if note else 'left a comment'}"
+
+        elif act == "admin_move":
+            recipients = [u for u in [effective_assignee, creator_id] if u]
+            if not recipients:
+                recipients = await _find_content_leads()
+            title = f"Campaign Moved: {serial}"
+            body = f"{actor_name} moved {serial} ({client_name}) to {stage}."
+
+        cleaned_recipients = [str(r) for r in dict.fromkeys(recipients) if r]
+        if not cleaned_recipients:
+            return
+
+        await dispatch_to_users(
+            user_ids=cleaned_recipients,
+            title=title,
+            body=body,
+            kind="content_calendar",
+            sender_id=actor_id,
+            sender_name=actor_name,
+            sender_role=actor_role,
+            data={
+                "type": "content_calendar",
+                "item_id": item_id,
+                "serial": serial,
+                "stage": stage,
+                "action": act,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Content calendar notification dispatch failed: %s", exc)
+
 
 
 async def stream_public_asset(
