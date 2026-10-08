@@ -24,16 +24,38 @@ import {
 } from 'lucide-react';
 import type {
   ContentCalendarItem,
-  PipelineStage,
   ContentCalendarConstants,
   BatchUpdateItem,
 } from '../../types/contentCalendar';
 import { PIPELINE_STAGES } from '../../types/contentCalendar';
-import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import { StatusPill } from '../ui/StatusPill';
+import { Button } from '../ui/button';
+import { getStatusMapping } from '../../lib/statusMap';
+import { FacebookIcon, InstagramIcon, TikTokIcon, LinkedInIcon, MetaIcon } from '../ui/brand-icons';
 import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/contentCalendarWorkflow';
+
+export const renderPlatformIcon = (item: ContentCalendarItem) => {
+  const combined = `${item.channels?.join(' ') || ''} ${item.campaign_type || ''} ${item.captions_hashtags || ''}`.toLowerCase();
+  if (combined.includes('instagram') || combined.includes('ig') || combined.includes('#instagram')) {
+    return <InstagramIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+  }
+  if (combined.includes('facebook') || combined.includes('fb') || combined.includes('#facebook')) {
+    return <FacebookIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+  }
+  if (combined.includes('tiktok') || combined.includes('#tiktok')) {
+    return <TikTokIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+  }
+  if (combined.includes('linkedin') || combined.includes('#linkedin')) {
+    return <LinkedInIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+  }
+  if (combined.includes('meta')) {
+    return <MetaIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+  }
+  return null;
+};
 
 export interface ColumnDef {
   key: keyof ContentCalendarItem | string;
@@ -48,10 +70,12 @@ export const DEFAULT_CONTENT_COLUMNS: ColumnDef[] = [
   { key: 'client_name', label: 'Client', width: 140, align: 'left', group: 'DEFINITION' },
   { key: 'campaign_type', label: 'Campaign Type', width: 220, align: 'left', group: 'DEFINITION' },
   { key: 'creative_type', label: 'Creative Type', width: 110, align: 'center', group: 'DEFINITION' },
+  { key: 'content_type', label: 'Content Type', width: 120, align: 'center', group: 'DEFINITION' },
+  { key: 'creative_category', label: 'Category', width: 140, align: 'center', group: 'DEFINITION' },
   { key: 'content_pillar', label: 'Content Pillar', width: 160, align: 'left', group: 'DEFINITION' },
   { key: 'content_concept', label: 'Content Concept', width: 260, align: 'left', group: 'DEFINITION' },
   { key: 'offer', label: 'Offer', width: 140, align: 'left', group: 'DEFINITION' },
-  { key: 'stage', label: 'Pipeline Stage', width: 130, align: 'center', group: 'PRODUCTION' },
+  { key: 'stage', label: 'Pipeline Stage', width: 150, align: 'center', group: 'PRODUCTION' },
   { key: 'primary_text', label: 'Primary Text (Ad Copy)', width: 280, align: 'left', group: 'PRODUCTION' },
   { key: 'headlines_hooks', label: 'Headlines / Hooks', width: 240, align: 'left', group: 'PRODUCTION' },
   { key: 'content_on_creative', label: 'Content On Creative', width: 240, align: 'left', group: 'PRODUCTION' },
@@ -74,7 +98,7 @@ export const NO_FILTER_COLUMNS = new Set([
   'content_concept',
 ]);
 
-const DEFAULT_ROW_HEIGHT = 40;
+const DEFAULT_ROW_HEIGHT = 36;
 
 interface Props {
   items: ContentCalendarItem[];
@@ -148,6 +172,16 @@ export const ContentCalendarTableView: React.FC<Props> = ({
     const list = constants?.creative_types || ['Video', 'Reel', 'Carousel', 'Static', 'Story', 'UGC', 'Testimonial'];
     return list.map((t) => ({ value: t, label: t }));
   }, [constants?.creative_types]);
+
+  const contentTypeSelectOptions = useMemo(() => [
+    { value: 'Scheduled', label: 'Scheduled' },
+    { value: 'Runtime', label: 'Runtime' },
+  ], []);
+
+  const creativeCategorySelectOptions = useMemo(() => [
+    { value: 'Organic Creative', label: 'Organic Creative' },
+    { value: 'Ad Creative', label: 'Ad Creative' },
+  ], []);
 
   const stageSelectOptions = useMemo(() => {
     return PIPELINE_STAGES.map((st) => ({ value: st, label: st }));
@@ -550,43 +584,10 @@ export const ContentCalendarTableView: React.FC<Props> = ({
     return colsWidth + 44; // 44px for row index
   }, [columnWidths]);
 
-  // Helper for Status Badge Styling (Strict Semantic Palette)
-  const getApprovalBadge = (status: string) => {
-    if (status === 'Approved for Campaign' || status === 'Content Approved' || status === 'Creative Approved') {
-      return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-    }
-    if (status === 'Changes Requested') {
-      return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
-    }
-    return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-  };
-
-  const getStageBadge = (stage: PipelineStage | string) => {
-    switch (stage) {
-      case 'Posted':
-        return 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800';
-      case 'Rejected':
-      case 'Content Revision':
-      case 'Creative Revision':
-        return 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800';
-      case 'Ready to Post':
-        return 'bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800';
-      case 'Content Internal Review':
-      case 'Creative Internal Review':
-      case 'Content Client Review':
-      case 'Creative Client Review':
-        return 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800';
-      case 'Creative Production':
-        return 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800';
-      default:
-        return 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700';
-    }
-  };
-
   return (
     <div
       ref={tableContainerRef}
-      className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col select-none custom-scrollbar"
+      className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-canvas relative w-full flex flex-col select-none custom-scrollbar"
     >
       <div
         ref={tableInnerRef}
@@ -602,11 +603,11 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         <div
           ref={resizeGuideRef}
           style={{ display: 'none', left: 0 }}
-          className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-40 pointer-events-none"
+          className="absolute top-0 bottom-0 w-0.5 bg-accent z-40 pointer-events-none"
         >
           <div
             ref={resizeTooltipRef}
-            className="absolute top-2 -left-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
+            className="absolute top-2 -left-6 px-1.5 py-0.5 bg-accent text-accent-contrast text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
           />
         </div>
 
@@ -614,23 +615,23 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         <div
           ref={rowResizeGuideRef}
           style={{ display: 'none', top: 0 }}
-          className="absolute left-0 right-0 h-0.5 bg-indigo-500 z-40 pointer-events-none"
+          className="absolute left-0 right-0 h-0.5 bg-accent z-40 pointer-events-none"
         >
           <div
             ref={rowResizeTooltipRef}
-            className="absolute left-2 -top-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
+            className="absolute left-2 -top-6 px-1.5 py-0.5 bg-accent text-accent-contrast text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
           />
         </div>
 
         {/* Excel Matrix Table */}
         <table className="border-separate border-spacing-0 text-xs text-left table-fixed w-full">
           {/* Header Row */}
-          <thead className="sticky top-0 z-30 bg-zinc-100 dark:bg-[#151722] text-zinc-600 dark:text-zinc-300 font-bold shadow-xs select-none">
+          <thead className="sticky top-0 z-30 bg-subtle text-fg-muted font-medium select-none">
             <tr>
               {/* Row Index Header */}
               <th
                 style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                className="h-8 p-1.5 text-center font-numeric text-xs border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100 dark:bg-[#151722] z-30"
+                className="h-8 p-1.5 text-center font-mono text-xs font-medium border-b border-r border-border bg-subtle text-fg-muted z-30"
               >
                 #
               </th>
@@ -649,26 +650,26 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                   <th
                     key={col.key}
                     style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                    className={`h-8 px-2 py-1 border-b border-r border-zinc-200 dark:border-zinc-800 text-[11px] font-bold tracking-tight uppercase relative group overflow-visible select-none ${alignClass}`}
+                    className={`h-8 px-2 py-1 border-b border-r border-border text-xs font-medium text-fg-muted tracking-tight relative group overflow-visible select-none ${alignClass}`}
                   >
                     <div className="flex items-center justify-between gap-1 w-full">
                       <button
                         type="button"
                         onClick={() => handleSort(col.key as string)}
-                        className="flex items-center gap-1 truncate flex-1 text-left hover:text-zinc-950 dark:hover:text-white transition cursor-pointer group/sort min-w-0"
+                        className="flex items-center gap-1 truncate flex-1 text-left hover:text-fg transition cursor-pointer group/sort min-w-0"
                         title={`Click to sort by ${col.label}`}
                       >
-                        <span className="truncate block flex-1 font-bold">
+                        <span className="truncate block flex-1 font-medium">
                           {col.label}
                         </span>
                         {sortConfig.key === col.key ? (
                           sortConfig.direction === 'asc' ? (
-                            <ArrowUp className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <ArrowUp className="w-3 h-3 text-accent shrink-0" />
                           ) : (
-                            <ArrowDown className="w-3 h-3 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            <ArrowDown className="w-3 h-3 text-accent shrink-0" />
                           )
                         ) : (
-                          <ArrowUpDown className="w-2.5 h-2.5 opacity-0 group-hover/sort:opacity-60 text-zinc-400 shrink-0 transition" />
+                          <ArrowUpDown className="w-2.5 h-2.5 opacity-0 group-hover/sort:opacity-60 text-fg-muted shrink-0 transition" />
                         )}
                       </button>
                       {canFilter && (
@@ -679,10 +680,10 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                             e.stopPropagation();
                             setOpenFilterColKey(isFilterOpen ? null : col.key);
                           }}
-                          className={`p-1 rounded transition-colors cursor-pointer shrink-0 ${
+                          className={`p-1 rounded-sm transition-colors cursor-pointer shrink-0 ${
                             hasActiveFilter
-                              ? 'bg-indigo-600 text-white font-bold shadow-2xs'
-                              : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/80 dark:hover:bg-zinc-800'
+                              ? 'bg-accent text-accent-contrast font-medium shadow-xs'
+                              : 'text-fg-muted hover:text-fg hover:bg-hover'
                           }`}
                           title={`Filter by ${col.label}`}
                         >
@@ -694,7 +695,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                     {/* Column Width Resize Handle */}
                     <div
                       onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                      className="absolute top-0 bottom-0 right-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
+                      className="absolute top-0 bottom-0 right-0 w-1.5 cursor-col-resize hover:bg-accent/80 z-20"
                       title="Drag to resize column"
                     />
 
@@ -703,10 +704,10 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                       <div
                         data-filter-popover={col.key}
                         onClick={(e) => e.stopPropagation()}
-                        className="absolute left-0 top-full mt-1 z-50 w-56 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-2.5 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 font-normal normal-case text-left"
+                        className="absolute left-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-lg p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-100 font-normal normal-case text-left"
                       >
-                        <div className="flex items-center justify-between pb-1.5 border-b border-zinc-100 dark:border-zinc-800">
-                          <span className="text-[11px] font-bold text-zinc-500">Filter {col.label}</span>
+                        <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                          <span className="text-xs font-medium text-fg-muted">Filter {col.label}</span>
                           {hasActiveFilter && (
                             <button
                               type="button"
@@ -718,7 +719,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                 });
                                 setOpenFilterColKey(null);
                               }}
-                              className="text-[10px] text-rose-500 hover:underline font-semibold cursor-pointer"
+                              className="text-[10px] text-danger hover:underline font-medium cursor-pointer"
                             >
                               Clear
                             </button>
@@ -741,7 +742,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                               return { ...prev, [col.key]: v };
                             });
                           }}
-                          className="w-full px-2 py-1 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                          className="w-full px-2 py-1 text-xs bg-subtle border border-border rounded-md text-fg placeholder:text-fg-muted focus:outline-hidden focus:ring-1 focus:ring-accent"
                         />
 
                         {existingUniqueValues.length > 0 && (
@@ -758,8 +759,8 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                   }}
                                   className={`w-full text-left px-2 py-1 rounded text-xs truncate transition-colors cursor-pointer ${
                                     isSelected
-                                      ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                                      : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                                      ? 'bg-accent-soft text-accent font-medium'
+                                      : 'text-fg hover:bg-hover'
                                   }`}
                                 >
                                   {val}
@@ -777,16 +778,16 @@ export const ContentCalendarTableView: React.FC<Props> = ({
           </thead>
 
           {/* Table Body */}
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-sans">
+          <tbody className="divide-y divide-border font-sans">
             {isLoading ? (
               // Skeleton Loader: 20 animated placeholder rows
               Array.from({ length: 20 }).map((_, idx) => (
                 <tr key={`cc-skeleton-${idx}`} className="animate-pulse h-[var(--cc-row-height)]">
                   <td
                     style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                    className="p-2 text-center border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40"
+                    className="p-2 text-center border-b border-r border-border bg-subtle"
                   >
-                    <div className="h-3.5 w-4 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                    <div className="h-3.5 w-4 bg-skel rounded mx-auto" />
                   </td>
                   {DEFAULT_CONTENT_COLUMNS.map((col) => {
                     const colW = columnWidths[col.key] || col.width;
@@ -794,9 +795,9 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                       <td
                         key={col.key}
                         style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                        className="p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle"
+                        className="p-2.5 border-b border-r border-border align-middle"
                       >
-                        <div className="h-3.5 w-full bg-zinc-200 dark:bg-zinc-800 rounded opacity-60" />
+                        <div className="h-3.5 w-full bg-skel rounded opacity-60" />
                       </td>
                     );
                   })}
@@ -806,13 +807,13 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               <tr>
                 <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 mb-3">
+                    <div className="w-12 h-12 rounded-xl bg-danger-bg border border-danger-bd flex items-center justify-center text-danger-fg mb-3">
                       <AlertTriangle className="w-6 h-6" />
                     </div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    <h3 className="text-sm font-semibold text-fg">
                       Failed to load content calendar
                     </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">{error}</p>
+                    <p className="text-xs text-fg-muted mt-1 max-w-sm">{error}</p>
                   </div>
                 </td>
               </tr>
@@ -820,13 +821,13 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               <tr>
                 <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
+                    <div className="w-12 h-12 rounded-xl bg-subtle border border-border flex items-center justify-center text-fg-muted mb-3">
                       <Calendar className="w-6 h-6" />
                     </div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    <h3 className="text-sm font-semibold text-fg">
                       No content items found
                     </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">
+                    <p className="text-xs text-fg-muted mt-1 max-w-sm">
                       Try adjusting your filters or click "+ Add Content" / "Import Excel" to load campaign assets.
                     </p>
                   </div>
@@ -836,19 +837,19 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               <tr>
                 <td colSpan={DEFAULT_CONTENT_COLUMNS.length + 1} className="py-20 text-center">
                   <div className="flex flex-col items-center justify-center p-8 text-center">
-                    <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
+                    <div className="w-12 h-12 rounded-xl bg-subtle border border-border flex items-center justify-center text-fg-muted mb-3">
                       <Filter className="w-6 h-6" />
                     </div>
-                    <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    <h3 className="text-sm font-semibold text-fg">
                       No matching items
                     </h3>
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm mb-3">
+                    <p className="text-xs text-fg-muted mt-1 max-w-sm mb-3">
                       No records match the active column filters.
                     </p>
                     <button
                       type="button"
                       onClick={() => setColumnFilters({})}
-                      className="px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 transition cursor-pointer"
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-accent rounded-md hover:bg-accent-hover transition cursor-pointer"
                     >
                       Clear all column filters
                     </button>
@@ -877,20 +878,20 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                       ref={rowVirtualizer.measureElement}
                       data-index={virtualRow.index}
                       style={customH ? ({ '--cc-row-height': `${customH}px` } as React.CSSProperties) : undefined}
-                      className="h-[var(--cc-row-height)] hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer"
+                      className="h-[var(--cc-row-height)] hover:bg-subtle/50 transition-colors group relative cursor-pointer"
                     >
                       {/* Row Serial Number (Click opens item drawer) */}
                       <td
                         onClick={() => onSelectItem(item)}
                         style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
                         title="Click to view details in inspector"
-                        className="h-[var(--cc-row-height)] p-2 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative cursor-pointer"
+                        className="h-[var(--cc-row-height)] p-2 text-center font-mono text-xs font-medium text-fg-muted border-b border-r border-border bg-subtle/30 select-none group-hover:bg-subtle/60 overflow-hidden py-0 align-middle relative cursor-pointer"
                       >
                         <span>{rowNumber}</span>
                         {/* Row Height Resize Handle */}
                         <div
                           onMouseDown={(e) => handleRowResizeStart(e, item.id, customH || defaultRowHeight)}
-                          className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-indigo-500/80 z-20"
+                          className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-accent/80 z-20"
                           title="Drag to adjust row height"
                         />
                       </td>
@@ -929,19 +930,20 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                               setEditingCell({ rowId: item.id, colKey: col.key });
                               setCellEditValue(String(rawVal));
                             }}
-                            className={`h-[var(--cc-row-height)] p-1 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text overflow-hidden ${alignClass} ${
-                              isEditing ? 'bg-indigo-50/50 dark:bg-indigo-950/30' : ''
+                            className={`h-[var(--cc-row-height)] p-1 border-b border-r border-border align-middle text-xs select-text overflow-hidden ${alignClass} ${
+                              isEditing ? 'bg-accent-soft/30' : ''
                             }`}
                           >
                             {/* Serial Column (Read-Only) */}
                             {col.key === 'serial' ? (
-                              <span
+                              <div
                                 onClick={() => onSelectItem(item)}
-                                className="font-numeric font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer block text-center"
+                                className="flex items-center justify-center gap-1.5 cursor-pointer font-mono text-xs font-medium text-accent hover:underline text-center"
                                 title="Click to view details"
                               >
-                                {item.serial}
-                              </span>
+                                {renderPlatformIcon(item)}
+                                <span>{item.serial}</span>
+                              </div>
                             ) : isEditing ? (
                               /* Active Inline Editor */
                               col.key === 'client_name' ? (
@@ -970,6 +972,34 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                   }}
                                   onClose={() => setEditingCell(null)}
                                   options={ensureOption(creativeTypeSelectOptions, cellEditValue)}
+                                  className="w-full"
+                                />
+                              ) : col.key === 'content_type' ? (
+                                <CustomSelect
+                                  size="xs"
+                                  autoOpen
+                                  usePortal
+                                  value={cellEditValue}
+                                  onChange={(val) => {
+                                    setCellEditValue(val);
+                                    commitCellEdit(item.id, col.key, val);
+                                  }}
+                                  onClose={() => setEditingCell(null)}
+                                  options={ensureOption(contentTypeSelectOptions, cellEditValue)}
+                                  className="w-full"
+                                />
+                              ) : col.key === 'creative_category' ? (
+                                <CustomSelect
+                                  size="xs"
+                                  autoOpen
+                                  usePortal
+                                  value={cellEditValue}
+                                  onChange={(val) => {
+                                    setCellEditValue(val);
+                                    commitCellEdit(item.id, col.key, val);
+                                  }}
+                                  onClose={() => setEditingCell(null)}
+                                  options={ensureOption(creativeCategorySelectOptions, cellEditValue)}
                                   className="w-full"
                                 />
                               ) : col.key === 'stage' ? (
@@ -1035,7 +1065,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     if (e.key === 'Enter') commitCellEdit(item.id, col.key, cellEditValue);
                                     if (e.key === 'Escape') setEditingCell(null);
                                   }}
-                                  className="w-full h-[26px] text-xs font-numeric font-medium bg-white dark:bg-[#151722] text-zinc-900 dark:text-zinc-100 border-2 border-indigo-500 rounded-md px-1.5 focus:outline-hidden cursor-pointer shadow-xs"
+                                  className="w-full h-[26px] text-xs font-mono bg-surface text-fg border border-accent rounded-sm px-1.5 focus:outline-hidden cursor-pointer"
                                 />
                               ) : col.key === 'design_owner' ? (
                                 <CustomSelect
@@ -1062,7 +1092,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     if (e.key === 'Enter') commitCellEdit(item.id, col.key, cellEditValue);
                                     if (e.key === 'Escape') setEditingCell(null);
                                   }}
-                                  className="w-full h-[26px] text-xs font-sans font-medium bg-white dark:bg-[#151722] text-zinc-900 dark:text-zinc-100 border-2 border-indigo-500 rounded-md px-1.5 focus:outline-hidden"
+                                  className="w-full h-[26px] text-xs font-sans bg-surface text-fg border border-accent rounded-sm px-1.5 focus:outline-hidden"
                                 />
                               )
                             ) : (
@@ -1070,41 +1100,38 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                               <div className="flex items-center justify-between gap-1 w-full group/cell overflow-hidden">
                                 {col.key === 'client_name' ? (
                                   <span
-                                    className="font-semibold text-zinc-900 dark:text-zinc-100 truncate block flex-1"
+                                    className="font-medium text-fg truncate block flex-1"
                                     title={item.client_name || 'Apex Transfers LLC'}
                                   >
                                     {item.client_name || 'Apex Transfers LLC'}
                                   </span>
                                 ) : col.key === 'creative_type' ? (
-                                  <span className={NEUTRAL_METADATA_BADGE_COMPACT_CLASS}>
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
                                     {item.creative_type}
                                   </span>
+                                ) : col.key === 'content_type' ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
+                                    {item.content_type || 'Scheduled'}
+                                  </span>
+                                ) : col.key === 'creative_category' ? (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
+                                    {item.creative_category || item.posting_type || 'Organic Creative'}
+                                  </span>
                                 ) : col.key === 'stage' ? (
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${getStageBadge(
-                                      item.stage
-                                    )}`}
-                                  >
-                                    {item.stage}
-                                  </span>
+                                  <StatusPill
+                                    variant={getStatusMapping(item.stage).variant}
+                                    label={getStatusMapping(item.stage).label}
+                                  />
                                 ) : col.key === 'approval_status' ? (
-                                  <span
-                                    className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${getApprovalBadge(
-                                      item.approval_status
-                                    )}`}
-                                  >
-                                    {item.approval_status}
-                                  </span>
+                                  <StatusPill
+                                    variant={getStatusMapping(item.approval_status).variant}
+                                    label={getStatusMapping(item.approval_status).label}
+                                  />
                                 ) : col.key === 'setup_status' ? (
-                                  <span
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-medium border ${
-                                      item.setup_status === 'Live'
-                                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700'
-                                    }`}
-                                  >
-                                    {item.setup_status}
-                                  </span>
+                                  <StatusPill
+                                    variant={getStatusMapping(item.setup_status).variant}
+                                    label={getStatusMapping(item.setup_status).label}
+                                  />
                                 ) : col.key === 'attachments' ? (
                                   <div
                                     onClick={(e) => {
@@ -1117,31 +1144,31 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     {(() => {
                                       const counts = getAssetCounts(item.attachments);
                                       if (counts.total === 0) {
-                                        return <span className="text-zinc-400 font-mono text-[10px]">—</span>;
+                                        return <span className="text-fg-muted font-mono text-[10px]">—</span>;
                                       }
                                       return (
                                         <div className="flex items-center gap-1 overflow-hidden">
-                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
-                                            <Paperclip className="w-2.5 h-2.5" />
+                                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg">
+                                            <Paperclip className="w-2.5 h-2.5 text-fg-muted" />
                                             <span>{counts.total}</span>
                                           </span>
                                           {counts.images > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 font-medium">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
                                               {counts.images} img
                                             </span>
                                           )}
                                           {counts.videos > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 font-medium">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
                                               {counts.videos} vid
                                             </span>
                                           )}
                                           {counts.links > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-medium">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
                                               {counts.links} link
                                             </span>
                                           )}
                                           {counts.docs > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 font-medium">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
                                               {counts.docs} doc
                                             </span>
                                           )}
@@ -1157,13 +1184,13 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                         target="_blank"
                                         rel="noreferrer noopener"
                                         onClick={(e) => e.stopPropagation()}
-                                        className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 hover:underline text-[11px] font-semibold"
+                                        className="inline-flex items-center gap-1 text-accent hover:underline text-xs font-medium"
                                       >
                                         <span>Link</span>
                                         <ExternalLink className="w-3 h-3" />
                                       </a>
                                     ) : (
-                                      <span className="text-zinc-400">—</span>
+                                      <span className="text-fg-muted">—</span>
                                     )}
                                     <button
                                       type="button"
@@ -1172,7 +1199,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                         setEditingCell({ rowId: item.id, colKey: col.key });
                                         setCellEditValue(String((item as any)[col.key] || ''));
                                       }}
-                                      className="opacity-0 group-hover/cell:opacity-100 p-0.5 rounded text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+                                      className="opacity-0 group-hover/cell:opacity-100 p-0.5 rounded text-fg-muted hover:text-fg hover:bg-hover transition"
                                       title="Edit link URL"
                                     >
                                       <Edit3 className="w-3 h-3" />
@@ -1188,22 +1215,22 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                         value: String((item as any)[col.key] || ''),
                                       });
                                     }}
-                                    className="flex items-center justify-between w-full cursor-pointer hover:text-indigo-600 transition"
+                                    className="flex items-center justify-between w-full cursor-pointer hover:text-accent transition"
                                   >
                                     <span
-                                      className="truncate block flex-1"
+                                      className="truncate block flex-1 text-fg"
                                       title={String((item as any)[col.key] || '')}
                                     >
-                                      {(item as any)[col.key] || '—'}
+                                      {(item as any)[col.key] || <span className="text-fg-muted">—</span>}
                                     </span>
-                                    <Maximize2 className="w-3 h-3 text-zinc-400 opacity-0 group-hover/cell:opacity-100 shrink-0 ml-1" />
+                                    <Maximize2 className="w-3 h-3 text-fg-muted opacity-0 group-hover/cell:opacity-100 shrink-0 ml-1" />
                                   </div>
                                 ) : (
                                   <span
-                                    className="truncate block flex-1"
+                                    className="truncate block flex-1 text-fg"
                                     title={String((item as any)[col.key] || '')}
                                   >
-                                    {(item as any)[col.key] || '—'}
+                                    {(item as any)[col.key] || <span className="text-fg-muted">—</span>}
                                   </span>
                                 )}
 
@@ -1218,7 +1245,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                       setEditingCell({ rowId: item.id, colKey: col.key });
                                       setCellEditValue(String((item as any)[col.key] || ''));
                                     }}
-                                    className="opacity-0 group-hover/cell:opacity-100 p-0.5 rounded text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition shrink-0"
+                                    className="opacity-0 group-hover/cell:opacity-100 p-0.5 rounded text-fg-muted hover:text-accent hover:bg-hover transition shrink-0"
                                     title="Click to edit field"
                                   >
                                     <Edit3 className="w-2.5 h-2.5" />
@@ -1249,40 +1276,39 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         {!isLoading && !error && items.length > 0 && (
           <div
             style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-            className="px-4 py-1 h-7 min-h-[28px] bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 text-[11px] select-none sticky bottom-0 z-20 shadow-xs"
+            className="px-4 py-1.5 h-8 min-h-[32px] bg-subtle border-t border-border flex items-center justify-between gap-3 text-xs select-none sticky bottom-0 z-20"
           >
-            <div className="flex items-center gap-2.5 text-zinc-500 dark:text-zinc-400 font-medium">
+            <div className="flex items-center gap-2.5 text-fg-muted">
               <span>
-                Showing <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{filteredItems.length}</strong> of {items.length} items
+                Showing <strong className="text-fg font-medium">{filteredItems.length}</strong> of {items.length} items
               </span>
               {Object.keys(columnFilters).length > 0 && (
                 <button
                   type="button"
                   onClick={() => setColumnFilters({})}
-                  className="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer inline-flex items-center gap-1 ml-1"
+                  className="text-xs text-accent hover:underline font-medium cursor-pointer inline-flex items-center gap-1 ml-1"
                 >
-                  <X className="w-2.5 h-2.5" />
+                  <X className="w-3 h-3" />
                   Clear {Object.keys(columnFilters).length} active {Object.keys(columnFilters).length === 1 ? 'filter' : 'filters'}
                 </button>
               )}
             </div>
 
-            {/* Status & Virtualization Pill */}
-            <div className="flex items-center gap-2 text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
-              {/* Auto-save status feedback */}
+            {/* Status Feedback */}
+            <div className="flex items-center gap-2 text-xs text-fg-muted">
               {saveStatus === 'saving' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 font-semibold animate-pulse text-[10px]">
-                  <RefreshCw className="w-2.5 h-2.5 animate-spin" /> Saving changes...
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-subtle text-fg-muted border border-border">
+                  <RefreshCw className="w-3 h-3 animate-spin" /> Saving changes...
                 </span>
               )}
               {saveStatus === 'saved' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 font-semibold text-[10px]">
-                  <Check className="w-2.5 h-2.5" /> All changes saved
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-subtle text-fg border border-border">
+                  <Check className="w-3 h-3 text-success-fg" /> All changes saved
                 </span>
               )}
               {saveStatus === 'error' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 font-semibold text-[10px]">
-                  <AlertCircle className="w-2.5 h-2.5" /> Save failed (retrying...)
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-danger-soft text-danger border border-danger/30">
+                  <AlertCircle className="w-3 h-3" /> Save failed (retrying...)
                 </span>
               )}
             </div>
@@ -1293,22 +1319,22 @@ export const ContentCalendarTableView: React.FC<Props> = ({
       {/* Long Text Editor Modal (for Ad Copy, Hooks, and Visuals) */}
       {longTextModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-100"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-100"
           onClick={() => setLongTextModal(null)}
         >
           <div
-            className="bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-xl overflow-hidden flex flex-col"
+            className="bg-surface border border-border rounded-xl shadow-lg w-full max-w-xl overflow-hidden flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-3.5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-              <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 uppercase tracking-wider flex items-center gap-2">
-                <Maximize2 className="w-3.5 h-3.5 text-indigo-500" />
+            <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                <Maximize2 className="w-4 h-4 text-accent" />
                 <span>{longTextModal.title}</span>
               </h3>
               <button
                 type="button"
                 onClick={() => setLongTextModal(null)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="p-1 rounded-sm text-fg-muted hover:text-fg hover:bg-hover"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1331,35 +1357,35 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                   }
                 }}
                 placeholder="Enter content..."
-                className="w-full p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/80 border border-zinc-200 dark:border-zinc-700 text-xs font-sans text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500 resize-none leading-relaxed"
+                className="w-full p-3 rounded-lg bg-subtle border border-border text-xs font-sans text-fg focus:outline-hidden focus:ring-1 focus:ring-accent resize-none leading-relaxed"
               />
-              <div className="flex items-center justify-between text-[11px] text-zinc-400">
+              <div className="flex items-center justify-between text-xs text-fg-muted">
                 <span>
                   {longTextModal.value.length} characters &bull;{' '}
                   {longTextModal.value.split(/\s+/).filter(Boolean).length} words
                 </span>
-                <span>Tip: Press Ctrl+Enter to save, Esc to cancel</span>
+                <span>Ctrl+Enter to save, Esc to cancel</span>
               </div>
             </div>
 
-            <div className="px-5 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex items-center justify-end gap-2">
-              <button
-                type="button"
+            <div className="px-5 py-3 border-t border-border bg-subtle flex items-center justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
                 onClick={() => setLongTextModal(null)}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
                 onClick={() => {
                   commitCellEdit(longTextModal.rowId, longTextModal.colKey, longTextModal.value);
                   setLongTextModal(null);
                 }}
-                className="px-4 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer"
               >
-                Save Changes
-              </button>
+                Save changes
+              </Button>
             </div>
           </div>
         </div>

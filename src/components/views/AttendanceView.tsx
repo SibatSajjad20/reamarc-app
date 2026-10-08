@@ -6,7 +6,6 @@ import {
   Download,
   FilePlus,
   RefreshCw,
-  Clock,
   Calendar,
   Users,
   Loader2,
@@ -17,6 +16,10 @@ import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
 import { adminService } from '../../services/adminService';
 import { getAttendanceMinDate } from '../../constants/attendance';
+import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/button';
+import { Callout } from '../ui/Callout';
+import { cn } from '../../lib/utils';
 
 import type {
   PersonalTimesheetResponse,
@@ -123,7 +126,9 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     const d = new Date();
     return attendanceService.getCachedMonthlySummary(d.getFullYear(), d.getMonth() + 1, 'All')?.data || null;
   });
-  const [requests, setRequests] = useState<AttendanceRequest[]>([]);
+  const [requests, setRequests] = useState<AttendanceRequest[]>(() => {
+    return attendanceService.getCachedRequests()?.data || [];
+  });
   const [directoryMembers, setDirectoryMembers] = useState<AdminMember[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string>('');
   const [employeeTimesheet, setEmployeeTimesheet] = useState<PersonalTimesheetResponse | null>(null);
@@ -268,7 +273,12 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     []
   );
 
-  const loadRequests = useCallback(async () => {
+  const loadRequests = useCallback(async (forceRefresh = false) => {
+    const cached = attendanceService.getCachedRequests();
+    if (cached && !forceRefresh) {
+      setRequests(cached.data);
+      if (Date.now() - cached.fetchedAt < 60_000) return;
+    }
     try {
       const data = await attendanceService.getRequests();
       setRequests(data || []);
@@ -611,7 +621,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
   const handleExportExcel = async () => {
     try {
       setIsExporting(true);
-      addToast('Generating Excel Workbook 📊', 'Building multi-tab workbook with company summary & employee timesheets...', 'info');
+      addToast('Preparing export…', 'Building multi-tab workbook with company summary & employee timesheets...', 'info');
 
       const blob = await attendanceService.exportAttendanceExcel(
         selectedYear,
@@ -629,7 +639,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       link.remove();
       window.URL.revokeObjectURL(url);
 
-      addToast('Export Completed 🎉', 'Excel workbook downloaded successfully.', 'success');
+      addToast('Export downloaded', 'Excel workbook downloaded successfully.', 'success');
     } catch (err: any) {
       console.error('Export failed:', err);
       addToast('Export Failed', err.message || 'Could not generate Excel file.', 'error');
@@ -709,203 +719,203 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     return requests.filter((r) => r.status === 'pending').length;
   }, [requests]);
 
+  const sectionDescription = useMemo(() => {
+    if (isManagementRole) {
+      switch (activeTab) {
+        case 'daily-matrix':
+          return "Who's in today and how the day is going.";
+        case 'punctuality-hub':
+          return 'Monthly lateness, absences and hours by person.';
+        case 'employee-timesheets':
+          return 'Daily punches for any team member.';
+        case 'approvals':
+          return 'Leave, WFH and adjustment requests.';
+        default:
+          return 'Company-wide attendance and punctuality records.';
+      }
+    } else {
+      switch (employeeTab) {
+        case 'timesheet':
+          return 'Your punches and hours this month.';
+        case 'requests':
+          return 'Leave, WFH and time adjustments.';
+        default:
+          return 'Your personal attendance records.';
+      }
+    }
+  }, [isManagementRole, activeTab, employeeTab]);
+
   return (
-    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-slate-50 dark:bg-[#09090b] attendance-view">
-      {/* ── Top View Header ─────────────────────────────────────────── */}
-      <div className="bg-white dark:bg-[#11131a] border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-        <div className="px-4 sm:px-6 lg:px-8 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-xl sm:text-2xl font-extrabold text-zinc-950 dark:text-zinc-50 tracking-tight flex items-center gap-2.5">
-              <Clock className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-              <span>
-                {isManagementRole
-                  ? 'Attendance Command Center'
-                  : 'My Attendance & Monthly Timesheet'}
-              </span>
-            </h1>
-            <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-              {isManagementRole
-                ? 'Company-wide live daily register, monthly punctuality command center, and leave approvals'
-                : 'View your monthly attendance records, check overtime/undertime balance, and submit regularization appeals'}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2.5">
-            {/* Refresh Button */}
-            <button
-              type="button"
-              onClick={handleRefreshAll}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 transition-colors cursor-pointer"
-              title="Refresh Module Data"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              <span className="hidden sm:inline">Refresh</span>
-            </button>
-
-            {/* Management Actions */}
-            {isManagementRole && (
-              <button
-                type="button"
-                onClick={handleExportExcel}
-                disabled={isExporting}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 active:scale-[0.99] shadow-sm shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+    <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 bg-canvas attendance-view">
+      {/* ── Page Header & Navigation Tabs ───────────────────────────── */}
+      <div className="bg-surface border-b border-border shrink-0 px-4 sm:px-6 lg:px-8 pt-5">
+        <PageHeader
+          title="Attendance"
+          description={sectionDescription}
+          actions={
+            <>
+              <Button
+                variant="secondary"
+                size="md"
+                onClick={handleRefreshAll}
+                loading={isLoading}
+                icon={RefreshCw}
+                aria-label="Refresh attendance data"
               >
-                <Download className="w-3.5 h-3.5" />
-                <span>{isExporting ? 'Exporting...' : 'Export Excel (.xlsx)'}</span>
-              </button>
-            )}
-
-            {/* Employee Self-Service Action */}
-            {!isManagementRole && (
-              <button
-                type="button"
-                onClick={() => handleOpenRequestModal('leave')}
-                className="inline-flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-sm shadow-indigo-600/20 transition-all cursor-pointer"
-              >
-                <FilePlus className="w-3.5 h-3.5" />
-                <span>Submit Appeal / Request</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Management Sub-Tabs (Daily Matrix, Punctuality Hub, Approvals) */}
-        {isManagementRole ? (
-          <div className="px-4 sm:px-6 lg:px-8 flex gap-2 overflow-x-auto pt-2">
-            {/* Tab 1: Daily Matrix */}
-            <button
-              type="button"
-              onClick={() => handleSelectManagementTab('daily-matrix')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'daily-matrix'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Grid className="w-4 h-4" />
-              <span>Daily Attendance</span>
-            </button>
-
-            {/* Tab 2: Punctuality Hub */}
-            <button
-              type="button"
-              onClick={() => handleSelectManagementTab('punctuality-hub')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'punctuality-hub'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <BarChart3 className="w-4 h-4" />
-              <span>Punctuality Reports</span>
-            </button>
-
-            {/* Tab 3: Individual employee timesheets */}
-            <button
-              type="button"
-              onClick={() => handleSelectManagementTab('employee-timesheets')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'employee-timesheets'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Timesheets</span>
-            </button>
-
-            {/* Tab 4: Approvals */}
-            <button
-              type="button"
-              onClick={() => handleSelectManagementTab('approvals')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                activeTab === 'approvals'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Inbox className="w-4 h-4" />
-              <span>Approvals</span>
-              {pendingRequestsCount > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
-                  {pendingRequestsCount}
-                </span>
+                Refresh
+              </Button>
+              {isManagementRole ? (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={handleExportExcel}
+                  loading={isExporting}
+                  icon={Download}
+                  aria-label="Export attendance Excel workbook"
+                >
+                  Export
+                </Button>
+              ) : (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => handleOpenRequestModal('leave')}
+                  icon={FilePlus}
+                  aria-label="Submit new leave or regularization request"
+                >
+                  New request
+                </Button>
               )}
-            </button>
+            </>
+          }
+        >
+          {/* Section Tabs */}
+          <div className="flex gap-6 overflow-x-auto -mb-px">
+            {isManagementRole ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSelectManagementTab('daily-matrix')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    activeTab === 'daily-matrix'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <Grid className="w-4 h-4" />
+                  <span>Daily attendance</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectManagementTab('punctuality-hub')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    activeTab === 'punctuality-hub'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <BarChart3 className="w-4 h-4" />
+                  <span>Punctuality reports</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectManagementTab('employee-timesheets')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    activeTab === 'employee-timesheets'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <Users className="w-4 h-4" />
+                  <span>Timesheets</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectManagementTab('approvals')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    activeTab === 'approvals'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <Inbox className="w-4 h-4" />
+                  <span>Approvals</span>
+                  {pendingRequestsCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-micro font-medium bg-accent-soft-2 text-accent-text font-numeric">
+                      {pendingRequestsCount}
+                    </span>
+                  )}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => handleSelectEmployeeTab('timesheet')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    employeeTab === 'timesheet'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <Calendar className="w-4 h-4" />
+                  <span>My timesheet</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectEmployeeTab('requests')}
+                  className={cn(
+                    'h-10 inline-flex items-center gap-2 border-b-2 text-ui transition-colors cursor-pointer',
+                    employeeTab === 'requests'
+                      ? 'border-accent text-fg font-medium'
+                      : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                  )}
+                >
+                  <Inbox className="w-4 h-4" />
+                  <span>My requests</span>
+                  {myRequests.filter((r) => r.status === 'pending').length > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-micro font-medium bg-accent-soft-2 text-accent-text font-numeric">
+                      {myRequests.filter((r) => r.status === 'pending').length}
+                    </span>
+                  )}
+                </button>
+              </>
+            )}
           </div>
-        ) : (
-          /* Employee Sub-Tabs (Timesheet, My Requests & Appeals) */
-          <div className="px-4 sm:px-6 lg:px-8 flex gap-2 overflow-x-auto pt-2">
-            {/* Tab 1: Monthly Attendance Timesheet */}
-            <button
-              type="button"
-              onClick={() => handleSelectEmployeeTab('timesheet')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                employeeTab === 'timesheet'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Calendar className="w-4 h-4" />
-              <span>Monthly Attendance Timesheet</span>
-            </button>
-
-            {/* Tab 2: My Requests & Appeals */}
-            <button
-              type="button"
-              onClick={() => handleSelectEmployeeTab('requests')}
-              className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
-                employeeTab === 'requests'
-                  ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-slate-50 dark:bg-[#09090b] shadow-2xs'
-                  : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-              }`}
-            >
-              <Inbox className="w-4 h-4" />
-              <span>My Requests & Appeals</span>
-              {myRequests.filter((r) => r.status === 'pending').length > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-500 text-white">
-                  {myRequests.filter((r) => r.status === 'pending').length}
-                </span>
-              )}
-            </button>
-          </div>
-        )}
+        </PageHeader>
       </div>
 
       {/* ── Scrollable Body ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
         {/* Actionable Missed Punch Inquiry Banner */}
         {pendingInquiries.length > 0 && (
-          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
-            <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-amber-500 text-white shrink-0">
-                <Clock className="w-5 h-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                  Action Required: Missed Checkout Inquiry ({pendingInquiries.length})
-                </h4>
-                <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-0.5">
-                  HR requested your check-out time for{' '}
-                  <strong className="text-amber-700 dark:text-amber-300 font-numeric">
-                    {pendingInquiries.map((i) => i.date).join(', ')}
-                  </strong>
-                  . Submit your check-out time and reason to regularize the shift.
-                </p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setSelectedInquiry(pendingInquiries[0]);
-                setIsResponseModalOpen(true);
-              }}
-              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white text-xs font-bold shadow-xs transition-colors shrink-0 cursor-pointer"
-            >
-              Submit Checkout
-            </button>
-          </div>
+          <Callout
+            variant="warning"
+            title={`Action required: Missed checkout inquiry (${pendingInquiries.length})`}
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSelectedInquiry(pendingInquiries[0]);
+                  setIsResponseModalOpen(true);
+                }}
+              >
+                Submit checkout
+              </Button>
+            }
+          >
+            HR requested your check-out time for{' '}
+            <strong className="font-numeric font-medium">
+              {pendingInquiries.map((i) => i.date).join(', ')}
+            </strong>
+            . Submit your check-out time and reason to regularize the shift.
+          </Callout>
         )}
 
         {/* VIEW TYPE A: MANAGEMENT ROLE (Admin, HR, Operations) */}
@@ -990,11 +1000,11 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {/* SUB-TAB 3: INDIVIDUAL EMPLOYEE TIMESHEETS */}
             {activeTab === 'employee-timesheets' && (
               <div className="space-y-4">
-                <div className="p-3 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs">
+                <div className="p-3 bg-surface rounded-xl border border-border shadow-xs">
                   <div className="overflow-x-auto custom-scrollbar">
                     <div className="flex flex-nowrap items-center gap-1.5 py-0.5">
                       {directoryMembers.length === 0 ? (
-                        <p className="text-xs text-zinc-400 py-1.5 px-1 whitespace-nowrap">No internal employees found.</p>
+                        <p className="text-xs text-fg-muted py-1.5 px-1 whitespace-nowrap">No internal employees found.</p>
                       ) : (
                         directoryMembers.map((m) => {
                           const selected = m.id === selectedEmployeeId;
@@ -1010,10 +1020,10 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                                   setIsLoadingTimesheet(false);
                                 }
                               }}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors cursor-pointer shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 ${
+                              className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 ${
                                 selected
-                                  ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/20'
-                                  : 'bg-zinc-50 dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:border-indigo-400'
+                                  ? 'bg-accent text-accent-fg border-accent'
+                                  : 'bg-subtle text-fg-2 border-border hover:border-border-strong hover:bg-hover'
                               }`}
                               title={m.department ? `${m.full_name} · ${m.department}` : m.full_name}
                             >
@@ -1050,7 +1060,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                     }
                   />
                 ) : (
-                  <div className="py-16 text-center text-zinc-400 text-sm">
+                  <div className="py-16 text-center text-fg-muted text-sm">
                     No internal employees found to display.
                   </div>
                 )}

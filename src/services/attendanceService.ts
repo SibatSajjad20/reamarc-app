@@ -112,17 +112,42 @@ class AttendanceService {
     this.myTimesheetCache.set(`${year}-${month}`, data);
   }
 
+  private requestsCache = new BoundedCache<AttendanceRequest[]>(5);
+  private todayStatusCache = new BoundedCache<TodayAttendanceResponse>(2);
+
+  public getCachedRequests(): AttendanceCacheEntry<AttendanceRequest[]> | undefined {
+    return this.requestsCache.get('requests');
+  }
+
+  public setCachedRequests(data: AttendanceRequest[]): void {
+    this.requestsCache.set('requests', data);
+  }
+
+  public getCachedTodayStatus(): AttendanceCacheEntry<TodayAttendanceResponse> | undefined {
+    return this.todayStatusCache.get('today');
+  }
+
+  public setCachedTodayStatus(data: TodayAttendanceResponse): void {
+    this.todayStatusCache.set('today', data);
+  }
+
   public clearAllCaches(): void {
     this.monthlySummaryCache.clear();
     this.matrixCache.clear();
     this.employeeTimesheetCache.clear();
     this.myTimesheetCache.clear();
+    this.requestsCache.clear();
+    this.todayStatusCache.clear();
   }
   /**
    * Fetch current user's today attendance status, assigned shift, and WFH state
    */
   public async getTodayStatus(): Promise<TodayAttendanceResponse> {
-    return apiClient.get<TodayAttendanceResponse>('/attendance/today');
+    const res = await apiClient.get<TodayAttendanceResponse>('/attendance/today');
+    if (res) {
+      this.setCachedTodayStatus(res);
+    }
+    return res;
   }
 
   /**
@@ -218,7 +243,11 @@ class AttendanceService {
       queryParts.push(`type=${encodeURIComponent(params.type)}`);
     }
     const queryString = queryParts.length > 0 ? `?${queryParts.join('&')}` : '';
-    return apiClient.get<AttendanceRequest[]>(`/leaves/requests${queryString}`);
+    const res = await apiClient.get<AttendanceRequest[]>(`/leaves/requests${queryString}`);
+    if (res && queryParts.length === 0) {
+      this.setCachedRequests(res);
+    }
+    return res;
   }
 
   /**

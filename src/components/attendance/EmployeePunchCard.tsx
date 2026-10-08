@@ -5,7 +5,6 @@ import {
   CheckCircle2,
   FilePlus,
   RefreshCw,
-  Sparkles,
   Info,
   Building2,
   Wifi,
@@ -26,6 +25,10 @@ import {
 } from '../../constants/officeLocation';
 import { formatHours } from '../../utils/logTimeChecks';
 import { CustomSelect } from '../ui/CustomSelect';
+import { Button } from '../ui/button';
+import { StatusPill } from '../ui/StatusPill';
+import { Skeleton } from '../ui/skeleton';
+import { cn } from '../../lib/utils';
 
 const OVERTIME_CATEGORY_OPTIONS = [
   { value: 'client_deadline', label: 'Client deadline' },
@@ -130,13 +133,13 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
             if (dist != null) {
               const quality = classifyGpsFix(dist, fix.accuracy, geofenceLimitMeters);
               addToast(
-                quality === 'in_range' ? 'GPS in Range' : quality === 'out_of_range' ? 'GPS Out of Range' : 'Location too coarse',
+                quality === 'in_range' ? 'GPS in range' : quality === 'out_of_range' ? 'GPS out of range' : 'Location too coarse',
                 `Coordinates: ${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)} (${formatDistance(dist)} to HQ${formatAccuracy(fix.accuracy)})`,
                 quality === 'in_range' ? 'success' : 'info'
               );
             } else {
               addToast(
-                'GPS Location Acquired',
+                'GPS location acquired',
                 `Coordinates captured (${formatAccuracy(fix.accuracy)}). Office proximity will be verified on punch.`,
                 'success'
               );
@@ -148,7 +151,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           setGeoError(msg);
           setIsCapturingGps(false);
           if (showToast) {
-            addToast('GPS Refresh Failed', msg, 'error');
+            addToast('GPS refresh failed', msg, 'error');
           }
         });
     },
@@ -226,7 +229,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       }
       if (checkInClosed) {
         addToast(
-          'Shift Closed',
+          'Shift closed',
           `Your shift ended at ${shift?.end_time || 'end of day'}. Check-in is no longer available.`,
           'error'
         );
@@ -261,7 +264,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
       if (!isWfh && enforceGps && nextDistance != null && gpsQuality === 'out_of_range' && !wifiOk) {
         addToast(
-          'Out of Office Range',
+          'Out of office range',
           `You are ${formatDistance(nextDistance)} from the office (limit ${geofenceLimitMeters}m). Check-in blocked.`,
           'error'
         );
@@ -273,7 +276,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
       if (!isWfh && !wifiOk && !gpsOk) {
         addToast(
-          'Office Wi-Fi or Location Required',
+          'Office Wi-Fi or location required',
           'Connect to office Wi-Fi, or allow location while you are at the office, then try again.',
           'error'
         );
@@ -311,10 +314,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               : 'Office Check-In (Wi-Fi verified, GPS unavailable)',
       });
 
-      addToast('Check-In Successful 🎉', 'Your punch-in time has been logged.', 'success');
+      addToast('Checked in', 'Your punch-in time has been logged.', 'success');
       onRefresh();
     } catch (err: any) {
-      addToast('Check-In Verification Failed', err.message || 'Could not verify attendance punch.', 'error');
+      addToast('Check-in failed', err.message || 'Could not verify attendance punch.', 'error');
     } finally {
       setIsSubmitting(false);
       setVerificationStep('');
@@ -344,7 +347,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           const quality = dist != null ? classifyGpsFix(dist, fresh.accuracy, geofenceLimitMeters) : 'in_range';
           if (dist != null && quality === 'out_of_range' && !wifiOk) {
             addToast(
-              'Out of Office Range',
+              'Out of office range',
               `You are ${formatDistance(dist)} from the office (limit ${geofenceLimitMeters}m). Check-out blocked.`,
               'error'
             );
@@ -360,14 +363,14 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
       if (!isWfh && !wifiOk && !coordsToSend) {
         addToast(
-          'Office Wi-Fi or Location Required',
+          'Office Wi-Fi or location required',
           'Connect to office Wi-Fi, or allow location while you are at the office, then try again.',
           'error'
         );
         return;
       }
 
-      setVerificationStep('Submitting Check-Out Punch...');
+      setVerificationStep('Submitting check-out punch...');
       await attendanceService.checkOut({
         latitude: coordsToSend?.lat,
         longitude: coordsToSend?.lng,
@@ -380,10 +383,10 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       setVarianceOpen(false);
       setVarianceReason('');
       setVarianceCategory('');
-      addToast('Check-Out Recorded 👋', 'Your shift has ended and timesheet calculated.', 'success');
+      addToast('Checked out', 'Your shift has ended and timesheet calculated.', 'success');
       onRefresh();
     } catch (err: any) {
-      addToast('Check-Out Failed', err.message || 'Could not record check-out.', 'error');
+      addToast('Check-out failed', err.message || 'Could not record check-out.', 'error');
     } finally {
       setIsSubmitting(false);
       setVerificationStep('');
@@ -402,50 +405,43 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   const statusBadge = useMemo(() => {
     if (isOffDay && !isCheckedIn) {
       return {
-        label: offDayLabel || 'Public Holiday',
-        color: 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-200 dark:border-amber-800',
-        dot: 'bg-amber-500',
+        label: offDayLabel || 'Public holiday',
+        variant: 'warning' as const,
       };
     }
     if (isAbsentLocked && !isCheckedIn) {
       return {
-        label: 'Shift Ended — Absent',
-        color: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
-        dot: 'bg-rose-500',
+        label: 'Shift ended — absent',
+        variant: 'danger' as const,
       };
     }
     if (!isCheckedIn) {
       return {
-        label: isWfh ? 'Not Checked In (WFH)' : 'Not Checked In',
-        color: 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-400 border-zinc-300 dark:border-zinc-700',
-        dot: 'bg-zinc-400',
+        label: isWfh ? 'Not checked in (WFH)' : 'Not checked in',
+        variant: 'neutral' as const,
       };
     }
     if (isCheckedOut) {
       return {
-        label: 'Shift Completed',
-        color: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
-        dot: 'bg-indigo-500',
+        label: 'Shift completed',
+        variant: 'accent' as const,
       };
     }
     if (isWfh) {
       return {
-        label: 'Checked In (WFH Active)',
-        color: 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800',
-        dot: 'bg-indigo-500 animate-pulse',
+        label: 'Checked in (WFH active)',
+        variant: 'accent' as const,
       };
     }
     if (record?.is_late) {
       return {
-        label: `Late Arrival (+${record.late_minutes}m)`,
-        color: 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800',
-        dot: 'bg-rose-500',
+        label: `Late arrival (+${record.late_minutes}m)`,
+        variant: 'danger' as const,
       };
     }
     return {
-      label: 'Checked In (On-Time)',
-      color: 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800',
-      dot: 'bg-emerald-500 animate-pulse',
+      label: 'Checked in (on-time)',
+      variant: 'success' as const,
     };
   }, [record, isCheckedIn, isCheckedOut, isWfh, isAbsentLocked, isOffDay, offDayLabel]);
 
@@ -461,61 +457,52 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   if (isLoading && !todayData) {
     return (
-      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
+      <div className="bg-surface rounded-lg border border-border p-5 shadow-xs">
         {/* Header Strip Skeleton */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-zinc-100 dark:border-zinc-800/80">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
-                Attendance Terminal
-              </h2>
-            </div>
+        <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Skeleton className="w-8 h-8 rounded-md" />
+            <Skeleton className="w-36 h-5 rounded-md" />
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <div className="h-7 w-28 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
-            <div className="h-7 w-28 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
-            <div className="h-7 w-24 rounded-full bg-zinc-100 dark:bg-zinc-800/60 animate-pulse" />
+            <Skeleton className="w-24 h-6 rounded-full" />
+            <Skeleton className="w-28 h-6 rounded-full" />
+            <Skeleton className="w-24 h-6 rounded-full" />
           </div>
         </div>
 
         {/* Main Terminal Grid Skeleton */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-5">
-          <div className="md:col-span-7 flex flex-col justify-between space-y-4">
-            <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 animate-pulse space-y-3">
-              <div className="flex justify-between items-center pb-2 border-b border-zinc-200/60 dark:border-zinc-800">
-                <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                <div className="h-4 w-16 bg-zinc-200 dark:bg-zinc-800 rounded" />
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-4">
+          <div className="md:col-span-7 flex flex-col justify-between space-y-3">
+            <div className="p-3.5 rounded-lg bg-subtle border border-border space-y-3">
+              <div className="flex justify-between items-center pb-2 border-b border-border">
+                <Skeleton className="w-32 h-4 rounded" />
+                <Skeleton className="w-16 h-4 rounded" />
               </div>
               <div className="grid grid-cols-2 gap-3 pt-1">
                 <div className="space-y-1.5">
-                  <div className="h-2.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                  <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <Skeleton className="w-20 h-3 rounded" />
+                  <Skeleton className="w-28 h-4 rounded" />
                 </div>
                 <div className="space-y-1.5">
-                  <div className="h-2.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                  <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <Skeleton className="w-20 h-3 rounded" />
+                  <Skeleton className="w-28 h-4 rounded" />
                 </div>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center animate-pulse space-y-2">
-                <div className="h-2.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
-                <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+              <div className="p-3 rounded-lg bg-subtle border border-border text-center space-y-2">
+                <Skeleton className="w-14 h-3 rounded mx-auto" />
+                <Skeleton className="w-20 h-5 rounded mx-auto" />
               </div>
-              <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center animate-pulse space-y-2">
-                <div className="h-2.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
-                <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+              <div className="p-3 rounded-lg bg-subtle border border-border text-center space-y-2">
+                <Skeleton className="w-14 h-3 rounded mx-auto" />
+                <Skeleton className="w-20 h-5 rounded mx-auto" />
               </div>
             </div>
           </div>
           <div className="md:col-span-5 flex flex-col justify-center">
-            <div className="h-44 w-full rounded-2xl bg-zinc-100 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 animate-pulse flex flex-col items-center justify-center gap-3">
-              <div className="w-12 h-12 rounded-full bg-zinc-200 dark:bg-zinc-800" />
-              <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-800 rounded" />
-            </div>
+            <Skeleton className="h-40 w-full rounded-lg" />
           </div>
         </div>
       </div>
@@ -523,31 +510,28 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   }
 
   return (
-    <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm p-6 relative overflow-hidden">
-      {/* Header Strip: Title, security pills, status */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-5 border-b border-zinc-100 dark:border-zinc-800/80">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-100 dark:border-indigo-900/50 text-indigo-600 dark:text-indigo-400">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50 flex items-center gap-2">
-                Attendance Terminal
-              </h2>
-            </div>
+    <div className="bg-surface rounded-lg border border-border shadow-xs p-5 relative">
+      {/* Header Strip: Title, security pills, status, actions */}
+      <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-border">
+        <div className="flex items-center gap-2">
+          <div className="p-1.5 rounded-md bg-subtle border border-border text-fg-muted">
+            <Building2 className="w-4 h-4" />
           </div>
+          <h2 className="text-ui font-semibold text-fg">
+            Attendance terminal
+          </h2>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+            className={cn(
+              'inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full text-xs font-medium shrink-0',
               wifiOk
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-            }`}
+                ? 'bg-success-bg text-success-fg'
+                : 'bg-warning-bg text-warning-fg'
+            )}
           >
-            <Wifi className="w-3 h-3" />
+            <Wifi className="w-3 h-3 shrink-0" />
             {isWfh
               ? 'Home network'
               : wifiOk
@@ -556,130 +540,137 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           </span>
 
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-              gpsInRange
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+            className={cn(
+              'inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full text-xs font-medium shrink-0',
+              isWfh
+                ? 'bg-accent-soft-2 text-accent-text'
+                : gpsInRange
+                ? 'bg-success-bg text-success-fg'
                 : gpsClearlyOutOfRange
-                ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800'
-                : 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800'
-            }`}
+                ? 'bg-danger-bg text-danger-fg'
+                : 'bg-warning-bg text-warning-fg'
+            )}
           >
-            <MapPin className="w-3 h-3" />
+            <MapPin className="w-3 h-3 shrink-0" />
             {isWfh
               ? 'WFH exemption'
               : coords
               ? distanceMeters != null
                 ? gpsQuality === 'in_range'
-                  ? `In Office (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
+                  ? `In office (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
                   : gpsQuality === 'out_of_range'
                     ? `Out of range (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})`
                     : `Location coarse (${formatDistance(distanceMeters)}${formatAccuracy(coords.accuracy)})${wifiOk ? ' · Wi-Fi OK' : ''}`
-                : `GPS Ready (${formatAccuracy(coords.accuracy)})`
+                : `GPS ready (${formatAccuracy(coords.accuracy)})`
               : isCapturingGps
               ? 'Acquiring GPS'
-              : 'Tap Allow location'}
+              : 'Allow location'}
             <button
               type="button"
               onClick={() => captureGPS(true)}
               disabled={isCapturingGps}
-              className="ml-0.5 inline-flex items-center justify-center min-w-6 min-h-6 text-current/70 hover:text-current cursor-pointer"
+              className="ml-0.5 inline-flex items-center justify-center w-5 h-5 text-current/70 hover:text-current cursor-pointer rounded"
+              aria-label="Refresh GPS location"
               title="Allow or refresh GPS location"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isCapturingGps ? 'animate-spin' : ''}`} />
+              <RefreshCw className={cn('w-3 h-3', isCapturingGps && 'animate-spin')} />
             </button>
           </span>
 
-          <span
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${statusBadge.color}`}
-          >
-            <span className={`w-2 h-2 rounded-full ${statusBadge.dot}`} />
-            {statusBadge.label}
-          </span>
-          <button
+          <StatusPill
+            variant={statusBadge.variant}
+            label={statusBadge.label}
+          />
+
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => onOpenRequestModal('leave')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 shadow-xs transition-all cursor-pointer"
+            icon={FilePlus}
           >
-            <FilePlus className="w-4 h-4 text-indigo-500" />
-            Apply Leave / WFH
-          </button>
-          <button
+            Apply leave / WFH
+          </Button>
+
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => onOpenRequestModal('regularization')}
-            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 shadow-xs transition-all cursor-pointer"
+            icon={Clock}
           >
-            <Sparkles className="w-4 h-4 text-amber-500" />
-            Correction
-          </button>
+            Time adjustment
+          </Button>
         </div>
       </div>
 
       {/* Main Terminal Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 pt-5">
-        <div className="md:col-span-7 flex flex-col justify-between space-y-4">
-          <div className="p-4 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90">
-            <div className="flex items-center justify-between mb-3 pb-2 border-b border-zinc-200/60 dark:border-zinc-800">
-              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-indigo-500" />
-                {shift?.name || 'Assigned Shift'}
+      <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-4">
+        {/* Left Column: Shift Details & Punches */}
+        <div className="md:col-span-7 flex flex-col justify-between space-y-3">
+          <div className="p-3.5 rounded-lg bg-subtle border border-border">
+            <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-border">
+              <span className="text-ui font-medium text-fg flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5 text-fg-muted" />
+                {shift?.name || 'Assigned shift'}
               </span>
-              <span className="text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-100 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300">
-                {formatHours(shift?.expected_hours ?? shift?.expected_work_hours ?? 8)} /day
+              <span className="text-small font-medium px-2 py-0.5 rounded-md bg-surface border border-border text-fg font-numeric">
+                {formatHours(shift?.expected_hours ?? shift?.expected_work_hours ?? 8)} / day
               </span>
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-xs">
+            <div className="grid grid-cols-2 gap-3 text-small">
               <div>
-                <span className="text-[11px] font-semibold text-zinc-400">Shift Timings:</span>
-                <p className="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                <span className="text-fg-muted">Shift timings:</span>
+                <p className="font-medium text-fg mt-0.5 font-numeric">
                   {shift?.start_time || '09:30'} – {shift?.end_time || '18:30'}
                 </p>
               </div>
               <div>
-                <span className="text-[11px] font-semibold text-zinc-400">Grace Buffer:</span>
-                <p className="font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                <span className="text-fg-muted">Grace buffer:</span>
+                <p className="font-medium text-success-fg mt-0.5 font-numeric">
                   {shift?.grace_period_minutes ?? 30}m (Late &gt; {lateThresholdDisplay})
                 </p>
               </div>
               <div>
-                <span className="text-[11px] font-semibold text-zinc-400">Meal Break:</span>
-                <p className="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                <span className="text-fg-muted">Meal break:</span>
+                <p className="font-medium text-fg mt-0.5 font-numeric">
                   {shift?.break_duration_minutes ?? 0} mins
                 </p>
               </div>
               <div>
-                <span className="text-[11px] font-semibold text-zinc-400">Night Shift:</span>
-                <p className="font-bold text-zinc-800 dark:text-zinc-200 mt-0.5">
-                  {isCrossMidnightShift ? 'Yes (Cross Midnight)' : 'Standard Day'}
+                <span className="text-fg-muted">Night shift:</span>
+                <p className="font-medium text-fg mt-0.5">
+                  {isCrossMidnightShift ? 'Yes (cross midnight)' : 'Standard day'}
                 </p>
               </div>
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                Time In
+            <div className="p-3 rounded-lg bg-subtle border border-border text-center">
+              <span className="text-small font-medium text-fg-muted block mb-1">
+                Time in
               </span>
               <span
                 className={
                   punchIn
-                    ? 'text-sm font-extrabold font-numeric text-emerald-600 dark:text-emerald-400'
-                    : 'text-zinc-400 font-numeric text-lg font-medium'
+                    ? 'text-base font-semibold font-numeric text-success-fg'
+                    : 'text-fg-faint font-numeric text-base font-normal'
                 }
               >
                 {punchIn || '— : —'}
               </span>
             </div>
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200/80 dark:border-zinc-800/90 text-center">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1">
-                Time Out
+            <div className="p-3 rounded-lg bg-subtle border border-border text-center">
+              <span className="text-small font-medium text-fg-muted block mb-1">
+                Time out
               </span>
               <span
                 className={
                   punchOut
-                    ? 'text-sm font-extrabold font-numeric text-indigo-600 dark:text-indigo-400'
-                    : 'text-zinc-400 font-numeric text-lg font-medium'
+                    ? 'text-base font-semibold font-numeric text-accent-text'
+                    : 'text-fg-faint font-numeric text-base font-normal'
                 }
               >
                 {punchOut || '— : —'}
@@ -688,76 +679,64 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
           </div>
         </div>
 
+        {/* Right Column: Actions */}
         <div className="md:col-span-5 flex flex-col justify-center">
           {isOffDay ? (
-            <div className="p-5 rounded-2xl bg-sky-50 dark:bg-sky-950/30 border border-sky-200 dark:border-sky-800 text-center space-y-2">
-              <CalendarOff className="w-8 h-8 text-sky-600 dark:text-sky-300 mx-auto" />
-              <p className="text-sm font-bold text-sky-900 dark:text-sky-100">{offDayLabel}</p>
-              <p className="text-xs text-sky-800/80 dark:text-sky-300/80">
+            <div className="p-4 rounded-lg bg-subtle border border-border text-center space-y-1.5">
+              <CalendarOff className="w-7 h-7 text-fg-muted mx-auto" />
+              <p className="text-ui font-semibold text-fg">{offDayLabel}</p>
+              <p className="text-small text-fg-muted">
                 Check-in and check-out are closed today. Leave, WFH, and punch corrections can still be submitted from the buttons above.
               </p>
             </div>
           ) : (
             <>
               {!coords && (
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="md"
+                  block
                   onClick={() => captureGPS(true)}
                   disabled={isCapturingGps}
-                  className="w-full mb-3 py-3 px-4 rounded-xl font-bold text-sm text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-950/70 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                  icon={isCapturingGps ? Loader2 : MapPin}
+                  className="mb-2.5"
                 >
-                  {isCapturingGps ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Waiting for GPS — tap Allow on the phone prompt…</span>
-                    </>
-                  ) : (
-                    <>
-                      <MapPin className="w-4 h-4" />
-                      <span>Allow location</span>
-                    </>
-                  )}
-                </button>
+                  {isCapturingGps ? 'Waiting for GPS…' : 'Allow location'}
+                </Button>
               )}
               {!isCheckedIn ? (
                 checkInClosed ? (
-                  <div className="p-4 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-center flex flex-col items-center justify-center gap-1.5 text-rose-700 dark:text-rose-300 font-semibold text-sm">
+                  <div className="p-4 rounded-lg bg-danger-bg border border-danger-bd text-center flex flex-col items-center justify-center gap-1 text-danger-fg text-ui font-medium">
                     <span className="inline-flex items-center gap-2">
-                      <CheckCircle2 className="w-5 h-5" />
-                      {isAbsentLocked ? 'Shift ended — Absent' : 'Shift ended'}
+                      <CheckCircle2 className="w-5 h-5 shrink-0" />
+                      {isAbsentLocked ? 'Shift ended — absent' : 'Shift ended'}
                     </span>
-                    <span className="text-xs font-medium text-rose-500 dark:text-rose-400">
-                      Check-in closed after {shift?.end_time || 'shift end'}. Use Correction if this is a missed punch.
+                    <span className="text-small text-danger-fg/80">
+                      Check-in closed after {shift?.end_time || 'shift end'}. Use correction if this is a missed punch.
                     </span>
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <button
+                    <Button
                       type="button"
+                      variant="primary"
+                      size="lg"
+                      block
                       onClick={handleCheckIn}
                       disabled={isSubmitting || isLoading || securityBlocksCheckIn}
-                      className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-indigo-600 hover:bg-indigo-500 active:scale-[0.99] shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+                      loading={isSubmitting}
+                      icon={LogIn}
                     >
-                      {isSubmitting ? (
-                        <>
-                          <Loader2 className="w-5 h-5 animate-spin" />
-                          <span>{verificationStep || 'Verifying Location & Wi-Fi...'}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                          <LogIn className="w-5 h-5" />
-                          <span>Check In Now</span>
-                        </>
-                      )}
-                    </button>
+                      {isSubmitting ? (verificationStep || 'Verifying location & Wi-Fi…') : 'Check in'}
+                    </Button>
                     {shift?.start_time && shift?.end_time && (
-                      <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                      <p className="text-small text-center text-fg-muted">
                         Shift starts at {shift.start_time}. Check-in stays open until {shift.end_time}.
                       </p>
                     )}
                     {securityBlocksCheckIn && (
-                      <p className="text-[11px] font-semibold text-center text-amber-600 dark:text-amber-400">
+                      <p className="text-small font-medium text-center text-warning-fg">
                         {gpsClearlyOutOfRange
                           ? 'Check-in blocked: you are outside the office location radius.'
                           : !wifiOk
@@ -766,7 +745,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                       </p>
                     )}
                     {!securityBlocksCheckIn && !isWfh && wifiOk && (geoError || gpsCoarse || gpsClearlyOutOfRange) && (
-                      <p className="text-[11px] font-medium text-center text-zinc-500 dark:text-zinc-400">
+                      <p className="text-small text-center text-fg-muted">
                         {gpsClearlyOutOfRange
                           ? 'Phone location missed the office pin. Office Wi-Fi is verified, so check-in will use the office network.'
                           : gpsCoarse
@@ -777,11 +756,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                   </div>
                 )
               ) : isCheckedOut ? (
-                <div className="p-4 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-center flex flex-col items-center justify-center gap-1.5 text-zinc-700 dark:text-zinc-300 font-semibold text-sm">
-                  <span className="inline-flex items-center gap-2.5">
-                    <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+                <div className="p-4 rounded-lg bg-subtle border border-border text-center flex flex-col items-center justify-center gap-1.5 text-fg text-ui font-medium">
+                  <span className="inline-flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-success-fg shrink-0" />
                     <span>
-                      Today's Shift Finished (
+                      Today's shift finished (
                       {record?.working_hours_minutes
                         ? `${Math.floor(record.working_hours_minutes / 60)}h ${String(
                             record.working_hours_minutes % 60
@@ -791,37 +770,31 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                     </span>
                   </span>
                   {record?.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0 && (
-                    <span className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                    <span className="text-small text-warning-fg">
                       +{String(Math.floor((record.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
-                      {String((record.pending_overtime_minutes || 0) % 60).padStart(2, '0')} overtime pending HR review
+                      {String((record.pending_overtime_minutes || 0) % 60).padStart(2, '0')} overtime pending review
                     </span>
                   )}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {(checkoutGate?.past_shift_end || gateType === 'overtime') && checkoutGate?.message && (
-                    <p className="text-[11px] font-medium text-center text-amber-700 dark:text-amber-300 px-1">
+                    <p className="text-small font-medium text-center text-warning-fg px-1">
                       {checkoutGate.message}
                     </p>
                   )}
-                  <button
+                  <Button
                     type="button"
+                    variant="destructive"
+                    size="lg"
+                    block
                     onClick={handleCheckOut}
                     disabled={isSubmitting}
-                    className="w-full py-4 px-6 rounded-xl font-bold text-sm text-white bg-rose-600 hover:bg-rose-500 active:scale-[0.99] shadow-md shadow-rose-600/20 flex items-center justify-center gap-2.5 transition-all cursor-pointer disabled:opacity-60"
+                    loading={isSubmitting}
+                    icon={LogOut}
                   >
-                    {isSubmitting ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        <span>{verificationStep || 'Submitting Check-Out...'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <LogOut className="w-5 h-5" />
-                        <span>Check Out</span>
-                      </>
-                    )}
-                  </button>
+                    {isSubmitting ? (verificationStep || 'Submitting check-out…') : 'Check out'}
+                  </Button>
                 </div>
               )}
             </>
@@ -830,21 +803,22 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       </div>
 
       {varianceOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="text-ui font-semibold text-fg">
                 {gateType === 'overtime' ? 'Overtime reason required' : 'Early check-out reason'}
               </h3>
               <button
                 type="button"
                 onClick={() => setVarianceOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg"
+                className="text-fg-muted hover:text-fg p-1 rounded-md transition-colors cursor-pointer"
+                aria-label="Close"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
+            <p className="text-small text-fg-muted leading-relaxed">
               {checkoutGate?.message ||
                 (gateType === 'overtime'
                   ? `Your shift ended at ${shift?.end_time || '18:30'}. Enter the reason you stayed.`
@@ -868,19 +842,19 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 />
               </div>
               {gateType === 'overtime' && (
-                <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800/60 text-xs text-indigo-900 dark:text-indigo-200 space-y-1">
-                  <p className="font-bold flex items-center gap-1.5 text-indigo-700 dark:text-indigo-300 text-[11px]">
-                    <Clock className="w-3.5 h-3.5" /> Overtime Work Summary
+                <div className="p-3 rounded-md bg-subtle border border-border text-small text-fg space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5 text-accent-text text-small">
+                    <Clock className="w-3.5 h-3.5 shrink-0" /> Overtime work summary
                   </p>
-                  <p className="text-[11px] leading-relaxed text-indigo-800/80 dark:text-indigo-300/80">
-                    Please provide specific details about the work you did during this overtime (e.g., ticket IDs, features completed, bugs fixed, or client meetings).
+                  <p className="text-fg-muted leading-relaxed">
+                    Please provide specific details about the work you did during this overtime (e.g. ticket IDs, features completed, bugs fixed, or client meetings).
                   </p>
                 </div>
               )}
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="block text-[11px] font-bold text-zinc-500 uppercase">Reason / Task Summary</label>
-                  <span className="text-[10px] text-zinc-400 font-medium">{varianceReason.trim().length} chars</span>
+                  <label className="block text-small font-medium text-fg">Reason / task summary</label>
+                  <span className="text-small text-fg-muted">{varianceReason.trim().length} chars</span>
                 </div>
                 <textarea
                   required
@@ -890,27 +864,30 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                   onChange={(e) => setVarianceReason(e.target.value)}
                   placeholder={
                     gateType === 'overtime'
-                      ? 'Detailed breakdown of work accomplished during overtime (e.g., Fixed PR #104, deployed fix to production, attended client sync)...'
+                      ? 'Detailed breakdown of work accomplished during overtime (e.g. Fixed PR #104, deployed fix to production, attended client sync)...'
                       : 'Enter a reason for early departure...'
                   }
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-ui text-fg placeholder:text-fg-faint focus:focus-ring outline-none"
                 />
               </div>
               <div className="flex items-center justify-end gap-2 pt-1">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => setVarianceOpen(false)}
-                  className="px-3 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant="destructive"
+                  size="sm"
                   disabled={isSubmitting || varianceReason.trim().length < 3}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 disabled:opacity-60"
+                  loading={isSubmitting}
                 >
-                  {isSubmitting ? 'Checking out...' : 'Confirm check out'}
-                </button>
+                  Confirm check out
+                </Button>
               </div>
             </form>
           </div>

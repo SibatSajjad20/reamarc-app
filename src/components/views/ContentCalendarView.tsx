@@ -1,8 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Calendar,
   Table,
   Kanban,
+  LayoutDashboard,
   Search,
   X,
   Plus,
@@ -31,8 +32,18 @@ import { ContentCalendarDrawer } from '../content-calendar/ContentCalendarDrawer
 import { ContentCalendarModal } from '../content-calendar/ContentCalendarModal';
 import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarImportModal';
 import { ContentCalendarSettingsModal } from '../content-calendar/ContentCalendarSettingsModal';
+import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { CustomSelect } from '../ui/CustomSelect';
+import { SegmentedControl } from '../ui/SegmentedControl';
+import { Button } from '../ui/button';
+import { StatusPill } from '../ui/StatusPill';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '../ui/dropdown-menu';
 import { useAuth } from '../../context/AuthContext';
 import {
   canCreateCampaign,
@@ -62,16 +73,29 @@ export const ContentCalendarView: React.FC = () => {
       .map((w) => ({ id: w.id, name: w.name }));
   }, [workspaces]);
 
-  const [items, setItems] = useState<ContentCalendarItem[]>([]);
-  const [stagesCount, setStagesCount] = useState<Record<string, number>>({});
-  const [isLoading, setIsLoading] = useState(true);
+  const initialFilterKey = JSON.stringify({
+    search: '',
+    stage: 'all',
+    creative_type: 'all',
+    approval_status: 'all',
+  });
+  const initialCached = contentCalendarService.getCachedItems(initialFilterKey);
+  const hasCached = Boolean(initialCached || contentCalendarService.hasInitialCache());
+
+  const [items, setItems] = useState<ContentCalendarItem[]>(() => {
+    return initialCached?.data?.items || [];
+  });
+  const [stagesCount, setStagesCount] = useState<Record<string, number>>(() => {
+    return initialCached?.data?.stages_count || {};
+  });
+  const [isLoading, setIsLoading] = useState(!hasCached);
   const [error, setError] = useState<string | null>(null);
 
   // Active View Mode: 'table' | 'pipeline' | 'calendar'
   const [viewMode, setViewMode] = useState<ContentCalendarViewMode>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_view_mode') as ContentCalendarViewMode;
-      if (saved && ['table', 'pipeline', 'calendar'].includes(saved)) return saved;
+      if (saved && ['overview', 'table', 'pipeline', 'calendar'].includes(saved)) return saved;
     } catch (e) {}
     return 'table';
   });
@@ -170,7 +194,9 @@ export const ContentCalendarView: React.FC = () => {
   }, [scopedItems, quickFilter]);
 
   // Constants
-  const [constants, setConstants] = useState<ContentCalendarConstants | null>(null);
+  const [constants, setConstants] = useState<ContentCalendarConstants | null>(() => {
+    return contentCalendarService.getCachedConstants()?.data || null;
+  });
 
   // Load constants once on mount
   useEffect(() => {
@@ -188,6 +214,7 @@ export const ContentCalendarView: React.FC = () => {
             }
           }
         } catch {}
+        contentCalendarService.setCachedConstants(consts);
         setConstants(consts);
       })
       .catch((err) => {
@@ -268,43 +295,40 @@ export const ContentCalendarView: React.FC = () => {
   };
 
   // Export / Import State
-  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [filteredItemsForExport, setFilteredItemsForExport] = useState<ContentCalendarItem[]>([]);
 
   // Rate limiting / Module load gate
   useModuleLoadGate(isLoading);
 
-  // Click outside for popover menus
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
-        setIsExportMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
   // Fetch Items (supports silent background sync without showing skeleton)
   const loadData = useCallback(
     async (opts?: { silent?: boolean }) => {
+      const filterKey = JSON.stringify(filter);
+      const cached = contentCalendarService.getCachedItems(filterKey);
       const isSilent = opts?.silent ?? false;
+      const shouldSilent = isSilent || Boolean(cached);
+
+      if (cached && !isSilent) {
+        setItems(cached.data.items);
+        setStagesCount(cached.data.stages_count);
+        setIsLoading(false);
+      } else if (!shouldSilent) {
+        setIsLoading(true);
+      }
+
       try {
-        if (!isSilent) {
-          setIsLoading(true);
-        }
         setError(null);
         const res = await contentCalendarService.getItems(filter);
+        contentCalendarService.setCachedItems(filterKey, res);
         setItems(res.items);
         setStagesCount(res.stages_count);
       } catch (err: any) {
-        setError(err?.message || 'Failed to load content calendar items');
-      } finally {
-        if (!isSilent) {
-          setIsLoading(false);
+        if (!cached) {
+          setError(err?.message || 'Failed to load content calendar items');
         }
+      } finally {
+        setIsLoading(false);
       }
     },
     [filter],
@@ -403,15 +427,14 @@ export const ContentCalendarView: React.FC = () => {
 
   // Export visible view to Excel
   const handleExportVisible = () => {
-    setIsExportMenuOpen(false);
     const toExport = filteredItemsForExport.length > 0 ? filteredItemsForExport : displayItems;
     if (toExport.length === 0) {
-      addToast('No Items to Export', 'There are no items currently visible in the active filter.', 'info');
+      addToast('No items to export', 'There are no items currently visible in the active filter.', 'info');
       return;
     }
     exportFilteredContentCalendarToExcel(toExport, filter.client_name);
     addToast(
-      'Export Complete',
+      'Export complete',
       `Exported ${toExport.length} visible campaign ${toExport.length === 1 ? 'record' : 'records'} to Excel.`,
       'success'
     );
@@ -419,291 +442,233 @@ export const ContentCalendarView: React.FC = () => {
 
   // Download template
   const handleDownloadTemplate = () => {
-    setIsExportMenuOpen(false);
     downloadContentCalendarTemplate(constants);
-    addToast('Template Downloaded', 'Content Calendar blank Excel template saved to downloads.', 'info');
+    addToast('Template downloaded', 'Content Calendar blank Excel template saved to downloads.', 'info');
   };
 
 
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0 bg-white dark:bg-[#0f1117] overflow-hidden select-none">
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-surface overflow-hidden select-none">
       {/* Module Header & Universal Toolbar */}
-      <div className="relative z-40 bg-white dark:bg-[#12141c] border-b border-zinc-200 dark:border-zinc-800 shadow-2xs shrink-0 select-none overflow-visible">
-        {/* Row 1: Title, Status Counters, View Mode Tabs & Add Content */}
-        <div className="px-5 py-2.5 flex items-center justify-between gap-4 border-b border-zinc-100 dark:border-zinc-800/80">
+      <div className="relative z-40 bg-surface border-b border-border shadow-2xs shrink-0 select-none overflow-visible">
+        {/* Row 1: Title, Status Counters, View Mode Switcher & Add Content */}
+        <div className="px-5 py-3 flex items-center justify-between gap-4 border-b border-border flex-wrap">
           {/* Left: Module Title & Status Counters */}
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 shrink-0">
-              <Calendar className="w-4 h-4" />
-            </div>
+            <h1 className="text-h1 font-semibold text-fg tracking-tight">
+              Content calendar
+            </h1>
             <div className="flex items-center gap-2">
-              <h1 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
-                Content Calendar
-              </h1>
               {(stagesCount['Ready to Post'] || 0) > 0 && (
-                <span className="text-[10px] font-numeric font-semibold px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                  {stagesCount['Ready to Post']} Ready
-                </span>
+                <StatusPill variant="info" label={`${stagesCount['Ready to Post']} ready`} />
               )}
               {(stagesCount['Posted'] || 0) > 0 && (
-                <span className="text-[10px] font-numeric font-semibold px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                  {stagesCount['Posted']} Posted
-                </span>
+                <StatusPill variant="success" label={`${stagesCount['Posted']} posted`} />
               )}
             </div>
           </div>
 
-          {/* Right: View Mode Tabs & Primary Add Content Button */}
-          <div className="flex items-center gap-3">
-            {/* View Mode Tabs: Table (Excel) | Pipeline | Calendar */}
-            <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 rounded-xl p-0.5 border border-zinc-200 dark:border-zinc-700/80">
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode('table');
-                  try {
-                    localStorage.setItem('reamarc_cc_view_mode', 'table');
-                  } catch (e) {}
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  viewMode === 'table'
-                    ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-              >
-                <Table className="w-3.5 h-3.5" />
-                <span>Sheet</span>
-              </button>
+          {/* Right: View Mode Switcher & Primary Action */}
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <SegmentedControl
+              size="sm"
+              value={viewMode}
+              onValueChange={(val) => {
+                const mode = val as ContentCalendarViewMode;
+                setViewMode(mode);
+                try {
+                  localStorage.setItem('reamarc_cc_view_mode', mode);
+                } catch (e) {}
+              }}
+              options={[
+                { value: 'overview', label: 'Overview', icon: LayoutDashboard },
+                { value: 'table', label: 'Sheet', icon: Table },
+                { value: 'pipeline', label: 'Pipeline', icon: Kanban },
+                { value: 'calendar', label: 'Calendar', icon: Calendar },
+              ]}
+            />
 
-              <button
+            {allowCreate && (
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
                 onClick={() => {
-                  setViewMode('pipeline');
-                  try {
-                    localStorage.setItem('reamarc_cc_view_mode', 'pipeline');
-                  } catch (e) {}
+                  setEditingItem(null);
+                  setIsModalOpen(true);
                 }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  viewMode === 'pipeline'
-                    ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
               >
-                <Kanban className="w-3.5 h-3.5" />
-                <span>Pipeline</span>
-              </button>
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                <span>Add content</span>
+              </Button>
+            )}
+          </div>
+        </div>
 
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode('calendar');
-                  try {
-                    localStorage.setItem('reamarc_cc_view_mode', 'calendar');
-                  } catch (e) {}
-                }}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
-                  viewMode === 'calendar'
-                    ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                    : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-                }`}
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                <span>Calendar</span>
-              </button>
+        {/* Row 2: Search, Filters & Secondary Actions (Sheet/Pipeline/Calendar specific) */}
+        {viewMode !== 'overview' && (
+          <div className="px-5 py-2.5 flex items-center justify-between gap-3 overflow-visible flex-wrap">
+            {/* Left: Search & Filter Controls */}
+            <div className="flex items-center gap-2.5 flex-1 min-w-0 flex-wrap">
+              {/* Search Input */}
+              <div className="relative w-48 sm:w-60">
+                <Search className="w-3.5 h-3.5 text-fg-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  type="text"
+                  placeholder="Search serial, copy, concept..."
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  className="w-full pl-8 pr-7 py-1.5 rounded-md bg-subtle border border-border text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden"
+                />
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchInput('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg transition cursor-pointer"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              {/* Client Filter */}
+              <div className="w-40 sm:w-44 shrink-0">
+                <CustomSelect
+                  size="sm"
+                  icon={Briefcase}
+                  value={clientFilter}
+                  onChange={setClientFilter}
+                  options={clientOptions}
+                  placeholder="All clients"
+                />
+              </div>
+
+              {/* Assignee Filter */}
+              <div className="w-40 sm:w-44 shrink-0">
+                <CustomSelect
+                  size="sm"
+                  icon={User}
+                  value={assigneeFilter}
+                  onChange={setAssigneeFilter}
+                  options={assigneeOptions}
+                  placeholder="All assignees"
+                />
+              </div>
+
+              {/* Quick Urgency Filter */}
+              <SegmentedControl
+                size="sm"
+                value={quickFilter}
+                onValueChange={(val) => setQuickFilter(val as any)}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'overdue', label: 'Overdue', count: overdueCount > 0 ? overdueCount : undefined },
+                  { value: 'today', label: 'Today', count: todayCount > 0 ? todayCount : undefined },
+                  { value: 'scheduled', label: 'Scheduled' },
+                  { value: 'idle', label: 'Idle' },
+                ]}
+              />
             </div>
 
-            {/* Add Content Button */}
-            {allowCreate && (
-            <button
-              type="button"
-              onClick={() => {
-                setEditingItem(null);
-                setIsModalOpen(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Content</span>
-            </button>
-            )}
-          </div>
-        </div>
+            {/* Right: Export, Import, Settings */}
+            <div className="flex items-center gap-2 shrink-0 overflow-visible">
+              {/* Export Dropdown Popover */}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    title="Export campaigns to Excel or download template"
+                  >
+                    <Download className="w-3.5 h-3.5 mr-1" />
+                    <span>Export</span>
+                    <ChevronDown className="w-3 h-3 ml-1 text-fg-muted" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-64">
+                  <DropdownMenuItem
+                    onClick={handleExportVisible}
+                    className="flex items-start gap-2.5 p-2 cursor-pointer"
+                  >
+                    <FileSpreadsheet className="w-4 h-4 text-status-success-fg shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-fg">
+                        Export visible view (.xlsx)
+                      </div>
+                      <div className="text-caption text-fg-muted leading-tight mt-0.5">
+                        Exports strictly campaigns matching active filters
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={handleDownloadTemplate}
+                    className="flex items-start gap-2.5 p-2 cursor-pointer"
+                  >
+                    <Download className="w-4 h-4 text-accent shrink-0 mt-0.5" />
+                    <div>
+                      <div className="text-xs font-semibold text-fg">
+                        Download template (.xlsx)
+                      </div>
+                      <div className="text-caption text-fg-muted leading-tight mt-0.5">
+                        Blank formatted spreadsheet with options reference tab
+                      </div>
+                    </div>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
-        {/* Row 2: Search, Filters & Secondary Actions */}
-        <div className="px-5 py-2 flex items-center justify-between gap-3 overflow-visible">
-          {/* Left: Search & Filter Controls */}
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          {/* Search Input */}
-          <div className="relative w-48 sm:w-60">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              placeholder="Search serial, copy, concept..."
-              value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
-            />
-            {searchInput && (
-              <button
+              {/* Import Excel Button */}
+              <Button
                 type="button"
-                onClick={() => setSearchInput('')}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsImportModalOpen(true)}
+                title="Import campaign rows from an Excel or CSV spreadsheet"
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
+                <Upload className="w-3.5 h-3.5 mr-1" />
+                <span>Import</span>
+              </Button>
+
+              {/* Settings Button */}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={() => setIsSettingsModalOpen(true)}
+                title="Settings (Zoom, row height, field values)"
+              >
+                <Settings className="w-3.5 h-3.5 mr-1" />
+                <span>Settings</span>
+              </Button>
+            </div>
           </div>
-
-          {/* Client Filter */}
-          <div className="w-40 sm:w-44 shrink-0">
-            <CustomSelect
-              size="sm"
-              icon={Briefcase}
-              value={clientFilter}
-              onChange={setClientFilter}
-              options={clientOptions}
-              placeholder="All clients"
-            />
-          </div>
-
-          {/* Assignee Filter */}
-          <div className="w-40 sm:w-44 shrink-0">
-            <CustomSelect
-              size="sm"
-              icon={User}
-              value={assigneeFilter}
-              onChange={setAssigneeFilter}
-              options={assigneeOptions}
-              placeholder="All assignees"
-            />
-          </div>
-
-          {/* Quick Urgency Filter Pills (CRM Pipeline style: All | Overdue | Today | Scheduled | Idle) */}
-          <div className="flex items-center gap-1 bg-zinc-100/80 dark:bg-zinc-800/80 p-0.5 rounded-xl border border-zinc-200/60 dark:border-zinc-700/60 shrink-0">
-            {(
-              [
-                ['all', 'All'],
-                ['overdue', 'Overdue'],
-                ['today', 'Today'],
-                ['scheduled', 'Scheduled'],
-                ['idle', 'Idle'],
-              ] as const
-            ).map(([id, label]) => {
-              return (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setQuickFilter(id)}
-                  className={`h-7 px-2.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                    quickFilter === id
-                      ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100 shadow-2xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                  }`}
-                >
-                  <span>{label}</span>
-                  {id === 'overdue' && overdueCount > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-rose-500 text-white leading-none font-numeric">
-                      {overdueCount}
-                    </span>
-                  )}
-                  {id === 'today' && todayCount > 0 && (
-                    <span className="px-1.5 py-0.2 rounded-full text-[10px] font-bold bg-amber-500 text-white leading-none font-numeric">
-                      {todayCount}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-          </div>
-
-          {/* Right: Export and Import */}
-          <div className="flex items-center gap-2 shrink-0 overflow-visible">
-          {/* Export Dropdown Popover */}
-          <div className="relative z-50" ref={exportMenuRef}>
-            <button
-              type="button"
-              onClick={() => setIsExportMenuOpen(!isExportMenuOpen)}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition cursor-pointer ${
-                isExportMenuOpen
-                  ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-300 dark:border-indigo-700 text-indigo-600 dark:text-indigo-400'
-                  : 'bg-zinc-50 dark:bg-zinc-800/80 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700'
-              }`}
-              title="Export campaigns to Excel or download template"
-            >
-              <Download className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
-              <span>Export</span>
-              <ChevronDown className="w-3 h-3 text-zinc-400" />
-            </button>
-
-            {isExportMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-1.5 space-y-1 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
-                <button
-                  type="button"
-                  onClick={handleExportVisible}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-left transition cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center shrink-0 mt-0.5">
-                    <FileSpreadsheet className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Export Visible View (.xlsx)
-                    </div>
-                    <div className="text-[10px] text-zinc-400 leading-tight mt-0.5">
-                      Exports strictly the campaigns matching your active filters
-                    </div>
-                  </div>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={handleDownloadTemplate}
-                  className="w-full flex items-start gap-2.5 p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-left transition cursor-pointer"
-                >
-                  <div className="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center shrink-0 mt-0.5">
-                    <Download className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                      Download Template (.xlsx)
-                    </div>
-                    <div className="text-[10px] text-zinc-400 leading-tight mt-0.5">
-                      Blank formatted spreadsheet with allowed options reference tab
-                    </div>
-                  </div>
-                </button>
-              </div>
-            )}
-          </div>
-
-          {/* Import Excel Button */}
-          <button
-            type="button"
-            onClick={() => setIsImportModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-50 dark:bg-zinc-800/80 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition cursor-pointer"
-            title="Import campaign rows from an Excel or CSV spreadsheet"
-          >
-            <Upload className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
-            <span>Import Excel</span>
-          </button>
-
-          {/* Settings Button */}
-          <button
-            type="button"
-            onClick={() => setIsSettingsModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-50 dark:bg-zinc-800/80 hover:bg-zinc-100 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition cursor-pointer"
-            title="Settings (Zoom, Row Height, Field Values)"
-          >
-            <Settings className="w-3.5 h-3.5 text-zinc-500 dark:text-zinc-400" />
-            <span>Settings</span>
-          </button>
-        </div>
-      </div>
+        )}
       </div>
 
       {/* Main View Area */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+        {viewMode === 'overview' && (
+          <ContentCalendarOverviewTab
+            items={items}
+            activeClients={activeClients}
+            isLoading={isLoading}
+            activeClientFilter={clientFilter}
+            onSelectClientFilter={(name) => setClientFilter(name)}
+            onSwitchViewMode={(mode) => {
+              setViewMode(mode);
+              try {
+                localStorage.setItem('reamarc_cc_view_mode', mode);
+              } catch (e) {}
+            }}
+            onSelectItem={(it) => {
+              setSelectedItem(it);
+              setIsDrawerOpen(true);
+            }}
+            onRefresh={() => void loadData({ silent: false })}
+          />
+        )}
+
         {viewMode === 'table' && (
           <ContentCalendarTableView
             items={displayItems}

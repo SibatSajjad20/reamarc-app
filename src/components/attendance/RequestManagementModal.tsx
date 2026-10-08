@@ -1,13 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   X,
   FilePlus,
   Clock,
   Home,
-  Sparkles,
   Calendar,
-  Info,
   AlertTriangle,
+  FileEdit,
 } from 'lucide-react';
 import type {
   RequestType,
@@ -22,6 +21,9 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
+import { Button } from '../ui/button';
+import { Callout } from '../ui/Callout';
+import { cn } from '../../lib/utils';
 import { getAttendanceMinDate, isFuturePktClockTime } from '../../constants/attendance';
 import { useOffDays } from '../../hooks/useOffDays';
 import { parseTimeToMinutes, formatHours } from '../../utils/logTimeChecks';
@@ -57,10 +59,10 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     return `${y}-${m}-${day}`;
   };
 
-  const getInitialWorkday = () => {
+  const getInitialWorkday = useCallback(() => {
     const today = getTodayIso();
     return lastWorkday(today, minDate) || today;
-  };
+  }, [minDate, lastWorkday]);
 
   // Current PKT time helper
   const getCurrentTimePkt = () => {
@@ -117,7 +119,6 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         setRegularizeOut(existingOut.substring(0, 5));
         setShortLeaveStartTime(existingOut.substring(0, 5));
       }
-      // Already checked in with no checkout: only fix time in so the day stays open.
       if (existingIn && !existingOut) {
         setCorrectionTarget('time_in');
       }
@@ -145,7 +146,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         }
       })
       .catch(() => {});
-  }, [isOpen, defaultTab, initialRecord]);
+  }, [isOpen, defaultTab, initialRecord, getInitialWorkday]);
 
   // Derived shift and duration calculations for Short Leave
   const shiftEndTime = userShift?.end_time?.substring(0, 5) || '18:30';
@@ -199,7 +200,6 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
             return `Not enough sick leave remaining (${leaveBalance.sick_remaining} left, ${workdays} working day${workdays > 1 ? 's' : ''} requested).`;
           }
         }
-        // Annual leaves allow exceeding quota; excess days result in negative quota settled at year-end.
       }
     } else if (activeTab === 'short_leave') {
       if (isOffDay(shortLeaveDate)) {
@@ -212,7 +212,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           : 'Short leave duration must be at least 30 minutes (0.5 hours).';
       }
       if (dur > 4.0) {
-        return `Short leave cannot exceed 4 hours (${formatHours(dur)} requested). Please apply for a Full Leave.`;
+        return `Short leave cannot exceed 4 hours (${formatHours(dur)} requested). Please apply for a full leave.`;
       }
     } else if (activeTab === 'wfh') {
       const workdays = countWorkingDays(wfhStartDate, wfhEndDate);
@@ -236,7 +236,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
 
       if (activeTab === 'leave') {
         if (!leaveReason.trim()) {
-          addToast('Reason Required', 'Please provide a reason for the leave application.', 'warning');
+          addToast('Reason required', 'Please provide a reason for the leave application.', 'warning');
           setIsSubmitting(false);
           return;
         }
@@ -250,19 +250,19 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         };
       } else if (activeTab === 'short_leave') {
         if (!shortLeaveReason.trim()) {
-          addToast('Reason Required', 'Please provide a reason for short leave.', 'warning');
+          addToast('Reason required', 'Please provide a reason for short leave.', 'warning');
           setIsSubmitting(false);
           return;
         }
         if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(shortLeaveStartTime)) {
-          addToast('Invalid Time', 'Departure / Start time must be HH:MM (24-hour), e.g. 16:00.', 'warning');
+          addToast('Invalid time', 'Departure / Start time must be HH:MM (24-hour), e.g. 16:00.', 'warning');
           setIsSubmitting(false);
           return;
         }
         const finalDuration = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
         if (finalDuration < 0.5) {
           addToast(
-            'Invalid Duration',
+            'Invalid duration',
             isLeavingEarly
               ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
               : 'Short leave duration must be at least 30 minutes (0.5h).',
@@ -272,7 +272,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           return;
         }
         if (finalDuration > 4.0) {
-          addToast('Duration Exceeded', 'Short leave cannot exceed 4.0 hours. Please apply for Full Leave.', 'warning');
+          addToast('Duration exceeded', 'Short leave cannot exceed 4.0 hours. Please apply for a full leave.', 'warning');
           setIsSubmitting(false);
           return;
         }
@@ -291,7 +291,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         };
       } else if (activeTab === 'wfh') {
         if (!wfhReason.trim()) {
-          addToast('Work Plan Required', 'Please specify your deliverables and reason for WFH.', 'warning');
+          addToast('Work plan required', 'Please specify your deliverables and reason for WFH.', 'warning');
           setIsSubmitting(false);
           return;
         }
@@ -305,18 +305,18 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       } else {
         // regularization
         if (!regularizeReason.trim()) {
-          addToast('Justification Required', 'Please describe why the punch was missed/incorrect.', 'warning');
+          addToast('Justification required', 'Please describe why the punch was missed/incorrect.', 'warning');
           setIsSubmitting(false);
           return;
         }
         const isTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
         if ((correctionTarget === 'time_in' || correctionTarget === 'both') && !isTime(regularizeIn)) {
-          addToast('Invalid Time', 'Time In must be HH:MM (24-hour), e.g. 09:30.', 'warning');
+          addToast('Invalid time', 'Time in must be HH:MM (24-hour), e.g. 09:30.', 'warning');
           setIsSubmitting(false);
           return;
         }
         if ((correctionTarget === 'time_out' || correctionTarget === 'both') && !isTime(regularizeOut)) {
-          addToast('Invalid Time', 'Time Out must be HH:MM (24-hour), e.g. 18:30.', 'warning');
+          addToast('Invalid time', 'Time out must be HH:MM (24-hour), e.g. 18:30.', 'warning');
           setIsSubmitting(false);
           return;
         }
@@ -325,8 +325,8 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           isFuturePktClockTime(regularizeDate, regularizeOut)
         ) {
           addToast(
-            'Time Out is still in the future',
-            'That would check you out before you leave and hide overtime. Use Time In Only while you are still working.',
+            'Time out is still in the future',
+            'That would check you out before you leave. Use Time in only while you are still working.',
             'warning'
           );
           setIsSubmitting(false);
@@ -359,11 +359,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       }
 
       await attendanceService.createRequest(payload);
-      addToast('Request Submitted 🎉', 'Your request has been routed to HR / Team Lead for approval.', 'success');
+      addToast('Request sent', 'Your team lead or HR will review it.', 'success');
       onSuccess();
       onClose();
     } catch (err: any) {
-      addToast('Submission Failed', err.message || 'Could not submit attendance request.', 'error');
+      addToast('Submission failed', err.message || 'Could not submit attendance request.', 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -372,103 +372,104 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const isCorrectionMode = defaultTab === 'regularization';
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-lg shadow-2xl overflow-visible relative animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4 animate-in fade-in duration-150">
+      <div
+        className="bg-surface rounded-lg border border-border w-full max-w-[560px] shadow-lg overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
-        <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 rounded-t-2xl flex items-center justify-between">
+        <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <div
-              className={`p-2 rounded-xl ${
+              className={cn(
+                'p-2 rounded-md',
                 isCorrectionMode
-                  ? 'bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400'
-                  : 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-              }`}
+                  ? 'bg-warning-bg text-warning-fg border border-warning-bd'
+                  : 'bg-accent-soft-2 text-accent-text border border-accent-200'
+              )}
             >
-              {isCorrectionMode ? <Sparkles className="w-5 h-5" /> : <FilePlus className="w-5 h-5" />}
+              {isCorrectionMode ? <FileEdit className="w-5 h-5" /> : <FilePlus className="w-5 h-5" />}
             </div>
             <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                {isCorrectionMode ? 'Attendance Punch Correction' : 'Apply for Leave / WFH'}
+              <h3 className="text-h2 font-semibold text-fg">
+                {isCorrectionMode ? 'Attendance punch correction' : 'Submit request'}
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-small text-fg-muted">
                 {isCorrectionMode
-                  ? 'Submit time in / time out corrections for HR, Operations, or Admin approval'
-                  : 'Submit self-service requests for leaves, short leaves or remote work'}
+                  ? 'Submit time in / time out corrections for review'
+                  : 'Submit leaves, short leaves, remote work or punch adjustments'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="text-fg-muted hover:text-fg p-1 rounded-md hover:bg-hover transition-colors cursor-pointer"
+            aria-label="Close dialog"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
-        {/* Tab Navigation (Only displayed for Leave/WFH window) */}
-        {!isCorrectionMode && (
-          <div className="flex border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-[#161822] px-3 pt-2 gap-1 text-xs font-bold">
-            <button
-              type="button"
-              onClick={() => setActiveTab('leave')}
-              className={`px-3.5 py-2.5 rounded-t-xl transition-all cursor-pointer border-b-2 flex items-center gap-1.5 ${
-                activeTab === 'leave'
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#11131a]'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              Full Leave
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('short_leave')}
-              className={`px-3.5 py-2.5 rounded-t-xl transition-all cursor-pointer border-b-2 flex items-center gap-1.5 ${
-                activeTab === 'short_leave'
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#11131a]'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >
-              <Clock className="w-3.5 h-3.5" />
-              Short Leave (1-3h)
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveTab('wfh')}
-              className={`px-3.5 py-2.5 rounded-t-xl transition-all cursor-pointer border-b-2 flex items-center gap-1.5 ${
-                activeTab === 'wfh'
-                  ? 'border-blue-600 text-blue-600 dark:text-blue-400 bg-white dark:bg-[#11131a]'
-                  : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
-              }`}
-            >
-              <Home className="w-3.5 h-3.5" />
-              WFH Exemption
-            </button>
+        {/* Scrollable Form Body */}
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+          {/* Request Type Selector (2×2 RadioCards per §13.5) */}
+          <div>
+            <label className="block text-label font-medium text-fg mb-1.5">
+              Request type
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              {[
+                { id: 'leave', label: 'Full leave', desc: 'Annual or sick leave', icon: Calendar },
+                { id: 'short_leave', label: 'Short leave', desc: 'Up to 4h departure or mid-shift', icon: Clock },
+                { id: 'wfh', label: 'Work from home', desc: 'Remote work exemption', icon: Home },
+                { id: 'regularization', label: 'Punch correction', desc: 'Fix missed check-in or out', icon: FileEdit },
+              ].map((item) => {
+                const Icon = item.icon;
+                const isSelected = activeTab === item.id;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setActiveTab(item.id as RequestType)}
+                    className={cn(
+                      'p-2.5 rounded-lg border text-left transition-colors cursor-pointer flex flex-col justify-between gap-1',
+                      isSelected
+                        ? 'border-accent bg-accent-soft-2'
+                        : 'border-border bg-surface hover:bg-subtle'
+                    )}
+                  >
+                    <div className="flex items-center gap-1.5">
+                      <Icon className={cn('w-4 h-4', isSelected ? 'text-accent' : 'text-fg-muted')} />
+                      <span className={cn('text-ui font-medium', isSelected ? 'text-accent-text font-semibold' : 'text-fg')}>
+                        {item.label}
+                      </span>
+                    </div>
+                    <p className="text-small text-fg-muted leading-tight">
+                      {item.desc}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        )}
 
-        {/* Tab Form Content */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 text-xs">
           {/* TAB 1: FULL LEAVE */}
           {activeTab === 'leave' && (
             <div className="space-y-4">
               {leaveBalance && (
-                <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300">
-                  Remaining {leaveBalance.year}: <strong>{leaveBalance.annual_remaining}</strong> annual / <strong>{leaveBalance.sick_remaining}</strong> sick
-                  <span className="block mt-1 text-zinc-500">Rest days & public holidays are not deducted. If annual leaves exceed quota, negative balance is settled at year-end (deducted from salary or reducing next year&apos;s quota).</span>
-                </div>
+                <Callout variant="neutral">
+                  Remaining {leaveBalance.year}: <strong>{leaveBalance.annual_remaining}</strong> annual / <strong>{leaveBalance.sick_remaining}</strong> sick days. Rest days and public holidays are not deducted.
+                </Callout>
               )}
               {leaveCategory === 'annual' && leaveBalance && leaveBalance.annual_remaining < countWorkingDays(leaveStartDate, leaveEndDate) && (
-                <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-200 text-xs">
-                  ⚠️ <strong>Quota Notice:</strong> This request requires {countWorkingDays(leaveStartDate, leaveEndDate)} day(s), which exceeds your remaining {leaveBalance.annual_remaining} annual days. Your balance will become negative ({Math.round((leaveBalance.annual_remaining - countWorkingDays(leaveStartDate, leaveEndDate)) * 100) / 100}d) and will be settled at year-end.
-                </div>
+                <Callout variant="warning">
+                  <strong>Leave balance notice:</strong> This request requires {countWorkingDays(leaveStartDate, leaveEndDate)} day(s), which exceeds your remaining {leaveBalance.annual_remaining} annual days. Your balance will become negative and settled at year-end.
+                </Callout>
               )}
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Leave Category
+                <label className="block text-label font-medium text-fg mb-1.5">
+                  Leave category
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   {(['annual', 'sick'] as LeaveCategory[]).map((cat) => (
@@ -476,54 +477,51 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       key={cat}
                       type="button"
                       onClick={() => setLeaveCategory(cat)}
-                      className={`py-2 px-3 rounded-xl font-bold capitalize transition-all border cursor-pointer ${
+                      className={cn(
+                        'py-2 px-3 rounded-md font-medium text-ui capitalize transition-colors border cursor-pointer',
                         leaveCategory === cat
-                          ? 'bg-blue-50 dark:bg-blue-950/60 border-blue-500 text-blue-600 dark:text-blue-400 shadow-xs'
-                          : 'bg-zinc-50 dark:bg-zinc-800/80 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300'
-                      }`}
+                          ? 'bg-accent-soft-2 border-accent text-accent-text font-semibold'
+                          : 'bg-surface border-border text-fg hover:bg-subtle'
+                      )}
                     >
-                      {cat === 'annual' ? 'Annual Leave (14 allowed)' : 'Sick Leave (8 allowed)'}
+                      {cat === 'annual' ? 'Annual leave (14 quota)' : 'Sick leave (8 quota)'}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <CustomDatePicker
-                    offDayMode="disable"
-                    label="Start Date"
-                    minDate={minDate}
-                    value={leaveStartDate}
-                    onChange={setLeaveStartDate}
-                  />
-                </div>
-                <div>
-                  <CustomDatePicker
-                    offDayMode="disable"
-                    label="End Date"
-                    minDate={leaveStartDate || minDate}
-                    value={leaveEndDate}
-                    onChange={setLeaveEndDate}
-                  />
-                </div>
+                <CustomDatePicker
+                  offDayMode="disable"
+                  label="Start date"
+                  minDate={minDate}
+                  value={leaveStartDate}
+                  onChange={setLeaveStartDate}
+                />
+                <CustomDatePicker
+                  offDayMode="disable"
+                  label="End date"
+                  minDate={leaveStartDate || minDate}
+                  value={leaveEndDate}
+                  onChange={setLeaveEndDate}
+                />
               </div>
 
-              <div className="text-[11px] text-zinc-500 flex items-center justify-between font-medium">
+              <div className="text-small text-fg-muted flex items-center justify-between">
                 <span>
                   Requested duration:{' '}
-                  <strong className="text-zinc-800 dark:text-zinc-200">
+                  <strong className="text-fg font-medium font-numeric">
                     {countWorkingDays(leaveStartDate, leaveEndDate)} working day(s)
                   </strong>
                 </span>
-                <span className="text-[10px] text-zinc-400">
-                  (Sundays, 1st Saturdays & public holidays are free/excluded)
+                <span className="text-micro text-fg-muted">
+                  (Rest days & holidays excluded)
                 </span>
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Reason & Handover Notes
+                <label className="block text-label font-medium text-fg mb-1">
+                  Reason and handover notes *
                 </label>
                 <textarea
                   rows={3}
@@ -531,7 +529,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   placeholder="Explain reason for leave and any task handovers or coverage..."
                   value={leaveReason}
                   onChange={(e) => setLeaveReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
                 />
               </div>
             </div>
@@ -540,67 +538,63 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           {/* TAB 2: SHORT LEAVE */}
           {activeTab === 'short_leave' && (
             <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-300 flex items-start gap-2">
-                <Info className="w-4 h-4 shrink-0 mt-0.5 text-blue-600" />
-                <p className="leading-tight">
-                  Short leaves are approved for up to 4 hours. Hours not worked count as undertime. Every 8 hours of cumulative undertime deducts 1 day from your annual leave quota.
-                </p>
-              </div>
+              <Callout variant="info">
+                Short leaves are approved for up to 4 hours. Hours not worked count as undertime. Every 8 hours of cumulative undertime deducts 1 day from your annual leave quota.
+              </Callout>
 
-              {/* Leave Mode Selector: Leaving Early vs Mid-Shift */}
-              <div className="grid grid-cols-2 gap-2 p-1 bg-zinc-100 dark:bg-zinc-800/80 rounded-xl">
+              {/* Mode Selector */}
+              <div className="grid grid-cols-2 gap-1 p-1 bg-subtle rounded-md">
                 <button
                   type="button"
                   onClick={() => setIsLeavingEarly(true)}
-                  className={`py-2 px-3 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={cn(
+                    'py-1.5 px-3 rounded-sm font-medium text-ui transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
                     isLeavingEarly
-                      ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                  }`}
+                      ? 'bg-surface text-fg shadow-xs font-semibold'
+                      : 'text-fg-muted hover:text-fg'
+                  )}
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  Leaving Early (End of Day)
+                  Leaving early (end of day)
                 </button>
                 <button
                   type="button"
                   onClick={() => setIsLeavingEarly(false)}
-                  className={`py-2 px-3 rounded-lg font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                  className={cn(
+                    'py-1.5 px-3 rounded-sm font-medium text-ui transition-colors flex items-center justify-center gap-1.5 cursor-pointer',
                     !isLeavingEarly
-                      ? 'bg-white dark:bg-zinc-700 text-blue-600 dark:text-blue-400 shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                  }`}
+                      ? 'bg-surface text-fg shadow-xs font-semibold'
+                      : 'text-fg-muted hover:text-fg'
+                  )}
                 >
                   <Clock className="w-3.5 h-3.5" />
-                  Mid-Shift (Returning)
+                  Mid-shift (returning)
                 </button>
               </div>
 
               {isLeavingEarly ? (
-                /* Mode 1: Leaving Early - Auto-calculated duration to shift end */
                 <div className="space-y-3">
                   <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <CustomDatePicker
-                        offDayMode="disable"
-                        label="Date"
-                        minDate={minDate}
-                        value={shortLeaveDate}
-                        onChange={setShortLeaveDate}
-                      />
-                    </div>
+                    <CustomDatePicker
+                      offDayMode="disable"
+                      label="Date"
+                      minDate={minDate}
+                      value={shortLeaveDate}
+                      onChange={setShortLeaveDate}
+                    />
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-                          Departure Time
+                        <label className="text-label font-medium text-fg">
+                          Departure time
                         </label>
                         {shortLeaveDate === getTodayIso() && (
                           <button
                             type="button"
                             onClick={() => setShortLeaveStartTime(getCurrentTimePkt())}
-                            className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer flex items-center gap-0.5"
+                            className="text-micro font-medium text-accent hover:underline cursor-pointer flex items-center gap-0.5"
                           >
                             <Clock className="w-2.5 h-2.5" />
-                            Leave Now ({getCurrentTimePkt()})
+                            Leave now ({getCurrentTimePkt()})
                           </button>
                         )}
                       </div>
@@ -612,42 +606,38 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                     </div>
                   </div>
 
-                  {/* Auto-Calculated Duration Card */}
-                  <div className="p-3.5 rounded-xl bg-linear-to-br from-amber-50/70 to-orange-50/70 dark:from-amber-950/20 dark:to-orange-950/20 border border-amber-200/80 dark:border-amber-900/40">
+                  {/* Calculated Duration Card */}
+                  <div className="p-3.5 rounded-lg bg-subtle border border-border">
                     <div className="flex items-center justify-between">
-                      <div className="space-y-0.5">
-                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">
-                          Undertime Added (until shift end {shiftEndTime})
+                      <div>
+                        <span className="text-small text-fg-muted">
+                          Undertime added (until shift end {shiftEndTime})
                         </span>
-                        <div className="flex items-baseline gap-2">
-                          <span className="text-lg font-extrabold font-numeric text-amber-700 dark:text-amber-400">
+                        <div className="mt-1">
+                          <span className="text-h2 font-semibold font-numeric text-fg">
                             {earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0h'}
                           </span>
                         </div>
                       </div>
                       <div className="text-right">
-                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300/40">
-                          +{earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0m'} Undertime
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-micro font-medium bg-warning-bg text-warning-fg border border-warning-bd">
+                          +{earlyDepartureDiffMinutes > 0 ? autoDurationFormatted : '0m'} undertime
                         </span>
-                        <p className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-1">
-                          8h total undertime = 1 annual leave
+                        <p className="text-micro text-fg-muted mt-1">
+                          8h total = 1 leave day
                         </p>
                       </div>
                     </div>
 
-                    <p className="mt-2 text-[11px] text-zinc-600 dark:text-zinc-400 leading-tight">
-                      Short leave authorizes your departure. The shortfall of <strong>{autoDurationFormatted}</strong> will be counted as undertime toward the 8h threshold.
-                    </p>
-
                     {departureMinutes !== null && shiftEndMinutes !== null && departureMinutes >= shiftEndMinutes && (
-                      <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400 flex items-center gap-1 font-medium">
+                      <p className="mt-2 text-small text-warning-fg flex items-center gap-1 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                         Departure time ({shortLeaveStartTime}) is at or after shift end ({shiftEndTime}).
                       </p>
                     )}
 
                     {autoCalculatedHours > 4.0 && (
-                      <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400 flex items-center gap-1 font-medium">
+                      <p className="mt-2 text-small text-danger-fg flex items-center gap-1 font-medium">
                         <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                         Short leave cannot exceed 4.0h. For absences over 4 hours, please submit a Full Leave request.
                       </p>
@@ -655,57 +645,50 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   </div>
                 </div>
               ) : (
-                /* Mode 2: Mid-Shift - Discrete Duration Dropdown with return time estimate */
                 <div className="space-y-3">
                   <div className="grid grid-cols-3 gap-3 items-end">
-                    <div>
-                      <CustomDatePicker
-                        offDayMode="disable"
-                        label="Date"
-                        minDate={minDate}
-                        value={shortLeaveDate}
-                        onChange={setShortLeaveDate}
-                      />
-                    </div>
-                    <div>
-                      <CustomTimePicker
-                        label="Departure Time"
-                        required
-                        value={shortLeaveStartTime}
-                        onChange={setShortLeaveStartTime}
-                      />
-                    </div>
-                    <div>
-                      <CustomSelect
-                        label="Duration"
-                        value={String(shortLeaveDuration)}
-                        onChange={(e) => setShortLeaveDuration(Number(e))}
-                        options={[
-                          { value: '1', label: '1.0 Hour' },
-                          { value: '1.5', label: '1.5 Hours' },
-                          { value: '2', label: '2.0 Hours' },
-                          { value: '2.5', label: '2.5 Hours' },
-                          { value: '3', label: '3.0 Hours' },
-                          { value: '4', label: '4.0 Hours (half day)' },
-                        ]}
-                      />
-                    </div>
+                    <CustomDatePicker
+                      offDayMode="disable"
+                      label="Date"
+                      minDate={minDate}
+                      value={shortLeaveDate}
+                      onChange={setShortLeaveDate}
+                    />
+                    <CustomTimePicker
+                      label="Departure time"
+                      required
+                      value={shortLeaveStartTime}
+                      onChange={setShortLeaveStartTime}
+                    />
+                    <CustomSelect
+                      label="Duration"
+                      value={String(shortLeaveDuration)}
+                      onChange={(e) => setShortLeaveDuration(Number(e))}
+                      options={[
+                        { value: '1', label: '1.0 hour' },
+                        { value: '1.5', label: '1.5 hours' },
+                        { value: '2', label: '2.0 hours' },
+                        { value: '2.5', label: '2.5 hours' },
+                        { value: '3', label: '3.0 hours' },
+                        { value: '4', label: '4.0 hours (half day)' },
+                      ]}
+                    />
                   </div>
 
-                  <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-700/60 flex items-center justify-between text-xs">
-                    <span className="text-zinc-600 dark:text-zinc-400">
-                      Expected Return to Desk: <strong className="text-zinc-800 dark:text-zinc-200 font-numeric">{midShiftReturnTime}</strong>
+                  <div className="p-3 rounded-md bg-subtle border border-border flex items-center justify-between text-xs">
+                    <span className="text-fg-muted">
+                      Expected return: <strong className="text-fg font-numeric">{midShiftReturnTime}</strong>
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-medium">
-                      Adds {formatHours(Number(shortLeaveDuration) || 0)} to undertime if not made up
+                    <span className="text-micro text-fg-muted">
+                      Adds {formatHours(Number(shortLeaveDuration) || 0)} to undertime
                     </span>
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Reason for Short Leave
+                <label className="block text-label font-medium text-fg mb-1">
+                  Reason for short leave *
                 </label>
                 <textarea
                   rows={3}
@@ -717,7 +700,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   }
                   value={shortLeaveReason}
                   onChange={(e) => setShortLeaveReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
                 />
               </div>
             </div>
@@ -726,46 +709,39 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           {/* TAB 3: WORK FROM HOME (WFH) */}
           {activeTab === 'wfh' && (
             <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-blue-50 dark:bg-blue-950/20 border border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-300 flex items-start gap-2">
-                <Home className="w-4 h-4 shrink-0 mt-0.5 text-blue-600 dark:text-blue-400" />
-                <p className="leading-tight">
-                  Approved WFH automatically grants security exemptions, enabling check-in from non-office IPs and GPS locations.
-                </p>
-              </div>
+              <Callout variant="info">
+                Approved WFH automatically grants security exemptions, enabling check-in from non-office IPs and GPS locations.
+              </Callout>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <CustomDatePicker
-                    offDayMode="disable"
-                    label="Start Date"
-                    minDate={minDate}
-                    value={wfhStartDate}
-                    onChange={setWfhStartDate}
-                  />
-                </div>
-                <div>
-                  <CustomDatePicker
-                    offDayMode="disable"
-                    label="End Date"
-                    minDate={wfhStartDate || minDate}
-                    value={wfhEndDate}
-                    onChange={setWfhEndDate}
-                  />
-                </div>
+                <CustomDatePicker
+                  offDayMode="disable"
+                  label="Start date"
+                  minDate={minDate}
+                  value={wfhStartDate}
+                  onChange={setWfhStartDate}
+                />
+                <CustomDatePicker
+                  offDayMode="disable"
+                  label="End date"
+                  minDate={wfhStartDate || minDate}
+                  value={wfhEndDate}
+                  onChange={setWfhEndDate}
+                />
               </div>
 
-              <div className="text-[11px] text-zinc-500 font-medium">
+              <div className="text-small text-fg-muted">
                 <span>
                   WFH duration:{' '}
-                  <strong className="text-zinc-800 dark:text-zinc-200">
+                  <strong className="text-fg font-medium font-numeric">
                     {countWorkingDays(wfhStartDate, wfhEndDate)} working day(s)
                   </strong>
                 </span>
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Deliverables & Work Plan
+                <label className="block text-label font-medium text-fg mb-1">
+                  Deliverables and work plan *
                 </label>
                 <textarea
                   rows={3}
@@ -773,7 +749,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   placeholder="Outline key tasks, deliverables, and communication availability for the remote day..."
                   value={wfhReason}
                   onChange={(e) => setWfhReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
                 />
               </div>
             </div>
@@ -782,101 +758,75 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           {/* TAB 4: MISSED PUNCH CORRECTION */}
           {activeTab === 'regularization' && (
             <div className="space-y-4">
-              <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-300 flex items-start gap-2">
-                <Sparkles className="w-4 h-4 shrink-0 mt-0.5 text-amber-600" />
-                <p className="leading-tight">
-                  Punch time corrections recalculate your working hours, undertime, and punctuality record once approved.
-                </p>
-              </div>
+              <Callout variant="info">
+                Punch time corrections recalculate your working hours, undertime, and punctuality record once approved.
+              </Callout>
 
-              <div>
-                <CustomDatePicker
-                  offDayMode="disable"
-                  label="Date of Missed / Incorrect Punch"
-                  minDate={minDate}
-                  value={regularizeDate}
-                  onChange={setRegularizeDate}
-                />
-              </div>
+              <CustomDatePicker
+                offDayMode="disable"
+                label="Date of missed / incorrect punch"
+                minDate={minDate}
+                value={regularizeDate}
+                onChange={setRegularizeDate}
+              />
 
               {/* Correction Scope Selector */}
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 text-xs">
-                  Correction Scope
+                <label className="block text-label font-medium text-fg mb-1.5">
+                  Correction scope
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionTarget('time_in')}
-                    className={`py-2 px-2.5 rounded-xl font-bold text-xs transition-all border text-center cursor-pointer ${
-                      correctionTarget === 'time_in'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                    }`}
-                  >
-                    Time In Only
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionTarget('time_out')}
-                    className={`py-2 px-2.5 rounded-xl font-bold text-xs transition-all border text-center cursor-pointer ${
-                      correctionTarget === 'time_out'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                    }`}
-                  >
-                    Time Out Only
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCorrectionTarget('both')}
-                    className={`py-2 px-2.5 rounded-xl font-bold text-xs transition-all border text-center cursor-pointer ${
-                      correctionTarget === 'both'
-                        ? 'bg-amber-600 text-white border-amber-600 shadow-sm'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-700'
-                    }`}
-                  >
-                    Both In & Out
-                  </button>
+                  {[
+                    { id: 'time_in', label: 'Time in only' },
+                    { id: 'time_out', label: 'Time out only' },
+                    { id: 'both', label: 'Both in and out' },
+                  ].map((scope) => (
+                    <button
+                      key={scope.id}
+                      type="button"
+                      onClick={() => setCorrectionTarget(scope.id as any)}
+                      className={cn(
+                        'py-2 px-2.5 rounded-md font-medium text-ui transition-colors border text-center cursor-pointer',
+                        correctionTarget === scope.id
+                          ? 'bg-accent-soft-2 border-accent text-accent-text font-semibold'
+                          : 'bg-surface border-border text-fg hover:bg-subtle'
+                      )}
+                    >
+                      {scope.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {(correctionTarget === 'both' || correctionTarget === 'time_out') && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-rose-800 dark:text-rose-300 flex items-start gap-2">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p className="leading-tight">
-                    Including Time Out will check you out at that time. If your shift has not ended, HR will see you as already gone and overtime will be lost. Use <strong>Time In Only</strong> unless you have already left.
-                  </p>
-                </div>
+                <Callout variant="warning">
+                  Including time out will check you out at that time. If your shift has not ended, use <strong>Time in only</strong> unless you have already left.
+                </Callout>
               )}
 
               {/* Dynamic Time Pickers */}
-              <div className={`grid ${correctionTarget === 'both' ? 'grid-cols-2' : 'grid-cols-1'} gap-3`}>
+              <div className={cn('grid gap-3', correctionTarget === 'both' ? 'grid-cols-2' : 'grid-cols-1')}>
                 {(correctionTarget === 'time_in' || correctionTarget === 'both') && (
-                  <div>
-                    <CustomTimePicker
-                      label="Correct Time In (Check-In)"
-                      required
-                      value={regularizeIn}
-                      onChange={setRegularizeIn}
-                    />
-                  </div>
+                  <CustomTimePicker
+                    label="Correct time in (check-in)"
+                    required
+                    value={regularizeIn}
+                    onChange={setRegularizeIn}
+                  />
                 )}
                 {(correctionTarget === 'time_out' || correctionTarget === 'both') && (
-                  <div>
-                    <CustomTimePicker
-                      label="Correct Time Out (Check-Out)"
-                      required
-                      value={regularizeOut}
-                      onChange={setRegularizeOut}
-                    />
-                  </div>
+                  <CustomTimePicker
+                    label="Correct time out (check-out)"
+                    required
+                    value={regularizeOut}
+                    onChange={setRegularizeOut}
+                  />
                 )}
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Reason / Justification for Correction
+                <label className="block text-label font-medium text-fg mb-1">
+                  Reason and justification for correction *
                 </label>
                 <textarea
                   rows={3}
@@ -884,36 +834,32 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   placeholder="Explain why punch was missed or needs adjustment (e.g. power outage, client call, field meeting)..."
                   value={regularizeReason}
                   onChange={(e) => setRegularizeReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
                 />
               </div>
             </div>
           )}
 
           {/* Modal Footer Controls */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-            <button
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <Button
               type="button"
+              variant="secondary"
               onClick={onClose}
-              className="px-4 py-2 rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-semibold cursor-pointer"
+              disabled={isSubmitting}
             >
               Cancel
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              disabled={isSubmitting}
-              className={`px-5 py-2 rounded-xl text-white font-bold shadow-md cursor-pointer disabled:opacity-50 transition-all ${
-                isCorrectionMode
-                  ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/20'
-                  : 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/20'
-              }`}
+              variant="primary"
+              loading={isSubmitting}
             >
-              {isSubmitting ? 'Submitting...' : isCorrectionMode ? 'Submit Correction' : 'Submit Request'}
-            </button>
+              Send request
+            </Button>
           </div>
         </form>
       </div>
     </div>
   );
 };
-

@@ -5,16 +5,36 @@ import {
   Plus,
   Edit2,
   Trash2,
-  Sparkles,
   X,
   Users,
   Search,
   TreePalm,
   Loader2,
 } from 'lucide-react';
+import { PageHeader } from '../../ui/PageHeader';
+import { Button, IconButton } from '../../ui/button';
+import {
+  TableCard,
+  Table,
+  THead,
+  TH,
+  TBody,
+  TR,
+  TD,
+} from '../../ui/DataTable';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../../ui/dialog';
+import { cn } from '../../../lib/utils';
 import { attendanceService } from '../../../services/attendanceService';
 import { adminService } from '../../../services/adminService';
 import { useToast } from '../../../context/ToastContext';
+import { useConfirm } from '../../ui/ConfirmProvider';
 import type {
   ShiftTemplate,
   CompanyCalendarEvent,
@@ -77,6 +97,7 @@ const withDerivedHours = (shift: ShiftTemplate, patch: Partial<ShiftTemplate> = 
 
 export const AttendancePoliciesSection: React.FC = () => {
   const { addToast } = useToast();
+  const confirm = useConfirm();
 
   const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'leaves'>('shifts');
   const [isSaving, setIsSaving] = useState(false);
@@ -302,7 +323,7 @@ export const AttendancePoliciesSection: React.FC = () => {
       }));
       const targetShift = shifts.find((s) => s.id === shiftId);
       addToast(
-        'Shift Assigned 🕒',
+        'Shift assigned',
         `Assigned ${targetShift?.name || 'shift'} to employee successfully.`,
         'success'
       );
@@ -595,7 +616,12 @@ export const AttendancePoliciesSection: React.FC = () => {
   };
 
   const handleDeleteHoliday = async (eventId: string, title: string) => {
-    if (!window.confirm(`Delete calendar event "${title}"?`)) return;
+    const ok = await confirm({
+      title: `Delete "${title}"?`,
+      confirmLabel: 'Delete event',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await attendanceService.deleteCalendarEvent(eventId);
       addToast('Deleted', `Event "${title}" removed.`, 'success');
@@ -606,76 +632,69 @@ export const AttendancePoliciesSection: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
-      {/* Top Section Header & Controls */}
-      <div className="p-5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#10121a] flex flex-wrap items-center justify-between gap-4 shrink-0">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">Shift & Attendance Policies</h1>
-            <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
-              Active
-            </span>
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden space-y-6">
+      {/* Top Section Header */}
+      <PageHeader
+        title="Attendance policies"
+        description="Shift schedules, working hours, employee assignments, and overtime/grace thresholds."
+        actions={
+          <div className="flex items-center gap-2">
+            {activeTab === 'shifts' && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleOpenAddShift}
+                icon={Plus}
+              >
+                Add shift template
+              </Button>
+            )}
+
+            {activeTab === 'calendar' && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  setNewEventDate(getAttendanceMinDate());
+                  setIsEventModalOpen(true);
+                }}
+                icon={Plus}
+              >
+                Add holiday / event
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-            Configure shift schedules, 30m grace buffers, public holidays, and leave quotas
-          </p>
-        </div>
-
-        {/* Action button depending on tab */}
-        <div className="flex items-center gap-2">
-          {activeTab === 'shifts' && (
-            <button
-              type="button"
-              onClick={handleOpenAddShift}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 cursor-pointer select-none"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Shift Template</span>
-            </button>
-          )}
-
-          {activeTab === 'calendar' && (
-            <button
-              type="button"
-              onClick={() => {
-                setNewEventDate(getAttendanceMinDate());
-                setIsEventModalOpen(true);
-              }}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-600/20 hover:shadow-indigo-600/30 cursor-pointer select-none"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Holiday / Rest Day</span>
-            </button>
-          )}
-        </div>
-      </div>
+        }
+      />
 
       {/* Policy Navigation Subtabs Bar */}
-      <div className="px-5 pt-3 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#10121a] flex gap-2 overflow-x-auto shrink-0">
+      <div className="flex items-center gap-1 border-b border-border pb-px overflow-x-auto shrink-0">
         <button
           type="button"
           onClick={() => setActiveTab('shifts')}
-          className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
+          className={cn(
+            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
             activeTab === 'shifts'
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
-              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-          }`}
+              ? 'border-accent text-accent-text bg-accent-soft-2'
+              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+          )}
         >
           <Clock className="w-4 h-4" />
-          <span>Shift Templates & Rules</span>
+          <span>Shift patterns & rules</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('calendar')}
-          className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
+          className={cn(
+            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
             activeTab === 'calendar'
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
-              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-          }`}
+              ? 'border-accent text-accent-text bg-accent-soft-2'
+              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+          )}
         >
           <Calendar className="w-4 h-4" />
-          <span>Company Calendar & Holidays</span>
+          <span>Company calendar</span>
         </button>
 
         <button
@@ -686,14 +705,15 @@ export const AttendancePoliciesSection: React.FC = () => {
               void fetchSecondary();
             }
           }}
-          className={`px-4 py-2.5 rounded-t-xl text-xs font-bold transition-all cursor-pointer border-b-2 flex items-center gap-2 whitespace-nowrap ${
+          className={cn(
+            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
             activeTab === 'leaves'
-              ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 bg-zinc-50 dark:bg-[#0c0d12]'
-              : 'border-transparent text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-          }`}
+              ? 'border-accent text-accent-text bg-accent-soft-2'
+              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+          )}
         >
           <TreePalm className="w-4 h-4" />
-          <span>Leave Quotas</span>
+          <span>Leave quotas</span>
         </button>
       </div>
 
@@ -702,137 +722,128 @@ export const AttendancePoliciesSection: React.FC = () => {
         {/* ─── TAB 1: SHIFT TEMPLATES ─── */}
         {activeTab === 'shifts' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {shifts.map((shift) => {
-              const assignedUsers = shiftUserMap.assignedMap[shift.id] || [];
-              const assignedCount = assignedUsers.length;
-              const tooltipText =
-                assignedCount > 0
-                  ? `Assigned employees (${assignedCount}):\n` +
-                    assignedUsers.map((u) => `• ${u.memberName} (${u.scheduleLabel})`).join('\n')
-                  : 'No employees assigned to this shift';
-
-              return (
-                <div
-                  key={shift.id || shift.name}
-                  className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs space-y-3 flex flex-col justify-between"
-                >
-                  <div>
-                    <div className="flex items-start justify-between gap-2">
-                      <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                        {shift.name}
-                      </h3>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {shift.is_cross_midnight && (
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-purple-50 dark:bg-purple-950/60 text-purple-600 dark:text-purple-400 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" /> Night Shift
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => handleOpenEditShift(shift)}
-                          className="p-1 rounded-lg text-zinc-400 hover:text-indigo-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-                          title="Edit Shift"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Condensed User Count Line */}
-                    <div
-                      title={tooltipText}
-                      className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400 pt-1 select-none"
-                    >
-                      <div className="flex items-center gap-1.5 font-semibold text-zinc-800 dark:text-zinc-200">
-                        <Users className="w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500" />
-                        <span>{assignedCount} Total</span>
-                      </div>
-
-                      {assignedCount === 1 &&
-                        assignedUsers[0]?.scheduleLabel &&
-                        assignedUsers[0].scheduleLabel !== 'Full week' && (
-                          <>
-                            <span className="text-zinc-300 dark:text-zinc-700">•</span>
-                            <span className="text-[11px] text-zinc-400 dark:text-zinc-500 font-normal">
-                              {assignedUsers[0].scheduleLabel}
+          {/* Card 1: Shift patterns table per §13.15.4 */}
+          <TableCard>
+            <div className="p-4 border-b border-border flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-fg">Shift patterns</h3>
+                <p className="text-caption text-fg-muted">
+                  Configured shifts with working days, operating span and grace windows.
+                </p>
+              </div>
+            </div>
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Shift name</TH>
+                  <TH>Working days</TH>
+                  <TH>Hours</TH>
+                  <TH>Grace</TH>
+                  <TH>Meal break</TH>
+                  <TH>Members</TH>
+                  <TH align="right">Actions</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {shifts.map((shift) => {
+                  const assignedUsers = shiftUserMap.assignedMap[shift.id] || [];
+                  const assignedCount = assignedUsers.length;
+                  return (
+                    <TR key={shift.id || shift.name} className="hover:bg-hover transition-colors">
+                      <TD>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-fg">{shift.name}</span>
+                          {shift.code && (
+                            <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-surface border border-border text-fg-muted font-semibold">
+                              {shift.code}
                             </span>
-                          </>
-                        )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-xs pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
-                    <div>
-                      <span className="text-zinc-400">Shift Timings:</span>
-                      <p className="font-numeric font-bold text-zinc-800 dark:text-zinc-200">
-                        {shift.start_time} &mdash; {shift.end_time}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-zinc-400">Grace Period:</span>
-                      <p className="font-bold font-numeric text-emerald-600 dark:text-emerald-400">
-                        {shift.grace_period_minutes}m buffer
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-zinc-400">Meal Break:</span>
-                      <p className="font-bold font-numeric text-zinc-700 dark:text-zinc-300">
-                        {shift.break_duration_minutes === 60 ? '1h' : `${shift.break_duration_minutes || 0}m`}
-                      </p>
-                    </div>
-                    <div>
-                      <span className="text-zinc-400">Expected Work:</span>
-                      <p className="font-bold font-numeric text-indigo-600 dark:text-indigo-400">
-                        {formatHours(shift.expected_hours ?? shift.expected_work_hours ?? 8)}/day
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="pt-2 flex items-center justify-between border-t border-zinc-100 dark:border-zinc-800/60">
-                    <button
-                      type="button"
-                      onClick={() => setShiftToDelete(shift)}
-                      className="text-xs text-zinc-400 hover:text-rose-600 dark:text-zinc-500 dark:hover:text-rose-400 font-medium transition-colors cursor-pointer"
-                    >
-                      Delete shift
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleOpenEditShift(shift)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-xs font-semibold text-white transition-all shadow-xs shadow-indigo-600/20 cursor-pointer"
-                    >
-                      <Edit2 className="w-3.5 h-3.5" />
-                      <span>Edit Shift</span>
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+                          )}
+                          {shift.is_cross_midnight && (
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                              Night shift
+                            </span>
+                          )}
+                        </div>
+                      </TD>
+                      <TD>
+                        <div className="flex items-center gap-1">
+                          {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => {
+                            const isWorkingDay = i < 5 || (i === 5 && shift.code !== 'STD');
+                            return (
+                              <span
+                                key={i}
+                                className={cn(
+                                  'w-5 h-5 rounded text-[10px] flex items-center justify-center border select-none',
+                                  isWorkingDay
+                                    ? 'bg-accent-soft text-accent-text border-accent-200 font-semibold'
+                                    : 'bg-canvas text-fg-faint border-border font-medium'
+                                )}
+                              >
+                                {d}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </TD>
+                      <TD className="font-mono text-ui tabular-nums text-fg">
+                        {shift.start_time} — {shift.end_time}
+                      </TD>
+                      <TD className="font-mono text-caption tabular-nums text-fg-muted">
+                        {shift.grace_period_minutes}m
+                      </TD>
+                      <TD className="font-mono text-caption tabular-nums text-fg-muted">
+                        {(shift.break_duration_minutes || 0) > 0 ? `${shift.break_duration_minutes}m` : '—'}
+                      </TD>
+                      <TD className="text-caption text-fg-muted tabular-nums">
+                        {assignedCount} {assignedCount === 1 ? 'member' : 'members'}
+                      </TD>
+                      <TD align="right">
+                        <div className="flex items-center justify-end gap-1">
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            label={`Edit ${shift.name}`}
+                            icon={Edit2}
+                            onClick={() => handleOpenEditShift(shift)}
+                          />
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            label={`Delete ${shift.name}`}
+                            icon={Trash2}
+                            onClick={() => setShiftToDelete(shift)}
+                          />
+                        </div>
+                      </TD>
+                    </TR>
+                  );
+                })}
+              </TBody>
+            </Table>
+          </TableCard>
 
           {/* ─── Employee Shift Assignment Table ─── */}
-          <div className="rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs overflow-hidden mt-6">
-            <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-zinc-200 dark:border-zinc-800/80">
+          <div className="rounded-xl bg-surface border border-border shadow-xs overflow-hidden mt-6">
+            <div className="px-4 py-3.5 sm:px-5 sm:py-4 border-b border-border">
               <div className="flex items-center justify-between gap-4">
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                  <Users className="w-4 h-4 text-accent" />
                   Employee Shift Assignments
                 </h3>
 
                 {/* Search */}
                 <div className="relative w-56 sm:w-64">
-                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+                  <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted" />
                   <input
                     type="text"
                     placeholder="Search employee..."
                     value={searchMemberQuery}
                     onChange={(e) => setSearchMemberQuery(e.target.value)}
-                    className="w-full pl-8 pr-3 py-1.5 rounded-xl text-xs bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                    className="w-full pl-8 pr-3 py-1.5 rounded-md text-xs bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                   />
                 </div>
               </div>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+              <p className="text-xs text-fg-muted mt-1">
                 Assign a default shift, or a weekday pattern (auto WFH Mon–Fri is editable). Today’s shift is what late and Daily Log use.
               </p>
             </div>
@@ -840,7 +851,7 @@ export const AttendancePoliciesSection: React.FC = () => {
             {/* Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-xs text-left">
-                <thead className="bg-zinc-50 dark:bg-[#0c0d12] border-b border-zinc-200 dark:border-zinc-800 text-zinc-500 font-semibold">
+                <thead className="bg-subtle border-b border-border text-fg-muted font-medium">
                   <tr>
                     <th className="py-2 px-4">Employee</th>
                     <th className="py-2 px-4">Department</th>
@@ -850,17 +861,17 @@ export const AttendancePoliciesSection: React.FC = () => {
                     <th className="py-2 px-4">Pattern</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60">
+                <tbody className="divide-y divide-border">
                   {isLoadingRoster ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-zinc-400">
-                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-indigo-500" />
+                      <td colSpan={6} className="py-12 text-center text-fg-muted">
+                        <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
                         Loading team members…
                       </td>
                     </tr>
                   ) : filteredMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-zinc-400">
+                      <td colSpan={6} className="py-8 text-center text-fg-muted">
                         No team members found.
                       </td>
                     </tr>
@@ -881,10 +892,10 @@ export const AttendancePoliciesSection: React.FC = () => {
                       const patterned = hasWeekPattern(assignment);
 
                       return (
-                        <tr key={member.id} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 transition-colors">
+                        <tr key={member.id} className="hover:bg-hover transition-colors">
                           <td className="py-2 px-4">
                             <div
-                              className="font-semibold text-gray-900 dark:text-zinc-100 truncate"
+                              className="font-medium text-fg truncate"
                               title={member.email || undefined}
                             >
                               {member.full_name || (member as any).name || 'User'}
@@ -913,13 +924,13 @@ export const AttendancePoliciesSection: React.FC = () => {
                             />
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap">
-                            <div className="font-numeric font-bold text-indigo-600 dark:text-indigo-400 text-[11px]">
+                            <div className="font-numeric font-medium text-accent text-xs">
                               {todayShift
                                 ? `${todayShift.start_time} — ${todayShift.end_time}`
                                 : '09:30 — 18:30'}
                             </div>
                             {todayResolved.auto_wfh && (
-                              <div className="text-[10px] font-bold text-sky-600 dark:text-sky-400">Auto WFH</div>
+                              <div className="text-[10px] font-medium text-info-fg">Auto WFH</div>
                             )}
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap">
@@ -927,7 +938,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                               type="button"
                               disabled={isAssigning[member.id]}
                               onClick={() => setPatternMember(member)}
-                              className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 cursor-pointer"
+                              className="px-2.5 py-1 rounded-md text-xs font-medium border border-border text-fg-2 hover:bg-hover disabled:opacity-50 cursor-pointer transition-colors"
                             >
                               {patterned ? 'Edit pattern' : 'Set pattern'}
                             </button>
@@ -940,49 +951,101 @@ export const AttendancePoliciesSection: React.FC = () => {
               </table>
             </div>
           </div>
+
+          {/* Card 3: Attendance rules per §13.15.4 */}
+          <div className="border border-border rounded-xl bg-surface p-5 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-fg">Attendance rules</h3>
+              <p className="text-caption text-fg-muted">
+                Grace tolerances, arrival thresholds, and policy cut triggers applied across all shifts.
+              </p>
+            </div>
+
+            <div className="divide-y divide-border rounded-lg border border-border bg-canvas/40">
+              <div className="p-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-ui font-medium text-fg">Standard grace buffer</div>
+                  <div className="text-caption text-fg-muted">
+                    Allowed arrival window after scheduled shift start before employee is marked late.
+                  </div>
+                </div>
+                <span className="font-mono text-ui font-semibold text-fg">30 minutes</span>
+              </div>
+
+              <div className="p-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-ui font-medium text-fg">Late threshold</div>
+                  <div className="text-caption text-fg-muted">
+                    Arrival beyond grace period is automatically flagged as late punch on timesheets.
+                  </div>
+                </div>
+                <span className="font-mono text-ui font-semibold text-fg">Shift start + 30m</span>
+              </div>
+
+              <div className="p-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-ui font-medium text-fg">Half-day threshold</div>
+                  <div className="text-caption text-fg-muted">
+                    Shifts under 4.0 worked hours or short leaves exceeding 2.0 hours deduct 0.5 day quota.
+                  </div>
+                </div>
+                <span className="font-mono text-ui font-semibold text-fg">4.0 hours</span>
+              </div>
+
+              <div className="p-3.5 flex items-center justify-between">
+                <div>
+                  <div className="text-ui font-medium text-fg">Undertime deficit cut</div>
+                  <div className="text-caption text-fg-muted">
+                    Every 8.0 hours of cumulative monthly undertime triggers 1 full day quota deduction.
+                  </div>
+                </div>
+                <span className="font-mono text-ui font-semibold text-fg">8.0 hours</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ─── TAB 2: COMPANY CALENDAR & HOLIDAYS ─── */}
       {activeTab === 'calendar' && (
         <div className="space-y-4">
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex items-center justify-between">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-indigo-600" />
+          <div className="p-4 rounded-xl bg-surface border border-border shadow-xs flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-accent" />
               Official Holidays & Working Saturday Overrides
             </h3>
-            <span className="text-xs font-semibold text-zinc-400">
+            <span className="text-xs font-medium text-fg-muted">
               Tracking starts from <span className="font-numeric">19 Aug 2026</span>
             </span>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {calendarEvents.length === 0 ? (
-              <div className="col-span-full py-12 text-center text-zinc-400">
+              <div className="col-span-full py-12 text-center text-fg-muted">
                 No holidays or calendar events configured yet for this period.
               </div>
             ) : (
               calendarEvents.map((evt) => (
                 <div
                   key={evt.id}
-                  className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex items-start justify-between"
+                  className="p-4 rounded-xl bg-surface border border-border shadow-xs flex items-start justify-between"
                 >
                   <div className="space-y-1">
-                    <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400">
+                    <span className="px-2 py-0.5 rounded text-[10px] font-medium uppercase bg-warning-bg text-warning-fg border border-warning-bd">
                       {evt.event_type}
                     </span>
-                    <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                    <h4 className="text-sm font-semibold text-fg">
                       {evt.title}
                     </h4>
-                    <p className="text-xs font-numeric text-zinc-500">{evt.date}</p>
+                    <p className="text-xs font-numeric text-fg-muted">{evt.date}</p>
                     {evt.description && (
-                      <p className="text-xs text-zinc-400 pt-1">{evt.description}</p>
+                      <p className="text-xs text-fg-muted pt-1">{evt.description}</p>
                     )}
                   </div>
                   <button
                     type="button"
                     onClick={() => handleDeleteHoliday(evt.id, evt.title)}
-                    className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                    className="p-1.5 rounded-md text-fg-muted hover:text-danger-fg hover:bg-hover transition-colors cursor-pointer"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -997,33 +1060,33 @@ export const AttendancePoliciesSection: React.FC = () => {
       {activeTab === 'leaves' && (
         <div className="space-y-4">
           {isLoadingLeaveBalances ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3 text-zinc-400 dark:text-zinc-500">
-              <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
-              <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Loading leave quotas...</span>
+            <div className="flex flex-col items-center justify-center py-16 gap-3 text-fg-muted">
+              <Loader2 className="w-8 h-8 animate-spin text-accent" />
+              <span className="text-sm font-medium text-fg-muted">Loading leave quotas...</span>
             </div>
           ) : (
-            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-[#11131a]">
+            <div className="rounded-xl border border-border overflow-hidden bg-surface">
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
-                <thead className="bg-zinc-50 dark:bg-zinc-900/70 text-zinc-500">
+                <thead className="bg-subtle border-b border-border text-fg-muted font-medium">
                   <tr>
-                    <th className="text-left font-bold px-4 py-3">Employee</th>
-                    <th className="text-left font-bold px-3 py-3" title="Opening baseline taken before system go-live">Annual taken</th>
-                    <th className="text-left font-bold px-3 py-3" title="Opening baseline taken before system go-live">Sick taken</th>
-                    <th className="text-left font-bold px-3 py-3">Annual quota</th>
-                    <th className="text-left font-bold px-3 py-3">Sick quota</th>
-                    <th className="text-left font-bold px-3 py-3" title="Approved in-app requests plus HR leave overrides that have no matching leave request">In-app used</th>
-                    <th className="text-left font-bold px-3 py-3" title="Days deducted from 8h cumulative undertime deficit">UT deducted</th>
-                    <th className="text-left font-bold px-3 py-3" title="Carried undertime deficit towards next 8h cut">Carried deficit</th>
-                    <th className="text-left font-bold px-3 py-3">Annual left</th>
-                    <th className="text-left font-bold px-3 py-3">Sick left</th>
+                    <th className="text-left font-medium px-4 py-3">Employee</th>
+                    <th className="text-left font-medium px-3 py-3" title="Opening baseline taken before system go-live">Annual taken</th>
+                    <th className="text-left font-medium px-3 py-3" title="Opening baseline taken before system go-live">Sick taken</th>
+                    <th className="text-left font-medium px-3 py-3">Annual quota</th>
+                    <th className="text-left font-medium px-3 py-3">Sick quota</th>
+                    <th className="text-left font-medium px-3 py-3" title="Approved in-app requests plus HR leave overrides that have no matching leave request">In-app used</th>
+                    <th className="text-left font-medium px-3 py-3" title="Days deducted from 8h cumulative undertime deficit">UT deducted</th>
+                    <th className="text-left font-medium px-3 py-3" title="Carried undertime deficit towards next 8h cut">Carried deficit</th>
+                    <th className="text-left font-medium px-3 py-3">Annual left</th>
+                    <th className="text-left font-medium px-3 py-3">Sick left</th>
                     <th className="px-4 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leaveBalances.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-zinc-400 dark:text-zinc-500">
+                      <td colSpan={11} className="py-12 text-center text-fg-muted">
                         No employee leave quota records found.
                       </td>
                     </tr>
@@ -1052,10 +1115,10 @@ export const AttendancePoliciesSection: React.FC = () => {
                         },
                       }));
                     return (
-                    <tr key={row.user_id} className="border-t border-zinc-100 dark:border-zinc-800">
+                    <tr key={row.user_id} className="border-t border-border hover:bg-hover transition-colors">
                       <td className="px-4 py-2.5">
-                        <div className="font-bold text-zinc-800 dark:text-zinc-100">{row.user_name}</div>
-                        <div className="text-zinc-400">{row.department}</div>
+                        <div className="font-medium text-fg">{row.user_name}</div>
+                        <div className="text-fg-muted">{row.department}</div>
                       </td>
                       <td className="px-3 py-2">
                         <input
@@ -1064,7 +1127,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.annual ?? String(row.annual_used_opening)}
                           onChange={(e) => patchDraft({ annual: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -1074,7 +1137,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.sick ?? String(row.sick_used_opening)}
                           onChange={(e) => patchDraft({ sick: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -1084,7 +1147,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.annualQuota ?? String(row.annual_entitled)}
                           onChange={(e) => patchDraft({ annualQuota: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                         />
                       </td>
                       <td className="px-3 py-2">
@@ -1094,48 +1157,48 @@ export const AttendancePoliciesSection: React.FC = () => {
                           step={0.5}
                           value={draft?.sickQuota ?? String(row.sick_entitled)}
                           onChange={(e) => patchDraft({ sickQuota: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
+                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
                         />
                       </td>
-                      <td className="px-3 py-2 text-zinc-600 dark:text-zinc-300">
-                        <div className="font-semibold">{inAppAnnual}a / {inAppSick}s</div>
+                      <td className="px-3 py-2 text-fg-2">
+                        <div className="font-medium">{inAppAnnual}a / {inAppSick}s</div>
                         {(row.annual_pending > 0 || row.sick_pending > 0) && (
-                          <div className="text-[10px] text-amber-500 font-medium">
+                          <div className="text-[10px] text-warning-fg font-medium">
                             +{row.annual_pending}a / +{row.sick_pending}s pend
                           </div>
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <div className={`font-bold ${utDeducted > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-zinc-500'}`}>
+                        <div className={`font-semibold ${utDeducted > 0 ? 'text-warning-fg' : 'text-fg-muted'}`}>
                           {utDeducted > 0 ? `${utDeducted}d` : '0d'}
                         </div>
                         {utDeducted > 0 && (
-                          <div className="text-[10px] text-amber-600 dark:text-amber-400 font-medium">
+                          <div className="text-[10px] text-warning-fg font-medium">
                             -{formatHours(utDeducted * 8)} settled
                           </div>
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <div className={`font-semibold ${carriedHours > 0 ? 'text-zinc-800 dark:text-zinc-200' : 'text-zinc-400'}`}>
+                        <div className={`font-medium ${carriedHours > 0 ? 'text-fg' : 'text-fg-muted'}`}>
                           {formatHours(carriedHours)}
                         </div>
-                        <div className="text-[10px] text-zinc-400">
+                        <div className="text-[10px] text-fg-muted">
                           {carriedHours > 0 ? `${formatHours(8 - carriedHours)} to next 1d cut` : 'Clean'}
                         </div>
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`font-bold ${annualLeft < 0 ? 'text-rose-600 dark:text-rose-400' : annualLeft === 0 ? 'text-zinc-500' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                          <span className={`font-semibold ${annualLeft < 0 ? 'text-danger-fg' : annualLeft === 0 ? 'text-fg-muted' : 'text-success-fg'}`}>
                             {annualLeft}
                           </span>
                           {annualLeft < 0 && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300 whitespace-nowrap">
+                            <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-danger-bg text-danger-fg border border-danger-bd whitespace-nowrap">
                               Exceeded {Math.abs(annualLeft)}d
                             </span>
                           )}
                         </div>
                       </td>
-                      <td className={`px-3 py-2 font-bold ${sickLeft <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-100'}`}>
+                      <td className={`px-3 py-2 font-semibold ${sickLeft <= 0 ? 'text-danger-fg' : 'text-fg'}`}>
                         {sickLeft}
                       </td>
                       <td className="px-4 py-2 text-right">
@@ -1143,7 +1206,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                           type="button"
                           disabled={savingLeaveUserId === row.user_id}
                           onClick={() => handleSaveLeaveOpening(row.user_id)}
-                          className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-bold disabled:opacity-50 transition-colors"
+                          className="px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium disabled:opacity-50 transition-colors"
                         >
                           {savingLeaveUserId === row.user_id ? 'Saving...' : 'Save'}
                         </button>
@@ -1163,219 +1226,216 @@ export const AttendancePoliciesSection: React.FC = () => {
       </div>
 
       {/* ─── DEDICATED SHIFT MODAL ─── */}
-      {isShiftModalOpen && editingShift && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-lg shadow-2xl overflow-visible relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 rounded-t-2xl flex items-center justify-between">
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Clock className="w-4 h-4 text-indigo-600" />
-                {editingShift.id ? 'Edit Shift Template' : 'New Shift Template'}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsShiftModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
+      {/* ─── DEDICATED SHIFT MODAL (Dialog 560) ─── */}
+      <Dialog open={isShiftModalOpen && Boolean(editingShift)} onOpenChange={(open) => !open && setIsShiftModalOpen(false)}>
+        {editingShift && (
+          <DialogContent className="max-w-[560px] p-0 overflow-hidden">
+            <DialogHeader className="p-6 pb-4 border-b border-border bg-canvas/40">
+              <DialogTitle className="text-base font-semibold text-fg flex items-center gap-2">
+                <Clock className="w-4 h-4 text-accent-text" />
+                <span>{editingShift.id ? 'Edit shift template' : 'New shift template'}</span>
+              </DialogTitle>
+              <DialogDescription className="text-caption text-fg-muted">
+                Define timing bounds, grace period, meal break duration and night shift status.
+              </DialogDescription>
+            </DialogHeader>
 
-            <form onSubmit={handleSaveShift} className="p-6 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                    Shift Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Standard 09:30-18:30"
-                    value={editingShift.name}
-                    onChange={(e) => setEditingShift({ ...editingShift, name: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
-                  />
+            <form onSubmit={handleSaveShift}>
+              <div className="p-6 space-y-4 text-xs max-h-[70vh] overflow-y-auto">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-ui font-medium text-fg mb-1">
+                      Shift Name
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Standard 09:30-18:30"
+                      value={editingShift.name}
+                      onChange={(e) => setEditingShift({ ...editingShift, name: e.target.value })}
+                      className="w-full h-9 px-3 rounded-md bg-surface border border-border text-fg text-ui focus:outline-none focus:border-accent"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-ui font-medium text-fg mb-1">
+                      Shift Code
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. STD or HR"
+                      value={editingShift.code}
+                      onChange={(e) => setEditingShift({ ...editingShift, code: e.target.value })}
+                      className="w-full h-9 px-3 rounded-md bg-surface border border-border text-fg text-ui font-mono focus:outline-none focus:border-accent"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                    Shift Code
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. STD or HR"
-                    value={editingShift.code}
-                    onChange={(e) => setEditingShift({ ...editingShift, code: e.target.value })}
-                    className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 font-numeric"
-                  />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <CustomTimePicker
-                    label="Start Time"
-                    required
-                    value={editingShift.start_time}
-                    onChange={(val) => setEditingShift(withDerivedHours(editingShift, { start_time: val }))}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <CustomTimePicker
+                      label="Start Time"
+                      required
+                      value={editingShift.start_time}
+                      onChange={(val) => setEditingShift(withDerivedHours(editingShift, { start_time: val }))}
+                    />
+                  </div>
+                  <div>
+                    <CustomTimePicker
+                      label="End Time"
+                      required
+                      value={editingShift.end_time}
+                      onChange={(val) => setEditingShift(withDerivedHours(editingShift, { end_time: val }))}
+                    />
+                  </div>
                 </div>
-                <div>
-                  <CustomTimePicker
-                    label="End Time"
-                    required
-                    value={editingShift.end_time}
-                    onChange={(val) => setEditingShift(withDerivedHours(editingShift, { end_time: val }))}
-                  />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <NumberStepper
-                  label="OT buffer"
-                  min={0}
-                  max={60}
-                  step={5}
-                  unit="mins"
-                  value={editingShift.overtime_buffer_minutes ?? 5}
-                  onChange={(val) =>
-                    setEditingShift({
-                      ...editingShift,
-                      overtime_buffer_minutes: val,
-                    })
-                  }
-                />
-                <NumberStepper
-                  label="Early-out buffer"
-                  min={0}
-                  max={60}
-                  step={5}
-                  unit="mins"
-                  value={editingShift.undertime_buffer_minutes ?? 5}
-                  onChange={(val) =>
-                    setEditingShift({
-                      ...editingShift,
-                      undertime_buffer_minutes: val,
-                    })
-                  }
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-3">
-                <div>
+                <div className="grid grid-cols-2 gap-3">
                   <NumberStepper
-                    label="Grace Buffer"
+                    label="OT buffer"
                     min={0}
-                    max={120}
+                    max={60}
                     step={5}
                     unit="mins"
-                    value={editingShift.grace_period_minutes}
+                    value={editingShift.overtime_buffer_minutes ?? 5}
                     onChange={(val) =>
                       setEditingShift({
                         ...editingShift,
-                        grace_period_minutes: val,
+                        overtime_buffer_minutes: val,
                       })
                     }
                   />
-                </div>
-
-                <div>
                   <NumberStepper
-                    label="Meal Break"
+                    label="Early-out buffer"
                     min={0}
-                    max={180}
-                    step={15}
+                    max={60}
+                    step={5}
                     unit="mins"
-                    value={editingShift.break_duration_minutes}
+                    value={editingShift.undertime_buffer_minutes ?? 5}
                     onChange={(val) =>
-                      setEditingShift(withDerivedHours(editingShift, { break_duration_minutes: val }))
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-zinc-500 uppercase mb-1">
-                    Expected Work
-                  </label>
-                  <div className="h-10 px-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 flex items-center text-sm font-semibold font-numeric text-zinc-800 dark:text-zinc-200">
-                    {formatHours(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8)}
-                  </div>
-                  <p className="text-[10px] text-zinc-400 mt-1">
-                    Shift span minus unpaid break
-                  </p>
-                </div>
-              </div>
-
-              {(editingShift.break_duration_minutes || 0) > 0 && (
-                <div className="grid grid-cols-2 gap-3">
-                  <CustomTimePicker
-                    label="Break Starts"
-                    required
-                    value={editingShift.break_start_time || '13:00'}
-                    onChange={(val) =>
-                      setEditingShift({ ...editingShift, break_start_time: val })
-                    }
-                  />
-                  <CustomTimePicker
-                    label="Break Ends"
-                    required
-                    value={editingShift.break_end_time || '14:00'}
-                    onChange={(val) =>
-                      setEditingShift({ ...editingShift, break_end_time: val })
-                    }
-                  />
-                </div>
-              )}
-
-              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800">
-                <ToggleSwitch
-                  checked={Boolean(editingShift.is_cross_midnight)}
-                  onChange={(checked) =>
-                    setEditingShift(
-                      withDerivedHours(editingShift, {
-                        is_cross_midnight: checked,
-                        is_night_shift: checked,
+                      setEditingShift({
+                        ...editingShift,
+                        undertime_buffer_minutes: val,
                       })
-                    )
-                  }
-                  label="Crosses midnight (Night Shift)"
-                  description="Calculates positive duration across midnight (e.g. 22:00 to 06:00)"
-                />
+                    }
+                  />
+                </div>
+
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <NumberStepper
+                      label="Grace Buffer"
+                      min={0}
+                      max={120}
+                      step={5}
+                      unit="mins"
+                      value={editingShift.grace_period_minutes}
+                      onChange={(val) =>
+                        setEditingShift({
+                          ...editingShift,
+                          grace_period_minutes: val,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <NumberStepper
+                      label="Meal Break"
+                      min={0}
+                      max={180}
+                      step={15}
+                      unit="mins"
+                      value={editingShift.break_duration_minutes}
+                      onChange={(val) =>
+                        setEditingShift(withDerivedHours(editingShift, { break_duration_minutes: val }))
+                      }
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-medium text-fg-muted uppercase mb-1">
+                      Expected Work
+                    </label>
+                    <div className="h-9 px-3 rounded-md bg-canvas border border-border flex items-center text-sm font-semibold font-mono text-fg">
+                      {formatHours(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8)}
+                    </div>
+                  </div>
+                </div>
+
+                {(editingShift.break_duration_minutes || 0) > 0 && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <CustomTimePicker
+                      label="Break Starts"
+                      required
+                      value={editingShift.break_start_time || '13:00'}
+                      onChange={(val) =>
+                        setEditingShift({ ...editingShift, break_start_time: val })
+                      }
+                    />
+                    <CustomTimePicker
+                      label="Break Ends"
+                      required
+                      value={editingShift.break_end_time || '14:00'}
+                      onChange={(val) =>
+                        setEditingShift({ ...editingShift, break_end_time: val })
+                      }
+                    />
+                  </div>
+                )}
+
+                <div className="p-3 rounded-lg bg-canvas border border-border">
+                  <ToggleSwitch
+                    checked={Boolean(editingShift.is_cross_midnight)}
+                    onChange={(checked) =>
+                      setEditingShift(
+                        withDerivedHours(editingShift, {
+                          is_cross_midnight: checked,
+                          is_night_shift: checked,
+                        })
+                      )
+                    }
+                    label="Crosses midnight (Night Shift)"
+                    description="Calculates positive duration across midnight (e.g. 22:00 to 06:00)"
+                  />
+                </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-                <button
+              <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
+                <Button
                   type="button"
+                  variant="ghost"
                   onClick={() => setIsShiftModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-semibold cursor-pointer"
                 >
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
                   type="submit"
+                  variant="primary"
+                  loading={isSaving}
                   disabled={isSaving}
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer disabled:opacity-50"
                 >
-                  {isSaving ? 'Saving...' : 'Save Shift'}
-                </button>
-              </div>
+                  Save shift
+                </Button>
+              </DialogFooter>
             </form>
-          </div>
-        </div>
-      )}
+          </DialogContent>
+        )}
+      </Dialog>
 
       {/* ─── DEDICATED HOLIDAY MODAL ─── */}
       {isEventModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md shadow-2xl overflow-visible relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 rounded-t-2xl flex items-center justify-between">
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-indigo-600" />
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface rounded-xl border border-border w-full max-w-md shadow-lg overflow-visible relative animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-border rounded-t-xl flex items-center justify-between">
+              <h3 className="text-base font-semibold text-fg flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-accent" />
                 Add Official Holiday / Event
               </h3>
               <button
                 type="button"
                 onClick={() => setIsEventModalOpen(false)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                className="text-fg-muted hover:text-fg p-1.5 rounded-md hover:bg-hover cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -1383,7 +1443,7 @@ export const AttendancePoliciesSection: React.FC = () => {
 
             <form onSubmit={handleCreateHoliday} className="p-6 space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block font-medium text-fg mb-1">
                   Holiday / Event Name
                 </label>
                 <input
@@ -1392,7 +1452,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                   placeholder="e.g. Independence Day or Eid Holiday"
                   value={newEventTitle}
                   onChange={(e) => setNewEventTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                 />
               </div>
 
@@ -1420,7 +1480,7 @@ export const AttendancePoliciesSection: React.FC = () => {
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block font-medium text-fg mb-1">
                   Description / Notes (Optional)
                 </label>
                 <textarea
@@ -1428,22 +1488,22 @@ export const AttendancePoliciesSection: React.FC = () => {
                   placeholder="Additional company notes..."
                   value={newEventDesc}
                   onChange={(e) => setNewEventDesc(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200"
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex justify-end gap-2 pt-4 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setIsEventModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-semibold cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-md text-fg-2 hover:bg-hover border border-border font-medium cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving}
-                  className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer disabled:opacity-50"
+                  className="px-4 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium cursor-pointer disabled:opacity-50"
                 >
                   {isSaving ? 'Adding...' : 'Add Event'}
                 </button>
@@ -1455,31 +1515,31 @@ export const AttendancePoliciesSection: React.FC = () => {
 
       {/* ─── Delete Shift Confirmation Modal ─── */}
       {shiftToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-sm p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-sm font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface rounded-xl border border-border w-full max-w-sm p-6 shadow-lg space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="text-sm font-semibold text-danger-fg flex items-center gap-2">
                 <Trash2 className="w-4 h-4" />
                 Delete Shift Template
               </h3>
               <button
                 type="button"
                 onClick={() => setShiftToDelete(null)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg"
+                className="text-fg-muted hover:text-fg p-1 rounded-md"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              Are you sure you want to delete shift template <strong className="text-zinc-950 dark:text-zinc-100">"{shiftToDelete.name}"</strong>? This will remove this schedule from the system.
+            <p className="text-xs text-fg-2 leading-relaxed">
+              Are you sure you want to delete shift template <strong className="text-fg font-semibold">"{shiftToDelete.name}"</strong>? This will remove this schedule from the system.
             </p>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-border">
               <button
                 type="button"
                 onClick={() => setShiftToDelete(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-md text-xs font-medium text-fg-2 hover:bg-hover border border-border cursor-pointer"
               >
                 Cancel
               </button>
@@ -1487,7 +1547,7 @@ export const AttendancePoliciesSection: React.FC = () => {
                 type="button"
                 disabled={isDeletingShift}
                 onClick={handleConfirmDeleteShift}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer disabled:opacity-50"
+                className="px-3.5 py-1.5 rounded-md text-xs font-medium bg-danger-solid hover:opacity-90 text-white cursor-pointer disabled:opacity-50"
               >
                 {isDeletingShift ? 'Deleting...' : 'Delete Shift'}
               </button>
@@ -1510,47 +1570,47 @@ export const AttendancePoliciesSection: React.FC = () => {
 
       {/* ─── Shift Change Confirmation Modal ─── */}
       {pendingShiftChange && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-sm p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-sm font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-2">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface rounded-xl border border-border w-full max-w-sm p-6 shadow-lg space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="text-sm font-semibold text-accent flex items-center gap-2">
                 <Clock className="w-4 h-4" />
                 Confirm Shift Change
               </h3>
               <button
                 type="button"
                 onClick={() => setPendingShiftChange(null)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg"
+                className="text-fg-muted hover:text-fg p-1 rounded-md"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
-              Are you sure you want to change designated shift for <strong className="text-zinc-950 dark:text-zinc-100">{pendingShiftChange.member.full_name || (pendingShiftChange.member as any).name}</strong>?
+            <p className="text-xs text-fg-2 leading-relaxed">
+              Are you sure you want to change designated shift for <strong className="text-fg font-semibold">{pendingShiftChange.member.full_name || (pendingShiftChange.member as any).name}</strong>?
             </p>
 
-            <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900 border border-zinc-200/70 dark:border-zinc-800 text-xs space-y-1">
-              <div className="text-zinc-500">
-                Current Shift: <span className="font-semibold text-zinc-800 dark:text-zinc-200">{pendingShiftChange.currentShiftName}</span>
+            <div className="p-3 rounded-lg bg-subtle border border-border text-xs space-y-1">
+              <div className="text-fg-muted">
+                Current Shift: <span className="font-medium text-fg">{pendingShiftChange.currentShiftName}</span>
               </div>
-              <div className="text-indigo-600 dark:text-indigo-400 font-bold">
+              <div className="text-accent font-medium">
                 New Shift: <span>{pendingShiftChange.newShiftName}</span>
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-zinc-200 dark:border-zinc-800">
+            <div className="flex justify-end gap-2 pt-3 border-t border-border">
               <button
                 type="button"
                 onClick={() => setPendingShiftChange(null)}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
+                className="px-3.5 py-1.5 rounded-md text-xs font-medium text-fg-2 hover:bg-hover border border-border cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleConfirmShiftChange}
-                className="px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                className="px-3.5 py-1.5 rounded-md text-xs font-medium bg-accent hover:bg-accent-hover text-white cursor-pointer"
               >
                 Confirm Change
               </button>

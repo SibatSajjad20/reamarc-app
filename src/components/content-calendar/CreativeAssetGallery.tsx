@@ -19,12 +19,22 @@ import {
   Link2,
   Play,
   Globe,
+  ChevronDown,
 } from 'lucide-react';
 import type { CreativeAsset, ContentCalendarItem, AssetRole } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
+import { openGoogleDrivePicker } from '../../services/googlePickerService';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl } from '../../utils/fileUrl';
+import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+
+const GoogleDriveIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M8.28 2.85L1.57 14.5L5 20.45L11.71 8.8L8.28 2.85Z" fill="#3777E3" />
+    <path d="M15.72 2.85H8.28L15 14.5H22.43L15.72 2.85Z" fill="#FFCF63" />
+    <path d="M11.71 8.8L5 20.45H19L22.43 14.5L11.71 8.8Z" fill="#11A861" />
+  </svg>
+);
 
 interface CreativeAssetGalleryProps {
   itemId: string;
@@ -110,6 +120,8 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const [assetToDelete, setAssetToDelete] = useState<CreativeAsset | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isOpeningPicker, setIsOpeningPicker] = useState(false);
+  const [showUploadMenu, setShowUploadMenu] = useState(false);
 
   // Add Link Modal State
   const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
@@ -194,6 +206,64 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       setIsUploading(false);
       setUploadProgressText('');
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleOpenGoogleDrivePicker = async () => {
+    if (isUploading || isOpeningPicker) return;
+    setIsOpeningPicker(true);
+    try {
+      const config = await contentCalendarService.getDrivePickerConfig(itemId);
+      if (!config.developer_key) {
+        addToast(
+          'Google API Key Required',
+          'Please configure GOOGLE_DRIVE_API_KEY in your server environment.',
+          'error',
+        );
+        return;
+      }
+      const pickedFiles = await openGoogleDrivePicker({ config });
+      if (!pickedFiles || pickedFiles.length === 0) {
+        return;
+      }
+
+      setIsUploading(true);
+      setUploadProgressText(
+        `Attaching ${pickedFiles.length} file${pickedFiles.length > 1 ? 's' : ''} from Google Drive...`
+      );
+
+      const effectiveRole =
+        pickedFiles.length > 1 && uploadRole === 'primary' ? 'carousel_slide' : uploadRole;
+
+      const updatedItem = await contentCalendarService.attachDriveAssets(
+        itemId,
+        pickedFiles,
+        effectiveRole
+      );
+
+      addToast(
+        'Upload Successful',
+        `${pickedFiles.length} asset${pickedFiles.length > 1 ? 's' : ''} attached via Google Drive.`,
+        'success'
+      );
+
+      if (onAssetsUpdated) {
+        onAssetsUpdated(updatedItem);
+      }
+      if (updatedItem.attachments && updatedItem.attachments.length > 0) {
+        setSelectedIndex(updatedItem.attachments.length - 1);
+      }
+    } catch (err: any) {
+      console.error('Google Drive Picker error:', err);
+      addToast(
+        'Google Drive Error',
+        err.message || 'Could not open Google Drive picker dialog.',
+        'error'
+      );
+    } finally {
+      setIsOpeningPicker(false);
+      setIsUploading(false);
+      setUploadProgressText('');
     }
   };
 
@@ -362,33 +432,33 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       {/* Gallery Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold text-zinc-700 dark:text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-            <ImageIcon className="w-3.5 h-3.5 text-indigo-500" />
+          <span className="text-xs font-semibold text-fg uppercase tracking-wider flex items-center gap-1.5">
+            <ImageIcon className="w-3.5 h-3.5 text-accent-fg" />
             <span>Creative Assets</span>
           </span>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-fg border border-border">
             Total: {assets.length}
           </span>
           {imageCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <ImageIcon className="w-2.5 h-2.5" />
               <span>{imageCount} {imageCount === 1 ? 'image' : 'images'}</span>
             </span>
           )}
           {videoCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <Film className="w-2.5 h-2.5" />
               <span>{videoCount} {videoCount === 1 ? 'video' : 'videos'}</span>
             </span>
           )}
           {linkCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <Link2 className="w-2.5 h-2.5" />
               <span>{linkCount} {linkCount === 1 ? 'link' : 'links'}</span>
             </span>
           )}
           {docCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <FileText className="w-2.5 h-2.5" />
               <span>{docCount} {docCount === 1 ? 'doc' : 'docs'}</span>
             </span>
@@ -400,7 +470,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             <select
               value={uploadRole}
               onChange={(e) => setUploadRole(e.target.value as AssetRole)}
-              className="text-[11px] font-medium py-1 px-2 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 focus:outline-none cursor-pointer"
+              className="text-xs font-medium py-1 px-2 rounded-lg bg-subtle text-fg border border-border focus:outline-hidden cursor-pointer"
               title="Target role for uploads"
             >
               <option value="primary">Primary Deliverable</option>
@@ -413,26 +483,73 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             <button
               type="button"
               onClick={() => setIsAddLinkOpen(true)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 transition shadow-xs cursor-pointer border border-zinc-200 dark:border-zinc-700"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-subtle hover:bg-hover text-fg transition cursor-pointer border border-border"
               title="Add deliverable link (Figma, Canva, Drive, Loom, etc.)"
             >
-              <Link2 className="w-3.5 h-3.5 text-emerald-500" />
+              <Link2 className="w-3.5 h-3.5 text-accent-fg" />
               <span>Add Link</span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isUploading}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-xs cursor-pointer disabled:opacity-50"
-            >
-              {isUploading ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <UploadCloud className="w-3.5 h-3.5" />
+            {/* Upload Button Group: Primary Google Drive, Secondary Local Device Fallback */}
+            <div className="relative inline-flex items-center rounded-lg shadow-xs">
+              <button
+                type="button"
+                onClick={() => void handleOpenGoogleDrivePicker()}
+                disabled={isUploading || isOpeningPicker}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-l-lg bg-accent text-accent-contrast hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+                title="Insert files using Google Drive (Recent, Upload, My Drive, Starred)"
+              >
+                {isUploading || isOpeningPicker ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <GoogleDriveIcon className="w-3.5 h-3.5" />
+                )}
+                <span>Upload</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowUploadMenu((prev) => !prev)}
+                disabled={isUploading || isOpeningPicker}
+                className="px-1 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-contrast hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50"
+                title="More upload options"
+              >
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {showUploadMenu && (
+                <>
+                  <div
+                    className="fixed inset-0 z-20"
+                    onClick={() => setShowUploadMenu(false)}
+                  />
+                  <div className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-surface border border-border shadow-md py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUploadMenu(false);
+                        void handleOpenGoogleDrivePicker();
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-hover flex items-center gap-2 cursor-pointer font-medium"
+                    >
+                      <GoogleDriveIcon className="w-3.5 h-3.5" />
+                      <span>Google Drive Dialog</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUploadMenu(false);
+                        fileInputRef.current?.click();
+                      }}
+                      className="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-hover flex items-center gap-2 cursor-pointer font-medium"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Direct Device Upload</span>
+                    </button>
+                  </div>
+                </>
               )}
-              <span>Upload</span>
-            </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -449,11 +566,11 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Main Asset Viewer Stage */}
       {assets.length > 0 && activeAsset ? (
-        <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-950/90 overflow-hidden relative group">
+        <div className="rounded-xl border border-border bg-canvas overflow-hidden relative group">
           {/* Top Bar Overlay: Role & Filename & Controls */}
-          <div className="absolute top-0 left-0 right-0 z-10 px-4 py-2.5 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between gap-3 text-white">
+          <div className="absolute top-0 left-0 right-0 z-10 px-4 py-2.5 bg-overlay border-b border-white/10 flex items-center justify-between gap-3 text-white">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-indigo-500/80 text-white shrink-0">
+              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-accent text-accent-fg shrink-0">
                 {getRoleLabel(activeAsset.role)}
               </span>
               <span className="text-xs font-medium truncate opacity-90" title={activeAsset.filename}>
@@ -544,7 +661,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 <video
                   key={activeAsset.url}
                   src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  poster={activeAsset.thumbnail_url ? (getBackendFileUrl(activeAsset.thumbnail_url) || activeAsset.thumbnail_url) : undefined}
+                  poster={isRealThumbnailUrl(activeAsset.thumbnail_url) ? (getBackendFileUrl(activeAsset.thumbnail_url!) || activeAsset.thumbnail_url!) : undefined}
                   controls
                   playsInline
                   preload="auto"
@@ -557,18 +674,18 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             ) : activeAsset.kind === 'link' ? (
               /* Link Presentation */
               <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-2xl bg-zinc-800/80 text-emerald-400 border border-zinc-700/80">
+                <div className="p-4 rounded-xl bg-subtle text-accent-fg border border-border">
                   <Globe className="w-10 h-10" />
                 </div>
                 <div className="max-w-md space-y-1.5">
-                  <h4 className="text-sm font-bold text-white break-all">
+                  <h4 className="text-sm font-semibold text-white break-all">
                     {activeAsset.filename}
                   </h4>
                   <a
                     href={safeHttpUrl(activeAsset.url) || undefined}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="text-xs text-indigo-400 hover:text-indigo-300 break-all inline-flex items-center gap-1 underline underline-offset-2"
+                    className="text-xs text-accent-fg hover:underline break-all inline-flex items-center gap-1"
                   >
                     <span>{activeAsset.url}</span>
                     <ExternalLink className="w-3 h-3 shrink-0" />
@@ -579,7 +696,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                     href={safeHttpUrl(activeAsset.url) || undefined}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-medium bg-accent text-accent-fg hover:opacity-90 transition cursor-pointer"
                   >
                     <ExternalLink className="w-3.5 h-3.5" />
                     <span>Open in New Tab</span>
@@ -587,7 +704,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     onClick={() => copyAssetUrl(activeAsset.url, activeAsset.id)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
                   >
                     {copiedId === activeAsset.id ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                     <span>Copy URL</span>
@@ -597,14 +714,14 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             ) : (
               /* Document Card Presentation */
               <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-2xl bg-zinc-800/80 text-indigo-400 border border-zinc-700/80">
+                <div className="p-4 rounded-xl bg-subtle text-accent-fg border border-border">
                   <FileText className="w-10 h-10" />
                 </div>
                 <div className="max-w-sm space-y-1">
-                  <h4 className="text-sm font-bold text-white break-all">
+                  <h4 className="text-sm font-semibold text-white break-all">
                     {activeAsset.filename}
                   </h4>
-                  <p className="text-xs text-zinc-400">
+                  <p className="text-xs text-fg-subtle">
                     Document deliverable • {formatBytes(activeAsset.size_bytes)}
                   </p>
                 </div>
@@ -612,7 +729,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     onClick={() => void openFileAttachment(activeAsset.url, activeAsset.filename)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-white/10 hover:bg-white/20 text-white transition border border-white/10 cursor-pointer"
                   >
                     <Eye className="w-3.5 h-3.5" />
                     <span>View Document</span>
@@ -620,7 +737,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     onClick={() => void downloadFileAttachment(activeAsset.url, activeAsset.filename)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm cursor-pointer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-accent text-accent-fg hover:opacity-90 transition cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     <span>Download</span>
@@ -666,12 +783,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       {/* Thumbnail Navigation Strip & Reordering */}
       {assets.length > 1 && (
         <div className="space-y-1.5">
-          <div className="flex items-center justify-between text-[11px] text-zinc-400">
+          <div className="flex items-center justify-between text-xs text-fg-muted">
             <span>
               Carousel & Deliverable Slides ({assets.length})
             </span>
             {!readOnly && (
-              <span className="text-[10px] text-zinc-400">
+              <span className="text-[10px] text-fg-muted">
                 Use arrows to reorder slide sequence
               </span>
             )}
@@ -688,21 +805,21 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   onDragOver={(e) => handleSlideDragOver(e, idx)}
                   onDrop={(e) => handleSlideDrop(e, idx)}
                   onDragEnd={handleSlideDragEnd}
-                  className={`relative group shrink-0 rounded-xl overflow-hidden border transition-all duration-200 cursor-pointer select-none ${
+                  className={`relative group shrink-0 rounded-md overflow-hidden border transition-all duration-200 cursor-pointer select-none ${
                     draggedSlideIndex === idx
-                      ? 'opacity-40 scale-95 border-indigo-400 ring-2 ring-indigo-400/40'
+                      ? 'opacity-40 scale-95 border-accent ring-2 ring-accent/40'
                       : dragOverSlideIndex === idx
-                      ? 'scale-105 border-indigo-500 ring-2 ring-indigo-500 shadow-md'
+                      ? 'scale-105 border-accent ring-2 ring-accent shadow-md'
                       : isSelected
-                      ? 'border-indigo-600 ring-2 ring-indigo-500/40 shadow-xs'
-                      : 'border-zinc-200 dark:border-zinc-800 opacity-80 hover:opacity-100 hover:border-zinc-300 dark:hover:border-zinc-700'
+                      ? 'border-accent ring-2 ring-accent/40 shadow-xs'
+                      : 'border-border opacity-80 hover:opacity-100 hover:border-border-strong'
                   }`}
                   onClick={() => {
                     setSelectedIndex(idx);
                     setSelectedAssetId(asset.id);
                   }}
                 >
-                  <div className="w-20 h-16 bg-zinc-900 flex items-center justify-center overflow-hidden">
+                  <div className="w-24 h-24 bg-subtle flex items-center justify-center overflow-hidden">
                     {asset.kind === 'image' ? (
                       <img
                         src={getBackendFileUrl(asset.thumbnail_url || asset.url) || asset.thumbnail_url || asset.url}
@@ -714,10 +831,10 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                         }}
                       />
                     ) : asset.kind === 'video' ? (
-                      <div className="relative w-full h-full bg-zinc-950 flex items-center justify-center">
-                        {asset.thumbnail_url ? (
+                      <div className="relative w-full h-full bg-canvas flex items-center justify-center">
+                        {isRealThumbnailUrl(asset.thumbnail_url) ? (
                           <img
-                            src={getBackendFileUrl(asset.thumbnail_url) || asset.thumbnail_url}
+                            src={getBackendFileUrl(asset.thumbnail_url!) || asset.thumbnail_url!}
                             alt={asset.filename}
                             className="w-full h-full object-cover"
                             loading="lazy"
@@ -734,33 +851,33 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                         <div className="absolute inset-0 bg-black/25 flex items-center justify-center pointer-events-none">
                           <Play className="w-4 h-4 fill-white text-white drop-shadow-xs" />
                         </div>
-                        <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/75 text-white text-[8px] font-bold">
+                        <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/75 text-white text-[8px] font-semibold">
                           Video
                         </span>
                       </div>
                     ) : asset.kind === 'link' ? (
-                      <div className="flex flex-col items-center justify-center text-zinc-300 p-1 w-full h-full bg-zinc-900">
-                        <Link2 className="w-5 h-5 text-emerald-400" />
-                        <span className="text-[9px] font-semibold mt-0.5 text-center truncate max-w-[68px]">
+                      <div className="flex flex-col items-center justify-center text-fg-muted p-1 w-full h-full bg-subtle">
+                        <Link2 className="w-5 h-5 text-accent" />
+                        <span className="text-[9px] font-semibold mt-0.5 text-center truncate max-w-[80px]">
                           {asset.filename || 'Link'}
                         </span>
                       </div>
                     ) : (
-                      <div className="flex flex-col items-center justify-center text-zinc-300">
-                        <FileText className="w-5 h-5 text-amber-400" />
+                      <div className="flex flex-col items-center justify-center text-fg-muted">
+                        <FileText className="w-5 h-5 text-accent" />
                         <span className="text-[9px] font-semibold mt-0.5">Doc</span>
                       </div>
                     )}
                   </div>
 
                   {/* Slide index number tag */}
-                  <span className="absolute top-1 left-1 px-1.5 py-0.2 rounded-md text-[9px] font-bold bg-black/75 text-white backdrop-blur-xs shadow-xs pointer-events-none">
+                  <span className="absolute top-1 left-1 px-1.5 py-0.2 rounded-md text-[9px] font-semibold bg-overlay text-white pointer-events-none">
                     {idx + 1}
                   </span>
 
                   {/* Non-intrusive reorder controls on hover */}
                   {!readOnly && assets.length > 1 && (
-                    <div className="absolute inset-x-0 bottom-0 h-6 bg-gradient-to-t from-black/90 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-between px-1 z-10">
+                    <div className="absolute inset-x-0 bottom-0 h-6 bg-overlay opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-between px-1 z-10">
                       {idx > 0 ? (
                         <button
                           type="button"
@@ -807,41 +924,41 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
           onDragOver={onDragOver}
           onDragLeave={onDragLeave}
           onDrop={onDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`rounded-2xl border-2 border-dashed p-4 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
+          onClick={() => void handleOpenGoogleDrivePicker()}
+          className={`rounded-lg border-2 border-dashed p-4 flex flex-col items-center justify-center text-center transition-all cursor-pointer ${
             isDraggingOver
-              ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/30'
-              : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/20'
+              ? 'border-accent bg-accent-soft/30'
+              : 'border-border-strong hover:border-accent hover:bg-subtle/50 bg-subtle/30'
           }`}
         >
-          <div className="p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 mb-2">
-            {isUploading ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
+          <div className="p-2.5 rounded-lg bg-surface text-fg border border-border mb-2 shadow-xs">
+            {isUploading || isOpeningPicker ? (
+              <Loader2 className="w-5 h-5 animate-spin text-accent" />
             ) : (
-              <UploadCloud className="w-5 h-5" />
+              <GoogleDriveIcon className="w-5 h-5" />
             )}
           </div>
-          <p className="text-xs font-bold text-zinc-700 dark:text-zinc-300">
-            {isUploading
-              ? uploadProgressText
+          <p className="text-xs font-semibold text-fg">
+            {isUploading || isOpeningPicker
+              ? uploadProgressText || 'Opening Google Drive...'
               : isDraggingOver
               ? 'Drop creative assets here'
-              : 'Drag & drop media or click to browse'}
+              : 'Insert files using Google Drive or drop files here'}
           </p>
-          <p className="text-[11px] text-zinc-400 mt-0.5">
-            Videos (MP4, WebM up to 250MB) • Images (PNG, JPG, WebP, SVG) • Docs (PDF, Word up to 50MB)
+          <p className="text-xs text-fg-muted mt-0.5">
+            Google Drive (Recent, Upload, My Drive, Starred) • Videos up to 250MB • Images & Docs up to 50MB
           </p>
         </div>
       )}
 
       {/* Empty State when readOnly and no assets */}
       {readOnly && assets.length === 0 && (
-        <div className="p-6 rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/20 text-center space-y-1">
-          <ImageIcon className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-1.5" />
-          <h4 className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-            No Creative Deliverables Attached
+        <div className="p-6 rounded-lg border border-dashed border-border bg-subtle/30 text-center space-y-1">
+          <ImageIcon className="w-8 h-8 text-fg-muted mx-auto mb-1.5" />
+          <h4 className="text-xs font-semibold text-fg">
+            No creative deliverables attached
           </h4>
-          <p className="text-[11px] text-zinc-400">
+          <p className="text-xs text-fg-muted">
             The creative team has not uploaded visual assets for this campaign yet.
           </p>
         </div>
@@ -849,17 +966,17 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Fullscreen Lightbox Modal */}
       {isLightboxOpen && activeAsset && activeAsset.kind === 'image' && (
-        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col backdrop-blur-sm animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-50 bg-black/95 flex flex-col animate-in fade-in duration-200">
           {/* Header */}
           <div className="px-6 py-4 flex items-center justify-between text-white border-b border-white/10 shrink-0">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">
+              <span className="text-xs font-semibold uppercase tracking-wider text-accent-fg">
                 {getRoleLabel(activeAsset.role)}
               </span>
               <span className="text-sm font-semibold truncate max-w-md">
                 {activeAsset.filename}
               </span>
-              <span className="text-xs text-zinc-400">
+              <span className="text-xs text-fg-muted">
                 ({selectedIndex + 1} of {assets.length})
               </span>
             </div>
@@ -923,18 +1040,18 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Delete Confirmation Modal */}
       {assetToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-5 space-y-4 shadow-xl">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="w-full max-w-sm rounded-xl bg-surface border border-border p-5 space-y-4 shadow-lg">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-xl bg-rose-50 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400">
+              <div className="p-2 rounded-lg bg-danger-subtle text-danger-fg">
                 <AlertCircle className="w-5 h-5" />
               </div>
               <div className="space-y-1">
-                <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                <h4 className="text-sm font-semibold text-fg">
                   Delete Creative Asset?
                 </h4>
-                <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                  Are you sure you want to remove <strong className="text-zinc-800 dark:text-zinc-200">"{assetToDelete.filename}"</strong>? This file will be permanently deleted from storage.
+                <p className="text-xs text-fg-muted leading-relaxed">
+                  Are you sure you want to remove <strong className="text-fg">"{assetToDelete.filename}"</strong>? This file will be permanently deleted from storage.
                 </p>
               </div>
             </div>
@@ -944,7 +1061,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 type="button"
                 disabled={isDeleting}
                 onClick={() => setAssetToDelete(null)}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-fg bg-subtle hover:bg-hover border border-border transition cursor-pointer"
               >
                 Cancel
               </button>
@@ -952,7 +1069,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 type="button"
                 disabled={isDeleting}
                 onClick={() => void handleDeleteConfirmed()}
-                className="px-3.5 py-1.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-700 text-white transition shadow-xs cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-danger-solid hover:opacity-90 text-white transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
               >
                 {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                 <span>Delete Asset</span>
@@ -964,18 +1081,18 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Add Deliverable Link Modal */}
       {isAddLinkOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-6 space-y-4 shadow-2xl">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4 animate-in fade-in duration-150">
+          <div className="w-full max-w-md rounded-xl bg-surface border border-border p-6 space-y-4 shadow-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/60">
+                <div className="p-2 rounded-lg bg-subtle text-accent-fg border border-border">
                   <Link2 className="w-5 h-5" />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                  <h4 className="text-sm font-semibold text-fg">
                     Add Deliverable Link
                   </h4>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                  <p className="text-xs text-fg-muted">
                     Attach external Figma, Canva, Drive, Loom, or asset links
                   </p>
                 </div>
@@ -983,7 +1100,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               <button
                 type="button"
                 onClick={() => setIsAddLinkOpen(false)}
-                className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                className="p-1 rounded-md text-fg-muted hover:text-fg"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -991,8 +1108,8 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
             <form onSubmit={handleAddLinkSubmit} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
-                  URL / Web Address <span className="text-rose-500">*</span>
+                <label className="block text-xs font-medium text-fg mb-1">
+                  URL / Web Address <span className="text-danger-fg">*</span>
                 </label>
                 <input
                   type="url"
@@ -1000,12 +1117,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   placeholder="https://www.figma.com/file/... or https://drive.google.com/..."
                   value={linkUrl}
                   onChange={(e) => setLinkUrl(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40"
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-subtle border border-border text-fg placeholder:text-fg-muted focus:outline-hidden focus:border-accent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block text-xs font-medium text-fg mb-1">
                   Title / Label
                 </label>
                 <input
@@ -1013,18 +1130,18 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   placeholder="e.g. Figma Prototype, Final Video Asset, Copy Doc"
                   value={linkTitle}
                   onChange={(e) => setLinkTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40"
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-subtle border border-border text-fg placeholder:text-fg-muted focus:outline-hidden focus:border-accent"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block text-xs font-medium text-fg mb-1">
                   Deliverable Role
                 </label>
                 <select
                   value={linkRole}
                   onChange={(e) => setLinkRole(e.target.value as AssetRole)}
-                  className="w-full px-3 py-2 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-800/80 border border-zinc-300 dark:border-zinc-700 text-zinc-900 dark:text-zinc-100 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/40 cursor-pointer"
+                  className="w-full px-3 py-2 rounded-lg text-xs bg-subtle border border-border text-fg focus:outline-hidden focus:border-accent cursor-pointer"
                 >
                   <option value="primary">Primary Deliverable</option>
                   <option value="reference">Reference / Brief</option>
@@ -1034,19 +1151,19 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 </select>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                 <button
                   type="button"
                   disabled={isSubmittingLink}
                   onClick={() => setIsAddLinkOpen(false)}
-                  className="px-3.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-fg bg-subtle hover:bg-hover border border-border transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSubmittingLink || !linkUrl.trim()}
-                  className="px-4 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-xs cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-accent-fg hover:opacity-90 transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
                 >
                   {isSubmittingLink && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>Add Link</span>

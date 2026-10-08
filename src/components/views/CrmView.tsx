@@ -18,8 +18,14 @@ import { canAssignCrmLeads } from '../../utils/crmAccess';
 import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 import { followUpBucket, isClosedLeadOutcome } from '../../utils/followUpBuckets';
 import { formatOpenDealTotals } from '../../utils/money';
-import { NEUTRAL_METADATA_BADGE_CLASS } from '../../utils/badgeStyles';
+import { getInitials } from '../../utils/badgeStyles';
 import { CustomSelect } from '../ui/CustomSelect';
+import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/button';
+import { SegmentedControl } from '../ui/SegmentedControl';
+import { StatusPill } from '../ui/StatusPill';
+import { KanbanSkeleton } from '../ui/Skeletons';
+import { TableCard, Table, THead, TH, TBody, TR, TD, TableSkeletonRows } from '../ui/DataTable';
 import { CrmCreateLeadModal } from '../crm/CrmCreateLeadModal';
 import { CrmKanbanBoard } from '../crm/CrmKanbanBoard';
 import { CrmDealKanbanBoard } from '../crm/CrmDealKanbanBoard';
@@ -37,7 +43,6 @@ import {
   DEAL_LOST_REASON_OPTIONS,
   LEAD_LOST_REASON_OPTIONS,
 } from '../crm/CrmLostReasonModal';
-import { CrmStatusBadge } from '../crm/CrmStatusBadge';
 import { ApiError } from '../../services/apiClient';
 import type {
   CrmAssignee,
@@ -60,37 +65,7 @@ function formatWhen(iso?: string | null): string {
 function CrmBoardSkeleton() {
   return (
     <div className="flex-1 overflow-x-auto overflow-y-hidden px-5 py-4 custom-scrollbar">
-      <div className="h-full flex gap-3 min-w-min">
-        {[1, 2, 3, 4, 5].map((col) => (
-          <div
-            key={col}
-            className="min-w-[230px] w-[240px] flex-shrink-0 border border-zinc-200/80 dark:border-zinc-800/80 rounded-2xl bg-zinc-100/40 dark:bg-[#12141e]/40 p-3 space-y-3 animate-pulse"
-          >
-            <div className="flex items-center justify-between pb-2 border-b border-zinc-200/60 dark:border-zinc-800/60">
-              <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-              <div className="h-4 w-6 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
-            </div>
-            <div className="space-y-2.5">
-              {[1, 2, 3].map((card) => (
-                <div
-                  key={card}
-                  className="rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white/70 dark:bg-[#151722]/70 p-3 space-y-2.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                    <div className="h-2 w-2 rounded-full bg-zinc-200 dark:bg-zinc-800" />
-                  </div>
-                  <div className="h-3 w-36 bg-zinc-100 dark:bg-zinc-800/60 rounded" />
-                  <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/60 flex items-center justify-between">
-                    <div className="h-4 w-12 bg-zinc-100 dark:bg-zinc-800 rounded" />
-                    <div className="h-5 w-5 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+      <KanbanSkeleton columns={5} />
     </div>
   );
 }
@@ -98,54 +73,9 @@ function CrmBoardSkeleton() {
 function CrmTableSkeleton() {
   return (
     <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-      <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800/90 bg-white dark:bg-[#11131a] shadow-xs">
-        <table className="w-full text-left text-xs border-collapse">
-          <thead>
-            <tr className="bg-zinc-50/80 dark:bg-[#161822] text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold uppercase tracking-wider text-[11px]">
-              <th className="py-2.5 px-4">Lead</th>
-              <th className="py-2.5 px-4">Contact</th>
-              <th className="py-2.5 px-4">Source</th>
-              <th className="py-2.5 px-4">Stage</th>
-              <th className="py-2.5 px-4">Assigned</th>
-              <th className="py-2.5 px-4">Last Activity</th>
-              <th className="py-2.5 px-4 text-right">Status</th>
-              <th className="py-2.5 px-3 w-12 text-center"></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 animate-pulse">
-            {[1, 2, 3, 4, 5, 6, 7, 8].map((row) => (
-              <tr key={row}>
-                <td className="py-3 px-4">
-                  <div className="h-3.5 w-32 bg-zinc-200 dark:bg-zinc-800 rounded mb-1" />
-                  <div className="h-2.5 w-20 bg-zinc-100 dark:bg-zinc-800/60 rounded" />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="h-3.5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded mb-1" />
-                  <div className="h-2.5 w-36 bg-zinc-100 dark:bg-zinc-800/60 rounded" />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="h-4 w-16 bg-zinc-100 dark:bg-zinc-800 rounded" />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="h-4 w-20 bg-zinc-100 dark:bg-zinc-800 rounded" />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="h-4 w-24 bg-zinc-100 dark:bg-zinc-800 rounded" />
-                </td>
-                <td className="py-3 px-4">
-                  <div className="h-3.5 w-16 bg-zinc-100 dark:bg-zinc-800 rounded" />
-                </td>
-                <td className="py-3 px-4 text-right">
-                  <div className="h-5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-full ml-auto" />
-                </td>
-                <td className="py-3 px-3 text-center">
-                  <div className="h-4 w-4 bg-zinc-100 dark:bg-zinc-800 rounded mx-auto" />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <TableCard>
+        <TableSkeletonRows rows={8} />
+      </TableCard>
     </div>
   );
 }
@@ -299,7 +229,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       if (err?.status === 429) {
         setRateLimited(true);
       }
-      addToast('Sales Pipeline failed to load', err.message || 'Try again.', 'warning');
+      addToast('Sales Pipeline failed to load', err.message || 'Try again.', 'error');
     } finally {
       if (reqId === loadReqIdRef.current) {
         setIsLoading(false);
@@ -408,7 +338,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       }
       void crmService.getCounts().then(setCounts).catch(() => undefined);
     } catch (err: any) {
-      addToast('Could not delete lead', err.message || 'Try again.', 'warning');
+      addToast('Could not delete lead', err.message || 'Try again.', 'error');
     }
   };
 
@@ -431,7 +361,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       } catch (err: any) {
         if (err?.name === 'AbortError' || err?.status === 499) return;
         if (reqId !== detailReqIdRef.current || selectedIdRef.current !== id) return;
-        addToast('Could not open lead', err.message || 'Try again.', 'warning');
+        addToast('Could not open lead', err.message || 'Try again.', 'error');
         if (selectedIdRef.current === id) {
           selectedIdRef.current = null;
           setSelectedId(null);
@@ -482,7 +412,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       await fn();
       await refreshOpen(selectedId);
     } catch (err: any) {
-      addToast('CRM action failed', err.message || 'Try again.', 'warning');
+      addToast('CRM action failed', err.message || 'Try again.', 'error');
     } finally {
       setBusy(false);
     }
@@ -629,172 +559,118 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   }
 
   return (
-    <div className="flex-1 flex h-full min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
+    <div className="flex-1 flex h-full min-w-0 overflow-hidden bg-canvas">
       <div className="flex-1 flex flex-col min-w-0">
         {/* Top Header */}
-        <header className="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50 truncate">
-              {viewMode === 'deals'
-                ? 'Deal Pipeline'
+        <div className="px-5 py-3 border-b border-border bg-surface shrink-0">
+          <PageHeader
+            title={
+              <div className="flex items-center gap-2.5">
+                <span>
+                  {viewMode === 'deals'
+                    ? 'Deal pipeline'
+                    : viewMode === 'followup'
+                      ? 'Follow-ups'
+                      : viewMode === 'list'
+                        ? 'All leads'
+                        : 'Sales pipeline'}
+                </span>
+                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-subtle text-fg-muted border border-border font-numeric">
+                  {viewMode === 'deals'
+                    ? `${pipelineDeals.length}`
+                    : `${quickFilter === 'all' ? activeLeadCount : displayLeads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length}`}
+                </span>
+                {isRefreshing && (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted">
+                    <span className="w-3 h-3 rounded-full border-2 border-border border-t-accent motion-safe:animate-spin" />
+                    Updating…
+                  </span>
+                )}
+              </div>
+            }
+            description={
+              viewMode === 'deals'
+                ? 'Qualified commercial opportunities with expected revenue.'
                 : viewMode === 'followup'
-                  ? 'Follow-ups'
-                  : viewMode === 'list'
-                    ? 'All Leads'
-                    : 'Sales Pipeline'}
-            </h1>
-            <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-numeric shrink-0">
-              {viewMode === 'deals'
-                ? `${pipelineDeals.length}`
-                : `${quickFilter === 'all' ? activeLeadCount : displayLeads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length}`}
-            </span>
-            {isRefreshing && (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-medium text-zinc-400 dark:text-zinc-500">
-                <span className="w-3 h-3 rounded-full border-2 border-zinc-300 dark:border-zinc-600 border-t-indigo-500 motion-safe:animate-spin" />
-                Updating…
-              </span>
-            )}
-          </div>
-
-          <div className="flex items-center gap-2">
-            {canAssign && (
-              <button
-                type="button"
-                onClick={() => handleToggleViewMode('settings')}
-                className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-semibold transition cursor-pointer"
-                title="Pipeline Settings (Templates, Ingest Sources, Rules & Team)"
-              >
-                <SlidersHorizontal className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">Settings</span>
-              </button>
-            )}
-            {viewMode === 'deals' ? (
-              <CrmWonLeadMenu onSelect={openDealForWonLead} />
-            ) : (
-              <button
-                type="button"
-                onClick={() => setCreateOpen(true)}
-                className="h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                New lead
-              </button>
-            )}
-          </div>
-        </header>
+                  ? 'Scheduled touchpoints across all active leads.'
+                  : 'Leads from Meta, Google and website forms, by stage.'
+            }
+            actions={
+              <>
+                {!isLoading && alertHudVisible && (
+                  viewMode === 'deals' ? (
+                    <div className="flex items-center gap-3 text-xs me-2">
+                      <span><strong className="font-semibold font-numeric text-fg">{openDeals.length}</strong> <span className="text-fg-muted">open deals</span></span>
+                      {openDealValueLabel && <span><strong className="font-semibold font-numeric text-fg">{openDealValueLabel}</strong> <span className="text-fg-muted">pipeline</span></span>}
+                      {pendingOpsDealCount > 0 && <span><strong className="font-semibold font-numeric text-warning">{pendingOpsDealCount}</strong> <span className="text-fg-muted">pending ops</span></span>}
+                      {counts.win_rate != null && <span><strong className="font-semibold font-numeric text-fg">{counts.win_rate}%</strong> <span className="text-fg-muted">win rate</span></span>}
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-3 text-xs me-2">
+                      <span><strong className="font-semibold font-numeric text-fg">{activeLeadCount}</strong> <span className="text-fg-muted">open leads</span></span>
+                      {counts.win_rate != null && <span><strong className="font-semibold font-numeric text-fg">{counts.win_rate}%</strong> <span className="text-fg-muted">win rate</span></span>}
+                      {counts.uncontacted > 0 && <span><strong className="font-semibold font-numeric text-warning">{counts.uncontacted}</strong> <span className="text-fg-muted">uncontacted</span></span>}
+                      {overdueFollowUpCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => setQuickFilter('overdue')}
+                          className="cursor-pointer hover:underline text-xs"
+                        >
+                          <strong className="font-semibold font-numeric text-danger">{overdueFollowUpCount}</strong> <span className="text-fg-muted">follow-up overdue</span>
+                        </button>
+                      )}
+                      {counts.opened_not_confirmed > 0 && <span><strong className="font-semibold font-numeric text-warning">{counts.opened_not_confirmed}</strong> <span className="text-fg-muted">opened, not confirmed</span></span>}
+                      {pendingClientFormCount > 0 && <span><strong className="font-semibold font-numeric text-warning">{pendingClientFormCount}</strong> <span className="text-fg-muted">need client form</span></span>}
+                    </div>
+                  )
+                )}
+                {canAssign && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => handleToggleViewMode('settings')}
+                    title="Pipeline Settings (Templates, Ingest Sources, Rules & Team)"
+                  >
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    <span className="hidden sm:inline">Settings</span>
+                  </Button>
+                )}
+                {viewMode === 'deals' ? (
+                  <CrmWonLeadMenu onSelect={openDealForWonLead} />
+                ) : (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => setCreateOpen(true)}
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    New lead
+                  </Button>
+                )}
+              </>
+            }
+            className="mb-0"
+          />
+        </div>
 
         {/* Rate limit notification */}
         {rateLimited && (
-          <div className="px-5 py-2 bg-amber-500/10 border-b border-amber-500/20 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+          <div className="px-5 py-2 bg-warning-subtle border-b border-warning-border text-warning-fg text-xs flex items-center gap-2 shrink-0">
+            <AlertCircle className="w-4 h-4 text-warning-fg shrink-0" />
             <span>Rate limit reached. Automatic sync paused briefly and will resume in 30 seconds.</span>
           </div>
         )}
 
-        {/* Alert-only operational strip */}
-        {!isLoading && alertHudVisible && (
-          <div className="px-5 py-1.5 border-b border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/50 dark:bg-zinc-900/30 flex flex-wrap items-center gap-2 text-xs">
-            {viewMode === 'deals' ? (
-              <>
-                {openDeals.length > 0 && (
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800"
-                    title="Open deals"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-zinc-400" />
-                    <span className="font-bold font-numeric text-zinc-900 dark:text-zinc-100">
-                      {openDeals.length}
-                    </span>
-                    <span className="text-zinc-500 dark:text-zinc-400 font-medium">open</span>
-                    {openDealValueLabel && (
-                      <span className="font-numeric font-semibold text-zinc-700 dark:text-zinc-300">
-                        · {openDealValueLabel}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {pendingOpsDealCount > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 motion-safe:animate-pulse" />
-                    <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
-                      {pendingOpsDealCount}
-                    </span>
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">pending ops</span>
-                  </div>
-                )}
-                {counts.win_rate != null && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800 ms-auto">
-                    <span className="text-zinc-500 dark:text-zinc-400 font-medium">Win rate</span>
-                    <span className="font-bold font-numeric text-zinc-900 dark:text-zinc-100">
-                      {counts.win_rate}%
-                    </span>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                {counts.uncontacted > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 motion-safe:animate-pulse" />
-                    <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
-                      {counts.uncontacted}
-                    </span>
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">uncontacted</span>
-                  </div>
-                )}
-                {overdueFollowUpCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => setQuickFilter('overdue')}
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-rose-200/80 dark:border-rose-800/60 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-                  >
-                    <span className="w-2 h-2 rounded-full bg-rose-500 motion-safe:animate-pulse" />
-                    <span className="font-bold font-numeric text-rose-700 dark:text-rose-400">
-                      {overdueFollowUpCount}
-                    </span>
-                    <span className="text-rose-700 dark:text-rose-400 font-medium">follow-up due</span>
-                  </button>
-                )}
-                {counts.opened_not_confirmed > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
-                    <span className="w-2 h-2 rounded-full bg-amber-400" />
-                    <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
-                      {counts.opened_not_confirmed}
-                    </span>
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">opened, not confirmed</span>
-                  </div>
-                )}
-                {pendingClientFormCount > 0 && (
-                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-900 border border-amber-200/80 dark:border-amber-800/60">
-                    <span className="w-2 h-2 rounded-full bg-amber-500 motion-safe:animate-pulse" />
-                    <span className="font-bold font-numeric text-amber-700 dark:text-amber-400">
-                      {pendingClientFormCount}
-                    </span>
-                    <span className="text-amber-700 dark:text-amber-400 font-medium">need client form</span>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        )}
-
-        {isLoading && (
-          <div className="px-5 py-1.5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center gap-2 animate-pulse">
-            <div className="h-7 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
-            <div className="h-7 w-28 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
-          </div>
-        )}
-
         {/* Filter & View Toolbar */}
-        <div className="px-5 py-2.5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-zinc-950 flex flex-wrap items-center justify-between gap-2.5">
+        <div className="px-5 py-2.5 border-b border-border bg-surface flex flex-wrap items-center justify-between gap-2.5 shrink-0">
           <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
             <div className="relative flex-1 min-w-[180px] max-w-xs">
-              <Search className="w-3.5 h-3.5 absolute start-3 top-1/2 -translate-y-1/2 text-zinc-400" />
+              <Search className="w-3.5 h-3.5 absolute start-3 top-1/2 -translate-y-1/2 text-fg-muted" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name, phone, company..."
-                className="w-full h-8 ps-8.5 pe-3 rounded-lg border border-zinc-200 dark:border-zinc-700/80 bg-zinc-50/70 dark:bg-zinc-900/70 text-xs focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none transition-all text-zinc-900 dark:text-zinc-100"
+                className="w-full h-8 ps-8.5 pe-3 rounded-md border border-input bg-surface text-xs text-fg placeholder:text-fg-muted focus:ring-1 focus:ring-accent focus:border-accent focus:outline-none transition-colors"
               />
             </div>
             {viewMode !== 'deals' && (
@@ -809,62 +685,37 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             )}
 
             {viewMode !== 'deals' && viewMode !== 'followup' && (
-              <div className="flex items-center gap-1 bg-zinc-100/80 dark:bg-zinc-800/80 p-0.5 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60">
-                {(
-                  [
-                    ['all', 'All'],
-                    ['overdue', 'Overdue'],
-                    ['today', 'Today'],
-                    ['scheduled', 'Scheduled'],
-                    ['idle', 'Idle'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    onClick={() => setQuickFilter(id)}
-                    className={`h-8 px-2.5 rounded-md text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                      quickFilter === id
-                        ? 'bg-white dark:bg-zinc-900 text-zinc-900 dark:text-zinc-100'
-                        : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+              <SegmentedControl
+                size="sm"
+                value={quickFilter}
+                onValueChange={(val) => setQuickFilter(val as any)}
+                options={[
+                  { value: 'all', label: 'All' },
+                  { value: 'overdue', label: 'Overdue' },
+                  { value: 'today', label: 'Today' },
+                  { value: 'scheduled', label: 'Scheduled' },
+                  { value: 'idle', label: 'Idle' },
+                ]}
+              />
             )}
           </div>
 
-          <div className="flex items-center gap-0.5 bg-zinc-100/80 dark:bg-zinc-800/80 p-0.5 rounded-lg border border-zinc-200/60 dark:border-zinc-700/60">
-            {(
-              [
-                { mode: 'board' as const, icon: LayoutGrid, label: 'Leads' },
-                { mode: 'deals' as const, icon: Briefcase, label: 'Deals' },
-                { mode: 'list' as const, icon: List, label: 'List' },
-                { mode: 'followup' as const, icon: Clock, label: 'Follow-ups' },
-              ] as const
-            ).map(({ mode, icon: Icon, label }) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => handleToggleViewMode(mode)}
-                className={`h-8 px-3 inline-flex items-center gap-1.5 text-xs font-semibold rounded-md transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${
-                  viewMode === mode
-                    ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-100'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
-                }`}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {label}
-                {mode === 'followup' && dueFollowUpsCount > 0 && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white leading-none font-numeric">
-                    {dueFollowUpsCount}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={viewMode}
+            onValueChange={(val) => handleToggleViewMode(val as any)}
+            size="sm"
+            options={[
+              { value: 'board', label: 'Leads', icon: LayoutGrid },
+              { value: 'deals', label: 'Deals', icon: Briefcase },
+              { value: 'list', label: 'List', icon: List },
+              {
+                value: 'followup',
+                label: 'Follow-ups',
+                icon: Clock,
+                count: dueFollowUpsCount > 0 ? dueFollowUpsCount : undefined,
+              },
+            ]}
+          />
         </div>
 
         {/* View Mode Content */}
@@ -907,7 +758,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               try {
                 await crmService.updateDeal(dealId, { stage: nextStage, status: 'open' });
               } catch (err: any) {
-                addToast('Could not move deal', err.message || 'Try again.', 'warning');
+                addToast('Could not move deal', err.message || 'Try again.', 'error');
                 await loadDeals();
               }
             }}
@@ -956,7 +807,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                 await crmService.updateLead(leadId, { stage: nextStage });
                 if (selectedId === leadId) await refreshOpen(leadId);
               } catch (err: any) {
-                addToast('Could not move lead', err.message || 'Try again.', 'warning');
+                addToast('Could not move lead', err.message || 'Try again.', 'error');
                 await load();
               }
             }}
@@ -983,103 +834,129 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
           />
         ) : (
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-            <div className="w-full overflow-hidden rounded-2xl border border-zinc-200 dark:border-zinc-800/90 bg-white dark:bg-[#11131a] shadow-xs">
-              <div className="overflow-x-auto custom-scrollbar">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="bg-zinc-50/80 dark:bg-[#161822] text-zinc-500 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold uppercase tracking-wider text-[11px]">
-                      <th className="py-2.5 px-4">Lead</th>
-                      <th className="py-2.5 px-4">Contact</th>
-                      <th className="py-2.5 px-4">Source</th>
-                      <th className="py-2.5 px-4">Stage</th>
-                      <th className="py-2.5 px-4">Assigned</th>
-                      <th className="py-2.5 px-4">Last Activity</th>
-                      <th className="py-2.5 px-4 text-right">Status</th>
-                      <th className="py-2.5 px-3 w-12 text-center"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/60 font-medium">
-                    {displayLeads.map((lead) => {
-                      const active = selectedId === lead.id;
-                      return (
-                        <tr
-                          key={lead.id}
-                          onClick={() => void openLead(lead.id)}
-                          className={`cursor-pointer transition-colors ${
-                            active
-                              ? 'bg-zinc-100 dark:bg-zinc-800/60'
-                              : 'hover:bg-zinc-50/80 dark:hover:bg-zinc-900/40'
-                          }`}
-                        >
-                          <td className="py-2.5 px-4">
-                            <div className="font-bold text-zinc-900 dark:text-zinc-100">{lead.name}</div>
-                            {lead.company && <div className="text-zinc-500 text-[11px]">{lead.company}</div>}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            {lead.phone_e164 ? (
-                              <div className="font-numeric text-zinc-800 dark:text-zinc-200 font-semibold">
-                                +{lead.phone_e164}
-                              </div>
-                            ) : lead.phone_raw ? (
-                              <div className="font-numeric text-zinc-500">{lead.phone_raw}</div>
-                            ) : null}
-                            {lead.email && <div className="text-zinc-400 text-[11px]">{lead.email}</div>}
-                            {!lead.phone_e164 && !lead.phone_raw && !lead.email && (
-                              <span className="text-zinc-400">—</span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span className="text-zinc-600 dark:text-zinc-400 capitalize">{lead.source}</span>
-                          </td>
-                          <td className="py-2.5 px-4">
-                            <span className="text-zinc-800 dark:text-zinc-200 capitalize font-medium">
-                              {lead.stage.replace(/_/g, ' ')}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-4 text-zinc-700 dark:text-zinc-300">
-                            {lead.assigned_to_name ? (
-                              <span className="font-medium text-zinc-800 dark:text-zinc-200">{lead.assigned_to_name}</span>
-                            ) : (
-                              <span className={`${NEUTRAL_METADATA_BADGE_CLASS} text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800`}>
-                                Claim pool
+            <TableCard>
+              <Table>
+                <THead>
+                  <tr>
+                    <TH>Lead</TH>
+                    <TH>Stage</TH>
+                    <TH>Source</TH>
+                    <TH>Owner</TH>
+                    <TH align="right">Value</TH>
+                    <TH>Created</TH>
+                    <TH>Next follow-up</TH>
+                    <TH align="center" className="w-12"></TH>
+                  </tr>
+                </THead>
+                <TBody>
+                  {displayLeads.map((lead) => {
+                    const active = selectedId === lead.id;
+                    return (
+                      <TR
+                        key={lead.id}
+                        selected={active}
+                        clickable
+                        onClick={() => void openLead(lead.id)}
+                      >
+                        <TD>
+                          <div className="font-medium text-fg text-ui">{lead.name}</div>
+                          {lead.company && <div className="text-fg-muted text-caption">{lead.company}</div>}
+                        </TD>
+                        <TD>
+                          <StatusPill
+                            variant={
+                              lead.outcome === 'won'
+                                ? 'success'
+                                : lead.outcome === 'lost'
+                                ? 'danger'
+                                : lead.stage === 'new'
+                                ? 'accent'
+                                : 'neutral'
+                            }
+                            label={lead.stage.replace(/_/g, ' ')}
+                          />
+                        </TD>
+                        <TD>
+                          <span className="px-2 py-0.5 rounded text-caption font-medium bg-subtle text-fg-muted border border-border uppercase">
+                            {lead.source}
+                          </span>
+                        </TD>
+                        <TD>
+                          {lead.assigned_to_name ? (
+                            <div className="flex items-center gap-1.5">
+                              <span className="w-5 h-5 rounded-full bg-accent-soft text-accent text-micro font-medium inline-flex items-center justify-center shrink-0">
+                                {getInitials(lead.assigned_to_name)}
                               </span>
-                            )}
-                          </td>
-                          <td className="py-2.5 px-4 font-numeric text-zinc-600 dark:text-zinc-400">
-                            {formatWhen(lead.last_activity_at)}
-                          </td>
-                          <td className="py-2.5 px-4 text-right">
-                            <CrmStatusBadge lead={lead} />
-                          </td>
-                          <td className="py-2.5 px-3 text-center" onClick={(e) => e.stopPropagation()}>
-                            <button
-                              type="button"
-                              title="Delete lead"
-                              aria-label="Delete lead"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setTableLeadToDelete({ id: lead.id, name: lead.name });
-                              }}
-                              className="inline-flex size-8 items-center justify-center rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                    {displayLeads.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="py-14 text-center text-zinc-400">
-                          <p className="text-sm font-semibold">No leads found</p>
-                          <p className="text-xs mt-1">Adjust filters or create a new lead to start the pipeline.</p>
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                              <span className="text-small font-medium text-fg">{lead.assigned_to_name}</span>
+                            </div>
+                          ) : (
+                            <span className="text-micro font-medium text-warning-fg bg-warning-bg border border-warning-bd px-1.5 py-0.5 rounded-full">
+                              Claim pool
+                            </span>
+                          )}
+                        </TD>
+                        <TD align="right" mono>
+                          {lead.total_deal_value ? (
+                            <span className="font-numeric text-fg">PKR {Number(lead.total_deal_value).toLocaleString()}</span>
+                          ) : lead.budget ? (
+                            <span className="font-numeric text-fg-muted">{lead.budget}</span>
+                          ) : (
+                            <span className="text-fg-muted">—</span>
+                          )}
+                        </TD>
+                        <TD mono>
+                          <span className="text-caption text-fg-muted font-numeric">
+                            {formatWhen(lead.created_at)}
+                          </span>
+                        </TD>
+                        <TD mono>
+                          {lead.next_follow_up_at ? (
+                            (() => {
+                              const bucket = followUpBucket(lead);
+                              const isOverdue = bucket === 'overdue';
+                              return (
+                                <span
+                                  className={`text-caption font-numeric inline-flex items-center gap-1 ${
+                                    isOverdue ? 'text-danger-fg font-medium' : 'text-fg-muted'
+                                  }`}
+                                >
+                                  {isOverdue && <Clock className="w-3 h-3 text-danger-fg shrink-0" />}
+                                  {formatWhen(lead.next_follow_up_at)}
+                                </span>
+                              );
+                            })()
+                          ) : (
+                            <span className="text-fg-muted text-caption">—</span>
+                          )}
+                        </TD>
+                        <TD align="center" className="w-12" onClick={(e) => e.stopPropagation()}>
+                          <button
+                            type="button"
+                            title="Delete lead"
+                            aria-label={`Delete ${lead.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setTableLeadToDelete({ id: lead.id, name: lead.name });
+                            }}
+                            className="inline-flex size-7 items-center justify-center rounded-md text-fg-muted hover:text-danger-fg hover:bg-danger-bg transition-colors cursor-pointer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </TD>
+                      </TR>
+                    );
+                  })}
+                  {displayLeads.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="py-14 text-center text-fg-muted">
+                        <p className="text-ui font-semibold text-fg">No leads found</p>
+                        <p className="text-small text-fg-muted mt-1">Adjust filters or create a new lead to start the pipeline.</p>
+                      </td>
+                    </tr>
+                  )}
+                </TBody>
+              </Table>
+            </TableCard>
           </div>
         )}
           </div>
@@ -1269,7 +1146,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               await loadDeals();
             }
           } catch (err: any) {
-            addToast('Could not save deal', err.message || 'Try again.', 'warning');
+            addToast('Could not save deal', err.message || 'Try again.', 'error');
             throw err;
           }
         }}

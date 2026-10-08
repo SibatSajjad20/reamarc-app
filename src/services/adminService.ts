@@ -1,4 +1,9 @@
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
+
+const adminMembersCache = new BoundedCache<AdminMember[]>(2);
+const adminActivityCache = new BoundedCache<import('../types/admin').MemberActivity[]>(2);
+const adminAdAccountsCache = new BoundedCache<AdAccount[]>(2);
 import type {
   AdminMember,
   AdminUser,
@@ -114,5 +119,32 @@ export const adminService = {
     message: string;
   }> {
     return apiClient.post('/mobile/broadcast', payload);
+  },
+
+  getCachedMembers(): CacheEntry<AdminMember[]> | undefined {
+    return adminMembersCache.get('members');
+  },
+  setCachedMembers(data: AdminMember[]): void {
+    adminMembersCache.set('members', data);
+  },
+  getCachedActivities(): CacheEntry<import('../types/admin').MemberActivity[]> | undefined {
+    return adminActivityCache.get('activities');
+  },
+  setCachedActivities(data: import('../types/admin').MemberActivity[]): void {
+    adminActivityCache.set('activities', data);
+  },
+  getCachedAdAccounts(): CacheEntry<AdAccount[]> | undefined {
+    return adminAdAccountsCache.get('ad_accounts');
+  },
+  setCachedAdAccounts(data: AdAccount[]): void {
+    adminAdAccountsCache.set('ad_accounts', data);
+  },
+  hasInitialCache(): boolean {
+    return adminMembersCache.size() > 0;
+  },
+  clearAllCaches(): void {
+    adminMembersCache.clear();
+    adminActivityCache.clear();
+    adminAdAccountsCache.clear();
   },
 };

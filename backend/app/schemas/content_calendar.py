@@ -2,6 +2,7 @@
 Pydantic schemas and option definitions for Content Calendar module.
 Mirrors all fields and options from 'Apex Campaign Content Plan.xlsx'.
 """
+import re
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from urllib.parse import urlparse
@@ -37,6 +38,9 @@ TEXT_LIMITS = {
     "publish_date": 10,
     "draft_preview_link": 2000,
     "final_asset_link": 2000,
+    "content_type": 40,
+    "creative_category": 40,
+    "posting_type": 40,
 }
 
 
@@ -117,6 +121,16 @@ CREATIVE_TYPE_OPTIONS = [
     "Banner",
     "Email",
     "Lead Magnet",
+]
+
+CONTENT_TYPE_OPTIONS = [
+    "Scheduled",
+    "Runtime",
+]
+
+CREATIVE_CATEGORY_OPTIONS = [
+    "Organic Creative",
+    "Ad Creative",
 ]
 
 CONTENT_PILLAR_OPTIONS = [
@@ -257,6 +271,9 @@ class ContentCalendarItemBase(BaseModel):
     client_name: Optional[str] = Field(default="Apex Transfers LLC", max_length=TEXT_LIMITS["client_name"])
     campaign_type: Optional[str] = Field(default="Acquire \u2013 Cold Audience Awareness", max_length=TEXT_LIMITS["campaign_type"])
     creative_type: Optional[str] = Field(default="Video", max_length=TEXT_LIMITS["creative_type"])
+    content_type: str = Field(default="Scheduled", max_length=TEXT_LIMITS["content_type"], description="Scheduled or Runtime")
+    creative_category: str = Field(default="Organic Creative", max_length=TEXT_LIMITS["creative_category"], description="Organic Creative or Ad Creative")
+    posting_type: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["posting_type"], description="Alias for creative_category")
     content_pillar: Optional[str] = Field(default="Production Advantage", max_length=TEXT_LIMITS["content_pillar"])
     content_concept: str = Field(..., max_length=TEXT_LIMITS["content_concept"], description="Content concept or title")
     offer: Optional[str] = Field(default="Sample Pack", max_length=TEXT_LIMITS["offer"])
@@ -279,7 +296,31 @@ class ContentCalendarItemBase(BaseModel):
     publish_date: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["publish_date"], description="ISO date YYYY-MM-DD")
     channels: Optional[List[str]] = Field(default_factory=list, max_length=12)
     workspace_id: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["workspace_id"])
-    attachments: Optional[List[CreativeAsset]] = Field(default_factory=list, description="Uploaded creative media, slides, or documents")
+
+    @field_validator("content_type")
+    @classmethod
+    def validate_content_type(cls, v: Any) -> str:
+        text = str(v or "").strip()
+        if not text:
+            raise ValueError("Content type is required")
+        if "runtime" in text.lower():
+            return "Runtime"
+        if "scheduled" in text.lower():
+            return "Scheduled"
+        return text
+
+    @field_validator("creative_category")
+    @classmethod
+    def validate_creative_category(cls, v: Any) -> str:
+        text = str(v or "").strip()
+        if not text:
+            raise ValueError("Creative category is required")
+        low = text.lower()
+        if re.search(r"\b(ad(\s+creative)?|performance)\b", low):
+            return "Ad Creative"
+        if re.search(r"\b(organic(\s+creative)?|social(\s+media)?)\b", low):
+            return "Organic Creative"
+        return text
 
     @field_validator("stage")
     @classmethod
@@ -311,6 +352,9 @@ class ContentCalendarItemUpdate(BaseModel):
     client_name: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["client_name"])
     campaign_type: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["campaign_type"])
     creative_type: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["creative_type"])
+    content_type: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["content_type"])
+    creative_category: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["creative_category"])
+    posting_type: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["posting_type"])
     content_pillar: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["content_pillar"])
     content_concept: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["content_concept"])
     offer: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["offer"])
@@ -320,17 +364,13 @@ class ContentCalendarItemUpdate(BaseModel):
     content_on_creative: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["content_on_creative"])
     cta: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["cta"])
     captions_hashtags: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["captions_hashtags"])
-    design_owner: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["design_owner"])
     design_due: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["design_due"])
     draft_preview_link: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["draft_preview_link"])
     final_asset_link: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["final_asset_link"])
-    approval_status: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["approval_status"])
     setup_status: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["setup_status"])
     notes: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["notes"])
     publish_date: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["publish_date"])
     channels: Optional[List[str]] = Field(default=None, max_length=12)
-    workspace_id: Optional[str] = Field(default=None, max_length=TEXT_LIMITS["workspace_id"])
-    attachments: Optional[List[CreativeAsset]] = Field(default=None)
 
     @field_validator("content_concept")
     @classmethod
@@ -343,6 +383,35 @@ class ContentCalendarItemUpdate(BaseModel):
     @classmethod
     def validate_links(cls, v: Optional[str]) -> Optional[str]:
         return clean_http_link(v)
+
+    @field_validator("content_type")
+    @classmethod
+    def validate_content_type_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        text = str(v).strip()
+        if not text:
+            raise ValueError("Content type cannot be empty")
+        if "runtime" in text.lower():
+            return "Runtime"
+        if "scheduled" in text.lower():
+            return "Scheduled"
+        return text
+
+    @field_validator("creative_category")
+    @classmethod
+    def validate_creative_category_opt(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        text = str(v).strip()
+        if not text:
+            raise ValueError("Creative category cannot be empty")
+        low = text.lower()
+        if re.search(r"\b(ad(\s+creative)?|performance)\b", low):
+            return "Ad Creative"
+        if re.search(r"\b(organic(\s+creative)?|social(\s+media)?)\b", low):
+            return "Organic Creative"
+        return text
 
     @field_validator("publish_date")
     @classmethod
@@ -377,6 +446,7 @@ class ContentCalendarItemResponse(ContentCalendarItemBase):
     assignee_name: Optional[str] = None
     revision_note: Optional[str] = None
     share_token: Optional[str] = None
+    attachments: Optional[List[CreativeAsset]] = Field(default_factory=list, description="Uploaded creative media, slides, or documents")
 
 
 class ContentCalendarListResponse(BaseModel):
@@ -388,6 +458,8 @@ class ContentCalendarListResponse(BaseModel):
 class ContentCalendarConstantsResponse(BaseModel):
     campaign_types: List[str]
     creative_types: List[str]
+    content_types: Optional[List[str]] = None
+    creative_categories: Optional[List[str]] = None
     content_pillars: List[str]
     offers: List[str]
     ctas: List[str]
@@ -400,6 +472,8 @@ class ContentCalendarConstantsResponse(BaseModel):
 class ContentCalendarConstantsUpdate(BaseModel):
     creative_types: Optional[List[str]] = None
     campaign_types: Optional[List[str]] = None
+    content_types: Optional[List[str]] = None
+    creative_categories: Optional[List[str]] = None
     content_pillars: Optional[List[str]] = None
     offers: Optional[List[str]] = None
     ctas: Optional[List[str]] = None
@@ -428,4 +502,28 @@ class BulkImportResponse(BaseModel):
     inserted_count: int
     updated_count: int
     errors: List[str] = []
+
+
+class DrivePickedFile(BaseModel):
+    id: str = Field(..., description="Google Drive File ID")
+    name: str = Field(..., description="File name")
+    mime_type: Optional[str] = Field(None, description="MIME type")
+    size_bytes: Optional[int] = Field(None, description="File size in bytes")
+    url: Optional[str] = Field(None, description="Google Drive web view URL")
+    thumbnail_url: Optional[str] = Field(None, description="Thumbnail URL")
+    role: Optional[str] = Field("primary", description="Asset role")
+
+
+class DriveAssetAttachRequest(BaseModel):
+    files: List[DrivePickedFile] = Field(..., min_length=1, description="List of files picked from Google Drive")
+    role: Optional[str] = Field("primary", description="Default role if not specified per file")
+
+
+class DrivePickerConfigResponse(BaseModel):
+    developer_key: str
+    client_id: str
+    app_id: str
+    access_token: str
+    folder_id: Optional[str] = None
+    root_folder_id: Optional[str] = None
 

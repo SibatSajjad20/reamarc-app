@@ -2,7 +2,6 @@ import React, { useState, useRef } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Upload,
-  X,
   FileSpreadsheet,
   AlertTriangle,
   CheckCircle2,
@@ -14,6 +13,8 @@ import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Button } from '../ui/button';
 import { findMatchingClient } from './ContentCalendarModal';
 
 interface Props {
@@ -114,6 +115,13 @@ const prepareItems = (
 
     if (next.stage && !knownStages.has(next.stage)) {
       next.stage = 'Content';
+    }
+
+    if (!next.content_type) {
+      next.content_type = 'Scheduled';
+    }
+    if (!next.creative_category) {
+      next.creative_category = 'Organic Creative';
     }
 
     return next;
@@ -283,6 +291,10 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
               activeHeaderMap![idx] = 'campaign_type';
             } else if (norm === 'creativetype' || norm === 'format') {
               activeHeaderMap![idx] = 'creative_type';
+            } else if (norm === 'contenttype' || norm.includes('scheduledruntime') || norm === 'scheduletype') {
+              activeHeaderMap![idx] = 'content_type';
+            } else if (norm === 'creativecategory' || norm.includes('organiccreative') || norm.includes('adcreative') || norm === 'postingtype') {
+              activeHeaderMap![idx] = 'creative_category';
             } else if (norm.includes('contentpillar') || norm.includes('pillar')) {
               activeHeaderMap![idx] = 'content_pillar';
             } else if (
@@ -507,40 +519,33 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <Dialog open={isOpen} onOpenChange={(open: boolean) => { if (!open && !isSubmitting) onClose(); }}>
+      <DialogContent maxWidth="lg" className="p-0 overflow-hidden max-h-[90vh] flex flex-col">
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
-              <FileSpreadsheet className="w-4 h-4" />
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-md bg-accent-soft text-accent flex items-center justify-center shrink-0">
+              <FileSpreadsheet className="w-4.5 h-4.5" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                Import Content Calendar from Excel
-              </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <DialogTitle className="text-ui font-semibold text-fg">
+                Import content calendar from Excel
+              </DialogTitle>
+              <DialogDescription className="text-caption text-fg-muted mt-0.5">
                 Upload campaign plan spreadsheets to populate your content schedule
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-5 flex-1 overflow-y-auto space-y-4">
+        <div className="p-6 flex-1 overflow-y-auto space-y-4">
           {/* Target Client & Import Settings */}
-          <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/40 border border-zinc-200 dark:border-zinc-800 space-y-3">
+          <div className="p-4 rounded-md bg-subtle border border-border space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
               <div>
-                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1">
-                  Target Client
+                <label className="text-caption font-medium text-fg block mb-1">
+                  Target client
                 </label>
                 <CustomSelect
                   size="sm"
@@ -561,13 +566,13 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                     type="checkbox"
                     checked={overrideClient}
                     onChange={(e) => handleOverrideClientChange(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300"
+                    className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent"
                   />
                   <div>
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                    <div className="text-xs font-medium text-fg">
                       Apply to all imported records
                     </div>
-                    <div className="text-[11px] text-zinc-400">
+                    <div className="text-caption text-fg-muted">
                       Standardize all campaigns and serial IDs to selected client
                     </div>
                   </div>
@@ -578,14 +583,14 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                     type="checkbox"
                     checked={upsertBySerial}
                     onChange={(e) => setUpsertBySerial(e.target.checked)}
-                    className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 border-zinc-300"
+                    className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent"
                   />
                   <div>
-                    <div className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
-                      Upsert by Serial
+                    <div className="text-xs font-medium text-fg">
+                      Upsert by serial
                     </div>
-                    <div className="text-[11px] text-zinc-400">
-                      Update existing campaigns if Serial ID matches
+                    <div className="text-caption text-fg-muted">
+                      Update existing campaigns if serial ID matches
                     </div>
                   </div>
                 </label>
@@ -602,7 +607,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
               }}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className="border-2 border-dashed border-zinc-300 dark:border-zinc-700 hover:border-indigo-500 dark:hover:border-indigo-500 rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/30 transition-colors group"
+              className="border border-dashed border-border hover:border-accent rounded-md p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-subtle transition-colors group"
             >
               <input
                 ref={fileInputRef}
@@ -611,47 +616,49 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 onChange={handleFileChange}
                 className="hidden"
               />
-              <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400 group-hover:scale-105 transition-transform">
-                <Upload className="w-6 h-6" />
+              <div className="w-10 h-10 rounded-md bg-accent-soft text-accent flex items-center justify-center group-hover:scale-105 transition-transform">
+                <Upload className="w-5 h-5" />
               </div>
               <div className="text-center">
-                <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-200">
-                  Click to select file or drag & drop here
+                <p className="text-xs font-medium text-fg">
+                  Click to select file or drag and drop here
                 </p>
-                <p className="text-xs text-zinc-400 mt-1">Supports .xlsx, .xls, .csv (Max 10MB)</p>
+                <p className="text-caption text-fg-muted mt-0.5">Supports .xlsx, .xls, .csv (Max 10MB)</p>
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-between p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700">
+            <div className="flex items-center justify-between p-3.5 rounded-md bg-subtle border border-border">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 border border-emerald-200 dark:border-emerald-800 flex items-center justify-center">
-                  <FileText className="w-5 h-5" />
+                <div className="w-9 h-9 rounded-md bg-status-success-soft text-status-success-fg border border-status-success-border flex items-center justify-center">
+                  <FileText className="w-4.5 h-4.5" />
                 </div>
                 <div>
-                  <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{file.name}</div>
-                  <div className="text-[11px] text-zinc-400 font-numeric">
+                  <div className="text-xs font-semibold text-fg">{file.name}</div>
+                  <div className="text-caption text-fg-muted font-mono">
                     {(file.size / 1024).toFixed(1)} KB &bull; {parsedItems.length} records detected
                   </div>
                 </div>
               </div>
-              <button
+              <Button
                 type="button"
+                variant="ghost"
+                size="sm"
                 onClick={() => {
                   setFile(null);
                   setRawItems([]);
                   setParsedItems([]);
                   setErrorMsg(null);
                 }}
-                className="text-xs text-zinc-400 hover:text-rose-500 font-semibold transition"
+                className="text-caption text-fg-muted hover:text-status-danger-fg"
               >
-                Change File
-              </button>
+                Change file
+              </Button>
             </div>
           )}
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 flex items-center gap-2.5 text-xs text-rose-700 dark:text-rose-300">
+            <div className="p-3 rounded-md bg-status-danger-soft border border-status-danger-border flex items-center gap-2.5 text-xs text-status-danger-fg">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -659,39 +666,39 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
           {/* Parsing Spinner */}
           {isParsing && (
-            <div className="py-6 flex items-center justify-center gap-2 text-xs text-zinc-500">
-              <RefreshCw className="w-4 h-4 animate-spin text-indigo-500" />
+            <div className="py-6 flex items-center justify-center gap-2 text-xs text-fg-muted">
+              <RefreshCw className="w-4 h-4 animate-spin text-accent" />
               <span>Analyzing spreadsheet columns and rows...</span>
             </div>
           )}
 
           {/* Parsed Preview */}
           {parsedItems.length > 0 && !isParsing && (
-            <div className="space-y-2.5 animate-in fade-in">
+            <div className="space-y-2.5">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider">
-                  Data Preview (Showing {Math.min(10, parsedItems.length)} of {parsedItems.length} records)
+                <span className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                  Data preview (Showing {Math.min(10, parsedItems.length)} of {parsedItems.length} records)
                 </span>
-                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                  <CheckCircle2 className="w-3.5 h-3.5" /> Ready to Import
+                <span className="text-caption text-status-success-fg font-medium flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5" /> Ready to import
                 </span>
               </div>
 
-              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden text-xs">
-                <table className="w-full divide-y divide-zinc-200 dark:divide-zinc-800 text-left">
-                  <thead className="bg-zinc-100 dark:bg-zinc-800/60 font-semibold text-zinc-600 dark:text-zinc-400">
+              <div className="border border-border rounded-md overflow-hidden text-xs">
+                <table className="w-full divide-y divide-border text-left">
+                  <thead className="bg-subtle font-medium text-fg-muted">
                     <tr>
                       <th className="p-2">Serial</th>
                       <th className="p-2">Client</th>
                       <th className="p-2">Creative</th>
-                      <th className="p-2">Concept / Title</th>
+                      <th className="p-2">Concept / title</th>
                       <th className="p-2">Stage</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+                  <tbody className="divide-y divide-border">
                     {parsedItems.slice(0, 10).map((it, idx) => (
-                      <tr key={idx} className="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30">
-                        <td className="p-2 font-numeric font-bold text-indigo-600 dark:text-indigo-400">
+                      <tr key={idx} className="hover:bg-subtle/50 transition-colors">
+                        <td className="p-2 font-mono font-medium text-accent">
                           {it.serial || '—'}
                         </td>
                         <td className="p-2 truncate max-w-[140px]" title={it.client_name || defaultClient}>
@@ -712,32 +719,33 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex items-center justify-between">
-          <button
+        <div className="px-6 py-4 border-t border-border bg-surface flex items-center justify-end gap-2.5">
+          <Button
             type="button"
+            variant="secondary"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
+            disabled={isSubmitting}
           >
             Cancel
-          </button>
+          </Button>
 
-          <button
+          <Button
             type="button"
+            variant="primary"
             disabled={parsedItems.length === 0 || isSubmitting}
             onClick={handleConfirmImport}
-            className="inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition disabled:opacity-50 cursor-pointer"
           >
             {isSubmitting ? (
               <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
                 <span>Importing...</span>
               </>
             ) : (
-              <span>Import {parsedItems.length} Records</span>
+              <span>Import {parsedItems.length} records</span>
             )}
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

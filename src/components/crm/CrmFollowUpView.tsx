@@ -4,12 +4,12 @@ import {
   Clock,
   Calendar,
   Check,
-  User,
   ChevronDown,
 } from 'lucide-react';
 import type { CrmLead } from '../../types/crm';
 import { crmService } from '../../services/crmService';
 import { followUpBucket } from '../../utils/followUpBuckets';
+import { getInitials } from '../../utils/badgeStyles';
 
 interface CrmFollowUpViewProps {
   leads: CrmLead[];
@@ -91,34 +91,34 @@ function RescheduleMenu({
         left: pos.left,
         width: 220,
       }}
-      className="rounded-2xl bg-white dark:bg-[#161824] shadow-xl border border-zinc-200 dark:border-zinc-700 p-3 z-[100]"
+      className="rounded-lg bg-surface shadow-lg border border-border p-3 z-[100]"
       onClick={(e) => e.stopPropagation()}
     >
-      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block mb-1.5">
-        Pick Date & Time
+      <label className="text-micro font-medium text-fg-muted uppercase tracking-wider block mb-1.5">
+        Pick date & time
       </label>
       <input
         type="datetime-local"
         value={customDateTime}
         onChange={(e) => setCustomDateTime(e.target.value)}
-        className="w-full text-[11px] px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800 text-zinc-900 dark:text-zinc-100"
+        className="w-full text-small px-2.5 py-1.5 rounded-md border border-input bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
       />
       {customDateTime ? (
         <button
           type="button"
           onClick={() => onSave(lead.id)}
-          className="mt-2 w-full py-1.5 rounded-lg bg-indigo-600 text-white text-[11px] font-bold hover:bg-indigo-500 transition cursor-pointer"
+          className="mt-2 w-full py-1.5 rounded-md bg-accent text-accent-fg text-xs font-medium hover:bg-accent/90 transition-colors cursor-pointer"
         >
-          Set Follow-up
+          Set follow-up
         </button>
       ) : null}
       {lead.next_follow_up_at ? (
         <button
           type="button"
           onClick={() => onClear(lead.id)}
-          className="mt-1.5 w-full text-left px-1 py-1.5 text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+          className="mt-1.5 w-full text-left px-1 py-1 text-xs font-medium text-danger hover:bg-danger-bg rounded transition-colors cursor-pointer"
         >
-          Clear Follow-up
+          Clear follow-up
         </button>
       ) : null}
     </div>,
@@ -243,26 +243,28 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') onOpen(lead.id);
         }}
-        className={`flex items-center gap-3 px-3.5 py-3 bg-white dark:bg-[#11131a] hover:bg-zinc-50 dark:hover:bg-zinc-900/60 transition cursor-pointer ${
-          isSelected ? 'ring-2 ring-inset ring-indigo-500/40' : ''
+        className={`flex items-center gap-3 px-3.5 py-3 bg-surface hover:bg-hover transition-colors cursor-pointer border-b border-border last:border-b-0 ${
+          isSelected ? 'ring-2 ring-inset ring-accent' : ''
         } ${isBusy ? 'opacity-60 pointer-events-none' : ''}`}
       >
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+          <p className="text-xs font-semibold text-fg truncate">
             {lead.name}
           </p>
-          <p className="text-[11px] text-zinc-500 truncate">
+          <p className="text-small text-fg-muted truncate">
             {[lead.company, lead.phone_raw || lead.email].filter(Boolean).join(' · ') || '—'}
           </p>
         </div>
 
         <div className="hidden sm:flex items-center gap-1.5 shrink-0">
-          <span className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 font-medium text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 capitalize">
+          <span className="text-micro px-2 py-0.5 rounded bg-subtle text-fg-muted border border-border capitalize">
             {lead.stage.replace(/_/g, ' ')}
           </span>
           {lead.assigned_to_name && (
-            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-              <User className="w-3 h-3" />
+            <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
+              <span className="w-5 h-5 rounded-full bg-accent-soft text-accent-text text-micro font-medium inline-flex items-center justify-center shrink-0">
+                {getInitials(lead.assigned_to_name)}
+              </span>
               <span>{lead.assigned_to_name}</span>
             </span>
           )}
@@ -272,19 +274,19 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
         <div className="shrink-0">
           {timeInfo ? (
             <span
-              className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2.5 py-1 rounded-full font-numeric ${
+              className={`inline-flex items-center gap-1 text-micro font-medium px-2 py-0.5 rounded font-mono ${
                 timeInfo.isOverdue
-                  ? 'bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-400 border border-rose-200 dark:border-rose-800 motion-safe:animate-pulse'
+                  ? 'bg-danger-bg text-danger-fg border border-danger/30'
                   : timeInfo.isToday
-                  ? 'bg-amber-50 dark:bg-amber-950/50 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800'
-                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700'
+                  ? 'bg-warning-bg text-warning-fg border border-warning/30'
+                  : 'bg-subtle text-fg-muted border border-border'
               }`}
             >
               <Clock className="w-3 h-3 shrink-0" />
               <span>{timeInfo.text}</span>
             </span>
           ) : bucket === 'idle' ? null : (
-            <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+            <span className="text-micro font-medium px-2 py-0.5 rounded bg-subtle text-fg-muted border border-border">
               No follow-up set
             </span>
           )}
@@ -302,11 +304,11 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
                 rescheduleBtnRefs.current[lead.id] = el;
               }}
               onClick={() => setRescheduleLeadId(isRescheduling ? null : lead.id)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-xs font-medium text-zinc-700 dark:text-zinc-300 transition cursor-pointer"
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md border border-border hover:bg-hover text-xs font-medium text-fg transition-colors cursor-pointer"
             >
-              <Calendar className="w-3.5 h-3.5 text-zinc-500" />
+              <Calendar className="w-3.5 h-3.5 text-fg-muted" />
               <span className="hidden md:inline">{bucket === 'idle' ? 'Set follow-up' : 'Reschedule'}</span>
-              <ChevronDown className="w-3 h-3 text-zinc-400" />
+              <ChevronDown className="w-3 h-3 text-fg-muted" />
             </button>
 
             {isRescheduling && (
@@ -327,9 +329,9 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
               type="button"
               title="Mark follow-up done"
               onClick={() => void handleClearFollowUp(lead.id)}
-              className="w-8 h-8 rounded-lg border border-zinc-200 dark:border-zinc-700 hover:border-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 text-zinc-400 hover:text-emerald-600 transition flex items-center justify-center cursor-pointer"
+              className="w-7 h-7 rounded-md border border-border hover:border-success hover:bg-success-bg text-fg-muted hover:text-success-fg transition-colors flex items-center justify-center cursor-pointer"
             >
-              <Check className="w-4 h-4" />
+              <Check className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
@@ -342,19 +344,19 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
       {/* Overdue */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-rose-500 motion-safe:animate-pulse" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Overdue</h3>
-          <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/60 text-rose-700 dark:text-rose-400">
+          <div className="w-2 h-2 rounded-full bg-danger" />
+          <h3 className="text-ui font-semibold text-fg">Overdue</h3>
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-danger-bg text-danger-fg border border-danger/30">
             {overdueLeads.length}
           </span>
         </div>
         {overdueLeads.length > 0 ? (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+          <div className="rounded-lg border border-border overflow-hidden bg-surface">
             {overdueLeads.map((l) => renderFollowUpRow(l, 'overdue'))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-6 text-center bg-zinc-50/50 dark:bg-zinc-900/20">
-            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">No overdue follow-ups</p>
+          <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center bg-subtle/30">
+            <p className="text-xs text-fg-muted">No overdue follow-ups</p>
           </div>
         )}
       </section>
@@ -362,41 +364,38 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
       {/* Today */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-amber-500" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Today</h3>
-          <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400">
+          <div className="w-2 h-2 rounded-full bg-warning" />
+          <h3 className="text-ui font-semibold text-fg">Today</h3>
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-warning-bg text-warning-fg border border-warning/30">
             {todayLeads.length}
           </span>
         </div>
         {todayLeads.length > 0 ? (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+          <div className="rounded-lg border border-border overflow-hidden bg-surface">
             {todayLeads.map((l) => renderFollowUpRow(l, 'today'))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-6 text-center bg-zinc-50/50 dark:bg-zinc-900/20">
-            <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">No follow-ups later today</p>
+          <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center bg-subtle/30">
+            <p className="text-xs text-fg-muted">No follow-ups later today</p>
           </div>
         )}
       </section>
 
-      {/* Category 2: Scheduled (Upcoming) */}
+      {/* Category 2: Scheduled */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-zinc-400" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-            Scheduled
-          </h3>
-          <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+          <div className="w-2 h-2 rounded-full bg-fg-muted" />
+          <h3 className="text-ui font-semibold text-fg">Scheduled</h3>
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-subtle text-fg-muted border border-border">
             {scheduledLeads.length}
           </span>
         </div>
-
         {scheduledLeads.length > 0 ? (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+          <div className="rounded-lg border border-border overflow-hidden bg-surface">
             {scheduledLeads.map((l) => renderFollowUpRow(l, 'scheduled'))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-5 text-center text-xs text-zinc-400">
+          <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-fg-muted">
             No upcoming follow-ups
           </div>
         )}
@@ -405,21 +404,18 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
       {/* Category 3: Idle / No Follow-up */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-zinc-400" />
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-            Idle
-          </h3>
-          <span className="text-xs font-bold font-numeric px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+          <div className="w-2 h-2 rounded-full bg-fg-faint" />
+          <h3 className="text-ui font-semibold text-fg">Idle</h3>
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-subtle text-fg-muted border border-border">
             {idleLeads.length}
           </span>
         </div>
-
         {idleLeads.length > 0 ? (
-          <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 overflow-hidden divide-y divide-zinc-100 dark:divide-zinc-800">
+          <div className="rounded-lg border border-border overflow-hidden bg-surface">
             {idleLeads.map((l) => renderFollowUpRow(l, 'idle'))}
           </div>
         ) : (
-          <div className="rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800 px-4 py-5 text-center text-xs text-zinc-400">
+          <div className="rounded-lg border border-dashed border-border px-4 py-5 text-center text-xs text-fg-muted">
             Every active lead has a follow-up
           </div>
         )}

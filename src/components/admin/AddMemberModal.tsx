@@ -1,47 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import {
-  X,
-  UserPlus,
-  User,
-  Mail,
-  Phone,
-  Key,
-  Layers,
-  Shield,
-  Loader2,
   Copy,
   Check,
-  CalendarDays,
-  Briefcase,
+  RefreshCw,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '../ui/dialog';
+import { Button, IconButton } from '../ui/button';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import type { UserRole } from '../../types/auth';
 import type { CreateMemberPayload, EmploymentType } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { workspaceService } from '../../services/workspaceService';
 import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
-import { looksLikeEmail, normalizePhoneForSave, phoneForInput, pickPhoneValue } from '../../utils/phone';
+import { looksLikeEmail, normalizePhoneForSave } from '../../utils/phone';
 
 export const DEPARTMENTS = [
   'Website',
   'Creative',
   'Content',
   'SEO',
-  'Performance Marketing',
-  'AI',
-  'Software Development',
-  'HR',
+  'Performance marketing',
+  'Social media',
   'Sales',
-  'Social Media',
+  'AI',
+  'Software development',
+  'HR',
 ] as const;
 
 export const ROLES: { id: UserRole; label: string; description: string }[] = [
-  { id: 'team_member', label: 'Team Member', description: 'Records own tasks & daily logs' },
-  { id: 'team_lead', label: 'Team Lead', description: 'Leads department and oversees team logs' },
-  { id: 'operations', label: 'Operations', description: 'Cross-department operations & workspaces' },
-  { id: 'hr', label: 'HR', description: 'All departments logs & compliance access' },
-  { id: 'client', label: 'Client', description: 'Sandbox Client Portal & Approvals only' },
+  { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
+  { id: 'team_lead', label: 'Team lead', description: 'Leads a department and reviews team logs' },
+  { id: 'hr', label: 'HR', description: 'All departments, logs and compliance' },
+  { id: 'operations', label: 'Operations', description: 'Cross-department operations and workspaces' },
+  { id: 'client', label: 'Client', description: 'Client portal and approvals only' },
 ];
 
 interface AddMemberModalProps {
@@ -52,12 +53,11 @@ interface AddMemberModalProps {
 }
 
 const generateRandomPassword = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%&*';
-  let pwd = '';
-  for (let i = 0; i < 12; i++) {
-    pwd += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return pwd;
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
+  const part1 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const part2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  const part3 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+  return `${part1}-${part2}-${part3}`;
 };
 
 export const AddMemberModal: React.FC<AddMemberModalProps> = ({
@@ -74,10 +74,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['Website']);
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
-  const [probationStartDate, setProbationStartDate] = useState('');
-  const [probationEndDate, setProbationEndDate] = useState('');
-  const [passwordMode, setPasswordMode] = useState<'invite' | 'manual'>('manual');
   const [temporaryPassword, setTemporaryPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [copied, setCopied] = useState(false);
   const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
@@ -95,20 +93,12 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       const today = new Date().toISOString().slice(0, 10);
       setJoiningDate(today);
       setEmploymentType('contract');
-      setProbationStartDate(today);
-      setProbationEndDate('');
-      setPasswordMode('manual');
       setTemporaryPassword(generateRandomPassword());
+      setShowPassword(false);
       setWorkspaceIds([]);
       setCopied(false);
       setErrorMsg(null);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
     }
-    return () => {
-      document.body.style.overflow = 'auto';
-    };
   }, [isOpen, defaultRole]);
 
   useEffect(() => {
@@ -118,23 +108,9 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       workspaceService.getWorkspaces(),
       adminService.getMembers({ role: 'client' }).catch(() => []),
     ])
-      .then(([workspaces, clientMembers]) => {
+      .then(([workspaces]) => {
         if (cancelled) return;
-        const existingWorkspaceIds = new Set<string>();
-        const existingEmails = new Set<string>();
-        (clientMembers || []).forEach((m) => {
-          if (m.email) existingEmails.add(m.email.toLowerCase().trim());
-          (m.workspace_ids || []).forEach((wsId) => existingWorkspaceIds.add(String(wsId)));
-        });
-
-        // Filter out inactive workspaces and workspaces that already have a client account
-        const available = (workspaces || []).filter(
-          (workspace) =>
-            workspace.status !== 'inactive' &&
-            !existingWorkspaceIds.has(workspace.id) &&
-            !(workspace.poc_email && existingEmails.has(workspace.poc_email.toLowerCase().trim())) &&
-            !(workspace.billing_email && existingEmails.has(workspace.billing_email.toLowerCase().trim())),
-        );
+        const available = (workspaces || []).filter((w) => w.status !== 'inactive');
         setActiveClients(available);
       })
       .catch(() => {
@@ -145,35 +121,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     };
   }, [isOpen, role]);
 
-  const handleSelectClient = (client: Workspace) => {
-    const isSelected = workspaceIds.includes(client.id);
-    if (isSelected) {
-      setWorkspaceIds([]);
-      return;
-    }
-    setWorkspaceIds([client.id]);
-    setFullName(client.poc_name?.trim() || client.billing_name?.trim() || client.name.trim() || '');
-    setEmail(client.poc_email?.trim() || client.billing_email?.trim() || '');
-    setPhone(phoneForInput(pickPhoneValue(client.poc_phone, client.billing_phone)));
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  const handleGeneratePassword = () => {
-    setTemporaryPassword(generateRandomPassword());
-    setCopied(false);
-  };
-
   const handleCopyPassword = () => {
     if (!temporaryPassword) return;
     navigator.clipboard.writeText(temporaryPassword);
@@ -181,80 +128,46 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const toggleDepartment = (dept: string) => {
+    setSelectedDepartments((prev) =>
+      prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]
+    );
+  };
+
+  const handleSelectClient = (client: Workspace) => {
+    setWorkspaceIds((prev) =>
+      prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
 
     if (!fullName.trim()) {
-      setErrorMsg('Full Name is required');
-      return;
-    }
-    if (!email.trim()) {
-      setErrorMsg('Work Email is required');
+      setErrorMsg('Full name is required');
       return;
     }
     const normalizedEmail = email.trim().toLowerCase();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setErrorMsg('Please enter a valid work email address (e.g. name@reamarc.com)');
-      return;
-    }
-    if (!phone.trim()) {
-      setErrorMsg('Phone Number is compulsory');
-      return;
-    }
-    if (looksLikeEmail(phone)) {
-      setErrorMsg('Phone Number cannot be an email address');
-      return;
-    }
-    const normalizedPhone = normalizePhoneForSave(phone);
-    if (!normalizedPhone) {
-      setErrorMsg('Enter a valid phone number');
+    if (!normalizedEmail || !looksLikeEmail(normalizedEmail)) {
+      setErrorMsg('A valid work email is required');
       return;
     }
 
-    if (role !== 'client') {
-      if (!joiningDate.trim()) {
-        setErrorMsg('Joining date is required');
-        return;
-      }
-      if (employmentType === 'probation') {
-        const start = (probationStartDate || joiningDate).trim();
-        if (!start) {
-          setErrorMsg('Probation start date is required');
-          return;
-        }
-        if (!probationEndDate.trim()) {
-          setErrorMsg('Probation end date is required');
-          return;
-        }
-        if (start > probationEndDate.trim()) {
-          setErrorMsg('Probation start must be on or before the end date');
-          return;
-        }
-      }
-    }
-
-    const finalPassword = temporaryPassword.trim() || generateRandomPassword();
-    if (passwordMode === 'manual' && finalPassword.length < 8) {
-      setErrorMsg('Password must be at least 8 characters long');
+    const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
+    if (phone.trim() && !normalizedPhone) {
+      setErrorMsg('Invalid phone number format');
       return;
     }
 
-    let deptValue: string | undefined = selectedDepartments.join(', ');
-    let deptsList: string[] | undefined = [...selectedDepartments];
-    if (role === 'admin' || role === 'operations') {
-      deptValue = 'All';
-      deptsList = ['All'];
-    } else if (role === 'hr') {
-      deptValue = 'HR';
-      deptsList = ['HR'];
-    } else if (role === 'client') {
-      deptValue = undefined;
-      deptsList = undefined;
-      if (workspaceIds.length === 0) {
-        setErrorMsg('Select a client to link this account');
-        return;
-      }
+    if (role === 'client' && workspaceIds.length === 0) {
+      setErrorMsg('Please select at least one client workspace to link');
+      return;
+    }
+
+    if (role !== 'client' && selectedDepartments.length === 0 && role !== 'admin' && role !== 'operations') {
+      setErrorMsg('Please select at least one department');
+      return;
     }
 
     try {
@@ -264,18 +177,12 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         email: normalizedEmail,
         phone: normalizedPhone,
         role,
-        department: deptValue,
-        departments: deptsList,
-        joining_date: role === 'client' ? null : joiningDate.trim(),
+        department: selectedDepartments[0] || 'Website',
+        departments: selectedDepartments,
+        joining_date: role === 'client' ? null : joiningDate.trim() || null,
         employment_type: role === 'client' ? 'contract' : employmentType,
-        probation_start_date:
-          role !== 'client' && employmentType === 'probation'
-            ? (probationStartDate.trim() || joiningDate.trim())
-            : null,
-        probation_end_date:
-          role !== 'client' && employmentType === 'probation' ? probationEndDate.trim() : null,
-        temporary_password: finalPassword,
-        send_invite_email: passwordMode === 'invite',
+        temporary_password: temporaryPassword,
+        send_invite_email: true,
         is_active: true,
         workspace_ids: role === 'client' ? workspaceIds : [],
       });
@@ -287,129 +194,143 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     }
   };
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-black/60 backdrop-blur-xs animate-fadeIn p-4 overflow-y-auto"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        className="w-full max-w-lg max-h-[90vh] flex flex-col bg-white dark:bg-[#12141c] rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 animate-scaleIn overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-xl border border-indigo-500/20">
-              <UserPlus className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                {role === 'client' ? 'Add Client Account' : 'Add Team Member'}
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                {role === 'client'
-                  ? 'Create a portal login linked to an active client'
-                  : 'Onboard member to the agency directory'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
-            title="Close (Esc)"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
+        {/* Header matching Mock 14 */}
+        <DialogHeader className="p-6 pb-4 border-b border-border">
+          <DialogTitle className="text-base font-semibold">
+            {role === 'client' ? 'Add client account' : 'Add member'}
+          </DialogTitle>
+          <DialogDescription className="text-ui text-fg-muted mt-0.5">
+            They'll get a sign-in link by email. You can change their role later.
+          </DialogDescription>
+        </DialogHeader>
 
-        {/* Modal Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-4">
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
           {errorMsg && (
-            <div className="p-3 text-xs font-medium text-rose-700 bg-rose-50 dark:bg-rose-950/40 dark:text-rose-300 rounded-xl border border-rose-200 dark:border-rose-900">
+            <div className="p-3 text-ui font-medium text-danger-fg bg-danger-bg border border-danger-bd rounded-md">
               {errorMsg}
             </div>
           )}
 
-          {/* Full Name & Email */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+          {/* Row 1: Full name + Work email */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <User className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Full Name <span className="text-rose-500">*</span></span>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Full name <span className="text-danger-fg">*</span>
               </label>
               <input
                 type="text"
                 required
-                placeholder="John Doe"
+                placeholder="Rida Kamal"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
               />
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Mail className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Work Email <span className="text-rose-500">*</span></span>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Work email <span className="text-danger-fg">*</span>
               </label>
               <input
                 type="email"
                 required
-                placeholder="name@reamarc.com"
+                placeholder="name@company.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
+                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
               />
             </div>
           </div>
 
-          {/* Role Selection */}
-          <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-              <Shield className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Role Assignment <span className="text-rose-500">*</span></span>
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {ROLES.filter((r) => r.id !== 'operations' || user?.role === 'admin').map((r) => {
-                const isSelected = role === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setRole(r.id)}
-                    className={`p-2.5 rounded-xl border text-left transition-all cursor-pointer select-none ${
-                      isSelected
-                        ? 'bg-indigo-500/10 border-indigo-500 text-indigo-700 dark:text-indigo-300 ring-2 ring-indigo-500/20'
-                        : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold">{r.label}</span>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
-                    </div>
-                    <p className="text-[10px] text-zinc-400 mt-0.5 leading-tight line-clamp-1">{r.description}</p>
-                  </button>
-                );
-              })}
+          {/* Row 2: Phone + Joining date */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Phone / WhatsApp
+              </label>
+              <input
+                type="tel"
+                placeholder="+92 300 1234567"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+              />
+            </div>
+
+            <div>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Joining date
+              </label>
+              <div className="relative">
+                <input
+                  type="date"
+                  value={joiningDate}
+                  onChange={(e) => setJoiningDate(e.target.value)}
+                  className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                />
+              </div>
+              <p className="text-caption text-fg-muted mt-1">
+                Attendance starts from this date.
+              </p>
             </div>
           </div>
 
+          {/* Row 3: Role (2-column RadioCards matching Mock 14) */}
+          <div>
+            <label className="block text-ui font-medium text-fg mb-2">Role</label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {ROLES.filter((r) => r.id !== 'operations' || user?.role === 'admin')
+                .filter((r) => r.id !== 'client' || defaultRole === 'client')
+                .map((r) => {
+                  const isSelected = role === r.id;
+                  return (
+                    <div
+                      key={r.id}
+                      onClick={() => setRole(r.id)}
+                      className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-3 ${
+                        isSelected
+                          ? 'border-accent bg-accent-soft text-fg ring-1 ring-accent'
+                          : 'border-border bg-surface hover:bg-hover text-fg'
+                      }`}
+                    >
+                      <span
+                        className={`w-4 h-4 rounded-full border mt-0.5 shrink-0 flex items-center justify-center transition-colors ${
+                          isSelected
+                            ? 'border-accent bg-accent'
+                            : 'border-border-strong bg-surface'
+                        }`}
+                      >
+                        {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-accent-contrast" />}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-ui font-medium">{r.label}</div>
+                        <div className="text-caption text-fg-muted leading-tight mt-0.5">
+                          {r.description}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          </div>
+
+          {/* Row 4: Client Workspaces picker (when role is client) */}
           {role === 'client' && (
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Active clients <span className="text-rose-500">*</span></span>
+              <label className="block text-ui font-medium text-fg mb-1">
+                Linked workspaces <span className="text-danger-fg">*</span>
               </label>
-              <p className="text-[11px] text-zinc-500 mb-2">
-                This login only sees content and creative reviews for the clients you select.
+              <p className="text-caption text-fg-muted mb-2">
+                This account will only see content and approvals for selected workspaces.
               </p>
               {activeClients.length === 0 ? (
-                <p className="text-xs text-amber-700 dark:text-amber-300">No active clients are available yet.</p>
+                <p className="text-ui text-warning-fg">No active client workspaces found.</p>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-40 overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1">
                   {activeClients.map((client) => {
                     const selected = workspaceIds.includes(client.id);
                     return (
@@ -417,23 +338,14 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                         key={client.id}
                         type="button"
                         onClick={() => handleSelectClient(client)}
-                        className={`p-2.5 rounded-xl text-xs border text-left cursor-pointer transition-all ${
+                        className={`p-2.5 rounded-md text-xs border text-left cursor-pointer transition flex items-center justify-between ${
                           selected
-                            ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
-                            : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                            ? 'bg-accent-soft border-accent text-accent-text font-medium'
+                            : 'bg-surface border-border text-fg hover:bg-hover'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold">{client.name}</span>
-                          {selected && <Check className="w-3.5 h-3.5 text-white shrink-0" />}
-                        </div>
-                        {(client.poc_name || client.poc_email) && (
-                          <div className={`text-[10px] mt-0.5 leading-tight ${selected ? 'text-indigo-100' : 'text-zinc-400'}`}>
-                            {client.poc_name || ''}
-                            {client.poc_name && client.poc_email ? ' • ' : ''}
-                            {client.poc_email || ''}
-                          </div>
-                        )}
+                        <span className="truncate">{client.name}</span>
+                        {selected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-2" />}
                       </button>
                     );
                   })}
@@ -442,40 +354,27 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           )}
 
-          {/* Department Selection (Only for Team Lead & Team Member) */}
-          {(role === 'team_lead' || role === 'team_member') && (
+          {/* Row 5: Departments multi-select (when role is internal) */}
+          {role !== 'client' && (
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>Departments <span className="text-rose-500">*</span></span>
-                </label>
-                <span className="text-[10px] text-zinc-400 dark:text-zinc-500">Select one or multiple</span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Departments <span className="text-fg-muted font-normal">· select one or more</span>
+              </label>
+              <div className="flex flex-wrap gap-1.5">
                 {DEPARTMENTS.map((dept) => {
                   const isSelected = selectedDepartments.includes(dept);
                   return (
                     <button
                       key={dept}
                       type="button"
-                      onClick={() => {
-                        setSelectedDepartments((prev) => {
-                          if (prev.includes(dept)) {
-                            if (prev.length === 1) return prev; // keep at least 1
-                            return prev.filter((d) => d !== dept);
-                          } else {
-                            return [...prev, dept];
-                          }
-                        });
-                      }}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none flex items-center justify-center gap-1.5 ${
+                      onClick={() => toggleDepartment(dept)}
+                      className={`h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
                         isSelected
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
-                          : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
+                          ? 'bg-accent-soft border-accent-200 text-accent-text'
+                          : 'bg-surface border-border text-fg hover:bg-hover'
                       }`}
                     >
-                      {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                      {isSelected && <Check className="w-3 h-3 text-accent shrink-0" />}
                       <span>{dept}</span>
                     </button>
                   );
@@ -484,210 +383,80 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           )}
 
-          {/* Department Note for Admin / HR / Operations */}
-          {role === 'hr' && (
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-2">
-              <Shield className="w-4 h-4 shrink-0" />
-              <span>Department assigned as <strong>"HR"</strong> with full global directory & compliance management.</span>
-            </div>
-          )}
-          {(role === 'admin' || role === 'operations') && (
-            <div className="p-2.5 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 text-xs font-semibold flex items-center gap-2">
-              <Shield className="w-4 h-4 shrink-0" />
-              <span>Department will be assigned as <strong>"All"</strong> with global access.</span>
-            </div>
-          )}
-
-          {/* Phone Number (Compulsory) */}
-          <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-              <Phone className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Phone / WhatsApp Number <span className="text-rose-500">*</span></span>
-            </label>
-            <input
-              type="tel"
-              required
-              placeholder="+92 300 1234567"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              onBlur={() => setPhone(phoneForInput(phone))}
-              className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs font-numeric"
-            />
-          </div>
-
-          {/* Joining date & employment type */}
-          {role !== 'client' && (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                    <CalendarDays className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Joining Date <span className="text-rose-500">*</span></span>
-                  </label>
-                  <input
-                    type="date"
-                    required
-                    value={joiningDate}
-                    onChange={(e) => setJoiningDate(e.target.value)}
-                    className="w-full px-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
-                  />
-                  <p className="mt-1 text-[10px] text-zinc-400">Attendance starts from this date.</p>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Employment Type <span className="text-rose-500">*</span></span>
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { id: 'contract' as EmploymentType, label: 'Contract' },
-                      { id: 'probation' as EmploymentType, label: 'Probation' },
-                    ]).map((opt) => {
-                      const isSelected = employmentType === opt.id;
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() => {
-                            setEmploymentType(opt.id);
-                            if (opt.id === 'probation' && !probationStartDate) {
-                              setProbationStartDate(joiningDate);
-                            }
-                          }}
-                          className={`px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer text-center select-none ${
-                            isSelected
-                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm shadow-indigo-600/30'
-                              : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300'
-                          }`}
-                        >
-                          {opt.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
-
-              {employmentType === 'probation' && (
-                <div className="p-3.5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/70 dark:bg-amber-950/20 space-y-3">
-                  <p className="text-xs font-bold text-amber-800 dark:text-amber-300">Probation Period</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                        Start Date <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={probationStartDate || joiningDate}
-                        onChange={(e) => setProbationStartDate(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                        End Date <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="date"
-                        required
-                        value={probationEndDate}
-                        min={probationStartDate || joiningDate}
-                        onChange={(e) => setProbationEndDate(e.target.value)}
-                        className="w-full px-3.5 py-2 text-xs bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all shadow-2xs"
-                      />
-                    </div>
-                  </div>
-                  <p className="text-[10px] text-amber-700/80 dark:text-amber-400/80">
-                    Undertime during probation is not deducted from leave quotas.
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Initial Password & Credentials */}
-          <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-2">
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-              <Key className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Initial Sign-In Password</span>
-            </label>
-
-            <div className="relative flex items-center">
-              <input
-                type="text"
-                required
-                placeholder="Enter min. 8 characters"
-                value={temporaryPassword}
-                onChange={(e) => {
-                  setTemporaryPassword(e.target.value);
-                  setCopied(false);
-                }}
-                className="w-full pl-3 pr-36 py-2 font-numeric text-xs bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+          {/* Row 6: Employment type + Temporary password matching Mock 14 */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+            <div>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Employment type
+              </label>
+              <SegmentedControl
+                size="sm"
+                value={employmentType}
+                onValueChange={(val) => setEmploymentType(val as EmploymentType)}
+                options={[
+                  { value: 'probation', label: 'Probation' },
+                  { value: 'contract', label: 'Contract' },
+                ]}
               />
-              <div className="absolute right-1.5 flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={handleCopyPassword}
-                  className="px-2 py-1 text-[11px] font-bold bg-zinc-100 dark:bg-zinc-700 hover:bg-zinc-200 dark:hover:bg-zinc-600 text-zinc-700 dark:text-zinc-200 rounded-md transition cursor-pointer flex items-center gap-1"
-                  title="Copy temporary password"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="w-3 h-3 text-emerald-500" />
-                      <span className="text-emerald-600 dark:text-emerald-400">Copied!</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="w-3 h-3 text-zinc-500" />
-                      <span>Copy</span>
-                    </>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGeneratePassword}
-                  className="px-2 py-1 text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 rounded-md border border-indigo-200 dark:border-indigo-800 transition cursor-pointer"
-                >
-                  Generate
-                </button>
+            </div>
+
+            <div>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Initial password
+              </label>
+              <div className="relative flex items-center">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={temporaryPassword}
+                  onChange={(e) => setTemporaryPassword(e.target.value)}
+                  className="w-full h-9 pl-3 pr-20 text-xs font-mono bg-surface border border-border rounded-md text-fg focus:outline-none focus:border-accent"
+                />
+                <div className="absolute right-1 flex items-center gap-0.5">
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    label={showPassword ? 'Hide password' : 'Show password'}
+                    icon={showPassword ? EyeOff : Eye}
+                    onClick={() => setShowPassword(!showPassword)}
+                  />
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    label="Generate new password"
+                    icon={RefreshCw}
+                    onClick={() => setTemporaryPassword(generateRandomPassword())}
+                  />
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    label="Copy password"
+                    icon={copied ? Check : Copy}
+                    onClick={handleCopyPassword}
+                  />
+                </div>
               </div>
             </div>
           </div>
         </form>
 
-        {/* Modal Actions Footer */}
-        <div className="flex items-center justify-end gap-2.5 px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/40 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer disabled:opacity-50"
-          >
+        {/* Footer matching Mock 14 */}
+        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
+          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
             Cancel
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="primary"
             onClick={handleSubmit}
+            loading={isSubmitting}
             disabled={isSubmitting}
-            className="flex items-center gap-2 px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 rounded-xl transition shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed select-none"
           >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Creating...</span>
-              </>
-            ) : (
-              <>
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>{role === 'client' ? 'Add Client Account' : 'Add Member'}</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body
+            {role === 'client' ? 'Add client account' : 'Add member'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
-

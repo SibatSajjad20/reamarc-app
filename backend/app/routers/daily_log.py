@@ -40,16 +40,78 @@ router = APIRouter(
 )
 
 
+def _parse_departments(val) -> List[str]:
+    """Parse a department string or list into a deduplicated list of individual department names."""
+    if not val:
+        return []
+    depts: List[str] = []
+    if isinstance(val, list):
+        for item in val:
+            if item and str(item).strip():
+                s = str(item).strip()
+                if not any(existing.lower() == s.lower() for existing in depts):
+                    depts.append(s)
+    elif isinstance(val, str) and val.strip():
+        for part in re.split(r"[,;/]|\band\b|&", val, flags=re.IGNORECASE):
+            s = part.strip()
+            if s and not any(existing.lower() == s.lower() for existing in depts):
+                depts.append(s)
+    return depts
+
+
+def _extract_lead_departments(current_user: dict, user_doc: Optional[dict] = None) -> List[str]:
+    """
+    Extract the departments for team lead daily log oversight.
+    If a primary or lead department is explicitly configured (e.g. 'Creative'),
+    that takes precedence so cross-department module permissions (like Content Calendar)
+    do not pollute the lead's daily log scope.
+    """
+    doc = user_doc or {}
+    primary = (
+        current_user.get("lead_department")
+        or doc.get("lead_department")
+        or current_user.get("primary_department")
+        or doc.get("primary_department")
+    )
+    if primary:
+        return _parse_departments(primary)
+
+    dept_str = current_user.get("department") or doc.get("department")
+    if dept_str and dept_str not in ("All", "Unassigned"):
+        depts = _parse_departments(dept_str)
+        if depts:
+            return depts
+
+    depts_list = current_user.get("departments") or doc.get("departments")
+    if depts_list:
+        return _parse_departments(depts_list)
+
+    return []
+
+
+def _dept_match_query(dept_name: str) -> dict:
+    """
+    Constructs a MongoDB query filter matching an entry whose department equals dept_name,
+    or contains dept_name as a comma/delimiter-separated entry (e.g. 'Creative, Content').
+    """
+    escaped = re.escape(dept_name.strip())
+    pattern = rf"(?:^|[,;/]|\band\b|&)\s*{escaped}\s*(?:$|[,;/]|\band\b|&)"
+    return {"department": {"$regex": pattern, "$options": "i"}}
+
+
 def _can_mutate_daily_log(existing_entry: dict, current_user: dict) -> bool:
     """Mutations require user_id match. Name-only matches are legacy read-only."""
     user_role = current_user.get("role", "team_member")
     if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr"):
         return True
     is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
-    lead_dept = current_user.get("department")
-    entry_dept = existing_entry.get("department")
-    if is_lead and lead_dept and entry_dept and str(lead_dept).lower() == str(entry_dept).lower():
-        return True
+    if is_lead:
+        lead_depts = _extract_lead_departments(current_user)
+        entry_depts = _parse_departments(existing_entry.get("department"))
+        if lead_depts and entry_depts and any(
+            ld.lower() == ed.lower() for ld in lead_depts for ed in entry_depts
+        ):
+            return True
     entry_uid = existing_entry.get("user_id")
     curr_id = current_user.get("id") or str(current_user.get("_id"))
     return bool(entry_uid and curr_id and str(entry_uid) == str(curr_id))
@@ -508,6 +570,18 @@ async def get_entries(
     if db is None:
         return []
 
+    month_sheet = month_sheet if isinstance(month_sheet, str) else None
+    start_date = start_date if isinstance(start_date, str) else None
+    end_date = end_date if isinstance(end_date, str) else None
+    department = department if isinstance(department, str) else None
+    user_id = user_id if isinstance(user_id, str) else None
+    resource_name = resource_name if isinstance(resource_name, str) else None
+    client_project = client_project if isinstance(client_project, str) else None
+    task_status = task_status if isinstance(task_status, str) else None
+    task_type = task_type if isinstance(task_type, str) else None
+    limit = limit if isinstance(limit, int) else 2000
+    skip = skip if isinstance(skip, int) else 0
+
     user_role = current_user.get("role", "team_member")
     if user_role == "client" or user_role == UserRole.CLIENT.value:
         raise HTTPException(
@@ -525,31 +599,52 @@ async def get_entries(
     # 1. ROLE-BASED DATA SCOPING
     if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr", UserRole.OPERATIONS.value, "operations"):
         # Admin, HR & Operations have global visibility across all departments and members
-        if department and department.lower() != "all":
-            query_filter["department"] = exact_ci(department)
+        if department and department.strip().lower() != "all":
+            query_filter.update(_dept_match_query(department.strip()))
         if user_id:
             query_filter["user_id"] = user_id
         if resource_name:
             query_filter["resource_name"] = contains_ci(resource_name)
     elif user_role in (UserRole.TEAM_LEAD.value, "team_lead"):
-        # Team Lead can see all logs in their assigned department + their own logs
-        if current_dept:
-            dept_regex = exact_ci(current_dept)
+        # Team Lead can see all logs in their assigned departments + their own logs
+        lead_user_doc = None
+        if db is not None:
+            lead_user_doc = await db.users.find_one({"id": current_uid}, {"departments": 1, "department": 1})
+        lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+
+        if lead_depts:
+            target_depts: List[str] = []
+            if department and department.strip().lower() != "all":
+                requested = department.strip()
+                # Check if lead is authorized for the requested department
+                matching = [ld for ld in lead_depts if ld.lower() == requested.lower()]
+                if matching:
+                    target_depts = matching
+                else:
+                    # If requested contains multiple (e.g. 'Creative, Content'), match any overlapping authorized depts
+                    req_parts = _parse_departments(requested)
+                    target_depts = [ld for ld in lead_depts if any(ld.lower() == rp.lower() for rp in req_parts)]
+            else:
+                target_depts = lead_depts
+
+            if target_depts:
+                base_clauses = [_dept_match_query(d) for d in target_depts] + [{"user_id": current_uid}]
+            else:
+                # Lead filtered on a department outside their assigned scope
+                base_clauses = [{"user_id": current_uid}]
+
             if user_id:
                 query_filter["$and"] = [
-                    {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
+                    {"$or": base_clauses},
                     {"user_id": user_id},
                 ]
             elif resource_name:
                 query_filter["$and"] = [
-                    {"$or": [{"department": dept_regex}, {"user_id": current_uid}]},
+                    {"$or": base_clauses},
                     {"resource_name": contains_ci(resource_name)},
                 ]
             else:
-                query_filter["$or"] = [
-                    {"department": dept_regex},
-                    {"user_id": current_uid},
-                ]
+                query_filter["$or"] = base_clauses
         else:
             # Fallback if lead has no department assigned yet
             query_filter["user_id"] = current_uid

@@ -11,15 +11,18 @@ import { apiClient } from '../services/apiClient';
 import { useDebounce } from './useDebounce';
 
 export function useMarketingMatrix(workspaceId?: string) {
-  const [rows, setRows] = useState<MarketingMatrixRow[]>([]);
-  const [hiddenCount, setHiddenCount] = useState<number>(0);
-  const [showInactive, setShowInactive] = useState<boolean>(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const today = new Date();
     return today.toISOString().split('T')[0]; // YYYY-MM-DD
   });
+
+  const initialCached = marketingService.getCachedDaily(`${selectedDate}_false`);
+
+  const [rows, setRows] = useState<MarketingMatrixRow[]>(() => initialCached?.data?.rows || []);
+  const [hiddenCount, setHiddenCount] = useState<number>(() => initialCached?.data?.hiddenCount || 0);
+  const [showInactive, setShowInactive] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState(!initialCached);
+  const [error, setError] = useState<string | null>(null);
 
   // Debounce date changes by 400ms to prevent rapid API requests
   const debouncedDate = useDebounce(selectedDate, 400);
@@ -39,7 +42,15 @@ export function useMarketingMatrix(workspaceId?: string) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    setIsLoading(true);
+    const cacheKey = `${targetDate}_${activeIncludeInactive}`;
+    const cached = marketingService.getCachedDaily(cacheKey);
+    if (cached) {
+      setRows(cached.data.rows);
+      setHiddenCount(cached.data.hiddenCount);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     setError(null);
 
     try {

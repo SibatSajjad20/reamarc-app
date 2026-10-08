@@ -224,6 +224,35 @@ async def _create_indexes_background():
         except Exception as e:
             logger.warning(f"Could not create mobile device indexes: {e}")
 
+        # Website Project Pipeline indexes
+        try:
+            await db_instance.db.website_projects.create_index([("id", 1)], unique=True, name="idx_website_proj_id")
+            await db_instance.db.website_projects.create_index([("workspace_id", 1)], name="idx_website_proj_ws")
+            await db_instance.db.website_projects.create_index([("stage", 1)], name="idx_website_proj_stage")
+            await db_instance.db.website_projects.create_index([("health", 1)], name="idx_website_proj_health")
+            await db_instance.db.website_projects.create_index([("manager_id", 1)], name="idx_website_proj_manager")
+            await db_instance.db.website_projects.create_index([("target_launch_date", 1)], name="idx_website_proj_launch")
+
+            await db_instance.db.website_project_tasks.create_index([("id", 1)], unique=True, name="idx_website_task_id")
+            await db_instance.db.website_project_tasks.create_index([("project_id", 1), ("stage", 1)], name="idx_website_task_proj_stage")
+            await db_instance.db.website_project_tasks.create_index([("assignee_id", 1)], name="idx_website_task_assignee")
+            await db_instance.db.website_project_tasks.create_index([("status", 1)], name="idx_website_task_status")
+            await db_instance.db.website_project_tasks.create_index([("due_date", 1)], name="idx_website_task_due")
+
+            await db_instance.db.website_project_gates.create_index(
+                [("project_id", 1), ("gate_key", 1)],
+                unique=True,
+                name="idx_website_gate_proj_key",
+            )
+
+            await db_instance.db.website_project_files.create_index([("id", 1)], unique=True, name="idx_website_file_id")
+            await db_instance.db.website_project_files.create_index([("project_id", 1), ("folder", 1)], name="idx_website_file_proj_folder")
+
+            await db_instance.db.website_project_activities.create_index([("id", 1)], unique=True, name="idx_website_act_id")
+            await db_instance.db.website_project_activities.create_index([("project_id", 1), ("created_at", -1)], name="idx_website_act_proj_time")
+        except Exception as e:
+            logger.warning(f"Could not create Website Project Pipeline indexes: {e}")
+
         # Legacy role cleanup only. Never rewrite live client accounts.
         try:
             await db_instance.db.users.update_many(

@@ -1,10 +1,13 @@
-﻿/**
+/**
  * Marketing Service â€” API client methods for the Performance Marketing Module.
  * API client for the live Performance Marketing module.
  */
 
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
 import type { MarketingMatrixRow } from '../types';
+
+const marketingDailyCache = new BoundedCache<{ rows: MarketingMatrixRow[]; hiddenCount: number }>(10);
 
 export interface MarketingCampaignCreatePayload {
   campaign_name: string;
@@ -52,7 +55,10 @@ export const marketingService = {
     const queryString = params.toString() ? `?${params.toString()}` : '';
     const res = await apiClient.requestWithHeaders<MarketingMatrixRow[]>(`/marketing/daily${queryString}`, { method: 'GET', timeout: 20000, signal });
     const hiddenCount = parseInt(res.headers.get('x-hidden-count') || res.headers.get('X-Hidden-Count') || '0', 10);
-    return { rows: res.data || [], hiddenCount };
+    const result = { rows: res.data || [], hiddenCount };
+    const cacheKey = `${date || 'today'}_${includeInactive}`;
+    marketingDailyCache.set(cacheKey, result);
+    return result;
   },
 
   /** Create a new marketing campaign. */
@@ -114,5 +120,15 @@ export const marketingService = {
   /** Delete an ad account credential. */
   async deleteCredential(credentialId: string): Promise<any> {
     return apiClient.delete(`/marketing/credentials/${credentialId}`);
+  },
+
+  getCachedDaily(key: string): CacheEntry<{ rows: MarketingMatrixRow[]; hiddenCount: number }> | undefined {
+    return marketingDailyCache.get(key);
+  },
+  setCachedDaily(key: string, data: { rows: MarketingMatrixRow[]; hiddenCount: number }): void {
+    marketingDailyCache.set(key, data);
+  },
+  clearAllCaches(): void {
+    marketingDailyCache.clear();
   },
 };

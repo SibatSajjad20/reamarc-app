@@ -35,7 +35,12 @@ from app.services.log_compliance import (
     people_noun,
     compute_time_at_work_hours,
 )
-from app.routers.daily_log import is_workday, SYSTEM_START_DATE
+from app.routers.daily_log import (
+    is_workday,
+    SYSTEM_START_DATE,
+    _extract_lead_departments,
+    _dept_match_query,
+)
 from app.services.workdays import load_off_day_index, parse_iso_date, recent_company_workdays
 
 router = APIRouter(
@@ -122,10 +127,12 @@ async def list_exception_inbox(
 
     user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
     if role == "team_lead":
-        if not viewer_dept:
+        lead_user_doc = await db.users.find_one({"id": viewer_id}, {"departments": 1, "department": 1})
+        lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+        if not lead_depts:
             return []
         user_query["role"] = {"$in": ["team_member", UserRole.TEAM_MEMBER.value]}
-        user_query["department"] = {"$regex": f"^{viewer_dept}$", "$options": "i"}
+        user_query["$or"] = [_dept_match_query(d) for d in lead_depts]
         user_query["id"] = {"$ne": viewer_id}
     else:
         user_query["role"] = {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}
@@ -417,11 +424,11 @@ async def act_on_exception(
     if role == "team_lead":
         if member_role not in ("team_member",):
             raise HTTPException(status_code=403, detail="Team leads only act on their team members.")
-        lead_dept = (current_user.get("department") or "").strip().lower()
-        mem_dept = (member.get("department") or "").strip().lower()
-        if not lead_dept:
+        lead_depts = _extract_lead_departments(current_user)
+        mem_depts = _extract_lead_departments(member)
+        if not lead_depts:
             raise HTTPException(status_code=403, detail="Your account has no department assigned.")
-        if not mem_dept or lead_dept != mem_dept:
+        if not mem_depts or not any(ld.lower() == md.lower() for ld in lead_depts for md in mem_depts):
             raise HTTPException(status_code=403, detail="This employee is outside your department.")
         if user_id == current_user.get("id"):
             raise HTTPException(status_code=403, detail="Your own log is reviewed by HR.")

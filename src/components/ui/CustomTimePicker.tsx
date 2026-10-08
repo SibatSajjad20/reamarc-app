@@ -1,7 +1,9 @@
 import React from 'react';
 import { Clock, X } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { IconButton } from './button';
 
-interface CustomTimePickerProps {
+export interface CustomTimePickerProps {
   value: string; // 'HH:MM' (24-hour internally, e.g. '09:30' or '18:30')
   onChange: (value: string) => void;
   label?: string;
@@ -29,40 +31,43 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({
   const safeValue = COMPLETE_24H.test(value) ? value.slice(0, 5) : '';
 
   return (
-    <div className={`text-left ${className}`}>
+    <div className={cn('text-left w-full', className)}>
       {label && (
-        <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-          <span className="inline-flex items-center gap-1.5">
-            <Clock className="w-3.5 h-3.5 text-indigo-500" />
-            <span>{label}</span>
-          </span>
+        <label className="block text-label font-medium text-fg mb-1.5 flex items-center gap-1.5">
+          <Clock size={14} className="text-fg-muted" />
+          <span>{label}</span>
         </label>
       )}
       <div className="flex items-center gap-1.5">
-        <input
-          type="time"
-          lang="en-US"
-          step={60}
-          required={required}
-          disabled={disabled}
-          value={safeValue}
-          onChange={(e) => onChange(e.target.value.slice(0, 5))}
-          className="time-input min-w-0 flex-1 h-10 px-3 bg-zinc-100 dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs font-numeric font-bold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
-        />
+        <div className="relative flex-1 min-w-0">
+          <Clock
+            size={16}
+            className="absolute left-3 top-1/2 -translate-y-1/2 text-fg-muted pointer-events-none"
+          />
+          <input
+            type="time"
+            lang="en-US"
+            step={60}
+            required={required}
+            disabled={disabled}
+            value={safeValue}
+            onChange={(e) => onChange(e.target.value.slice(0, 5))}
+            className="time-input w-full h-9 pl-9 pr-3 bg-surface border border-border-strong rounded-md text-ui font-numeric tabular-nums font-normal text-fg hover:border-fg-muted/60 focus:border-border-strong focus:outline-none shadow-xs disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+        </div>
+
         {allowClear && !disabled && (
-          <button
-            type="button"
-            onClick={() => onChange('')}
+          <IconButton
+            variant="ghost"
+            size="sm"
+            icon={X}
+            label={clearTitle}
             disabled={!safeValue}
-            title={clearTitle}
-            aria-label={clearTitle}
-            className="h-10 w-10 shrink-0 inline-flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-500 hover:text-rose-600 hover:border-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/40 dark:hover:text-rose-400 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:text-zinc-500 disabled:hover:bg-white dark:disabled:hover:bg-zinc-800"
-          >
-            <X className="w-4 h-4" />
-          </button>
+            onClick={() => onChange('')}
+            className="h-9 w-9 text-fg-muted hover:text-danger-fg"
+          />
         )}
       </div>
     </div>
   );
 };
-

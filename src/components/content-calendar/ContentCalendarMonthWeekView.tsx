@@ -2,9 +2,13 @@ import React, { useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
+  Send,
+  Palette,
+  X,
 } from 'lucide-react';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
-import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
+import { renderPlatformIcon } from './ContentCalendarTableView';
+import { Button } from '../ui/button';
 
 interface Props {
   items: ContentCalendarItem[];
@@ -24,6 +28,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverDate, setDragOverDate] = useState<string | null>(null);
+  const [morePopoverDate, setMorePopoverDate] = useState<string | null>(null);
 
   // Helper to format Date to local YYYY-MM-DD avoiding UTC timezone shifting
   const toLocalIso = (d: Date): string => {
@@ -122,20 +127,20 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-slate-50/70 dark:bg-[#090a0f] overflow-hidden select-none">
+    <div className="flex-1 min-h-0 flex flex-col bg-bg overflow-hidden select-none">
       {/* Calendar Navigation Bar */}
-      <div className="px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#12141c] flex items-center justify-between gap-4">
+      <div className="px-5 py-2.5 border-b border-border bg-surface flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-0.5">
+          <div className="flex items-center bg-subtle border border-border rounded-md p-0.5">
             <button
               type="button"
               onClick={() => shiftDate(-1)}
-              className="p-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition cursor-pointer"
+              className="p-1.5 rounded-sm text-fg-muted hover:text-fg hover:bg-hover transition cursor-pointer"
               title="Previous"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 px-3 min-w-[140px] text-center">
+            <span className="text-xs font-medium text-fg px-3 min-w-[140px] text-center">
               {viewMode === 'week'
                 ? `${weekDays[0].label} — ${weekDays[6].label}`
                 : currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
@@ -143,82 +148,82 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
             <button
               type="button"
               onClick={() => shiftDate(1)}
-              className="p-1.5 rounded-lg text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition cursor-pointer"
+              className="p-1.5 rounded-sm text-fg-muted hover:text-fg hover:bg-hover transition cursor-pointer"
               title="Next"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
 
-          <button
-            type="button"
+          <Button
+            variant="secondary"
+            size="sm"
             onClick={() => setCurrentDate(new Date())}
-            className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 transition cursor-pointer"
           >
             Today
-          </button>
+          </Button>
         </div>
 
         {/* Date Mode and View Mode Toggles */}
         <div className="flex items-center gap-2.5">
-          {/* Mode Selector: Publish Date vs Design Due Date */}
-          <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 rounded-xl p-0.5 border border-zinc-200 dark:border-zinc-700">
+          {/* Mode Selector: Publish date vs Design due */}
+          <div className="flex items-center bg-subtle rounded-md p-0.5 border border-border">
             <button
               type="button"
               onClick={() => setDateMode('publish')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-sm text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 dateMode === 'publish'
-                  ? 'bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
               title="Schedule campaigns by Live / Publish Date"
             >
-              <span>🚀</span>
-              <span>Publish Date</span>
+              <Send className="w-3.5 h-3.5 text-accent" />
+              <span>Publish date</span>
             </button>
             <button
               type="button"
               onClick={() => setDateMode('design_due')}
-              className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-2.5 py-1 rounded-sm text-xs font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 dateMode === 'design_due'
-                  ? 'bg-white dark:bg-zinc-700 text-indigo-600 dark:text-indigo-300 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
               title="Schedule campaigns by Creative / Design Due Date"
             >
-              <span>🎨</span>
-              <span>Design Due</span>
+              <Palette className="w-3.5 h-3.5 text-accent" />
+              <span>Design due</span>
             </button>
           </div>
 
           {unscheduledItems.length > 0 && (
-            <span className="text-xs text-zinc-400 font-medium mr-1 hidden sm:inline-block">
-              <strong className="text-zinc-700 dark:text-zinc-200 font-bold">{unscheduledItems.length}</strong> unscheduled
+            <span className="text-xs text-fg-muted font-medium mr-1 hidden sm:inline-block">
+              <strong className="text-fg font-medium">{unscheduledItems.length}</strong> unscheduled
             </span>
           )}
 
-          <div className="flex items-center bg-zinc-100 dark:bg-zinc-800 rounded-xl p-0.5 border border-zinc-200 dark:border-zinc-700">
+          <div className="flex items-center bg-subtle rounded-md p-0.5 border border-border">
             <button
               type="button"
               onClick={() => setViewMode('week')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`px-3 py-1 rounded-sm text-xs font-medium transition cursor-pointer ${
                 viewMode === 'week'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
-              Week View
+              Week view
             </button>
             <button
               type="button"
               onClick={() => setViewMode('month')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+              className={`px-3 py-1 rounded-sm text-xs font-medium transition cursor-pointer ${
                 viewMode === 'month'
-                  ? 'bg-white dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100 shadow-xs'
-                  : 'text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
-              Month View
+              Month view
             </button>
           </div>
         </div>
@@ -229,12 +234,12 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
           {Array.from({ length: viewMode === 'week' ? 7 : 6 }).map((_, idx) => (
             <div
               key={`cal-skeleton-${idx}`}
-              className="w-[260px] min-w-[220px] flex-1 h-full rounded-2xl bg-zinc-100/80 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800 p-3 space-y-2"
+              className="w-[280px] min-w-[220px] flex-1 h-full rounded-lg bg-surface border border-border p-3 space-y-2 animate-pulse"
             >
-              <div className="h-4 w-24 rounded bg-zinc-200 dark:bg-zinc-800 animate-pulse" />
-              <div className="h-16 rounded-xl bg-zinc-200/80 dark:bg-zinc-800 animate-pulse" />
-              <div className="h-16 rounded-xl bg-zinc-200/80 dark:bg-zinc-800 animate-pulse" />
-              <div className="h-16 rounded-xl bg-zinc-200/80 dark:bg-zinc-800 animate-pulse" />
+              <div className="h-4 w-24 rounded-sm bg-subtle" />
+              <div className="h-16 rounded-md bg-subtle" />
+              <div className="h-16 rounded-md bg-subtle" />
+              <div className="h-16 rounded-md bg-subtle" />
             </div>
           ))}
         </div>
@@ -254,27 +259,27 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                 }}
                 onDragLeave={() => setDragOverDate(null)}
                 onDrop={(e) => handleDropOnDate(e, day.iso)}
-                className={`w-[260px] min-w-[260px] max-w-[260px] flex-shrink-0 flex flex-col rounded-2xl bg-zinc-100/70 dark:bg-zinc-900/40 border transition-all ${
+                className={`w-[280px] min-w-[280px] max-w-[280px] flex-shrink-0 flex flex-col rounded-lg bg-surface border transition-colors ${
                   isToday
-                    ? 'border-indigo-500/50 shadow-xs'
-                    : 'border-zinc-200/80 dark:border-zinc-800/80'
-                } ${isOver ? 'ring-2 ring-indigo-500/50 bg-indigo-50/20' : ''}`}
+                    ? 'border-accent shadow-xs'
+                    : 'border-border'
+                } ${isOver ? 'ring-2 ring-accent bg-accent-soft/20' : ''}`}
               >
                 {/* Day Header */}
-                <div className="p-3 border-b border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-between">
+                <div className="p-3 border-b border-border flex items-center justify-between">
                   <div>
-                    <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    <h3 className="text-xs font-semibold text-fg">
                       {day.dayName}
                     </h3>
-                    <p className="text-[10px] text-zinc-400 font-medium">
+                    <p className="text-[10px] text-fg-muted font-medium">
                       {day.label}
                     </p>
                   </div>
                   <span
-                    className={`text-[11px] font-numeric font-bold px-2 py-0.5 rounded-full ${
+                    className={`text-xs font-mono font-medium px-2 py-0.5 rounded-full ${
                       dayItems.length > 0
-                        ? 'bg-zinc-200/80 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200'
-                        : 'bg-zinc-200/40 dark:bg-zinc-800/40 text-zinc-400'
+                        ? 'bg-subtle text-fg'
+                        : 'bg-subtle/50 text-fg-muted'
                     }`}
                   >
                     {dayItems.length}
@@ -284,11 +289,11 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                 {/* Day Content Cards */}
                 <div className="flex-1 overflow-y-auto p-2.5 space-y-2.5 min-h-[140px]">
                   {dayItems.length === 0 ? (
-                    <div className="h-36 rounded-xl border border-dashed border-zinc-200 dark:border-zinc-800/80 flex flex-col items-center justify-center p-3 text-center">
-                      <p className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
+                    <div className="h-36 rounded-md border border-dashed border-border flex flex-col items-center justify-center p-3 text-center">
+                      <p className="text-xs font-medium text-fg-muted">
                         No articles for this day
                       </p>
-                      <p className="text-[10px] text-zinc-400 mt-1 max-w-[180px]">
+                      <p className="text-[10px] text-fg-muted mt-1 max-w-[180px]">
                         Drag a content item here to schedule for {day.dayName}.
                       </p>
                     </div>
@@ -302,44 +307,45 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                           setDraggingId(item.id);
                         }}
                         onClick={() => onSelectItem(item)}
-                        className="p-3 rounded-xl bg-white dark:bg-[#141620] border border-zinc-200/80 dark:border-zinc-800 shadow-xs hover:border-zinc-300 dark:hover:border-zinc-700 transition cursor-pointer group"
+                        className="p-3 rounded-md bg-surface border border-border shadow-xs hover:border-border-strong hover:shadow-sm transition cursor-pointer group"
                       >
                         <div className="flex items-center justify-between gap-1 mb-1.5">
                           <div className="flex items-center gap-1.5 truncate min-w-0">
-                            <span className="font-numeric font-bold text-[10px] text-indigo-600 dark:text-indigo-400 shrink-0">
+                            {renderPlatformIcon(item)}
+                            <span className="font-mono font-medium text-xs text-accent shrink-0">
                               {item.serial}
                             </span>
                             {item.client_name && (
-                              <span className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-[110px]" title={item.client_name}>
+                              <span className="text-xs font-medium text-fg-muted truncate max-w-[110px]" title={item.client_name}>
                                 • {item.client_name}
                               </span>
                             )}
                           </div>
-                          <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} shrink-0`}>
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted shrink-0">
                             {item.creative_type}
                           </span>
                         </div>
 
-                        <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-snug group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                        <h4 className="text-[13px] font-medium text-fg line-clamp-2 leading-snug group-hover:text-accent transition-colors">
                           {item.content_concept}
                         </h4>
 
-                        <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between text-[10px] text-zinc-400">
+                        <div className="mt-2 pt-2 border-t border-border flex items-center justify-between text-xs text-fg-muted">
                           <span className="font-medium truncate max-w-[100px]">
                             {item.content_pillar || '—'}
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {dateMode === 'publish' && item.design_due && item.design_due !== item.publish_date && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 font-medium" title={`Design Due: ${item.design_due}`}>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono" title={`Design Due: ${item.design_due}`}>
                                 Due: {item.design_due.slice(5)}
                               </span>
                             )}
                             {dateMode === 'design_due' && item.publish_date && item.publish_date !== item.design_due && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 font-medium" title={`Publish Date: ${item.publish_date}`}>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono" title={`Publish Date: ${item.publish_date}`}>
                                 Live: {item.publish_date.slice(5)}
                               </span>
                             )}
-                            <span className="font-semibold text-zinc-600 dark:text-zinc-300">
+                            <span className="font-medium text-fg">
                               {item.stage}
                             </span>
                           </div>
@@ -353,13 +359,13 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
           })}
         </div>
       ) : (
-        /* Month Grid View */
+        /* Month Grid View (7 columns, min-height 112px, 22px today circle, up to 3 chips + more popover) */
         <div className="flex-1 min-h-0 overflow-y-auto p-4 custom-scrollbar">
           <div className="grid grid-cols-7 gap-2">
             {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((dayHeader) => (
               <div
                 key={dayHeader}
-                className="py-1 text-center text-xs font-bold text-zinc-400 uppercase tracking-wider"
+                className="py-1 text-center text-xs font-medium text-fg-muted uppercase tracking-wider"
               >
                 {dayHeader}
               </div>
@@ -369,6 +375,8 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
               const cellItems = itemsByDate[cell.iso] || [];
               const isToday = cell.iso === todayIso;
               const isOver = dragOverDate === cell.iso;
+              const visibleItems = cellItems.slice(0, 3);
+              const remainingCount = cellItems.length - 3;
 
               return (
                 <div
@@ -379,35 +387,35 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                   }}
                   onDragLeave={() => setDragOverDate(null)}
                   onDrop={(e) => handleDropOnDate(e, cell.iso)}
-                  className={`min-h-[110px] p-2 rounded-xl border flex flex-col transition-all ${
+                  className={`min-h-[112px] p-2 rounded-lg border flex flex-col transition-all ${
                     cell.isCurrentMonth
-                      ? 'bg-white dark:bg-[#12141c]'
-                      : 'bg-zinc-50/50 dark:bg-zinc-950/30 opacity-60'
+                      ? 'bg-surface'
+                      : 'bg-subtle/40 opacity-70'
                   } ${
                     isToday
-                      ? 'border-indigo-500 shadow-xs'
-                      : 'border-zinc-200/80 dark:border-zinc-800/80'
-                  } ${isOver ? 'ring-2 ring-indigo-500 bg-indigo-50/20' : ''}`}
+                      ? 'border-accent shadow-xs'
+                      : 'border-border'
+                  } ${isOver ? 'ring-2 ring-accent bg-accent-soft/20' : ''}`}
                 >
                   <div className="flex items-center justify-between mb-1.5">
-                    <span
-                      className={`text-xs font-bold font-numeric ${
-                        isToday
-                          ? 'w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px]'
-                          : 'text-zinc-600 dark:text-zinc-300'
-                      }`}
-                    >
-                      {cell.dayNum}
-                    </span>
+                    {isToday ? (
+                      <span className="w-[22px] h-[22px] rounded-full bg-accent text-accent-contrast flex items-center justify-center text-xs font-medium">
+                        {cell.dayNum}
+                      </span>
+                    ) : (
+                      <span className="text-xs font-medium text-fg">
+                        {cell.dayNum}
+                      </span>
+                    )}
                     {cellItems.length > 0 && (
-                      <span className="text-[10px] font-numeric font-bold px-1.5 py-0.2 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted">
                         {cellItems.length}
                       </span>
                     )}
                   </div>
 
-                  <div className="flex-1 space-y-1 overflow-y-auto max-h-[85px]">
-                    {cellItems.map((item) => (
+                  <div className="flex-1 space-y-1 overflow-hidden">
+                    {visibleItems.map((item) => (
                       <div
                         key={item.id}
                         draggable
@@ -416,31 +424,79 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                           setDraggingId(item.id);
                         }}
                         onClick={() => onSelectItem(item)}
-                        className="px-1.5 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800/80 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-[11px] font-medium text-zinc-800 dark:text-zinc-200 truncate cursor-pointer transition flex items-center justify-between gap-1"
+                        className="px-1.5 py-1 rounded-sm bg-subtle hover:bg-hover text-xs font-medium text-fg truncate cursor-pointer transition flex items-center gap-1.5 border border-border/50"
                         title={`${item.serial} - ${item.content_concept} (Publish: ${item.publish_date || 'None'}, Design Due: ${item.design_due || 'None'})`}
                       >
-                        <span className="truncate">
-                          <span className="font-numeric font-bold text-indigo-600 dark:text-indigo-400 mr-1">
-                            {item.serial}
-                          </span>
-                          {item.content_concept}
+                        {renderPlatformIcon(item)}
+                        <span className="truncate flex-1">
+                          {item.content_concept || item.serial}
                         </span>
-                        {dateMode === 'publish' && item.design_due && item.design_due !== item.publish_date && (
-                          <span className="text-[8px] px-1 py-0.2 rounded bg-amber-100 dark:bg-amber-950/80 text-amber-700 dark:text-amber-400 font-bold shrink-0" title={`Design Due: ${item.design_due}`}>
-                            Due {item.design_due.slice(5)}
-                          </span>
-                        )}
-                        {dateMode === 'design_due' && item.publish_date && item.publish_date !== item.design_due && (
-                          <span className="text-[8px] px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-400 font-bold shrink-0" title={`Live Date: ${item.publish_date}`}>
-                            Live {item.publish_date.slice(5)}
-                          </span>
-                        )}
                       </div>
                     ))}
+                    {remainingCount > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setMorePopoverDate(cell.iso)}
+                        className="text-xs text-accent hover:underline font-medium text-left pl-1 cursor-pointer block"
+                      >
+                        +{remainingCount} more
+                      </button>
+                    )}
                   </div>
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Popover dialog for days with >3 items */}
+      {morePopoverDate && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 animate-in fade-in duration-100"
+          onClick={() => setMorePopoverDate(null)}
+        >
+          <div
+            className="bg-surface border border-border rounded-xl shadow-lg w-full max-w-md overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-fg">
+                Items for {morePopoverDate}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setMorePopoverDate(null)}
+                className="p-1 rounded-sm text-fg-muted hover:text-fg hover:bg-hover"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-3 max-h-80 overflow-y-auto space-y-1.5">
+              {(itemsByDate[morePopoverDate] || []).map((item) => (
+                <div
+                  key={item.id}
+                  onClick={() => {
+                    setMorePopoverDate(null);
+                    onSelectItem(item);
+                  }}
+                  className="p-2 rounded-md bg-subtle hover:bg-hover border border-border cursor-pointer flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {renderPlatformIcon(item)}
+                    <span className="font-mono text-xs font-medium text-accent shrink-0">
+                      {item.serial}
+                    </span>
+                    <span className="text-xs text-fg truncate">
+                      {item.content_concept}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-fg-muted shrink-0 font-medium">
+                    {item.stage}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

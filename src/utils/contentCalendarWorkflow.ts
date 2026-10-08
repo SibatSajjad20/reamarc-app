@@ -32,10 +32,24 @@ const CREATIVE_STAGES: PipelineStage[] = PIPELINE_STAGES.slice(4, 8);
 const SOCIAL_STAGES: PipelineStage[] = PIPELINE_STAGES.slice(8);
 export const CLIENT_REVIEW_STAGES: PipelineStage[] = ['Content Client Review', 'Creative Client Review'];
 
-export function detectStageOwner(stage?: string | null): string {
+export function isAdCreative(
+  item?: Partial<ContentCalendarItem> | { creative_category?: string | null; posting_type?: string | null } | null,
+): boolean {
+  if (!item) return false;
+  const cat = String(item.creative_category || item.posting_type || '').toLowerCase().trim();
+  return /\b(ad(\s+creative)?|performance)\b/i.test(cat);
+}
+
+export function detectStageOwner(stage?: string | null, creativeCategory?: string | null): string {
   const s = stage || 'Content';
   if (CREATIVE_STAGES.includes(s as PipelineStage)) return 'Creative';
-  if (SOCIAL_STAGES.includes(s as PipelineStage)) return 'Social Media';
+  if (SOCIAL_STAGES.includes(s as PipelineStage)) {
+    const cat = String(creativeCategory || '').toLowerCase().trim();
+    if (/\b(ad(\s+creative)?|performance)\b/i.test(cat)) {
+      return 'Performance Marketing';
+    }
+    return 'Social Media';
+  }
   return 'Content';
 }
 
@@ -193,11 +207,13 @@ export function isSocial(user?: CalendarActor | null): boolean {
   if (!isTeam(user)) return false;
   return getActorDepartments(user).includes('social media');
 }
+export const isSocialActor = isSocial;
 
 export function isPerformance(user?: CalendarActor | null): boolean {
   if (!isTeam(user)) return false;
   return getActorDepartments(user).includes('performance marketing');
 }
+export const isPerformanceActor = isPerformance;
 
 export function isTeamLeadOrAdmin(user?: CalendarActor | null): boolean {
   if (!user || user.is_active === false) return false;
@@ -230,7 +246,18 @@ export function visiblePipelineStages(user?: CalendarActor | null): PipelineStag
 }
 
 export function actionsFor(user: CalendarActor | null | undefined, item: ContentCalendarItem): StageActionSpec[] {
-  if (!user || user.is_active === false || isPerformance(user)) return [];
+  if (!user || user.is_active === false) return [];
+  const isAd = isAdCreative(item);
+  if (isPerformance(user) && !isSocial(user)) {
+    if (item.stage === 'Ready to Post' && isAd) {
+      return [
+        { action: 'post', label: 'Mark posted' },
+        { action: 'reject', label: 'Reject' },
+        { action: 'return_to_creative', label: 'Return to creative', needsNote: true },
+      ];
+    }
+    return [];
+  }
   if (roleOf(user) === 'client') {
     if (item.stage === 'Content Client Review' || item.stage === 'Creative Client Review') {
       return clientReviewActions();
@@ -264,10 +291,13 @@ export function actionsFor(user: CalendarActor | null | undefined, item: Content
     actions.push({ action: 'approve', label: 'Send to client' });
     actions.push({ action: 'send_back', label: 'Send back', needsNote: true });
   }
-  if (stage === 'Ready to Post' && (admin || isSocial(user))) {
-    actions.push({ action: 'post', label: 'Mark posted' });
-    actions.push({ action: 'reject', label: 'Reject' });
-    actions.push({ action: 'return_to_creative', label: 'Return to creative', needsNote: true });
+  if (stage === 'Ready to Post') {
+    const canPost = admin || (isAd ? (isPerformance(user) || isSocial(user)) : isSocial(user));
+    if (canPost) {
+      actions.push({ action: 'post', label: 'Mark posted' });
+      actions.push({ action: 'reject', label: 'Reject' });
+      actions.push({ action: 'return_to_creative', label: 'Return to creative', needsNote: true });
+    }
   }
   return actions;
 }
@@ -296,12 +326,26 @@ export function getDropTransition(
   if (item.stage === targetStage) {
     return { allowed: false, reason: 'Item is already in this stage' };
   }
-  if (!user || user.is_active === false || isPerformance(user)) {
+  if (!user || user.is_active === false) {
     return { allowed: false, reason: 'You do not have permission to change stages' };
   }
 
   const admin = isAdmin(user);
   const current = item.stage;
+  const isAd = isAdCreative(item);
+
+  if (isPerformance(user) && !isSocial(user)) {
+    const isReadyAction =
+      current === 'Ready to Post' &&
+      isAd &&
+      (targetStage === 'Posted' || targetStage === 'Rejected' || targetStage === 'Creative Revision');
+    if (!isReadyAction) {
+      return {
+        allowed: false,
+        reason: 'Performance Marketing can only publish or action ad campaigns in Ready to Post',
+      };
+    }
+  }
 
   // 1. Content / Revision -> Content Internal Review (Submit)
   if ((current === 'Content' || current === 'Content Revision') && targetStage === 'Content Internal Review') {
@@ -392,26 +436,44 @@ export function getDropTransition(
 
   // 11. Ready to Post -> Posted (Post)
   if (current === 'Ready to Post' && targetStage === 'Posted') {
-    if (admin || isSocial(user)) {
+    const canPost = admin || (isAd ? (isPerformance(user) || isSocial(user)) : isSocial(user));
+    if (canPost) {
       return { allowed: true, action: 'post' };
     }
-    return { allowed: false, reason: 'Only social media team can mark campaigns as posted' };
+    return {
+      allowed: false,
+      reason: isAd
+        ? 'Only performance marketing or social media team can mark ad campaigns as posted'
+        : 'Only social media team can mark organic campaigns as posted',
+    };
   }
 
   // 12. Ready to Post -> Rejected (Reject)
   if (current === 'Ready to Post' && targetStage === 'Rejected') {
-    if (admin || isSocial(user)) {
+    const canReject = admin || (isAd ? (isPerformance(user) || isSocial(user)) : isSocial(user));
+    if (canReject) {
       return { allowed: true, action: 'reject' };
     }
-    return { allowed: false, reason: 'Only social media team can reject campaigns' };
+    return {
+      allowed: false,
+      reason: isAd
+        ? 'Only performance marketing or social media team can reject ad campaigns'
+        : 'Only social media team can reject organic campaigns',
+    };
   }
 
   // 13. Ready to Post -> Creative Revision (Return to creative)
   if (current === 'Ready to Post' && targetStage === 'Creative Revision') {
-    if (admin || isSocial(user)) {
+    const canReturn = admin || (isAd ? (isPerformance(user) || isSocial(user)) : isSocial(user));
+    if (canReturn) {
       return { allowed: true, action: 'return_to_creative', needsNote: true };
     }
-    return { allowed: false, reason: 'Only social media team can return to creative' };
+    return {
+      allowed: false,
+      reason: isAd
+        ? 'Only performance marketing or social media team can return ad campaigns to creative'
+        : 'Only social media team can return organic campaigns to creative',
+    };
   }
 
   // Admin override: Admin can move to any stage
@@ -509,4 +571,46 @@ export function getAssetCounts(attachments?: Array<{ kind?: string }>) {
   }
   return { total: attachments.length, images, videos, links, docs, other };
 }
+
+export function canUserEditItem(user: CalendarActor | null | undefined, item: ContentCalendarItem): boolean {
+  if (!user || user.is_active === false) return false;
+  if (roleOf(user) === 'client') return false;
+  if (isAdmin(user)) return true;
+  const stage = item.stage;
+  if (stage === 'Content' || stage === 'Content Revision') {
+    return isContentActor(user);
+  }
+  if (stage === 'Creative Production' || stage === 'Creative Revision') {
+    return isCreativeLead(user) || (isCreativeActor(user) && !!item.assignee_id && item.assignee_id === user.id);
+  }
+  if (stage === 'Ready to Post') {
+    if (isAdCreative(item)) {
+      return isPerformance(user) || isSocial(user);
+    }
+    return isSocial(user);
+  }
+  return false;
+}
+export const canEditItem = canUserEditItem;
+
+export function canDeleteItem(user: CalendarActor | null | undefined, item: ContentCalendarItem): boolean {
+  if (!user || user.is_active === false) return false;
+  if (roleOf(user) === 'client') return false;
+  if (isAdmin(user) || isContentLead(user)) return true;
+  const createdBy = item.created_by;
+  if (createdBy && createdBy === user.id) {
+    return (item.stage === 'Content' || item.stage === 'Content Revision') && isContentActor(user);
+  }
+  return false;
+}
+
+export function canUserExecuteAction(
+  user: CalendarActor | null | undefined,
+  item: ContentCalendarItem,
+  action: StageAction,
+): boolean {
+  const available = actionsFor(user, item);
+  return available.some((a) => a.action === action);
+}
+export const canExecuteAction = canUserExecuteAction;
 

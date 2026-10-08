@@ -8,6 +8,7 @@ import {
   provisionalNetWorkHours,
   signedLogGapHours,
 } from '../../utils/liveNetWorkHours';
+import { cn } from '../../lib/utils';
 
 export interface ShiftTasksTrackerProps {
   dayTarget: DayTarget | null | undefined;
@@ -20,6 +21,7 @@ export interface ShiftTasksTrackerProps {
   /** Show skeleton while day-target is fetching. */
   loading?: boolean;
   className?: string;
+  variant?: 'strip' | 'pill';
 }
 
 function formatTrackerHours(hours: number): string {
@@ -27,15 +29,39 @@ function formatTrackerHours(hours: number): string {
   return formatHours(hours);
 }
 
+function formatShiftDate(isoDate?: string): string {
+  if (!isoDate) return 'Today';
+  const parts = isoDate.split('-').map(Number);
+  if (parts.length !== 3) return 'Today';
+  const [y, m, d] = parts;
+  const dt = new Date(y, m - 1, d);
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const prefix = isoDate === todayIso ? 'Today · ' : '';
+  return `${prefix}${days[dt.getDay()]}, ${d} ${months[m - 1]}`;
+}
+
+function formatShiftWindow(target?: DayTarget | null): string {
+  if (!target) return 'Standard shift · 9:30 AM – 6:30 PM';
+  const name = target.shift_name || 'Standard shift';
+  if (target.shift_start && target.shift_end) {
+    return `${name} · ${target.shift_start} – ${target.shift_end}`;
+  }
+  return `${name} · 9:30 AM – 6:30 PM`;
+}
+
 /**
- * Compact header pill: Time at Work · Logged · Gap (signed under / over).
- * Returns null when there is nothing useful to show (unless loading).
+ * Restyled ShiftTasksTracker:
+ * - 'strip': Full shift status strip matching mock 06 (for DailyLogView)
+ * - 'pill': Compact header pill (for modals and tight toolbars)
  */
 export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   dayTarget,
   loggedHours: loggedHoursProp,
   loading = false,
   className = '',
+  variant = 'strip',
 }) => {
   const hasCheckin = Boolean(dayTarget?.has_checkin);
   const hasCheckout = Boolean(dayTarget?.has_checkout);
@@ -43,18 +69,13 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   const isWfh = Boolean(dayTarget?.is_wfh);
   const isFullLeave = Boolean(dayTarget?.is_full_leave);
 
-  const visible =
-    Boolean(dayTarget) &&
-    !isFullLeave &&
-    (hasCheckin || isWfh);
-
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!visible || !stillIn) return;
+    if (!stillIn) return;
     const id = window.setInterval(() => setNowTick(Date.now()), 1000);
     return () => window.clearInterval(id);
-  }, [visible, stillIn, dayTarget?.date, dayTarget?.check_in]);
+  }, [stillIn, dayTarget?.date, dayTarget?.check_in]);
 
   const loggedHours = useMemo(() => {
     if (typeof loggedHoursProp === 'number' && Number.isFinite(loggedHoursProp)) {
@@ -85,81 +106,187 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
     return 0;
   }, [dayTarget, stillIn, nowTick, isWfh, hasCheckin]);
 
+  const expectedHours = Math.max(0, Number(dayTarget?.expected_hours) || 8);
+  const remainingHours = Math.max(0, expectedHours - loggedHours);
+  const progressTarget = Math.max(timeAtWorkHours, expectedHours, 0.1);
+  const progressPercent = Math.min(100, Math.max(0, (loggedHours / progressTarget) * 100));
+
   const signedGap = signedLogGapHours(loggedHours, timeAtWorkHours);
   const absGap = Math.abs(signedGap);
   const isOver = signedGap > LOG_GAP_MATCH_HOURS;
   const isUnder = signedGap < -LOG_GAP_MATCH_HOURS;
 
+  // --- Skeleton Loading States ---
   if (loading) {
+    if (variant === 'pill') {
+      return (
+        <div
+          className={cn(
+            'inline-flex items-center gap-1.5 shrink-0 h-7 px-2.5 rounded-full border border-border bg-subtle/50 animate-pulse',
+            className
+          )}
+          aria-busy="true"
+          aria-label="Loading shift hours"
+        >
+          <span className="w-3 h-3 rounded-full bg-skel shrink-0" />
+          <span className="h-2.5 w-10 rounded bg-skel" />
+          <span className="h-2 w-1 rounded bg-skel/80" />
+          <span className="h-2.5 w-8 rounded bg-skel" />
+        </div>
+      );
+    }
+
     return (
       <div
-        className={`inline-flex items-center gap-1.5 shrink-0 h-7 px-2.5 rounded-full border border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-900/80 ${className}`}
-        aria-busy="true"
-        aria-label="Loading shift hours"
+        className={cn(
+          'bg-surface border border-border rounded-lg p-3.5 sm:px-4 flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 mb-4 shadow-xs animate-pulse',
+          className
+        )}
       >
-        <span className="w-3 h-3 rounded-full bg-zinc-200 dark:bg-zinc-700 animate-pulse shrink-0" />
-        <span className="h-2.5 w-10 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
-        <span className="h-2 w-1 rounded bg-zinc-200/80 dark:bg-zinc-700/80" />
-        <span className="h-2.5 w-8 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
-        <span className="h-2 w-1 rounded bg-zinc-200/80 dark:bg-zinc-700/80" />
-        <span className="h-2.5 w-12 rounded bg-zinc-200 dark:bg-zinc-700 animate-pulse" />
+        <div className="space-y-1.5">
+          <div className="h-3 w-24 bg-skel rounded" />
+          <div className="h-4 w-40 bg-skel rounded" />
+        </div>
+        <div className="w-px self-stretch bg-border hidden sm:block" />
+        <div className="space-y-1.5">
+          <div className="h-3 w-12 bg-skel rounded" />
+          <div className="h-5 w-10 bg-skel rounded" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-12 bg-skel rounded" />
+          <div className="h-5 w-12 bg-skel rounded" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-12 bg-skel rounded" />
+          <div className="h-5 w-10 bg-skel rounded" />
+        </div>
+        <div className="space-y-1.5">
+          <div className="h-3 w-14 bg-skel rounded" />
+          <div className="h-5 w-10 bg-skel rounded" />
+        </div>
+        <div className="flex-1 min-w-[160px] space-y-2">
+          <div className="h-2 bg-skel rounded-full" />
+          <div className="h-3 w-48 bg-skel rounded" />
+        </div>
       </div>
     );
   }
 
-  if (!visible || !dayTarget) return null;
+  // --- Pill Variant ---
+  if (variant === 'pill') {
+    const visible = Boolean(dayTarget) && !isFullLeave && (hasCheckin || isWfh);
+    if (!visible || !dayTarget) return null;
 
-  const gapTone = isOver
-    ? absGap >= 0.5
-      ? 'text-rose-600 dark:text-rose-400'
-      : 'text-amber-600 dark:text-amber-400'
-    : isUnder
+    const gapTone = isOver
       ? absGap >= 0.5
-        ? 'text-rose-600 dark:text-rose-400'
-        : 'text-amber-600 dark:text-amber-400'
-      : 'text-zinc-400 dark:text-zinc-500';
+        ? 'text-danger-fg'
+        : 'text-warning-fg'
+      : isUnder
+        ? absGap >= 0.5
+          ? 'text-danger-fg'
+          : 'text-warning-fg'
+        : 'text-fg-muted';
 
-  const shellTone = isOver
-    ? absGap >= 0.5
-      ? 'border-rose-200/80 dark:border-rose-800/40 bg-rose-50/60 dark:bg-rose-950/20'
-      : 'border-amber-200/80 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-950/20'
-    : isUnder
-      ? absGap >= 0.5
-        ? 'border-rose-200/80 dark:border-rose-800/40 bg-rose-50/60 dark:bg-rose-950/20'
-        : 'border-amber-200/80 dark:border-amber-800/40 bg-amber-50/60 dark:bg-amber-950/20'
-      : loggedHours > 0
-        ? 'border-emerald-200/80 dark:border-emerald-800/40 bg-emerald-50/50 dark:bg-emerald-950/20'
-        : 'border-zinc-200 dark:border-zinc-700/80 bg-zinc-50 dark:bg-zinc-900/80';
+    const gapLabel = isOver
+      ? `${formatTrackerHours(absGap)} over`
+      : isUnder
+        ? `${formatTrackerHours(absGap)} gap`
+        : 'caught up';
 
-  const gapLabel = isOver
-    ? `${formatTrackerHours(absGap)} over`
-    : isUnder
-      ? `${formatTrackerHours(absGap)} gap`
-      : 'caught up';
+    const title = `Time at work ${formatTrackerHours(timeAtWorkHours)} · Logged ${
+      loggedHours > 0 ? formatTrackerHours(loggedHours) : '0m'
+    } · ${gapLabel}`;
 
-  const title = `Time at work ${formatTrackerHours(timeAtWorkHours)} (excludes unpaid break) · Logged ${
-    loggedHours > 0 ? formatTrackerHours(loggedHours) : '0m'
-  } · ${gapLabel}`;
+    return (
+      <div
+        title={title}
+        className={cn(
+          'inline-flex items-center gap-1.5 shrink-0 h-7 max-w-full px-2.5 rounded-full border border-border bg-surface text-micro font-medium tabular-nums shadow-xs select-none',
+          className
+        )}
+      >
+        <Timer className="w-3 h-3 text-accent shrink-0 opacity-90" />
+        <span className="text-fg whitespace-nowrap">
+          {formatTrackerHours(timeAtWorkHours)}
+        </span>
+        <span className="text-fg-muted select-none" aria-hidden>
+          ·
+        </span>
+        <span className="text-success-fg whitespace-nowrap font-semibold">
+          {loggedHours > 0 ? formatTrackerHours(loggedHours) : '0m'}
+        </span>
+        <span className="text-fg-muted select-none" aria-hidden>
+          ·
+        </span>
+        <span className={cn('whitespace-nowrap', gapTone)}>{gapLabel}</span>
+      </div>
+    );
+  }
+
+  // --- Strip Variant (Mock 06 Reference) ---
+  const dateLabel = formatShiftDate(dayTarget?.date);
+  const shiftLabel = formatShiftWindow(dayTarget);
+  const atWorkDisplay = formatTrackerHours(timeAtWorkHours);
+  const loggedDisplay = formatTrackerHours(loggedHours);
+  const remainingDisplay = formatTrackerHours(remainingHours);
+  const expectedDisplay = `${expectedHours}h`;
 
   return (
     <div
-      title={title}
-      className={`inline-flex items-center gap-1.5 shrink-0 h-7 max-w-full px-2.5 rounded-full border text-[11px] font-bold tabular-nums shadow-2xs ${shellTone} ${className}`}
+      className={cn(
+        'bg-surface border border-border rounded-lg px-4 py-3 sm:px-4 sm:py-3.5 flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 mb-4 shadow-xs select-none',
+        className
+      )}
     >
-      <Timer className="w-3 h-3 text-indigo-500 shrink-0 opacity-90" />
-      <span className="text-zinc-800 dark:text-zinc-100 whitespace-nowrap">
-        {formatTrackerHours(timeAtWorkHours)}
-      </span>
-      <span className="text-zinc-300 dark:text-zinc-600 select-none" aria-hidden>
-        ·
-      </span>
-      <span className="text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-        {loggedHours > 0 ? formatTrackerHours(loggedHours) : '0m'}
-      </span>
-      <span className="text-zinc-300 dark:text-zinc-600 select-none" aria-hidden>
-        ·
-      </span>
-      <span className={`${gapTone} whitespace-nowrap`}>{gapLabel}</span>
+      {/* Date & Shift Info */}
+      <div className="min-w-[170px]">
+        <div className="text-small text-fg-muted">{dateLabel}</div>
+        <div className="text-body font-medium text-fg">{shiftLabel}</div>
+      </div>
+
+      <div className="w-px h-8 bg-border hidden sm:block" />
+
+      {/* Stats Columns */}
+      <div>
+        <div className="text-small text-fg-muted">Expected</div>
+        <div className="text-h2 font-semibold font-numeric tabular-nums text-fg leading-tight">
+          {expectedDisplay}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-small text-fg-muted">At work</div>
+        <div className="text-h2 font-semibold font-numeric tabular-nums text-fg leading-tight">
+          {atWorkDisplay}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-small text-fg-muted">Logged</div>
+        <div className="text-h2 font-semibold font-numeric tabular-nums text-accent-text leading-tight">
+          {loggedDisplay}
+        </div>
+      </div>
+
+      <div>
+        <div className="text-small text-fg-muted">Remaining</div>
+        <div className="text-h2 font-semibold font-numeric tabular-nums text-fg leading-tight">
+          {remainingDisplay}
+        </div>
+      </div>
+
+      {/* Progress Bar & Caption */}
+      <div className="flex-1 min-w-[180px]">
+        <div className="h-2 rounded-full bg-subtle overflow-hidden relative">
+          <div
+            className="h-full bg-accent rounded-full transition-all duration-300"
+            style={{ width: `${progressPercent}%` }}
+          />
+        </div>
+        <div className="text-small text-fg-muted mt-1.5 font-numeric">
+          Logged {loggedDisplay} of {formatTrackerHours(timeAtWorkHours || expectedHours)} at work so far
+        </div>
+      </div>
     </div>
   );
 };

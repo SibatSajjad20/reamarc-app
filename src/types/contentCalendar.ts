@@ -43,12 +43,21 @@ export interface CreativeAsset {
   google_drive_thumb_file_id?: string | null;
 }
 
+export const CONTENT_TYPE_OPTIONS = ['Scheduled', 'Runtime'] as const;
+export type ContentTypeOption = typeof CONTENT_TYPE_OPTIONS[number];
+
+export const CREATIVE_CATEGORY_OPTIONS = ['Organic Creative', 'Ad Creative'] as const;
+export type CreativeCategoryOption = typeof CREATIVE_CATEGORY_OPTIONS[number];
+
 export interface ContentCalendarItem {
   id: string;
   serial: string;
   client_name?: string | null;
   campaign_type: string;
   creative_type: string;
+  content_type: ContentTypeOption | string;
+  creative_category: CreativeCategoryOption | string;
+  posting_type?: string | null;
   content_pillar: string;
   content_concept: string;
   offer: string;
@@ -92,6 +101,8 @@ export interface ContentCalendarListResponse {
 export interface ContentCalendarConstants {
   campaign_types: string[];
   creative_types: string[];
+  content_types?: string[];
+  creative_categories?: string[];
   content_pillars: string[];
   offers: string[];
   ctas: string[];
@@ -101,7 +112,7 @@ export interface ContentCalendarConstants {
   design_owners?: string[];
 }
 
-export type ContentCalendarViewMode = 'table' | 'pipeline' | 'calendar';
+export type ContentCalendarViewMode = 'overview' | 'table' | 'pipeline' | 'calendar';
 
 export interface ContentCalendarFilter {
   search?: string;
@@ -135,5 +146,24 @@ export interface BulkImportResponse {
   inserted_count: number;
   updated_count: number;
   errors: string[];
+}
+
+export interface DrivePickedFile {
+  id: string;
+  name: string;
+  mime_type?: string;
+  size_bytes?: number;
+  url?: string;
+  thumbnail_url?: string;
+  role?: AssetRole | string;
+}
+
+export interface DrivePickerConfig {
+  developer_key: string;
+  client_id: string;
+  app_id: string;
+  access_token: string;
+  folder_id?: string;
+  root_folder_id?: string;
 }
 

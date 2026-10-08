@@ -70,17 +70,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   }, [user?.role, activeSection, isHR, isOperations]);
 
+  const initialMembers = adminService.getCachedMembers()?.data || [];
+  const initialActivitiesList = adminService.getCachedActivities()?.data || [];
+  const initialActMap: Record<string, MemberActivity> = {};
+  initialActivitiesList.forEach((a) => {
+    initialActMap[a.user_id] = a;
+  });
+  const initialAdAccounts = adminService.getCachedAdAccounts()?.data || [];
+  const hasCached = adminService.hasInitialCache();
+
   // Members & Activities
-  const [members, setMembers] = useState<AdminMember[]>([]);
-  const [activities, setActivities] = useState<Record<string, MemberActivity>>({});
-  const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(true);
+  const [members, setMembers] = useState<AdminMember[]>(() => initialMembers);
+  const [activities, setActivities] = useState<Record<string, MemberActivity>>(() => initialActMap);
+  const [isLoadingMembers, setIsLoadingMembers] = useState<boolean>(!hasCached);
   const [isSendingReminder, setIsSendingReminder] = useState<Record<string, boolean>>({});
 
   // Workspaces (from hook)
   const { workspaces, saveWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
 
   // Ad Accounts (separate collection & state)
-  const [adAccounts, setAdAccounts] = useState<AdAccount[]>([]);
+  const [adAccounts, setAdAccounts] = useState<AdAccount[]>(() => initialAdAccounts);
 
   // Modals for Members
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -125,13 +134,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const fetchMembers = async (showSpinner = false) => {
     try {
-      if (showSpinner || members.length === 0) {
+      if ((showSpinner || members.length === 0) && !adminService.hasInitialCache()) {
         setIsLoadingMembers(true);
       }
       const list = await adminService.getMembers();
+      adminService.setCachedMembers(list);
       setMembers(list);
     } catch (err: any) {
-      addToast('Error', err?.message || 'Failed to load team members directory', 'warning');
+      if (!adminService.hasInitialCache()) {
+        addToast('Error', err?.message || 'Failed to load team members directory', 'error');
+      }
     } finally {
       setIsLoadingMembers(false);
     }
@@ -142,6 +154,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const fetchAdAccounts = useCallback(async () => {
     try {
       const accounts = await adminService.getAdAccounts();
+      adminService.setCachedAdAccounts(accounts || []);
       setAdAccounts(accounts || []);
     } catch (err: any) {
       console.error('Failed to load ad accounts:', err);
@@ -166,6 +179,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     await fetchMembers();
   };
 
+  const handleToggleMemberStatus = async (member: AdminMember) => {
+    try {
+      const nextActive = !member.is_active;
+      await adminService.updateMember(member.id, { is_active: nextActive });
+      addToast(
+        nextActive ? 'Member reactivated' : 'Member deactivated',
+        `${member.full_name} is now ${nextActive ? 'active' : 'deactivated'}.`,
+        'success'
+      );
+      await fetchMembers();
+    } catch (err: any) {
+      addToast('Error', err.message || 'Failed to update member status', 'error');
+    }
+  };
+
   const handleDeleteMember = async () => {
     if (!memberToDelete) return;
     try {
@@ -179,7 +207,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       await fetchMembers();
       window.dispatchEvent(new Event('reamarc-member-deleted'));
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to delete member', 'warning');
+      addToast('Error', err.message || 'Failed to delete member', 'error');
     }
   };
 
@@ -194,7 +222,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       addToast('Reminder Dispatched', res.message, 'success');
       await fetchMembers();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to dispatch reminder', 'warning');
+      addToast('Error', err.message || 'Failed to dispatch reminder', 'error');
     } finally {
       setIsSendingReminder((prev) => ({ ...prev, [userId]: false }));
     }
@@ -216,7 +244,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       addToast('Status Updated', `${workspace.name} is now ${newStatus}.`, 'success');
       await refetchWorkspaces();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to update workspace status', 'warning');
+      addToast('Error', err.message || 'Failed to update workspace status', 'error');
     }
   };
 
@@ -245,7 +273,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       setAdAccountToDelete(null);
       await fetchAdAccounts();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to delete ad account', 'warning');
+      addToast('Error', err.message || 'Failed to delete ad account', 'error');
     }
   };
 
@@ -260,7 +288,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   }, [activities]);
 
   return (
-    <div className="flex flex-col h-full w-full bg-zinc-50 dark:bg-[#090a0f] overflow-hidden">
+    <div className="flex h-full w-full bg-canvas text-fg overflow-hidden">
       <AdminSidebarNav
         activeSection={activeSection}
         onSelectSection={handleSelectSection}
@@ -277,6 +305,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         <UserManagementSection
           members={members}
           workspaces={workspaces}
+          adAccounts={adAccounts}
           isLoading={isLoadingMembers}
           onAddMember={(role) => {
             setAddMemberDefaultRole(role || 'team_member');
@@ -287,6 +316,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             setIsEditModalOpen(true);
           }}
           onDeleteMember={(m) => setMemberToDelete(m)}
+          onToggleStatus={handleToggleMemberStatus}
+          onNavigateSection={handleSelectSection}
           canManageMembers={canManageMembers}
         />
       )}
@@ -314,6 +345,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           }}
           onToggleStatus={handleToggleWorkspaceStatus}
           canManageWorkspaces={canManageWorkspaces}
+          members={members}
         />
       )}
 
@@ -330,6 +362,10 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             setIsAdAccountModalOpen(true);
           }}
           onDeleteAccount={(acc) => setAdAccountToDelete(acc)}
+          onOpenCredentials={(acc) => {
+            setSelectedAdAccountForCreds(acc);
+            setIsCredsModalOpen(true);
+          }}
           canManageAdAccounts={canManageAdAccounts}
         />
       )}
@@ -413,12 +449,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Delete Member Confirmation */}
       {memberToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-xl p-6 max-w-sm w-full shadow-lg space-y-4 animate-in fade-in zoom-in-95">
+            <h3 className="text-sm font-semibold text-fg">
               Remove {memberToDelete.full_name}?
             </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs text-fg-muted leading-relaxed">
               This permanently deletes their account, Daily Log entries, Exception inbox items,
               attendance punches, and leave records. This cannot be undone.
             </p>
@@ -426,14 +462,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <button
                 type="button"
                 onClick={() => setMemberToDelete(null)}
-                className="px-4 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl"
+                className="px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeleteMember}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs"
+                className="px-3.5 py-1.5 bg-danger-solid hover:opacity-90 text-white rounded-md text-xs font-medium shadow-xs transition-opacity"
               >
                 Delete Member
               </button>
@@ -444,26 +480,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
       {/* Delete Ad Account Confirmation */}
       {adAccountToDelete && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-6 max-w-sm w-full shadow-2xl space-y-4 animate-in fade-in zoom-in-95">
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-xl p-6 max-w-sm w-full shadow-lg space-y-4 animate-in fade-in zoom-in-95">
+            <h3 className="text-sm font-semibold text-fg">
               Delete Ad Account "{adAccountToDelete.name}"?
             </h3>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+            <p className="text-xs text-fg-muted leading-relaxed">
               This will remove this advertising account configuration and platform credentials.
             </p>
             <div className="flex items-center justify-end gap-2">
               <button
                 type="button"
                 onClick={() => setAdAccountToDelete(null)}
-                className="px-4 py-2 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl"
+                className="px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition-colors"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeleteAdAccount}
-                className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs"
+                className="px-3.5 py-1.5 bg-danger-solid hover:opacity-90 text-white rounded-md text-xs font-medium shadow-xs transition-opacity"
               >
                 Delete Ad Account
               </button>

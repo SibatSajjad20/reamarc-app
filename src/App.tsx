@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { ViewType, Workspace, ThemeMode } from './types';
+import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/views/DashboardView';
 import { PerformanceMarketing } from './components/views/PerformanceMarketing';
@@ -12,7 +12,8 @@ import { ProfileSettingsView } from './components/views/ProfileSettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
 import { CrmView } from './components/views/CrmView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
-import { ContentCalendarClientReviews } from './components/content-calendar/ContentCalendarClientReviews';
+import { WebsitePipelineView } from './components/views/WebsitePipelineView';
+import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
 import type { AdminSectionType } from './components/admin/AdminSidebarNav';
@@ -21,8 +22,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
-import { canAccessCrm } from './utils/crmAccess';
+import { canAccessCrm, canAssignCrmLeads } from './utils/crmAccess';
 import { canAccessContentCalendar } from './utils/contentCalendarAccess';
+import { canAccessWebsitePipeline } from './utils/websiteProjectAccess';
 import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
@@ -30,11 +32,32 @@ import { LoadingScreen } from './components/ui/LoadingScreen';
 import { PublicSchedulerView } from './components/views/PublicSchedulerView';
 import { PublicClientReviewView } from './components/views/PublicClientReviewView';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
+import { AppShell } from './components/layout/AppShell';
+import { TopBar } from './components/layout/TopBar';
+import { CommandPalette } from './components/layout/CommandPalette';
+import { ShortcutsDialog } from './components/layout/ShortcutsDialog';
+import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
+import { ErrorBoundary } from './components/ui/ErrorBoundary';
 
 function AppInner() {
   const { addToast } = useToast();
   const { user, logout, setActiveWorkspaceId, isLoading: isAuthLoading } = useAuth();
   const moduleClicksBlocked = useModuleLoadBlocked();
+
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setIsCommandPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -53,8 +76,12 @@ function AppInner() {
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
   const canSeeCrm = canAccessCrm(user);
   const canSeeContentCalendar = canAccessContentCalendar(user);
+  const canSeeWebsitePipeline = canAccessWebsitePipeline(user);
+  const canAssign = canAssignCrmLeads(user);
+  const isManagementRole = isAdmin || isHR || isOperations;
+  const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
 
-  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm', 'content-calendar', 'portal'];
+  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm', 'content-calendar', 'website-pipeline', 'portal'];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'portal';
@@ -78,6 +105,8 @@ function AppInner() {
     return isAdmin || isHR || isOperations ? 'daily-matrix' : 'timesheet';
   });
   const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionType>('directory');
+  const [activeWebsiteSection, setActiveWebsiteSection] = useState<'board' | 'tasks' | 'table'>('board');
+  const [activePortalTab, setActivePortalTab] = useState<'content' | 'website'>('content');
 
   // Route guard effect to enforce V1.0 module boundaries & URL path redirects
   useEffect(() => {
@@ -194,6 +223,16 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'website-pipeline' || currentPath === 'website_pipeline' || currentPath === 'website') {
+        if (canSeeWebsitePipeline) {
+          setCurrentView('website-pipeline');
+          localStorage.setItem('reamarc_active_view', 'website-pipeline');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'marketing') {
         if (isClient) {
           window.history.replaceState(null, '', '/portal');
@@ -277,6 +316,7 @@ function AppInner() {
     if (canSeeActiveClients) allowedViews.push('active-clients');
     if (canSeeCrm) allowedViews.push('crm');
     if (canSeeContentCalendar) allowedViews.push('content-calendar');
+    if (canSeeWebsitePipeline) allowedViews.push('website-pipeline');
     if (!isClient) {
       allowedViews.push('attendance');
       allowedViews.push('daily-log');
@@ -318,7 +358,7 @@ function AppInner() {
     };
     navigator.serviceWorker.addEventListener('message', onMessage);
     return () => navigator.serviceWorker.removeEventListener('message', onMessage);
-  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
+  }, [user, isAdmin, isClient, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, canSeeWebsitePipeline, canSeeExceptions, canSeeMarketing, canSeeAdmin, getDefaultViewForUser, addToast]);
 
   const {
     workspaces,
@@ -335,22 +375,55 @@ function AppInner() {
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
 
-  // Theme Mode State ('dark' | 'light')
+  // Theme Mode State ('dark' | 'light' | 'system')
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
+    const saved = localStorage.getItem('reamarc-theme') as ThemePreference | null;
+    return saved === 'light' || saved === 'dark' || saved === 'system' ? saved : 'system';
+  });
+
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem('reamarc-theme') as ThemeMode;
-    return saved === 'light' ? 'light' : 'dark';
+    const saved = localStorage.getItem('reamarc-theme');
+    if (saved === 'dark' || saved === 'light') return saved;
+    if (typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+      return 'dark';
+    }
+    return 'light';
   });
 
   useEffect(() => {
-    document.documentElement.classList.remove('dark', 'light');
-    document.documentElement.classList.add(theme);
-    document.body.classList.remove('dark', 'light');
-    document.body.classList.add(theme);
-    localStorage.setItem('reamarc-theme', theme);
-  }, [theme]);
+    const updateTheme = () => {
+      let isDark = false;
+      if (themePreference === 'dark') {
+        isDark = true;
+      } else if (themePreference === 'light') {
+        isDark = false;
+      } else {
+        isDark = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+      const newTheme: ThemeMode = isDark ? 'dark' : 'light';
+      setTheme(newTheme);
+      document.documentElement.classList.remove('dark', 'light');
+      document.documentElement.classList.add(newTheme);
+      document.documentElement.style.colorScheme = newTheme;
+      document.body.classList.remove('dark', 'light');
+      document.body.classList.add(newTheme);
+      localStorage.setItem('reamarc-theme', themePreference);
+    };
+
+    updateTheme();
+
+    if (themePreference === 'system' && typeof window !== 'undefined' && window.matchMedia) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+      const listener = () => updateTheme();
+      mediaQuery.addEventListener('change', listener);
+      return () => mediaQuery.removeEventListener('change', listener);
+    }
+  }, [themePreference]);
 
   const handleToggleTheme = () => {
-    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+    setThemePreference(() => {
+      return theme === 'dark' ? 'light' : 'dark';
+    });
   };
 
   // Workspace CRUD Handlers
@@ -363,12 +436,12 @@ function AppInner() {
     try {
       const res = await saveWorkspace(workspaceToEdit, data);
       if (res.isNew) {
-        addToast('Workspace Created 🎉', `Switched to new workspace "${res.workspace.name}".`, 'success');
+        addToast('Workspace created', `Switched to new workspace "${res.workspace.name}".`, 'success');
       } else {
-        addToast('Workspace Updated', `"${res.workspace.name}" updated successfully.`, 'success');
+        addToast('Workspace updated', `"${res.workspace.name}" updated successfully.`, 'success');
       }
     } catch (err: any) {
-      addToast('Workspace Save Failed', err.message || 'Could not save workspace.', 'warning');
+      addToast('Workspace Save Failed', err.message || 'Could not save workspace.', 'error');
     }
   };
 
@@ -405,7 +478,7 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    return <LoadingScreen fullScreen message="Verifying session..." title="Reamarc AI" />;
+    return <LoadingScreen fullScreen message="Checking your session…" title="Reamarc" />;
   }
 
   if (!user) {
@@ -413,133 +486,321 @@ function AppInner() {
   }
 
   return (
-    <div className="flex h-full w-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 overflow-hidden antialiased">
+    <>
       {/* Real-time prompt when desktop notifications are not yet enabled */}
       <NotificationPromptBanner />
 
-      {/* Persistent Left Sidebar */}
-      <Sidebar
-        currentView={currentView}
-        onSelectView={handleSelectView}
-        onSignOut={handleSignOut}
-        theme={theme}
-        onToggleTheme={handleToggleTheme}
-        activeCrmSection={activeCrmSection}
-        onSelectCrmSection={(section) => {
-          setActiveCrmSection(section);
-          if (currentView !== 'crm') {
-            handleSelectView('crm');
-          }
-        }}
-        activeAttendanceSection={activeAttendanceSection}
-        onSelectAttendanceSection={(section) => {
-          setActiveAttendanceSection(section);
-          if (currentView !== 'attendance') {
-            handleSelectView('attendance');
-          }
-        }}
-        activeAdminSection={activeAdminSection}
-        onSelectAdminSection={(section) => {
-          setActiveAdminSection(section);
-          if (currentView !== 'admin') {
-            handleSelectView('admin');
-          }
-        }}
-      />
-
-      {/* Main View Display Area */}
-      <main className="relative flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-slate-50 dark:bg-[#0f1117]">
-        {moduleClicksBlocked && (
-          <div
-            className="absolute inset-0 z-40"
-            aria-hidden
-            onPointerDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
+      <AppShell
+        moduleClicksBlocked={moduleClicksBlocked}
+        isMobileNavOpen={isMobileNavOpen}
+        onMobileNavOpenChange={setIsMobileNavOpen}
+        sidebar={
+          <Sidebar
+            currentView={currentView}
+            onSelectView={handleSelectView}
+            onSignOut={handleSignOut}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            themePreference={themePreference}
+            onSelectThemePreference={setThemePreference}
+            activeCrmSection={activeCrmSection}
+            onSelectCrmSection={(section) => {
+              setActiveCrmSection(section);
+              if (currentView !== 'crm') {
+                handleSelectView('crm');
+              }
+            }}
+            activeAttendanceSection={activeAttendanceSection}
+            onSelectAttendanceSection={(section) => {
+              setActiveAttendanceSection(section);
+              if (currentView !== 'attendance') {
+                handleSelectView('attendance');
+              }
+            }}
+            activeAdminSection={activeAdminSection}
+            onSelectAdminSection={(section) => {
+              setActiveAdminSection(section);
+              if (currentView !== 'admin') {
+                handleSelectView('admin');
+              }
+            }}
+            activeWebsiteSection={activeWebsiteSection}
+            onSelectWebsiteSection={(section) => {
+              setActiveWebsiteSection(section);
+              if (currentView !== 'website-pipeline') {
+                handleSelectView('website-pipeline');
+              }
+            }}
+            activePortalTab={activePortalTab}
+            onSelectPortalTab={(tab) => {
+              setActivePortalTab(tab);
+              if (currentView !== 'portal') {
+                handleSelectView('portal');
+              }
+            }}
+            onOpenShortcuts={() => setIsShortcutsOpen(true)}
+          />
+        }
+        mobileSidebar={
+          <Sidebar
+            currentView={currentView}
+            onSelectView={(v) => {
+              handleSelectView(v);
+              setIsMobileNavOpen(false);
+            }}
+            onSignOut={handleSignOut}
+            theme={theme}
+            onToggleTheme={handleToggleTheme}
+            themePreference={themePreference}
+            onSelectThemePreference={setThemePreference}
+            activeCrmSection={activeCrmSection}
+            onSelectCrmSection={(section) => {
+              setActiveCrmSection(section);
+              if (currentView !== 'crm') {
+                handleSelectView('crm');
+              }
+              setIsMobileNavOpen(false);
+            }}
+            activeAttendanceSection={activeAttendanceSection}
+            onSelectAttendanceSection={(section) => {
+              setActiveAttendanceSection(section);
+              if (currentView !== 'attendance') {
+                handleSelectView('attendance');
+              }
+              setIsMobileNavOpen(false);
+            }}
+            activeAdminSection={activeAdminSection}
+            onSelectAdminSection={(section) => {
+              setActiveAdminSection(section);
+              if (currentView !== 'admin') {
+                handleSelectView('admin');
+              }
+              setIsMobileNavOpen(false);
+            }}
+            activeWebsiteSection={activeWebsiteSection}
+            onSelectWebsiteSection={(section) => {
+              setActiveWebsiteSection(section);
+              if (currentView !== 'website-pipeline') {
+                handleSelectView('website-pipeline');
+              }
+              setIsMobileNavOpen(false);
+            }}
+            activePortalTab={activePortalTab}
+            onSelectPortalTab={(tab) => {
+              setActivePortalTab(tab);
+              if (currentView !== 'portal') {
+                handleSelectView('portal');
+              }
+              setIsMobileNavOpen(false);
+            }}
+            onOpenShortcuts={() => {
+              setIsMobileNavOpen(false);
+              setIsShortcutsOpen(true);
             }}
           />
-        )}
-        {currentView === 'dashboard' && !isAdmin && !isClient && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <DashboardView onNavigateView={handleSelectView} />
-          </div>
-        )}
+        }
+        topBar={
+          <TopBar
+            currentView={currentView}
+            onSelectView={handleSelectView}
+            activeCrmSection={activeCrmSection}
+            onSelectCrmSection={(section) => {
+              setActiveCrmSection(section);
+              if (currentView !== 'crm') {
+                handleSelectView('crm');
+              }
+            }}
+            activeAttendanceSection={activeAttendanceSection}
+            onSelectAttendanceSection={(section) => {
+              setActiveAttendanceSection(section);
+              if (currentView !== 'attendance') {
+                handleSelectView('attendance');
+              }
+            }}
+            activeAdminSection={activeAdminSection}
+            onSelectAdminSection={(section) => {
+              setActiveAdminSection(section);
+              if (currentView !== 'admin') {
+                handleSelectView('admin');
+              }
+            }}
+            activeWebsiteSection={activeWebsiteSection}
+            onSelectWebsiteSection={(section) => {
+              setActiveWebsiteSection(section);
+              if (currentView !== 'website-pipeline') {
+                handleSelectView('website-pipeline');
+              }
+            }}
+            activePortalTab={activePortalTab}
+            onSelectPortalTab={(tab) => {
+              setActivePortalTab(tab);
+              if (currentView !== 'portal') {
+                handleSelectView('portal');
+              }
+            }}
+            onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+            onOpenShortcuts={() => setIsShortcutsOpen(true)}
+            onOpenMobileMenu={() => setIsMobileNavOpen(true)}
+          />
+        }
+      >
+        <ErrorBoundary onGoHome={() => handleSelectView(getDefaultViewForUser())}>
+          {currentView === 'dashboard' && !isAdmin && !isClient && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <DashboardView onNavigateView={handleSelectView} />
+            </div>
+          )}
 
-        {currentView === 'active-clients' && canSeeActiveClients && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <ActiveClientsView workspaces={workspaces} adAccounts={adAccounts} />
-          </div>
-        )}
+          {currentView === 'active-clients' && canSeeActiveClients && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <ActiveClientsView workspaces={workspaces} adAccounts={adAccounts} />
+            </div>
+          )}
 
-        {currentView === 'crm' && canSeeCrm && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <CrmView
-              activeSection={activeCrmSection}
-              onSectionChange={setActiveCrmSection}
-            />
-          </div>
-        )}
+          {currentView === 'crm' && canSeeCrm && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <CrmView
+                activeSection={activeCrmSection}
+                onSectionChange={setActiveCrmSection}
+              />
+            </div>
+          )}
 
-        {currentView === 'portal' && isClient && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <ContentCalendarClientReviews />
-          </div>
-        )}
+          {currentView === 'portal' && isClient && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <ClientPortalContainer
+                activeTab={activePortalTab}
+                onTabChange={setActivePortalTab}
+              />
+            </div>
+          )}
 
-        {currentView === 'marketing' && canSeeMarketing && !isClient && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <PerformanceMarketing
-              selectedWorkspace={selectedAdAccount}
-              adAccounts={adAccounts}
-              workspaces={workspaces}
-              onSelectWorkspace={handleSelectAdAccount}
-              onOpenCreateAccount={handleOpenCreateWorkspace}
-            />
-          </div>
-        )}
+          {currentView === 'marketing' && canSeeMarketing && !isClient && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <PerformanceMarketing
+                selectedWorkspace={selectedAdAccount}
+                adAccounts={adAccounts}
+                workspaces={workspaces}
+                onSelectWorkspace={handleSelectAdAccount}
+                onOpenCreateAccount={handleOpenCreateWorkspace}
+              />
+            </div>
+          )}
 
-        {currentView === 'attendance' && !isClient && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <AttendanceView
-              activeSection={activeAttendanceSection}
-              onSectionChange={setActiveAttendanceSection}
-            />
-          </div>
-        )}
+          {currentView === 'attendance' && !isClient && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <AttendanceView
+                activeSection={activeAttendanceSection}
+                onSectionChange={setActiveAttendanceSection}
+              />
+            </div>
+          )}
 
-        {currentView === 'daily-log' && !isClient && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <DailyLogView />
-          </div>
-        )}
+          {currentView === 'daily-log' && !isClient && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <DailyLogView />
+            </div>
+          )}
 
-        {currentView === 'content-calendar' && canSeeContentCalendar && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <ContentCalendarView />
-          </div>
-        )}
+          {currentView === 'content-calendar' && canSeeContentCalendar && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <ContentCalendarView />
+            </div>
+          )}
 
-        {currentView === 'exceptions' && canSeeExceptions && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <ExceptionInboxView onOpenDailyLog={() => handleSelectView('daily-log')} />
-          </div>
-        )}
+          {currentView === 'website-pipeline' && canSeeWebsitePipeline && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <WebsitePipelineView
+                workspaces={workspaces}
+                activeSection={activeWebsiteSection}
+                onSectionChange={setActiveWebsiteSection}
+              />
+            </div>
+          )}
 
-        {currentView === 'admin' && canSeeAdmin && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <AdminPanel
-              activeSection={activeAdminSection}
-              onSectionChange={setActiveAdminSection}
-            />
-          </div>
-        )}
+          {currentView === 'exceptions' && canSeeExceptions && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <ExceptionInboxView onOpenDailyLog={() => handleSelectView('daily-log')} />
+            </div>
+          )}
 
-        {currentView === 'profile' && (
-          <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-            <ProfileSettingsView />
-          </div>
-        )}
-      </main>
+          {currentView === 'admin' && canSeeAdmin && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <AdminPanel
+                activeSection={activeAdminSection}
+                onSectionChange={setActiveAdminSection}
+              />
+            </div>
+          )}
+
+          {currentView === 'profile' && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <ProfileSettingsView
+                themePreference={themePreference}
+                onSelectThemePreference={setThemePreference}
+              />
+            </div>
+          )}
+        </ErrorBoundary>
+      </AppShell>
+
+      {/* Global Command Palette (⌘K) */}
+      <CommandPalette
+        open={isCommandPaletteOpen}
+        onOpenChange={setIsCommandPaletteOpen}
+        currentView={currentView}
+        onSelectView={handleSelectView}
+        onSelectCrmSection={(section) => {
+          setActiveCrmSection(section);
+          if (currentView !== 'crm') handleSelectView('crm');
+        }}
+        onSelectAttendanceSection={(section) => {
+          setActiveAttendanceSection(section);
+          if (currentView !== 'attendance') handleSelectView('attendance');
+        }}
+        onSelectAdminSection={(section) => {
+          setActiveAdminSection(section);
+          if (currentView !== 'admin') handleSelectView('admin');
+        }}
+        onSelectWebsiteSection={(section) => {
+          setActiveWebsiteSection(section);
+          if (currentView !== 'website-pipeline') handleSelectView('website-pipeline');
+        }}
+        onSelectPortalTab={(tab) => {
+          setActivePortalTab(tab);
+          if (currentView !== 'portal') handleSelectView('portal');
+        }}
+        themePreference={themePreference}
+        onSelectThemePreference={setThemePreference}
+        isSidebarCollapsed={false}
+        onToggleSidebar={() => {
+          const current = localStorage.getItem('sidebar_collapsed') === 'true';
+          localStorage.setItem('sidebar_collapsed', String(!current));
+          window.dispatchEvent(new Event('storage'));
+        }}
+        onOpenShortcuts={() => setIsShortcutsOpen(true)}
+        onSignOut={handleSignOut}
+        canSeeActiveClients={canSeeActiveClients}
+        canSeeCrm={canSeeCrm}
+        canSeeMarketing={canSeeMarketing}
+        canSeeContentCalendar={canSeeContentCalendar}
+        canSeeWebsitePipeline={canSeeWebsitePipeline}
+        canSeeAttendance={!isClient}
+        canSeeDailyLog={!isClient}
+        canSeeExceptions={canSeeExceptions}
+        canSeeAdmin={canSeeAdmin}
+        adminLabel={adminLabel}
+        isManagementRole={isManagementRole}
+        canAssignCrm={canAssign}
+        isClient={isClient}
+        isAdmin={isAdmin}
+      />
+
+      {/* Global Shortcuts Dialog */}
+      <ShortcutsDialog
+        open={isShortcutsOpen}
+        onOpenChange={setIsShortcutsOpen}
+      />
 
       {/* Workspace Create/Edit Modal */}
       <WorkspaceModal
@@ -548,8 +809,7 @@ function AppInner() {
         onSave={handleSaveWorkspace}
         workspaceToEdit={workspaceToEdit}
       />
-
-    </div>
+    </>
   );
 }
 
@@ -558,7 +818,9 @@ export function App() {
     <ToastProvider>
       <AuthProvider>
         <ModuleLoadGateProvider>
-          <AppInner />
+          <BreadcrumbProvider>
+            <AppInner />
+          </BreadcrumbProvider>
         </ModuleLoadGateProvider>
       </AuthProvider>
     </ToastProvider>

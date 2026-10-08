@@ -1,15 +1,25 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Bell } from 'lucide-react';
-import type { ViewType } from '../types';
-import { apiClient } from '../services/apiClient';
+import {
+  Bell,
+  CheckCheck,
+  Contact,
+  Clock,
+  CalendarCheck2,
+  CalendarDays,
+} from 'lucide-react';
+import type { ViewType } from '@/types';
+import { apiClient } from '@/services/apiClient';
 import {
   enableWebPush,
   notificationPermission,
   sendTestPush,
   syncWebPushSubscription,
-} from '../services/webPushService';
-import { viewForNotificationKind } from '../utils/notificationRoute';
-import { useToast } from '../context/ToastContext';
+} from '@/services/webPushService';
+import { viewForNotificationKind } from '@/utils/notificationRoute';
+import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface InboxItem {
   id: string;
@@ -20,29 +30,87 @@ interface InboxItem {
   read?: boolean;
 }
 
-interface NotificationBellProps {
-  collapsed: boolean;
+export interface NotificationBellProps {
+  collapsed?: boolean;
   onSelectView: (view: ViewType) => void;
   placement?: 'bottom' | 'top';
+  className?: string;
 }
 
-function formatWhen(value?: string): string {
+function getRelativeTime(value?: string): string {
   if (!value) return '';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';
-  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMins / 60);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m`;
+
+  const isToday =
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear();
+
+  if (isToday) {
+    if (diffHours < 6) return `${diffHours}h`;
+    return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  const isYesterday =
+    date.getDate() === yesterday.getDate() &&
+    date.getMonth() === yesterday.getMonth() &&
+    date.getFullYear() === yesterday.getFullYear();
+
+  if (isYesterday) return 'Yesterday';
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, onSelectView, placement = 'bottom' }) => {
+function isDateToday(value?: string): boolean {
+  if (!value) return false;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  const now = new Date();
+  return (
+    date.getDate() === now.getDate() &&
+    date.getMonth() === now.getMonth() &&
+    date.getFullYear() === now.getFullYear()
+  );
+}
+
+function getNotificationIcon(kind?: string) {
+  if (!kind) return Bell;
+  const k = kind.toLowerCase();
+  if (k.startsWith('crm')) return Contact;
+  if (k.includes('leave') || k.includes('attendance') || k.includes('checkin') || k.includes('shift')) {
+    return k.includes('leave') ? CalendarCheck2 : Clock;
+  }
+  if (k.startsWith('content_calendar') || k.startsWith('campaign')) return CalendarDays;
+  return Bell;
+}
+
+export const NotificationBell: React.FC<NotificationBellProps> = ({
+  onSelectView,
+  className,
+}) => {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<InboxItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const [permission, setPermission] = useState(notificationPermission);
   const [enabling, setEnabling] = useState(false);
   const [testing, setTesting] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
-  const unread = items.filter((item) => !item.read).length;
+  const unreadCount = items.filter((item) => !item.read).length;
 
   const load = useCallback(async () => {
     if (document.visibilityState === 'hidden') return;
@@ -50,11 +118,14 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
       const rows = await apiClient.get<InboxItem[]>('/mobile/notifications?limit=30');
       setItems(Array.isArray(rows) ? rows : []);
     } catch {
-      // Keep the last list if the feed is briefly unavailable.
+      // Keep previous list
+    } finally {
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
+    setLoading(true);
     void load();
     const timer = window.setInterval(() => void load(), 45000);
     const onVisible = () => {
@@ -84,7 +155,9 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
     if (!open) return;
     setPermission(notificationPermission());
     const onPointer = (event: MouseEvent) => {
-      if (!panelRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!panelRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
     };
     document.addEventListener('mousedown', onPointer);
     return () => document.removeEventListener('mousedown', onPointer);
@@ -95,7 +168,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
       await apiClient.post('/mobile/notifications/read-all');
       setItems((current) => current.map((item) => ({ ...item, read: true })));
     } catch {
-      // Badge stays until the next successful poll.
+      // Badge stays
     }
   };
 
@@ -105,7 +178,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
       const next = await enableWebPush();
       setPermission(next);
       if (next === 'granted') {
-        addToast('Notifications Enabled 🎉', 'Desktop alerts are now active.', 'success');
+        addToast('Desktop notifications on', 'Desktop alerts are now active.', 'success');
       }
     } finally {
       setEnabling(false);
@@ -116,109 +189,265 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({ collapsed, o
     setTesting(true);
     try {
       const result = await sendTestPush();
-      addToast('Notification Test', result.message, result.success ? 'info' : 'warning');
+      addToast('Notification test', result.message, result.success ? 'info' : 'warning');
     } catch (err: any) {
-      addToast('Test Failed', err.message || 'Could not send test popup.', 'warning');
+      addToast('Test failed', err.message || 'Could not send test popup.', 'error');
     } finally {
       setTesting(false);
     }
   };
 
   const openItem = (item: InboxItem) => {
-    onSelectView(viewForNotificationKind(item.kind));
+    onSelectView(viewForNotificationKind(item.kind, user?.role));
     setOpen(false);
-    if (!item.read) void markAllRead();
+    if (!item.read) {
+      void markAllRead();
+    }
   };
 
+  const filteredItems = activeTab === 'unread' ? items.filter((item) => !item.read) : items;
+  const todayItems = filteredItems.filter((item) => isDateToday(item.created_at));
+  const earlierItems = filteredItems.filter((item) => !isDateToday(item.created_at));
+
   return (
-    <div className="relative" ref={panelRef}>
+    <div className={cn('relative', className)} ref={panelRef}>
       <button
         type="button"
         onClick={() => {
-          setOpen((value) => !value);
+          setOpen((prev) => !prev);
           if (permission === 'granted') void syncWebPushSubscription();
           void load();
         }}
-        className={`relative text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer ${
-          collapsed ? 'w-10 h-10 flex items-center justify-center rounded-xl' : ''
-        }`}
+        className={cn(
+          'w-8 h-8 rounded-md flex items-center justify-center text-fg-2 hover:bg-hover transition-colors relative cursor-pointer select-none focus-visible:focus-ring',
+          open && 'bg-subtle text-fg'
+        )}
         title="Notifications"
-        aria-label={unread ? `Notifications, ${unread} unread` : 'Notifications'}
+        aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
       >
-        <Bell className="w-4 h-4" />
-        {unread > 0 && (
-          <span className="absolute top-0.5 right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold leading-3.5 text-center">
-            {unread > 9 ? '9+' : unread}
-          </span>
+        <Bell size={18} className="shrink-0 text-fg-muted" />
+        {unreadCount > 0 && (
+          <span
+            className="absolute top-[7px] right-[8px] w-[7px] h-[7px] rounded-full bg-accent ring-2 ring-surface"
+            aria-hidden="true"
+          />
         )}
       </button>
+
       {open && (
         <div
-          className={`absolute ${
-            placement === 'top' ? 'top-full right-0 mt-2' : 'bottom-full left-0 mb-2'
-          } w-80 max-w-[calc(100vw-2rem)] rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 shadow-xl z-50 overflow-hidden`}
+          role="region"
+          aria-label="Notifications panel"
+          className="absolute right-0 top-full mt-2 w-[384px] max-w-[calc(100vw-2rem)] max-h-[480px] rounded-lg border border-border bg-surface text-fg shadow-md z-[var(--z-popover)] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-120"
         >
-          <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-100 dark:border-zinc-800">
-            <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Notifications</p>
+          {/* Header */}
+          <div className="h-12 px-4 flex items-center justify-between border-b border-border shrink-0">
+            <h3 className="text-sm font-semibold text-fg">Notifications</h3>
+            {unreadCount > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={CheckCheck}
+                onClick={() => void markAllRead()}
+                className="h-7 text-xs text-accent-text hover:text-accent-hover"
+              >
+                Mark all as read
+              </Button>
+            )}
+          </div>
+
+          {/* Underline Tabs: All vs Unread */}
+          <div className="flex px-4 border-b border-border gap-4 shrink-0">
             <button
               type="button"
-              onClick={() => void markAllRead()}
-              className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 cursor-pointer"
+              onClick={() => setActiveTab('all')}
+              className={cn(
+                'h-9 text-[13px] font-medium flex items-center gap-1.5 border-b-2 transition-colors cursor-pointer',
+                activeTab === 'all'
+                  ? 'border-accent text-fg'
+                  : 'border-transparent text-fg-muted hover:text-fg'
+              )}
             >
-              Mark all read
+              All
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('unread')}
+              className={cn(
+                'h-9 text-[13px] font-medium flex items-center gap-1.5 border-b-2 transition-colors cursor-pointer',
+                activeTab === 'unread'
+                  ? 'border-accent text-fg'
+                  : 'border-transparent text-fg-muted hover:text-fg'
+              )}
+            >
+              <span>Unread</span>
+              {unreadCount > 0 && (
+                <span className="text-micro font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-2 font-mono">
+                  {unreadCount}
+                </span>
+              )}
             </button>
           </div>
+
+          {/* Push permission state prompt */}
           {permission === 'default' && (
-            <button
-              type="button"
-              disabled={enabling}
-              onClick={() => void enable()}
-              className="w-full text-left px-3 py-2 text-[12px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-950/70 transition-colors cursor-pointer"
-            >
-              {enabling ? 'Enabling…' : '🔔 Enable desktop notifications'}
-            </button>
+            <div className="px-4 py-2.5 bg-subtle border-b border-border flex items-center justify-between gap-2 shrink-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <Bell size={16} className="text-fg-muted shrink-0" />
+                <span className="text-[13px] text-fg truncate">Get desktop alerts for new activity</span>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={enabling}
+                onClick={() => void enable()}
+                className="shrink-0"
+              >
+                {enabling ? 'Enabling…' : 'Turn on'}
+              </Button>
+            </div>
           )}
+
           {permission === 'granted' && (
-            <div className="flex items-center justify-between px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/30 border-b border-emerald-100 dark:border-emerald-900/40 text-[11px] text-emerald-700 dark:text-emerald-300">
-              <span className="flex items-center gap-1 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Desktop alerts active
+            <div className="px-4 py-2 bg-success-bg text-success-fg border-b border-border flex items-center justify-between text-xs shrink-0">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-1.5 h-1.5 rounded-full bg-success-dot" /> Desktop alerts active
               </span>
               <button
                 type="button"
                 disabled={testing}
                 onClick={() => void handleTestPopup()}
-                className="font-semibold text-emerald-800 dark:text-emerald-200 hover:underline cursor-pointer disabled:opacity-50"
+                className="hover:underline font-medium cursor-pointer disabled:opacity-50"
               >
                 {testing ? 'Sending…' : 'Send test popup'}
               </button>
             </div>
           )}
+
           {permission === 'denied' && (
-            <p className="px-3 py-2 text-[11px] text-zinc-500 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-800">
-              Desktop alerts are blocked in this browser. You can still read them here.
-            </p>
+            <div className="px-4 py-2 bg-subtle text-fg-muted border-b border-border text-xs shrink-0">
+              Desktop alerts are blocked in this browser. You can still read notifications here.
+            </div>
           )}
-          <div className="max-h-80 overflow-y-auto">
-            {items.length === 0 ? (
-              <p className="px-3 py-6 text-center text-[12px] text-zinc-500">No notifications yet.</p>
-            ) : (
-              items.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => openItem(item)}
-                  className="w-full text-left px-3 py-2.5 border-b border-zinc-50 dark:border-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-900 cursor-pointer"
-                >
-                  <div className="flex items-start gap-2">
-                    {!item.read && <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-indigo-500 shrink-0" />}
-                    <div className="min-w-0">
-                      <p className="text-[12px] font-bold text-zinc-900 dark:text-zinc-100 truncate">{item.title}</p>
-                      <p className="text-[11px] text-zinc-500 line-clamp-2">{item.body}</p>
-                      <p className="text-[10px] text-zinc-400 mt-0.5">{formatWhen(item.created_at)}</p>
+
+          {/* List Content */}
+          <div className="flex-1 overflow-y-auto">
+            {loading && items.length === 0 ? (
+              <div className="p-4 space-y-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="flex gap-3 items-start animate-pulse">
+                    <div className="w-8 h-8 rounded-full bg-skel shrink-0" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3.5 bg-skel rounded w-3/5" />
+                      <div className="h-3 bg-skel rounded w-4/5" />
                     </div>
                   </div>
-                </button>
-              ))
+                ))}
+              </div>
+            ) : filteredItems.length === 0 ? (
+              <div className="py-12 flex flex-col items-center justify-center text-center px-4">
+                <div className="w-10 h-10 rounded-full bg-subtle flex items-center justify-center text-fg-muted mb-2">
+                  <Bell size={20} />
+                </div>
+                <p className="text-[13px] font-medium text-fg">You&apos;re all caught up</p>
+                <p className="text-xs text-fg-muted mt-0.5">New notifications will show up here.</p>
+              </div>
+            ) : (
+              <div>
+                {todayItems.length > 0 && (
+                  <div>
+                    <div className="px-4 pt-2.5 pb-1 text-xs font-medium text-fg-muted">
+                      Today
+                    </div>
+                    {todayItems.map((item) => {
+                      const Icon = getNotificationIcon(item.kind);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openItem(item)}
+                          className="w-full text-left px-4 py-3 border-b border-border hover:bg-hover transition-colors flex items-start gap-3 cursor-pointer select-none"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-subtle text-fg-2 flex items-center justify-center shrink-0 mt-0.5">
+                            <Icon size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={cn(
+                                  'text-[13px] truncate',
+                                  item.read ? 'text-fg-2 font-normal' : 'text-fg font-medium'
+                                )}
+                              >
+                                {item.title}
+                              </span>
+                              <span className="text-xs text-fg-muted font-mono shrink-0">
+                                {getRelativeTime(item.created_at)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-fg-muted line-clamp-2 mt-0.5 leading-normal">
+                              {item.body}
+                            </p>
+                          </div>
+                          {!item.read && (
+                            <span
+                              className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {earlierItems.length > 0 && (
+                  <div>
+                    <div className="px-4 pt-2.5 pb-1 text-xs font-medium text-fg-muted">
+                      Earlier
+                    </div>
+                    {earlierItems.map((item) => {
+                      const Icon = getNotificationIcon(item.kind);
+                      return (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onClick={() => openItem(item)}
+                          className="w-full text-left px-4 py-3 border-b border-border hover:bg-hover transition-colors flex items-start gap-3 cursor-pointer select-none"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-subtle text-fg-2 flex items-center justify-center shrink-0 mt-0.5">
+                            <Icon size={16} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2">
+                              <span
+                                className={cn(
+                                  'text-[13px] truncate',
+                                  item.read ? 'text-fg-2 font-normal' : 'text-fg font-medium'
+                                )}
+                              >
+                                {item.title}
+                              </span>
+                              <span className="text-xs text-fg-muted font-mono shrink-0">
+                                {getRelativeTime(item.created_at)}
+                              </span>
+                            </div>
+                            <p className="text-xs text-fg-muted line-clamp-2 mt-0.5 leading-normal">
+                              {item.body}
+                            </p>
+                          </div>
+                          {!item.read && (
+                            <span
+                              className="w-1.5 h-1.5 rounded-full bg-accent shrink-0 mt-2"
+                              aria-hidden="true"
+                            />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>

@@ -25,7 +25,7 @@ _SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/drive.file",
 ]
-_ROOT_NAME = "Content Calendar"
+_ROOT_NAME = "Reamarc Storage"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 _INDEX = "google_drive_folders"
 _ITEMS = "content_calendar_items"
@@ -304,11 +304,26 @@ def _relocate(file_id: str, parent_id: str, name: str) -> None:
     service.files().update(**kwargs).execute()
 
 
+def format_drive_thumbnail_url(link: Optional[str], size: int = 800) -> Optional[str]:
+    """Upgrades Google Drive's default low-res thumbnail link (=s220) to high-res (e.g. 800px)."""
+    if not link:
+        return None
+    if "=s" in link:
+        return re.sub(r"=s\d+", f"=s{size}", link)
+    if "googleusercontent.com" in link:
+        return f"{link}=s{size}"
+    return link
+
+
 def _file_meta(file_id: str) -> Dict[str, Any]:
     return (
         _service()
         .files()
-        .get(fileId=file_id, fields="id,name,mimeType,size", supportsAllDrives=True)
+        .get(
+            fileId=file_id,
+            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,videoMediaMetadata,imageMediaMetadata",
+            supportsAllDrives=True,
+        )
         .execute()
     )
 
@@ -366,6 +381,8 @@ async def _ensure_root(db) -> str:
 
     # 3. Check if a folder named _ROOT_NAME already exists in Drive
     found = await asyncio.to_thread(_find_folder_by_name, _ROOT_NAME, None)
+    if not found and _ROOT_NAME != "Content Calendar":
+        found = await asyncio.to_thread(_find_folder_by_name, "Content Calendar", None)
     if found:
         await coll.update_one({"_id": "root"}, {"$set": {"folder_id": found, "name": _ROOT_NAME}}, upsert=True)
         return found
@@ -405,14 +422,91 @@ async def ensure_client_folder(db, client_name: Optional[str], workspace_id: Opt
     return folder_id
 
 
+async def ensure_client_category_folder(
+    db, client_name: Optional[str], workspace_id: Optional[str], category: str = "Content"
+) -> str:
+    """Ensures a client subfolder for a given domain/category, e.g. 'Content' or 'Website'.
+
+    Hierarchy:
+        Reamarc Storage / {client_name} / Content
+        Reamarc Storage / {client_name} / Website
+    """
+    category_clean = "Content" if str(category or "").strip().lower() == "content" else "Website"
+    client_id = await ensure_client_folder(db, client_name, workspace_id)
+    key = _client_key(client_name, workspace_id)
+    coll = db[_INDEX]
+    index_id = f"client_cat:{key}:{category_clean.lower()}"
+    existing = await coll.find_one({"_id": index_id})
+    if existing and existing.get("folder_id") and await asyncio.to_thread(_folder_alive, existing["folder_id"]):
+        return existing["folder_id"]
+
+    found = await asyncio.to_thread(_find_folder_by_name, category_clean, client_id)
+    if found:
+        await coll.update_one(
+            {"_id": index_id},
+            {"$set": {"folder_id": found, "name": category_clean, "parent_id": client_id}},
+            upsert=True,
+        )
+        return found
+
+    folder_id = await asyncio.to_thread(_create_folder, category_clean, client_id)
+    await coll.update_one(
+        {"_id": index_id},
+        {"$set": {"folder_id": folder_id, "name": category_clean, "parent_id": client_id}},
+        upsert=True,
+    )
+    return folder_id
+
+
+async def ensure_website_folder(
+    db, client_name: Optional[str], workspace_id: Optional[str], project_name: Optional[str] = None
+) -> str:
+    """Ensures a dedicated folder for client's website assets:
+        Reamarc Storage / {client_name} / Website [/ {project_name}]
+    """
+    website_parent = await ensure_client_category_folder(
+        db, client_name, workspace_id, category="Website"
+    )
+    if not project_name:
+        return website_parent
+
+    target_name = _folder_name(project_name, "Website Project")
+    coll = db[_INDEX]
+    key = _client_key(client_name, workspace_id)
+    index_id = f"website_proj:{key}:{target_name.lower()}"
+    existing = await coll.find_one({"_id": index_id})
+    if existing and existing.get("folder_id") and await asyncio.to_thread(_folder_alive, existing["folder_id"]):
+        return existing["folder_id"]
+
+    found = await asyncio.to_thread(_find_folder_by_name, target_name, website_parent)
+    if found:
+        await coll.update_one(
+            {"_id": index_id},
+            {"$set": {"folder_id": found, "name": target_name, "parent_id": website_parent}},
+            upsert=True,
+        )
+        return found
+
+    folder_id = await asyncio.to_thread(_create_folder, target_name, website_parent)
+    await coll.update_one(
+        {"_id": index_id},
+        {"$set": {"folder_id": folder_id, "name": target_name, "parent_id": website_parent}},
+        upsert=True,
+    )
+    return folder_id
+
+
 async def ensure_item_folder(db, item: Dict[str, Any]) -> str:
     existing = item.get("google_drive_folder_id")
     if existing and await asyncio.to_thread(_folder_alive, existing):
         return existing
-    parent = await ensure_client_folder(db, item.get("client_name"), item.get("workspace_id"))
+    # Assets for content calendar go under Reamarc Storage / {client_name} / Content / {serial} {title}
+    parent = await ensure_client_category_folder(
+        db, item.get("client_name"), item.get("workspace_id"), category="Content"
+    )
     target_name = item_folder_name(item)
 
-    # Check if folder already exists under parent in Drive
+    # Check if folder already exists under Content folder in Drive
     found = await asyncio.to_thread(_find_folder_by_name, target_name, parent)
     if found:
         await db[_ITEMS].update_one({"id": item["id"]}, {"$set": {"google_drive_folder_id": found}})
@@ -514,3 +608,65 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
             await client.aclose()
 
     return StreamingResponse(_iter(), status_code=response.status_code, media_type=media_type, headers=out_headers)
+
+
+def get_access_token() -> str:
+    """Returns a valid Google OAuth access token for the configured account."""
+    creds = _credentials()
+    from google.auth.transport.requests import Request
+
+    if not creds.valid or creds.expired:
+        with _creds_lock:
+            creds.refresh(Request())
+    return creds.token
+
+
+async def get_picker_config(
+    db,
+    item_id: Optional[str] = None,
+    client_name: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    category: str = "Content",
+) -> Dict[str, Any]:
+    """Generates the configuration payload required by Google Picker API on the frontend."""
+    from app.config import settings
+
+    token = await asyncio.to_thread(get_access_token)
+    api_key = (settings.GOOGLE_DRIVE_API_KEY or "").strip()
+    client_id = (
+        settings.GOOGLE_DRIVE_WEB_CLIENT_ID
+        or settings.GOOGLE_DRIVE_CLIENT_ID
+        or ""
+    ).strip()
+    app_id = client_id.split("-")[0] if "-" in client_id else ""
+
+    target_folder_id = None
+    if item_id:
+        item = await db[_ITEMS].find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
+        if item:
+            target_folder_id = await ensure_item_folder(db, item)
+    if not target_folder_id and (client_name or workspace_id):
+        target_folder_id = await ensure_client_category_folder(
+            db, client_name, workspace_id, category=category
+        )
+    if not target_folder_id:
+        target_folder_id = await _ensure_root(db)
+
+    root_id = await _ensure_root(db)
+
+    return {
+        "developer_key": api_key,
+        "client_id": client_id,
+        "app_id": app_id,
+        "access_token": token,
+        "folder_id": target_folder_id,
+        "root_folder_id": root_id,
+    }
+
+
+async def fetch_file_metadata(file_id: str) -> Dict[str, Any]:
+    """Fetches full file metadata from Google Drive for an attached/picked file."""
+    meta = await asyncio.to_thread(_file_meta, file_id)
+    if meta and meta.get("thumbnailLink"):
+        meta["thumbnailLink"] = format_drive_thumbnail_url(meta["thumbnailLink"], 800)
+    return meta

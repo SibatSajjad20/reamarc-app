@@ -1,8 +1,10 @@
-export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'content-calendar' | 'portal';
+export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'content-calendar' | 'website-pipeline' | 'portal';
 
 export * from './attendance';
+export * from './websiteProject';
 
 export type ThemeMode = 'dark' | 'light';
+export type ThemePreference = 'light' | 'dark' | 'system';
 
 export type MarketingPlatform = 'Meta' | 'Google' | 'TikTok' | 'WhatsApp' | 'Other';
 export type MarketingStatus = 'Active' | 'Paused' | 'Error' | 'Stopped';

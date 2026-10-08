@@ -1,52 +1,42 @@
 import React from 'react';
 import type { CrmLead } from '../../types/crm';
+import { StatusPill, type statusPillVariants } from '../ui/StatusPill';
+import type { VariantProps } from 'class-variance-authority';
 
-const DOT = 'w-1.5 h-1.5 rounded-full';
-
-const base =
-  'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold border';
-
-const styles = {
-  won: `${base} bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800`,
-  lost: `${base} bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800`,
-  overdue: `${base} bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800 motion-safe:animate-pulse`,
-  uncontacted: `${base} bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800`,
-  pending: `${base} bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800 motion-safe:animate-pulse`,
-  inert: `${base} font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700`,
-} as const;
+type PillVariant = NonNullable<VariantProps<typeof statusPillVariants>['variant']>;
 
 export function leadOperationalStatus(lead: Pick<
   CrmLead,
   'outcome' | 'contacted' | 'next_follow_up_at' | 'approval_status' | 'converted_workspace_id'
 >): {
-  kind: keyof typeof styles;
+  variant: PillVariant;
   label: string;
   dotClass: string;
 } {
   if (lead.outcome === 'won') {
     if (!lead.converted_workspace_id) {
-      return { kind: 'pending', label: 'Needs client form', dotClass: 'bg-amber-500' };
+      return { variant: 'warning', label: 'Needs client form', dotClass: 'bg-warning-fg' };
     }
-    return { kind: 'won', label: 'Won', dotClass: 'bg-emerald-500' };
+    return { variant: 'success', label: 'Won', dotClass: 'bg-success-fg' };
   }
   if (lead.outcome === 'lost') {
-    return { kind: 'lost', label: 'Lost', dotClass: 'bg-rose-500' };
+    return { variant: 'danger', label: 'Lost', dotClass: 'bg-danger-fg' };
   }
   if (lead.outcome === 'disqualified') {
-    return { kind: 'inert', label: 'Disqualified', dotClass: 'bg-zinc-400' };
+    return { variant: 'neutral', label: 'Disqualified', dotClass: 'bg-fg-muted' };
   }
   if (lead.outcome === 'trashed') {
-    return { kind: 'inert', label: 'Trashed', dotClass: 'bg-zinc-400' };
+    return { variant: 'neutral', label: 'Trashed', dotClass: 'bg-fg-muted' };
   }
   const isOverdue =
     Boolean(lead.next_follow_up_at) && new Date(lead.next_follow_up_at as string).getTime() < Date.now();
   if (isOverdue) {
-    return { kind: 'overdue', label: 'Follow-up due', dotClass: 'bg-rose-500' };
+    return { variant: 'danger', label: 'Follow-up due', dotClass: 'bg-danger-fg' };
   }
   if (!lead.contacted) {
-    return { kind: 'uncontacted', label: 'Uncontacted', dotClass: 'bg-amber-500' };
+    return { variant: 'neutral', label: 'Uncontacted', dotClass: 'bg-fg-muted' };
   }
-  return { kind: 'inert', label: 'Contacted', dotClass: 'bg-zinc-400' };
+  return { variant: 'success', label: 'Contacted', dotClass: 'bg-success-fg' };
 }
 
 export const CrmStatusBadge: React.FC<{
@@ -55,13 +45,16 @@ export const CrmStatusBadge: React.FC<{
     'outcome' | 'contacted' | 'next_follow_up_at' | 'approval_status' | 'converted_workspace_id'
   >;
   className?: string;
-}> = ({ lead, className = '' }) => {
+}> = ({ lead, className }) => {
   const status = leadOperationalStatus(lead);
   return (
-    <span className={`${styles[status.kind]} ${className}`.trim()}>
-      <span className={`${DOT} ${status.dotClass}`} />
+    <StatusPill
+      variant={status.variant}
+      dot
+      className={className}
+    >
       {status.label}
-    </span>
+    </StatusPill>
   );
 };
 
@@ -82,13 +75,23 @@ export const CrmStatusDot: React.FC<{
   if (isOverdue) {
     return (
       <span
-        className="w-2 h-2 rounded-full bg-rose-500 motion-safe:animate-pulse shrink-0"
+        className="w-1.5 h-1.5 rounded-full bg-danger-fg shrink-0"
         title="Follow-up overdue"
       />
     );
   }
   if (!lead.contacted) {
-    return <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Uncontacted" />;
+    return (
+      <span
+        className="w-1.5 h-1.5 rounded-full bg-warning shrink-0"
+        title="Uncontacted"
+      />
+    );
   }
-  return <span className="w-1.5 h-1.5 rounded-full bg-zinc-300 dark:bg-zinc-700 shrink-0" />;
+  return (
+    <span
+      className="w-1.5 h-1.5 rounded-full bg-fg-muted/40 shrink-0"
+      title="Contacted"
+    />
+  );
 };

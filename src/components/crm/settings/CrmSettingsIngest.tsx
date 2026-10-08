@@ -10,7 +10,6 @@ import {
   Loader2,
   Plus,
   RefreshCw,
-  Sparkles,
   Trash2,
   Webhook,
   Check,
@@ -19,15 +18,21 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react';
+import { Button } from '../../ui/button';
+import { Input } from '../../ui/input';
+import { Textarea } from '../../ui/textarea';
+import { StatusPill } from '../../ui/StatusPill';
 import { API_BASE_URL } from '../../../services/apiClient';
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
+import { useConfirm } from '../../ui/ConfirmProvider';
 import type { CrmIngestSource, CrmMetaPage, CrmQueueStats } from '../../../types/crm';
 
 type IngestSubTab = 'sources' | 'meta' | 'scheduler' | 'queue';
 
 export const CrmSettingsIngest: React.FC = () => {
   const { addToast } = useToast();
+  const confirm = useConfirm();
   const [activeTab, setActiveTab] = useState<IngestSubTab>('sources');
   const [sources, setSources] = useState<CrmIngestSource[]>([]);
   const [metaPages, setMetaPages] = useState<CrmMetaPage[]>([]);
@@ -40,7 +45,7 @@ export const CrmSettingsIngest: React.FC = () => {
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Webhook source form
-  const [name, setName] = useState('WordPress Website Form');
+  const [name, setName] = useState('WordPress website form');
   const [defaultSource, setDefaultSource] = useState('wordpress');
   const [defaultCampaign, setDefaultCampaign] = useState('');
   const [freshToken, setFreshToken] = useState<{ name: string; path: string; token: string } | null>(null);
@@ -59,7 +64,7 @@ export const CrmSettingsIngest: React.FC = () => {
   const [activeEmbedType, setActiveEmbedType] = useState<'iframe' | 'button' | 'link'>('iframe');
   const [showGuide, setShowGuide] = useState(false);
 
-  // Scheduler Configuration Settings state
+  // Scheduler configuration settings state
   const [schedulerConfig, setSchedulerConfig] = useState({
     title: 'Digital Services Consultancy Session',
     description: (
@@ -212,7 +217,7 @@ export const CrmSettingsIngest: React.FC = () => {
         default_source: defaultSource.trim() || 'wordpress',
         default_campaign: defaultCampaign.trim() || null,
       });
-      setName('WordPress Website Form');
+      setName('WordPress website form');
       setDefaultCampaign('');
       if (created.token && created.ingest_path) {
         setFreshToken({
@@ -236,27 +241,31 @@ export const CrmSettingsIngest: React.FC = () => {
       addToast('Status updated', `${s.name} is now ${!s.enabled ? 'active' : 'disabled'}.`, 'info');
       await loadSources();
     } catch (err: any) {
-      addToast('Error', err?.message || 'Could not update source.', 'warning');
+      addToast('Error', err?.message || 'Could not update source.', 'error');
     }
   };
 
   const handleDeleteSource = async (s: CrmIngestSource) => {
-    if (!window.confirm(`Delete webhook source "${s.name}"? Active form integrations will stop receiving leads.`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Delete "${s.name}"?`,
+      description: 'Connected forms will stop sending leads.',
+      confirmLabel: 'Delete source',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await crmService.deleteIngestSource(s.id);
       addToast('Deleted', `Webhook source "${s.name}" deleted.`, 'info');
       await loadSources();
     } catch (err: any) {
-      addToast('Error', err?.message || 'Could not delete source.', 'warning');
+      addToast('Error', err?.message || 'Could not delete source.', 'error');
     }
   };
 
   const handleConnectMeta = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!metaPageId.trim() || !metaPageName.trim() || !metaAccessToken.trim()) {
-      setError('Page ID, Page Name, and Access Token are required.');
+      setError('Page ID, page name, and access token are required.');
       return;
     }
     setSavingPage(true);
@@ -291,22 +300,26 @@ export const CrmSettingsIngest: React.FC = () => {
       addToast('Sync completed', `Meta poll: ${created} new leads, ${duplicates} duplicates.`, 'info');
       await loadMetaPages();
     } catch (err: any) {
-      addToast('Sync error', err?.message || 'Could not sync Meta page.', 'warning');
+      addToast('Sync error', err?.message || 'Could not sync Meta page.', 'error');
     } finally {
       setPolling(false);
     }
   };
 
   const handleDisconnectMeta = async (page: CrmMetaPage) => {
-    if (!window.confirm(`Disconnect "${page.page_name}"? Leads will no longer auto-import from this page.`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Disconnect "${page.page_name}"?`,
+      description: 'Leads will no longer import from this page.',
+      confirmLabel: 'Disconnect',
+      tone: 'danger',
+    });
+    if (!ok) return;
     try {
       await crmService.disconnectMetaPage(page.page_id);
       addToast('Disconnected', `Disconnected ${page.page_name}.`, 'info');
       await loadMetaPages();
     } catch (err: any) {
-      addToast('Error', err?.message || 'Could not disconnect page.', 'warning');
+      addToast('Error', err?.message || 'Could not disconnect page.', 'error');
     }
   };
 
@@ -325,85 +338,85 @@ export const CrmSettingsIngest: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Banner Card */}
-      <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-2xs">
+      <div className="p-4 rounded-lg bg-surface border border-border flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-xs">
         <div className="flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-blue-50 dark:bg-blue-950/60 border border-blue-200/60 dark:border-blue-800 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
+          <div className="w-9 h-9 rounded-md bg-accent-soft text-accent flex items-center justify-center shrink-0">
             <Webhook className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-zinc-950 dark:text-zinc-50">Lead Ingestion &amp; Channels Hub</h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-              Connect external lead capture sources: WordPress webhooks, Elementor forms, Meta Ads (FB &amp; IG), and Native Scheduling.
+            <h2 className="text-ui font-semibold text-fg">Lead sources</h2>
+            <p className="text-small text-fg-muted mt-0.5">
+              Connect external lead capture sources: WordPress webhooks, Elementor forms, Meta Ads (Facebook &amp; Instagram), and meeting scheduler.
             </p>
           </div>
         </div>
 
-        {/* Ingest Channel Tabs (Segmented Buttons) */}
-        <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-100/80 dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800 self-start md:self-auto shrink-0 overflow-x-auto">
+        {/* Sub-tab switcher */}
+        <div className="flex items-center gap-1 p-1 rounded-md bg-subtle border border-border self-start md:self-auto shrink-0 overflow-x-auto">
           <button
             type="button"
             onClick={() => setActiveTab('sources')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'sources'
-                ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                ? 'bg-surface text-fg shadow-xs'
+                : 'text-fg-muted hover:text-fg'
             }`}
           >
             <Globe className="w-3.5 h-3.5" />
-            <span>Webhooks &amp; WordPress</span>
+            <span>Webhooks</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('meta')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'meta'
-                ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                ? 'bg-surface text-fg shadow-xs'
+                : 'text-fg-muted hover:text-fg'
             }`}
           >
             <Webhook className="w-3.5 h-3.5" />
-            <span>Meta Ads (FB/IG)</span>
+            <span>Meta Ads</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('scheduler')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'scheduler'
-                ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                ? 'bg-surface text-fg shadow-xs'
+                : 'text-fg-muted hover:text-fg'
             }`}
           >
             <Calendar className="w-3.5 h-3.5" />
-            <span>Meeting Scheduler &amp; Embed</span>
+            <span>Scheduler embed</span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('queue')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
               activeTab === 'queue'
-                ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                ? 'bg-surface text-fg shadow-xs'
+                : 'text-fg-muted hover:text-fg'
             }`}
           >
             <Activity className="w-3.5 h-3.5" />
-            <span>Queue Health</span>
+            <span>Queue health</span>
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
+        <div className="p-3 rounded-md bg-danger-bg border border-danger-bd text-small text-danger-fg flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
         </div>
       )}
 
       {successMsg && (
-        <div className="p-3 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-700 dark:text-emerald-300 flex items-center gap-2">
-          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+        <div className="p-3 rounded-md bg-success-bg border border-success-bd text-small text-success-fg flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0" />
           <span>{successMsg}</span>
         </div>
       )}
@@ -412,109 +425,117 @@ export const CrmSettingsIngest: React.FC = () => {
       {activeTab === 'sources' && (
         <div className="space-y-6">
           {freshToken && (
-            <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
-              <div className="flex items-center gap-2 font-bold text-amber-800 dark:text-amber-200">
-                <Sparkles className="w-4 h-4 text-amber-600" />
-                <span>New Webhook Endpoint Ready: {freshToken.name}</span>
+            <div className="p-4 rounded-lg bg-warning-bg/40 border border-warning-bd text-small space-y-2">
+              <div className="flex items-center gap-2 font-semibold text-warning-fg">
+                <CheckCircle2 className="w-4 h-4 text-warning-fg" />
+                <span>New webhook endpoint ready: {freshToken.name}</span>
               </div>
-              <p className="text-zinc-600 dark:text-zinc-400">
+              <p className="text-fg-muted">
                 Copy this endpoint URL and paste it into your WordPress form or automation webhook action:
               </p>
-              <div className="flex items-center gap-2 bg-white dark:bg-zinc-900 p-2.5 rounded-xl border border-amber-300/60 dark:border-amber-900/60">
-                <code className="flex-1 break-all text-xs font-mono text-zinc-900 dark:text-zinc-100">
-                  {absoluteUrl(freshToken.path)}
-                </code>
-                <button
+              <div className="flex items-center gap-2 bg-surface p-2 rounded-md border border-border">
+                <Input
+                  readOnly
+                  value={absoluteUrl(freshToken.path)}
+                  className="font-mono text-small flex-1 bg-subtle"
+                />
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => copyText(absoluteUrl(freshToken.path), 'token')}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-100 dark:bg-amber-900/60 hover:bg-amber-200 text-amber-900 dark:text-amber-100 cursor-pointer flex items-center gap-1.5 transition shrink-0"
+                  className="shrink-0"
                 >
                   {copiedToken ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedToken ? 'Copied!' : 'Copy URL'}</span>
-                </button>
+                  <span>{copiedToken ? 'Copied' : 'Copy URL'}</span>
+                </Button>
               </div>
             </div>
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-            {/* Left: Active Webhooks Table */}
+            {/* Left: Active Webhooks */}
             <div className="lg:col-span-7 space-y-4">
               <div className="flex items-center justify-between">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                  Active Webhook Endpoints
+                <h3 className="text-ui font-semibold text-fg">
+                  Active webhook endpoints
                 </h3>
-                <span className="text-xs text-zinc-400 font-numeric">{sources.length} total</span>
+                <span className="text-small text-fg-muted font-numeric">{sources.length} total</span>
               </div>
 
               {loading ? (
-                <div className="p-8 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 text-center space-y-2">
-                  <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mx-auto" />
-                  <p className="text-xs text-zinc-400">Loading webhook sources…</p>
+                <div className="p-8 rounded-lg bg-surface border border-border text-center space-y-2">
+                  <Loader2 className="w-5 h-5 animate-spin text-accent mx-auto" />
+                  <p className="text-small text-fg-muted">Loading webhook sources…</p>
                 </div>
               ) : sources.length === 0 ? (
-                <div className="p-8 rounded-2xl bg-white dark:bg-[#11131a] border border-dashed border-zinc-300 dark:border-zinc-800 text-center space-y-2">
-                  <Globe className="w-8 h-8 text-zinc-400 mx-auto" />
-                  <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">No webhook sources configured</p>
-                  <p className="text-[11px] text-zinc-400">Create a webhook endpoint to start capturing leads from WordPress.</p>
+                <div className="p-8 rounded-lg bg-surface border border-dashed border-border text-center space-y-2">
+                  <Globe className="w-8 h-8 text-fg-muted mx-auto" />
+                  <p className="text-ui font-medium text-fg">No webhook sources configured</p>
+                  <p className="text-small text-fg-muted">Create a webhook endpoint to start capturing leads from WordPress.</p>
                 </div>
               ) : (
                 <div className="space-y-3">
                   {sources.map((s) => (
                     <div
                       key={s.id}
-                      className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-3"
+                      className="p-4 rounded-lg bg-surface border border-border shadow-xs space-y-3"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-xs text-zinc-950 dark:text-zinc-50">{s.name}</span>
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 uppercase tracking-wider">
+                          <span className="font-semibold text-ui text-fg">{s.name}</span>
+                          <span className="px-2 py-0.5 rounded text-micro font-medium bg-subtle text-fg-muted border border-border uppercase">
                             {s.default_source || 'custom'}
                           </span>
-                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                            s.enabled
-                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-                              : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400'
-                          }`}>
-                            {s.enabled ? 'Active' : 'Disabled'}
-                          </span>
+                          <StatusPill
+                            variant={s.enabled ? 'success' : 'neutral'}
+                            label={s.enabled ? 'Active' : 'Disabled'}
+                          />
                         </div>
 
                         <div className="flex items-center gap-1.5">
-                          <button
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => void handleToggleSource(s)}
-                            className="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 cursor-pointer transition"
                           >
                             {s.enabled ? 'Disable' : 'Enable'}
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="sm"
                             onClick={() => void handleDeleteSource(s)}
-                            className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition"
-                            title="Delete"
+                            className="text-fg-muted hover:text-danger-fg"
+                            aria-label={`Delete ${s.name}`}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 bg-zinc-50 dark:bg-zinc-900/60 p-2 rounded-xl border border-zinc-200/60 dark:border-zinc-800">
-                        <code className="flex-1 truncate text-xs font-mono text-zinc-600 dark:text-zinc-400">
-                          {s.ingest_path ? absoluteUrl(s.ingest_path) : `Token: ${s.token_prefix}…`}
-                        </code>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          readOnly
+                          value={s.ingest_path ? absoluteUrl(s.ingest_path) : `Token: ${s.token_prefix}…`}
+                          className="font-mono text-small flex-1 bg-subtle"
+                        />
                         {s.ingest_path && (
-                          <button
+                          <Button
                             type="button"
+                            variant="secondary"
+                            size="sm"
                             onClick={() => copyText(absoluteUrl(s.ingest_path!), 'token')}
-                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-zinc-200/70 dark:bg-zinc-800 hover:bg-zinc-300 text-zinc-700 dark:text-zinc-300 cursor-pointer flex items-center gap-1 transition shrink-0"
+                            className="shrink-0"
                           >
-                            <Copy className="w-3 h-3" />
+                            <Copy className="w-3.5 h-3.5" />
                             <span>Copy</span>
-                          </button>
+                          </Button>
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between text-[11px] text-zinc-400 pt-0.5">
+                      <div className="flex items-center justify-between text-caption text-fg-muted pt-0.5">
                         <span className="font-numeric">Received hits: {s.hit_count ?? 0}</span>
                         {s.default_campaign && <span>Default campaign: {s.default_campaign}</span>}
                       </div>
@@ -524,28 +545,28 @@ export const CrmSettingsIngest: React.FC = () => {
               )}
 
               {/* Integration Guide Accordion */}
-              <div className="rounded-2xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-[#11131a] overflow-hidden">
+              <div className="rounded-lg border border-border bg-surface overflow-hidden">
                 <button
                   type="button"
                   onClick={() => setShowGuide(!showGuide)}
-                  className="w-full px-4 py-3 flex items-center justify-between text-xs font-bold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-900/40 cursor-pointer transition"
+                  className="w-full px-4 py-3 flex items-center justify-between text-ui font-medium text-fg hover:bg-hover cursor-pointer transition"
                 >
                   <div className="flex items-center gap-2">
-                    <HelpCircle className="w-4 h-4 text-indigo-500" />
+                    <HelpCircle className="w-4 h-4 text-accent" />
                     <span>How to connect WordPress (Elementor, WPForms, Contact Form 7)</span>
                   </div>
-                  {showGuide ? <ChevronUp className="w-4 h-4 text-zinc-400" /> : <ChevronDown className="w-4 h-4 text-zinc-400" />}
+                  {showGuide ? <ChevronUp className="w-4 h-4 text-fg-muted" /> : <ChevronDown className="w-4 h-4 text-fg-muted" />}
                 </button>
 
                 {showGuide && (
-                  <div className="p-4 pt-2 border-t border-zinc-100 dark:border-zinc-800/80 text-xs text-zinc-600 dark:text-zinc-400 space-y-2.5 leading-relaxed bg-zinc-50/50 dark:bg-zinc-900/30">
+                  <div className="p-4 pt-2 border-t border-border text-small text-fg-muted space-y-2.5 leading-relaxed bg-subtle">
                     <p>
-                      Reamarc AI accepts standard HTTP POST payloads in <code className="px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-[11px]">application/json</code>, <code className="px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-[11px]">multipart/form-data</code>, and <code className="px-1 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-[11px]">application/x-www-form-urlencoded</code>.
+                      Reamarc accepts standard HTTP POST payloads in <code className="px-1 py-0.5 rounded bg-surface border border-border text-micro font-mono">application/json</code>, <code className="px-1 py-0.5 rounded bg-surface border border-border text-micro font-mono">multipart/form-data</code>, and <code className="px-1 py-0.5 rounded bg-surface border border-border text-micro font-mono">application/x-www-form-urlencoded</code>.
                     </p>
                     <ul className="list-disc pl-4 space-y-1">
                       <li><strong>Elementor Pro Forms:</strong> In Form Actions After Submit, add <em>Webhook</em> and paste the copied URL above.</li>
                       <li><strong>WPForms:</strong> Enable Webhooks addon and configure a POST request to this URL.</li>
-                      <li><strong>Field Mapping:</strong> Fields like <code className="px-1 bg-zinc-200/60 dark:bg-zinc-800 rounded">name</code>, <code className="px-1 bg-zinc-200/60 dark:bg-zinc-800 rounded">phone</code>, <code className="px-1 bg-zinc-200/60 dark:bg-zinc-800 rounded">email</code>, and <code className="px-1 bg-zinc-200/60 dark:bg-zinc-800 rounded">company</code> are automatically mapped.</li>
+                      <li><strong>Field Mapping:</strong> Fields like <code className="px-1 bg-surface border border-border rounded font-mono">name</code>, <code className="px-1 bg-surface border border-border rounded font-mono">phone</code>, <code className="px-1 bg-surface border border-border rounded font-mono">email</code>, and <code className="px-1 bg-surface border border-border rounded font-mono">company</code> are automatically mapped.</li>
                     </ul>
                   </div>
                 )}
@@ -554,63 +575,61 @@ export const CrmSettingsIngest: React.FC = () => {
 
             {/* Right: Create Webhook Form */}
             <div className="lg:col-span-5 space-y-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                New Webhook Source
+              <h3 className="text-ui font-semibold text-fg">
+                New webhook source
               </h3>
 
               <form
                 onSubmit={handleCreateSource}
-                className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-4"
+                className="p-5 rounded-lg bg-surface border border-border shadow-xs space-y-4"
               >
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                    Source Name
+                  <label className="text-label text-fg block mb-1.5">
+                    Source name
                   </label>
-                  <input
+                  <Input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="e.g. Website Contact Us Form"
-                    className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
+                    placeholder="e.g. Website Contact Form"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                    Default Source Tag
+                  <label className="text-label text-fg block mb-1.5">
+                    Default source tag
                   </label>
-                  <input
+                  <Input
                     type="text"
                     value={defaultSource}
                     onChange={(e) => setDefaultSource(e.target.value)}
                     placeholder="e.g. wordpress or landing_page"
-                    className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                    Default Campaign (Optional)
+                  <label className="text-label text-fg block mb-1.5">
+                    Default campaign (optional)
                   </label>
-                  <input
+                  <Input
                     type="text"
                     value={defaultCampaign}
                     onChange={(e) => setDefaultCampaign(e.target.value)}
                     placeholder="e.g. organic_contact or q3_promo"
-                    className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                   />
                 </div>
 
-                <button
+                <Button
                   type="submit"
                   disabled={saving}
-                  className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-60 shadow-xs"
+                  variant="primary"
+                  className="w-full"
                 >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                  Create Webhook Endpoint
-                </button>
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+                  Create webhook endpoint
+                </Button>
               </form>
             </div>
           </div>
@@ -623,56 +642,57 @@ export const CrmSettingsIngest: React.FC = () => {
           {/* Left: Connected Pages */}
           <div className="lg:col-span-7 space-y-4">
             <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Connected Meta Facebook &amp; Instagram Pages
+              <h3 className="text-ui font-semibold text-fg">
+                Connected Meta Facebook &amp; Instagram pages
               </h3>
               <div className="flex items-center gap-2">
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
+                  size="sm"
                   onClick={() => void handleSyncMeta()}
                   disabled={polling}
-                  className="h-7 px-2.5 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 transition cursor-pointer flex items-center gap-1"
                 >
-                  <RefreshCw className={`w-3 h-3 ${polling ? 'animate-spin' : ''}`} />
-                  <span>Sync Meta Leads</span>
-                </button>
-                <span className="text-xs text-zinc-400 font-numeric">{metaPages.length} connected</span>
+                  <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${polling ? 'animate-spin' : ''}`} />
+                  <span>Sync Meta leads</span>
+                </Button>
+                <span className="text-small text-fg-muted font-numeric">{metaPages.length} connected</span>
               </div>
             </div>
 
             {loading ? (
-              <div className="p-8 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 text-center space-y-2">
-                <Loader2 className="w-6 h-6 animate-spin text-indigo-500 mx-auto" />
-                <p className="text-xs text-zinc-400">Loading Meta pages…</p>
+              <div className="p-8 rounded-lg bg-surface border border-border text-center space-y-2">
+                <Loader2 className="w-5 h-5 animate-spin text-accent mx-auto" />
+                <p className="text-small text-fg-muted">Loading Meta pages…</p>
               </div>
             ) : metaPages.length === 0 ? (
-              <div className="p-8 rounded-2xl bg-white dark:bg-[#11131a] border border-dashed border-zinc-300 dark:border-zinc-800 text-center space-y-2">
-                <Webhook className="w-8 h-8 text-zinc-400 mx-auto" />
-                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">No Meta pages connected</p>
-                <p className="text-[11px] text-zinc-400">Connect a Meta Page to auto-import Instant Forms from Facebook and Instagram.</p>
+              <div className="p-8 rounded-lg bg-surface border border-dashed border-border text-center space-y-2">
+                <Webhook className="w-8 h-8 text-fg-muted mx-auto" />
+                <p className="text-ui font-medium text-fg">No Meta pages connected</p>
+                <p className="text-small text-fg-muted">Connect a Meta Page to auto-import instant forms from Facebook and Instagram.</p>
               </div>
             ) : (
               <div className="space-y-3">
                 {metaPages.map((p) => (
                   <div
                     key={p.id}
-                    className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-3"
+                    className="p-4 rounded-lg bg-surface border border-border shadow-xs space-y-3"
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <span className="font-bold text-xs text-zinc-950 dark:text-zinc-50">{p.page_name}</span>
-                        <div className="text-[11px] text-zinc-400 font-mono">Page ID: {p.page_id}</div>
+                        <span className="font-semibold text-ui text-fg">{p.page_name}</span>
+                        <div className="text-caption text-fg-muted font-mono">Page ID: {p.page_id}</div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => void handleDisconnectMeta(p)}
-                          className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer transition"
-                          title="Disconnect"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => void handleDisconnectMeta(p)}
+                        className="text-fg-muted hover:text-danger-fg"
+                        aria-label={`Disconnect ${p.page_name}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -682,112 +702,114 @@ export const CrmSettingsIngest: React.FC = () => {
 
           {/* Right: Connect Page Form */}
           <div className="lg:col-span-5 space-y-4">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              Connect New Meta Page
+            <h3 className="text-ui font-semibold text-fg">
+              Connect Meta page
             </h3>
 
             <form
               onSubmit={handleConnectMeta}
-              className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-4"
+              className="p-5 rounded-lg bg-surface border border-border shadow-xs space-y-4"
             >
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                  Facebook Page Name
+                <label className="text-label text-fg block mb-1.5">
+                  Facebook page name
                 </label>
-                <input
+                <Input
                   type="text"
                   value={metaPageName}
                   onChange={(e) => setMetaPageName(e.target.value)}
                   placeholder="e.g. Reamarc Agency"
-                  className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                  Facebook Page ID
+                <label className="text-label text-fg block mb-1.5">
+                  Facebook page ID
                 </label>
-                <input
+                <Input
                   type="text"
                   value={metaPageId}
                   onChange={(e) => setMetaPageId(e.target.value)}
                   placeholder="e.g. 109847291823"
-                  className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                  Page Access Token (Permanent / Long-Lived)
+                <label className="text-label text-fg block mb-1.5">
+                  Page access token (permanent / long-lived)
                 </label>
-                <input
+                <Input
                   type="password"
                   value={metaAccessToken}
                   onChange={(e) => setMetaAccessToken(e.target.value)}
                   placeholder="EAAG..."
-                  className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition font-mono"
+                  className="font-mono"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                  App Secret (Optional, for Webhook signature verification)
+                <label className="text-label text-fg block mb-1.5">
+                  App secret (optional, for signature verification)
                 </label>
-                <input
+                <Input
                   type="password"
                   value={metaAppSecret}
                   onChange={(e) => setMetaAppSecret(e.target.value)}
                   placeholder="App secret from Meta Developers"
-                  className="w-full h-9 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition font-mono"
+                  className="font-mono"
                 />
               </div>
 
-              <button
+              <Button
                 type="submit"
                 disabled={savingPage}
-                className="w-full h-9 inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-60 shadow-xs"
+                variant="primary"
+                className="w-full"
               >
-                {savingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                Connect Page
-              </button>
+                {savingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
+                Connect page
+              </Button>
             </form>
           </div>
         </div>
       )}
 
-      {/* TAB 3: MEETING SCHEDULER & WORDPRESS EMBED */}
+      {/* TAB 3: MEETING SCHEDULER & EMBED */}
       {activeTab === 'scheduler' && (
         <div className="space-y-6">
           {/* Public Link Card */}
-          <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+          <div className="p-4 rounded-lg bg-surface border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
             <div>
-              <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-indigo-500" />
-                <span>Direct Public Booking URL</span>
+              <div className="text-ui font-semibold text-fg flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-accent" />
+                <span>Public booking URL</span>
               </div>
-              <p className="text-[11px] text-zinc-400 mt-0.5">Share this link directly with prospective leads.</p>
+              <p className="text-small text-fg-muted mt-0.5">Share this link directly with prospective leads.</p>
             </div>
 
             <div className="flex items-center gap-2">
-              <code className="px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-900 text-xs font-mono text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-800">
-                {`${effectiveBaseUrl}/book`}
-              </code>
-              <button
+              <Input
+                readOnly
+                value={`${effectiveBaseUrl}/book`}
+                className="font-mono text-small bg-subtle w-64"
+              />
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
                 onClick={() => copyText(`${effectiveBaseUrl}/book`, 'link')}
-                className="px-3 py-1.5 text-xs font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-1.5 transition cursor-pointer shrink-0"
               >
                 {copiedLink ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedLink ? 'Copied!' : 'Copy Link'}</span>
-              </button>
+                <span>{copiedLink ? 'Copied' : 'Copy link'}</span>
+              </Button>
               <a
                 href={`${effectiveBaseUrl}/book`}
                 target="_blank"
                 rel="noreferrer"
-                className="p-2 rounded-xl border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-300 transition"
+                className="p-2 rounded-md border border-border hover:bg-hover text-fg-muted transition inline-flex items-center justify-center"
                 title="Preview public booking page"
               >
                 <ExternalLink className="w-4 h-4" />
@@ -799,79 +821,76 @@ export const CrmSettingsIngest: React.FC = () => {
             {/* Scheduler Settings Form */}
             <form
               onSubmit={handleSaveSchedulerSettings}
-              className="lg:col-span-7 p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-4"
+              className="lg:col-span-7 p-5 rounded-lg bg-surface border border-border shadow-xs space-y-4"
             >
-              <div className="border-b border-zinc-100 dark:border-zinc-800/80 pb-3 flex items-center justify-between">
+              <div className="border-b border-border pb-3 flex items-center justify-between">
                 <div>
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                    Meeting Scheduler Configuration
+                  <h3 className="text-ui font-semibold text-fg">
+                    Meeting scheduler configuration
                   </h3>
-                  <p className="text-xs text-zinc-500 mt-0.5">Set host identity, timings, and video conferencing link.</p>
+                  <p className="text-small text-fg-muted mt-0.5">Set host identity, timings, and location.</p>
                 </div>
-                {loadingConfig && <Loader2 className="w-4 h-4 animate-spin text-indigo-500" />}
+                {loadingConfig && <Loader2 className="w-4 h-4 animate-spin text-accent" />}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                    Host Name
+                  <label className="text-label text-fg block mb-1">
+                    Host name
                   </label>
-                  <input
+                  <Input
                     type="text"
                     value={schedulerConfig.host_name}
                     onChange={(e) => setSchedulerConfig({ ...schedulerConfig, host_name: e.target.value })}
-                    className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                     required
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                    Host Email
+                  <label className="text-label text-fg block mb-1">
+                    Host email
                   </label>
-                  <input
+                  <Input
                     type="email"
                     value={schedulerConfig.host_email}
                     onChange={(e) => setSchedulerConfig({ ...schedulerConfig, host_email: e.target.value })}
-                    className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                     required
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                  Session Title
+                <label className="text-label text-fg block mb-1">
+                  Session title
                 </label>
-                <input
+                <Input
                   type="text"
                   value={schedulerConfig.title}
                   onChange={(e) => setSchedulerConfig({ ...schedulerConfig, title: e.target.value })}
-                  className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                   required
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                  Session Description
+                <label className="text-label text-fg block mb-1">
+                  Session description
                 </label>
-                <textarea
+                <Textarea
                   rows={3}
                   value={schedulerConfig.description}
                   onChange={(e) => setSchedulerConfig({ ...schedulerConfig, description: e.target.value })}
-                  className="w-full p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none leading-relaxed"
+                  className="leading-relaxed"
                 />
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                    Duration (Minutes)
+                  <label className="text-label text-fg block mb-1">
+                    Duration (minutes)
                   </label>
                   <select
                     value={schedulerConfig.duration_minutes}
                     onChange={(e) => setSchedulerConfig({ ...schedulerConfig, duration_minutes: Number(e.target.value) })}
-                    className="w-full h-8.5 px-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 outline-none cursor-pointer"
+                    className="w-full h-8.5 px-2.5 rounded-md border border-border bg-surface text-small text-fg outline-none cursor-pointer focus:border-border-strong"
                   >
                     <option value={15}>15 mins</option>
                     <option value={30}>30 mins</option>
@@ -880,32 +899,30 @@ export const CrmSettingsIngest: React.FC = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                    Start Hour
+                  <label className="text-label text-fg block mb-1">
+                    Start hour
                   </label>
-                  <input
+                  <Input
                     type="time"
                     value={schedulerConfig.start_hour}
                     onChange={(e) => setSchedulerConfig({ ...schedulerConfig, start_hour: e.target.value })}
-                    className="w-full h-8.5 px-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 outline-none"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                    End Hour
+                  <label className="text-label text-fg block mb-1">
+                    End hour
                   </label>
-                  <input
+                  <Input
                     type="time"
                     value={schedulerConfig.end_hour}
                     onChange={(e) => setSchedulerConfig({ ...schedulerConfig, end_hour: e.target.value })}
-                    className="w-full h-8.5 px-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1.5">
-                  Available Working Days
+                <label className="text-label text-fg block mb-1.5">
+                  Available working days
                 </label>
                 <div className="flex flex-wrap gap-1.5">
                   {DAY_LABELS.map((label, idx) => {
@@ -915,10 +932,10 @@ export const CrmSettingsIngest: React.FC = () => {
                         type="button"
                         key={label}
                         onClick={() => toggleWorkingDay(idx)}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                        className={`px-3 py-1 rounded-sm text-small font-medium transition cursor-pointer ${
                           active
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200'
+                            ? 'bg-accent text-accent-fg'
+                            : 'bg-subtle text-fg-muted hover:bg-hover hover:text-fg'
                         }`}
                       >
                         {label}
@@ -929,111 +946,111 @@ export const CrmSettingsIngest: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block mb-1">
-                  Office Address (for In-Person Meetings)
+                <label className="text-label text-fg block mb-1">
+                  Office address (for in-person meetings)
                 </label>
-                <input
+                <Input
                   type="text"
                   value={schedulerConfig.office_address}
                   onChange={(e) => setSchedulerConfig({ ...schedulerConfig, office_address: e.target.value })}
-                  className="w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-900/50 text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 outline-none"
                   placeholder="e.g. Reamarc Office, Rawalpindi HQ, Pakistan"
                 />
               </div>
 
-              <button
+              <Button
                 type="submit"
                 disabled={savingConfig}
-                className="h-9 px-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold transition cursor-pointer disabled:opacity-60 shadow-xs"
+                variant="primary"
               >
-                {savingConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                <span>Save Scheduler Settings</span>
-              </button>
+                {savingConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
+                <span>Save scheduler settings</span>
+              </Button>
             </form>
 
             {/* WordPress Embed Snippet Generator */}
-            <div className="lg:col-span-5 p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs space-y-4">
+            <div className="lg:col-span-5 p-5 rounded-lg bg-surface border border-border shadow-xs space-y-4">
               <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 flex items-center gap-1.5">
-                  <Code className="w-3.5 h-3.5 text-indigo-500" />
-                  <span>WordPress Embed Generator</span>
+                <h3 className="text-ui font-semibold text-fg flex items-center gap-1.5">
+                  <Code className="w-3.5 h-3.5 text-accent" />
+                  <span>WordPress embed generator</span>
                 </h3>
-                <p className="text-xs text-zinc-500 mt-0.5">Compatible with Elementor, Gutenberg, &amp; Divi.</p>
+                <p className="text-small text-fg-muted mt-0.5">Compatible with Elementor, Gutenberg, &amp; Divi.</p>
               </div>
 
-              <div className="flex items-center gap-1 p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/60 dark:border-zinc-800">
+              <div className="flex items-center gap-1 p-1 rounded-md bg-subtle border border-border">
                 <button
                   type="button"
                   onClick={() => setActiveEmbedType('iframe')}
-                  className={`flex-1 py-1 text-[11px] font-semibold rounded-lg transition cursor-pointer ${
+                  className={`flex-1 py-1 text-caption font-medium rounded-sm transition cursor-pointer ${
                     activeEmbedType === 'iframe'
-                      ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                      ? 'bg-surface text-fg shadow-xs'
+                      : 'text-fg-muted hover:text-fg'
                   }`}
                 >
-                  iFrame Embed
+                  iFrame embed
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveEmbedType('button')}
-                  className={`flex-1 py-1 text-[11px] font-semibold rounded-lg transition cursor-pointer ${
+                  className={`flex-1 py-1 text-caption font-medium rounded-sm transition cursor-pointer ${
                     activeEmbedType === 'button'
-                      ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                      ? 'bg-surface text-fg shadow-xs'
+                      : 'text-fg-muted hover:text-fg'
                   }`}
                 >
-                  CTA Button
+                  CTA button
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveEmbedType('link')}
-                  className={`flex-1 py-1 text-[11px] font-semibold rounded-lg transition cursor-pointer ${
+                  className={`flex-1 py-1 text-caption font-medium rounded-sm transition cursor-pointer ${
                     activeEmbedType === 'link'
-                      ? 'bg-white dark:bg-zinc-800 text-zinc-950 dark:text-zinc-100 shadow-xs'
-                      : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900'
+                      ? 'bg-surface text-fg shadow-xs'
+                      : 'text-fg-muted hover:text-fg'
                   }`}
                 >
-                  UTM Tracking URL
+                  UTM tracking URL
                 </button>
               </div>
 
               <div className="relative">
-                <pre className="p-3 rounded-xl bg-zinc-900 text-zinc-200 text-[11px] font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-56">
+                <pre className="p-3 rounded-md bg-subtle text-fg border border-border text-mono font-mono overflow-x-auto whitespace-pre-wrap leading-relaxed max-h-56">
                   {activeEmbedType === 'iframe' &&
-`<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 16px;">
+`<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 12px;">
   <iframe 
     src="${effectiveBaseUrl}/book?embed=true" 
     style="width: 100%; height: 750px; border: none; overflow: hidden;"
     loading="lazy"
-    title="Reamarc Strategy Session Scheduler">
+    title="Reamarc Session Scheduler">
   </iframe>
 </div>`}
                   {activeEmbedType === 'button' &&
 `<a href="${effectiveBaseUrl}/book" 
    target="_blank" 
-   style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 10px; font-weight: 600; text-decoration: none; font-family: sans-serif;">
-   Book Strategy Session ↗
+   style="display: inline-block; background-color: #6847e0; color: #ffffff; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; font-family: sans-serif;">
+   Book session ↗
 </a>`}
                   {activeEmbedType === 'link' &&
 `${effectiveBaseUrl}/book?utm_source=wordpress&utm_medium=website&utm_campaign=strategy_session`}
                 </pre>
 
-                <button
+                <Button
                   type="button"
+                  variant="secondary"
                   onClick={() => {
                     const snippet =
                       activeEmbedType === 'iframe'
-                        ? `<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 16px;">\n  <iframe src="${effectiveBaseUrl}/book?embed=true" style="width: 100%; height: 750px; border: none; overflow: hidden;" loading="lazy" title="Reamarc Strategy Session Scheduler"></iframe>\n</div>`
+                        ? `<div style="width: 100%; max-width: 920px; margin: 0 auto; overflow: hidden; border-radius: 12px;">\n  <iframe src="${effectiveBaseUrl}/book?embed=true" style="width: 100%; height: 750px; border: none; overflow: hidden;" loading="lazy" title="Reamarc Session Scheduler"></iframe>\n</div>`
                         : activeEmbedType === 'button'
-                        ? `<a href="${effectiveBaseUrl}/book" target="_blank" style="display: inline-block; background-color: #4f46e5; color: #ffffff; padding: 12px 24px; border-radius: 10px; font-weight: 600; text-decoration: none; font-family: sans-serif;">Book Strategy Session ↗</a>`
+                        ? `<a href="${effectiveBaseUrl}/book" target="_blank" style="display: inline-block; background-color: #6847e0; color: #ffffff; padding: 12px 24px; border-radius: 8px; font-weight: 600; text-decoration: none; font-family: sans-serif;">Book session ↗</a>`
                         : `${effectiveBaseUrl}/book?utm_source=wordpress&utm_medium=website&utm_campaign=strategy_session`;
                     void copyText(snippet, 'embed');
                   }}
-                  className="mt-2 w-full h-8 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition cursor-pointer"
+                  className="mt-2 w-full"
                 >
-                  {copiedEmbed ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                  <span>{copiedEmbed ? 'Snippet Copied!' : 'Copy Code Snippet'}</span>
-                </button>
+                  {copiedEmbed ? <Check className="w-3.5 h-3.5 mr-1.5" /> : <Copy className="w-3.5 h-3.5 mr-1.5" />}
+                  <span>{copiedEmbed ? 'Snippet copied' : 'Copy code snippet'}</span>
+                </Button>
               </div>
             </div>
           </div>
@@ -1044,50 +1061,49 @@ export const CrmSettingsIngest: React.FC = () => {
       {activeTab === 'queue' && (
         <div className="space-y-6">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
-              <span className="text-xs font-medium text-zinc-500">Pending Tasks</span>
-              <div className="text-2xl font-black font-numeric text-zinc-950 dark:text-zinc-50 mt-1">
+            <div className="p-4 rounded-lg bg-surface border border-border shadow-xs">
+              <span className="text-caption text-fg-muted">Pending tasks</span>
+              <div className="text-kpi font-semibold font-numeric text-fg mt-1">
                 {queueStats?.pending ?? 0}
               </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
-              <span className="text-xs font-medium text-zinc-500">In Processing</span>
-              <div className="text-2xl font-black font-numeric text-indigo-600 dark:text-indigo-400 mt-1">
+            <div className="p-4 rounded-lg bg-surface border border-border shadow-xs">
+              <span className="text-caption text-fg-muted">In processing</span>
+              <div className="text-kpi font-semibold font-numeric text-accent mt-1">
                 {queueStats?.processing ?? 0}
               </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
-              <span className="text-xs font-medium text-zinc-500">Delivered / Completed</span>
-              <div className="text-2xl font-black font-numeric text-emerald-600 dark:text-emerald-400 mt-1">
+            <div className="p-4 rounded-lg bg-surface border border-border shadow-xs">
+              <span className="text-caption text-fg-muted">Delivered / completed</span>
+              <div className="text-kpi font-semibold font-numeric text-success-fg mt-1">
                 {queueStats?.completed ?? 0}
               </div>
             </div>
-            <div className="p-4 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs">
-              <span className="text-xs font-medium text-zinc-500">Retries / Warnings</span>
-              <div className="text-2xl font-black font-numeric text-amber-600 dark:text-amber-400 mt-1">
+            <div className="p-4 rounded-lg bg-surface border border-border shadow-xs">
+              <span className="text-caption text-fg-muted">Retries / warnings</span>
+              <div className="text-kpi font-semibold font-numeric text-warning-fg mt-1">
                 {queueStats?.retry ?? 0}
               </div>
             </div>
           </div>
 
-          <div className="p-5 rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="p-5 rounded-lg bg-surface border border-border shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Guaranteed Delivery SLA</h3>
-              <p className="text-xs text-zinc-500 mt-0.5">
+              <h3 className="text-ui font-semibold text-fg">Guaranteed delivery SLA</h3>
+              <p className="text-small text-fg-muted mt-0.5">
                 Incoming leads and webhook events are persisted and automatically retried across 30s, 2m, 10m, 30m, and 1h windows.
               </p>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void loadQueueStats()}
-                disabled={polling}
-                className="h-8.5 px-3.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 text-zinc-700 dark:text-zinc-300 text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer"
-              >
-                <RefreshCw className={`w-3.5 h-3.5 ${polling ? 'animate-spin' : ''}`} />
-                <span>Refresh Queue Status</span>
-              </button>
-            </div>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => void loadQueueStats()}
+              disabled={polling}
+              className="shrink-0"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 mr-1.5 ${polling ? 'animate-spin' : ''}`} />
+              <span>Refresh queue status</span>
+            </Button>
           </div>
         </div>
       )}

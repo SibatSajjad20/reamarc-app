@@ -95,12 +95,22 @@ def stored_stage_aliases(stages: List[str]) -> List[str]:
     return list(names)
 
 
-def stage_owner(stage: Optional[str]) -> str:
-    """Derives department owner based on pipeline stage."""
+def is_ad_creative(item: Optional[Dict[str, Any]]) -> bool:
+    if not item:
+        return False
+    cat = str(item.get("creative_category") or item.get("posting_type") or "").strip().lower()
+    return bool(re.search(r"\b(ad(\s+creative)?|performance)\b", cat))
+
+
+def stage_owner(stage: Optional[str], creative_category: Optional[str] = None) -> str:
+    """Derives department owner based on pipeline stage and creative category."""
     norm = normalize_stage(stage)
     if norm in CREATIVE_STAGES:
         return "Creative"
     if norm in SOCIAL_STAGES:
+        cat = str(creative_category or "").strip().lower()
+        if re.search(r"\b(ad(\s+creative)?|performance)\b", cat):
+            return "Performance Marketing"
         return "Social Media"
     return "Content"
 
@@ -260,7 +270,7 @@ def _is_assignee(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
 def can_edit_item(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
     if not can_view_item(user, item):
         return False
-    if is_performance(user) or is_client(user):
+    if is_client(user):
         return False
     if is_admin(user):
         return True
@@ -270,7 +280,25 @@ def can_edit_item(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
     if stage in ("Creative Production", "Creative Revision"):
         return is_creative_lead(user) or (is_creative_actor(user) and _is_assignee(user, item))
     if stage == "Ready to Post":
+        if is_ad_creative(item):
+            return is_performance(user) or is_social_actor(user)
         return is_social_actor(user)
+    if is_performance(user):
+        return False
+    return False
+
+
+def can_delete_item(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
+    if not is_active(user):
+        return False
+    if is_client(user):
+        return False
+    if is_admin(user) or is_content_lead(user):
+        return True
+    created_by = str(item.get("created_by") or "")
+    if created_by and created_by == _user_id(user):
+        stage = normalize_stage(item.get("stage"))
+        return stage in ("Content", "Content Revision") and is_content_actor(user)
     return False
 
 
@@ -291,13 +319,18 @@ def resolve_transition(
     """Return the fields to write for a legal action, or raise WorkflowError."""
     if not is_active(user):
         raise WorkflowError("You cannot move this campaign.")
-    if is_performance(user):
-        raise WorkflowError("Performance Marketing can view the calendar but cannot move stages.")
 
     stage = normalize_stage(item.get("stage"))
     action_key = str(action or "").lower().strip().replace(" ", "_")
     if action_key not in ACTIONS:
         raise WorkflowError(f"Unknown action '{action}'.")
+
+    # Performance marketing can only act on Ready to Post ad creatives unless also a social actor
+    if is_performance(user) and not is_social_actor(user):
+        if not (stage == "Ready to Post" and is_ad_creative(item) and action_key in ("post", "reject", "return_to_creative")):
+            raise WorkflowError("Performance Marketing can view the calendar but cannot move stages.")
+
+    category = item.get("creative_category") or item.get("posting_type")
 
     if action_key == "admin_move":
         if not is_admin(user):
@@ -309,7 +342,7 @@ def resolve_transition(
         return {
             "stage": resolved,
             "submitted_from": None,
-            "design_owner": stage_owner(resolved),
+            "design_owner": stage_owner(resolved, category),
             "approval_status": stage_default_approval_status(resolved),
         }
 
@@ -379,7 +412,7 @@ def resolve_transition(
             return {
                 "stage": target,
                 "submitted_from": None,
-                "design_owner": stage_owner(target),
+                "design_owner": stage_owner(target, category),
                 "approval_status": "Approved for Campaign",
             }
         raise WorkflowError("This stage cannot be approved.")
@@ -390,11 +423,16 @@ def resolve_transition(
         if stage == "Content Internal Review":
             if not (is_admin(user) or is_content_lead(user)):
                 raise WorkflowError("Only a content team lead can send this back.")
-            target = origin if origin in ("Content", "Content Revision") else "Content"
+            if target_stage:
+                target = normalize_stage(target_stage)
+                if target not in ("Content", "Content Revision"):
+                    raise WorkflowError("Invalid target stage for sending back content.")
+            else:
+                target = origin if origin in ("Content", "Content Revision") else "Content"
             res = {
                 "stage": target,
                 "submitted_from": None,
-                "design_owner": stage_owner(target),
+                "design_owner": stage_owner(target, category),
                 "approval_status": "Changes Requested",
             }
             if send_back_note:
@@ -403,11 +441,16 @@ def resolve_transition(
         if stage == "Creative Internal Review":
             if not (is_admin(user) or is_creative_lead(user)):
                 raise WorkflowError("Only a creative team lead can send this back.")
-            target = origin if origin in ("Creative Production", "Creative Revision") else "Creative Production"
+            if target_stage:
+                target = normalize_stage(target_stage)
+                if target not in ("Creative Production", "Creative Revision"):
+                    raise WorkflowError("Invalid target stage for sending back creative.")
+            else:
+                target = origin if origin in ("Creative Production", "Creative Revision") else "Creative Production"
             res = {
                 "stage": target,
                 "submitted_from": None,
-                "design_owner": stage_owner(target),
+                "design_owner": stage_owner(target, category),
                 "approval_status": "Changes Requested",
             }
             if send_back_note:
@@ -427,7 +470,7 @@ def resolve_transition(
                 "stage": target,
                 "revision_note": text,
                 "submitted_from": None,
-                "design_owner": stage_owner(target),
+                "design_owner": stage_owner(target, category),
                 "approval_status": "Changes Requested",
             }
         if stage == "Creative Client Review":
@@ -438,7 +481,7 @@ def resolve_transition(
                 "stage": target,
                 "revision_note": text,
                 "submitted_from": None,
-                "design_owner": stage_owner(target),
+                "design_owner": stage_owner(target, category),
                 "approval_status": "Changes Requested",
             }
         raise WorkflowError("This stage is not waiting on the client.")
@@ -446,13 +489,20 @@ def resolve_transition(
     if action_key in ("post", "reject", "return_to_creative"):
         if stage != "Ready to Post":
             raise WorkflowError("Only a campaign that is ready to post can be posted, rejected, or returned.")
-        if not (is_admin(user) or is_social_actor(user)):
-            raise WorkflowError("Only social media can update a campaign that is ready to post.")
+        allowed = is_admin(user) or (
+            (is_performance(user) or is_social_actor(user)) if is_ad_creative(item) else is_social_actor(user)
+        )
+        if not allowed:
+            if is_ad_creative(item):
+                raise WorkflowError("Only performance marketing or social media can update an ad creative that is ready to post.")
+            raise WorkflowError("Only social media can update an organic campaign that is ready to post.")
+        posting_owner = stage_owner("Posted", category)
+        reject_owner = stage_owner("Rejected", category)
         if action_key == "post":
             return {
                 "stage": "Posted",
                 "submitted_from": None,
-                "design_owner": "Social Media",
+                "design_owner": posting_owner,
                 "approval_status": "Posted",
             }
         if action_key == "reject":
@@ -460,7 +510,7 @@ def resolve_transition(
                 "stage": "Rejected",
                 "submitted_from": None,
                 "revision_note": str(note or "").strip() or None,
-                "design_owner": "Social Media",
+                "design_owner": reject_owner,
                 "approval_status": "Rejected",
             }
         text = str(note or "").strip()

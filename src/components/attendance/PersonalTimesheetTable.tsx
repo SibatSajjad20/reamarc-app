@@ -3,8 +3,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Calendar,
-  AlertTriangle,
-  CheckCircle2,
   Loader2,
   Send,
   Clock,
@@ -17,6 +15,10 @@ import type {
 import { getTimesheetStartDay } from '../../constants/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
+import { KpiCard } from '../ui/KpiCard';
+import { StatusPill } from '../ui/StatusPill';
+import { Button } from '../ui/button';
+import { cn } from '../../lib/utils';
 
 interface PersonalTimesheetTableProps {
   records: AttendanceRecord[];
@@ -91,13 +93,13 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       });
       setInquiredDates((prev) => new Set([...prev, targetDate]));
       addToast(
-        'Inquiry Dispatched',
+        'Inquiry dispatched',
         `Prompted ${employeeName || 'employee'} to provide checkout time and reason for ${targetDate}.`,
         'success'
       );
     } catch (err: any) {
       addToast(
-        'Failed to Send Inquiry',
+        'Failed to send inquiry',
         err.response?.data?.detail || err.message || 'Could not dispatch inquiry.',
         'error'
       );
@@ -105,6 +107,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       setInquiryLoadingDate(null);
     }
   };
+
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -146,6 +149,14 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
     return map;
   }, [records]);
 
+  const todayIso = useMemo(() => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }, []);
+
   const rows = useMemo(() => {
     const today = new Date();
     const currY = today.getFullYear();
@@ -180,12 +191,15 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       const dateStr = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
       const dayDate = new Date(selectedYear, selectedMonth - 1, d);
       const dayOfWeek = dayDate.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthShort = dayDate.toLocaleDateString('en-US', { month: 'short' });
+      const formattedDate = `${dayOfWeek}, ${d} ${monthShort}`;
       const isSunday = dayDate.getDay() === 0;
       const isFirstSaturday = dayDate.getDay() === 6 && d <= 7;
 
       const record = recordMap.get(dateStr);
       list.push({
         date: dateStr,
+        formattedDate,
         dayNumber: d,
         dayOfWeek,
         isSunday,
@@ -196,255 +210,181 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
     return list;
   }, [selectedYear, selectedMonth, daysInMonth, recordMap, joiningDate]);
 
-  // Helper for Status Badge styling
+  // Helper for Status Pill rendering
   const renderStatusBadge = (status: AttendanceStatus | string, lateMin: number) => {
     switch (status) {
       case 'present':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-            <CheckCircle2 className="w-3 h-3" /> Present
-          </span>
-        );
+        return <StatusPill status="present" />;
       case 'late':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-            <AlertTriangle className="w-3 h-3" /> Late (+{lateMin}m)
-          </span>
-        );
+        return <StatusPill variant="warning" label={lateMin > 0 ? `Late (+${lateMin}m)` : 'Late'} />;
       case 'missed_punch':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-            <AlertTriangle className="w-3 h-3" /> Missed Punch
-          </span>
-        );
+        return <StatusPill status="missed_punch" />;
       case 'wfh':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-            W.F.H
-          </span>
-        );
+        return <StatusPill status="wfh" />;
       case 'short_leave':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
-            Short Leave
-          </span>
-        );
+        return <StatusPill status="short_leave" />;
       case 'sick_leave':
       case 'casual_leave':
       case 'annual_leave':
       case 'unpaid_leave':
-        return (
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 capitalize">
-            {status.replace('_', ' ')}
-          </span>
-        );
       case 'first_saturday_off':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-            First Sat Off
-          </span>
-        );
       case 'sunday_off':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-            Sunday Off
-          </span>
-        );
       case 'holiday':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-            Public Holiday
-          </span>
-        );
+      case 'absent':
+        return <StatusPill status={status} />;
       case 'not_tracked':
       case 'upcoming':
-        return (
-          <span className="text-zinc-400 font-numeric text-[11px]">-</span>
-        );
-      case 'absent':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
-            Absent
-          </span>
-        );
+        return <span className="text-fg-muted font-numeric text-small">—</span>;
       case 'not_punched':
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
-            Not Checked In
-          </span>
-        );
+        return <StatusPill status="awaiting_checkin" label="Not checked in" />;
       default:
-        return (
-          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
-            {status || '-'}
-          </span>
-        );
+        return <StatusPill variant="neutral" label={status || '—'} />;
     }
   };
 
   return (
-    <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm overflow-hidden">
+    <div className="bg-surface rounded-lg border border-border shadow-xs overflow-hidden">
       {/* Top Header & Month Selector */}
-      <div className="p-6 border-b border-zinc-200 dark:border-zinc-800/80 flex flex-wrap items-center justify-between gap-4">
+      <div className="p-4 sm:p-5 border-b border-border flex flex-wrap items-center justify-between gap-4">
         <div>
-            <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-            {employeeName ? `${employeeName}'s Monthly Timesheet` : 'Monthly Attendance Timesheet'}
+          <h3 className="text-h3 font-semibold text-fg flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-fg-muted" />
+            {employeeName ? `${employeeName}'s timesheet` : 'My timesheet'}
           </h3>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-            Daily logs, punch records, overtime/undertime calculations
-            {readOnly ? '.' : ' and regularization status.'}
+          <p className="text-small text-fg-muted mt-0.5">
+            Punches, assigned shifts, hours worked and variance records.
           </p>
         </div>
 
-        {/* Month Picker Controls */}
+        {/* Month Stepper Controls */}
         <div className="flex items-center gap-2">
           {isLoading && (
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-xs font-semibold animate-pulse">
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-small text-fg-muted">
               <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              <span>Updating...</span>
+              <span>Updating…</span>
             </div>
           )}
 
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="icon-sm"
             onClick={handlePrevMonth}
             disabled={!canGoPrev}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-            title={allowHistoryMonths ? 'Previous Month' : 'Current month only'}
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
+            aria-label="Previous month"
+            icon={ChevronLeft}
+          />
 
-          <div className="px-4 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
-            <span>{MONTH_NAMES[selectedMonth - 1]}</span>
-            <span>{selectedYear}</span>
+          <div className="px-3 py-1 rounded-md border border-border text-ui font-medium text-fg min-w-[130px] text-center font-sans">
+            {MONTH_NAMES[selectedMonth - 1]} {selectedYear}
           </div>
 
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="icon-sm"
             onClick={handleNextMonth}
             disabled={!canGoNext}
-            className="p-2 rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
-            title={allowHistoryMonths ? 'Next Month' : 'Current month only'}
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
+            aria-label="Next month"
+            icon={ChevronRight}
+          />
         </div>
       </div>
 
-      {/* Monthly KPI Stats Strip (Punctuality Score & Bonus Status Removed) */}
-      {/* Monthly KPI Stats Strip (Punctuality Score & Bonus Status Removed) */}
+      {/* Monthly KPI Stats Strip (4 KpiCards per §13.4) */}
       {summary ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Working Days</span>
-            <p className="text-sm font-bold text-indigo-600 dark:text-indigo-400 mt-0.5">{summary.total_working_days ?? summary.working_days ?? 11} Days</p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Present Days</span>
-            <p className="text-sm font-bold text-emerald-600 dark:text-emerald-400 mt-0.5">{summary.days_present} Days</p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Late Strikes</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.late_count ?? summary.late_strikes ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
-              {summary.late_count ?? summary.late_strikes ?? 0} Strikes
-            </p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Total Overtime</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.overtime_hours ?? 0) > 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
-              {summary.overtime_formatted || '+00:00'}
-            </p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Total Undertime</span>
-            <p className={`text-sm font-bold mt-0.5 ${(summary.undertime_hours ?? 0) > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-400 dark:text-zinc-500'}`}>
-              {summary.undertime_formatted || '-00:00'}
-            </p>
-          </div>
-          <div className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800">
-            <span className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase">Net Variance</span>
-            <p
-              className={`text-sm font-bold font-numeric mt-0.5 ${
-                summary.net_variance_formatted?.startsWith('+') && summary.net_variance_formatted !== '+00:00'
-                  ? 'text-emerald-600 dark:text-emerald-400'
-                  : summary.net_variance_formatted?.startsWith('-') && summary.net_variance_formatted !== '-00:00'
-                  ? 'text-rose-600 dark:text-rose-400'
-                  : 'text-zinc-500 dark:text-zinc-400'
-              }`}
-            >
-              {summary.net_variance_formatted || '+00:00'}
-            </p>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 border-b border-border bg-subtle/30">
+          <KpiCard
+            label="Working days"
+            value={summary.total_working_days ?? summary.working_days ?? 0}
+            unit="days"
+          />
+          <KpiCard
+            label="Present"
+            value={summary.days_present ?? 0}
+            unit="days"
+          />
+          <KpiCard
+            label="Late strikes"
+            value={summary.late_count ?? summary.late_strikes ?? 0}
+            deltaType={(summary.late_count ?? summary.late_strikes ?? 0) > 0 ? 'warning' : 'neutral'}
+          />
+          <KpiCard
+            label="Net variance"
+            value={summary.net_variance_formatted || '+00:00'}
+            deltaType={
+              summary.net_variance_formatted?.startsWith('+') && summary.net_variance_formatted !== '+00:00'
+                ? 'success'
+                : summary.net_variance_formatted?.startsWith('-') && summary.net_variance_formatted !== '-00:00'
+                ? 'danger'
+                : 'neutral'
+            }
+          />
         </div>
       ) : isLoading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 p-4 bg-zinc-50/70 dark:bg-[#161822] border-b border-zinc-200 dark:border-zinc-800">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="p-2.5 rounded-xl bg-white dark:bg-[#11131a] border border-zinc-200/80 dark:border-zinc-800 animate-pulse">
-              <div className="h-2 w-16 bg-zinc-200 dark:bg-zinc-800 rounded mb-2" />
-              <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-4 border-b border-border bg-subtle/30">
+          {[...Array(4)].map((_, i) => (
+            <div key={i} className="bg-surface border border-border rounded-lg p-4 animate-pulse">
+              <div className="h-3 w-20 bg-skel rounded-xs mb-3" />
+              <div className="h-6 w-14 bg-skel rounded-xs" />
             </div>
           ))}
         </div>
       ) : null}
 
-      {/* High-Density Timesheet Table */}
+      {/* High-Density Timesheet Table (40px compact rows, sentence case headers) */}
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs border-collapse">
+        <table className="w-full text-left text-table border-collapse">
           <thead>
-            <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
-              <th className="py-3 px-4">Date & Day</th>
-              <th className="py-3 px-4">Assigned Shift</th>
-              <th className="py-3 px-4">Time In</th>
-              <th className="py-3 px-4">Time Out</th>
-              <th className="py-3 px-4">Break</th>
-              <th className="py-3 px-4">Effective Hours</th>
-              <th className="py-3 px-4">Overtime</th>
-              <th className="py-3 px-4">Undertime</th>
-              <th className="py-3 px-4">Status Tag</th>
+            <tr className="bg-canvas text-fg-muted border-b border-border text-xs font-medium">
+              <th className="py-2.5 px-3 font-medium">Date</th>
+              <th className="py-2.5 px-3 font-medium">Assigned shift</th>
+              <th className="py-2.5 px-3 font-medium">Time in</th>
+              <th className="py-2.5 px-3 font-medium">Time out</th>
+              <th className="py-2.5 px-3 font-medium">Break</th>
+              <th className="py-2.5 px-3 font-medium">Effective hours</th>
+              <th className="py-2.5 px-3 font-medium">Overtime</th>
+              <th className="py-2.5 px-3 font-medium">Undertime</th>
+              <th className="py-2.5 px-3 font-medium">Status</th>
               {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                <th className="py-3 px-4 text-right">Action</th>
+                <th className="py-2.5 px-3 font-medium text-right">Action</th>
               )}
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
+          <tbody className="divide-y divide-border font-normal">
             {isLoading && rows.length === 0 ? (
-              Array.from({ length: 14 }).map((_, i) => (
-                <tr key={`ts-skeleton-${i}`} className="animate-pulse">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-2">
-                      <div className="h-5 w-7 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                      <div className="h-3.5 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                    </div>
+              Array.from({ length: 8 }).map((_, i) => (
+                <tr key={`ts-skeleton-${i}`} className="h-10 animate-pulse">
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-24 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-28 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-14 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-14 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-10 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-10 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-16 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-12 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                  <td className="py-2 px-3">
+                    <div className="h-4 w-12 bg-skel rounded-xs" />
                   </td>
-                  <td className="py-3 px-4">
-                    <div className="h-5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded-full" />
+                  <td className="py-2 px-3">
+                    <div className="h-5 w-20 bg-skel rounded-full" />
                   </td>
                   {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                    <td className="py-3 px-4 text-right">
-                      <div className="h-6 w-16 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
+                    <td className="py-2 px-3 text-right">
+                      <div className="h-6 w-16 bg-skel rounded-md ml-auto" />
                     </td>
                   )}
                 </tr>
@@ -453,18 +393,19 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
               <tr>
                 <td
                   colSpan={(!readOnly || (canInquireMissedPunch && employeeId)) ? 10 : 9}
-                  className="py-16 text-center text-zinc-400 dark:text-zinc-500"
+                  className="py-16 text-center text-fg-muted"
                 >
-                  <Calendar className="w-8 h-8 mx-auto mb-2 text-zinc-300 dark:text-zinc-600" />
-                  <p className="text-sm font-semibold">No attendance records for this period.</p>
-                  <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">Records are logged day-by-day starting from August 19, 2026.</p>
+                  <Calendar className="w-8 h-8 mx-auto mb-2 text-fg-faint" />
+                  <p className="text-body font-medium text-fg">No punches this month</p>
+                  <p className="text-small text-fg-muted mt-0.5">Records are logged day-by-day for working shifts.</p>
                 </td>
               </tr>
             ) : (
-              rows.map(({ date, dayNumber, dayOfWeek, isSunday, isFirstSaturday, record }) => {
+              rows.map(({ date, formattedDate, isSunday, isFirstSaturday, record }) => {
                 const isHoliday = record?.status === 'holiday';
                 const isOffDay = isSunday || isFirstSaturday || record?.status === 'sunday_off' || record?.status === 'first_saturday_off' || isHoliday;
-                const defaultShiftName = summary?.shift_name || 'Standard 09:30-18:30';
+                const isToday = date === todayIso;
+                const defaultShiftName = summary?.shift_name || 'Standard 09:30–18:30';
 
                 let defaultStatus = 'absent';
                 if (isSunday) defaultStatus = 'sunday_off';
@@ -488,13 +429,13 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                   status = 'not_punched';
                 }
 
-                // Overtime & Undertime strings: only show computed values if not an off-day and employee punched in and out
-                let otDisplay = '-';
-                let utDisplay = '-';
+                // Overtime & Undertime strings
+                let otDisplay = '—';
+                let utDisplay = '—';
 
                 if (!isOffDay && record && isMissedPunch) {
                   otDisplay = '+00:00';
-                  utDisplay = record.undertime_formatted || '-08:00';
+                  utDisplay = record.undertime_formatted || '−08:00';
                 } else if (!isOffDay && record && punchIn && punchOut) {
                   if (record.overtime_status === 'pending' && (record.pending_overtime_minutes || 0) > 0) {
                     const otH = Math.floor((record.pending_overtime_minutes || 0) / 60);
@@ -511,22 +452,22 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                   if (record.undertime_minutes > 0) {
                     const utH = Math.floor(record.undertime_minutes / 60);
                     const utM = record.undertime_minutes % 60;
-                    utDisplay = `-${String(utH).padStart(2, '0')}:${String(utM).padStart(2, '0')}`;
+                    utDisplay = `−${String(utH).padStart(2, '0')}:${String(utM).padStart(2, '0')}`;
                   } else {
-                    utDisplay = '-00:00';
+                    utDisplay = '−00:00';
                   }
                 } else if (!isOffDay && record && punchIn && !punchOut) {
-                  otDisplay = '--:--';
-                  utDisplay = '--:--';
+                  otDisplay = '——:——';
+                  utDisplay = '——:——';
                 }
 
                 // Effective hours
-                let effHours = '-';
+                let effHours = '—';
                 if (record && punchIn) {
                   if (isMissedPunch) {
                     effHours = '0h 00m';
                   } else if (!punchOut) {
-                    effHours = 'In Progress';
+                    effHours = 'In progress';
                   } else {
                     const totalMins = record.working_hours_minutes || ((record as any).work_hours ? Math.round((record as any).work_hours * 60) : 0);
                     const h = Math.floor(totalMins / 60);
@@ -538,160 +479,149 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                 return (
                   <tr
                     key={date}
-                    className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors ${
-                      isOffDay ? 'bg-zinc-50/40 dark:bg-zinc-900/20' : ''
-                    }`}
+                    className={cn(
+                      'h-10 hover:bg-hover/60 transition-colors',
+                      isOffDay && 'bg-subtle/40 text-fg-muted',
+                      isToday && 'border-l-2 border-l-accent'
+                    )}
                   >
-                    {/* Date & Day */}
-                    <td className="py-3 px-4 font-semibold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
-                      <div className="flex items-center gap-1.5">
-                        <span className="w-5 text-zinc-400 font-normal">{dayNumber}</span>
-                        <span>{date}</span>
-                        <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
-                          {dayOfWeek}
-                        </span>
-                      </div>
+                    {/* Date */}
+                    <td className="py-2 px-3 whitespace-nowrap text-fg font-medium">
+                      <span>{formattedDate}</span>
                     </td>
 
                     {/* Shift */}
-                    <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                    <td className="py-2 px-3 text-fg-muted whitespace-nowrap">
                       {isHoliday
-                        ? record?.shift_name || record?.notes || 'Public Holiday'
-                        : record?.shift_name || (isSunday ? 'Sunday Rest' : isFirstSaturday ? '1st Sat Rest' : defaultShiftName)}
+                        ? record?.shift_name || record?.notes || 'Public holiday'
+                        : record?.shift_name || (isSunday ? 'Sunday rest' : isFirstSaturday ? '1st Sat rest' : defaultShiftName)}
                     </td>
 
                     {/* Punch In */}
-                    <td className="py-3 px-4 whitespace-nowrap">
+                    <td className="py-2 px-3 whitespace-nowrap">
                       {punchIn ? (
-                        <span className={`font-numeric font-bold ${isLate ? 'text-rose-600 dark:text-rose-400' : 'text-zinc-800 dark:text-zinc-200'}`}>
+                        <span className={cn('font-numeric', isLate ? 'text-warning-fg font-medium' : 'text-fg')}>
                           {punchIn}
                         </span>
                       ) : (
-                        <span className="text-zinc-400">-</span>
+                        <span className="text-fg-faint">—</span>
                       )}
                     </td>
 
                     {/* Punch Out */}
-                    <td className="py-3 px-4 whitespace-nowrap">
+                    <td className="py-2 px-3 whitespace-nowrap">
                       {punchOut ? (
-                        <span className="font-numeric text-zinc-800 dark:text-zinc-200">{punchOut}</span>
+                        <span className="font-numeric text-fg">{punchOut}</span>
                       ) : isMissedPunch ? (
-                        <span className="text-rose-600 dark:text-rose-400 font-medium">Missed</span>
+                        <span className="text-danger-fg font-medium">Missed</span>
                       ) : punchIn ? (
-                        <span className="text-emerald-600 dark:text-emerald-400 font-semibold animate-pulse">● Active</span>
+                        <span className="text-success-fg font-medium">Active</span>
                       ) : (
-                        <span className="text-zinc-400">-</span>
+                        <span className="text-fg-faint">—</span>
                       )}
                     </td>
 
                     {/* Break */}
-                    <td className="py-3 px-4 text-zinc-500 whitespace-nowrap">
-                      {record ? `${breakMin ?? 0}m` : '-'}
+                    <td className="py-2 px-3 text-fg-muted font-numeric whitespace-nowrap">
+                      {record ? `${breakMin ?? 0}m` : '—'}
                     </td>
 
                     {/* Effective Hours */}
-                    <td className="py-3 px-4 font-semibold text-zinc-800 dark:text-zinc-200 whitespace-nowrap">
+                    <td className="py-2 px-3 font-numeric text-fg whitespace-nowrap">
                       {effHours}
                     </td>
 
                     {/* Overtime */}
-                    <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
-                      {otDisplay !== '-' ? (
+                    <td className="py-2 px-3 font-numeric whitespace-nowrap">
+                      {otDisplay !== '—' ? (
                         <span
-                          className={
+                          className={cn(
                             record?.overtime_status === 'pending'
-                              ? 'text-amber-600 dark:text-amber-400'
+                              ? 'text-warning-fg font-medium'
                               : record && record.overtime_minutes > 0
-                              ? 'text-emerald-600 dark:text-emerald-400'
-                              : 'text-zinc-600 dark:text-zinc-400'
-                          }
+                              ? 'text-success-fg font-medium'
+                              : 'text-fg-muted'
+                          )}
                           title={record?.overtime_reason || undefined}
                         >
                           {otDisplay}
-                          {record?.overtime_reason ? (
-                            <span className="block text-[10px] font-normal text-zinc-400 truncate max-w-[140px]">
-                              {record.overtime_reason}
-                            </span>
-                          ) : null}
                         </span>
                       ) : (
-                        <span className="text-zinc-400 font-normal">-</span>
+                        <span className="text-fg-faint">—</span>
                       )}
                     </td>
 
                     {/* Undertime */}
-                    <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
-                      {utDisplay !== '-' ? (
+                    <td className="py-2 px-3 font-numeric whitespace-nowrap">
+                      {utDisplay !== '—' ? (
                         <span
-                          className={record && record.undertime_minutes > 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-400"}
+                          className={cn(
+                            record && record.undertime_minutes > 0
+                              ? 'text-danger-fg font-medium'
+                              : 'text-fg-muted'
+                          )}
                           title={record?.undertime_reason || undefined}
                         >
                           {utDisplay}
-                          {record?.undertime_reason && !record?.overtime_reason ? (
-                            <span className="block text-[10px] font-normal text-zinc-400 truncate max-w-[140px]">
-                              {record.undertime_reason}
-                            </span>
-                          ) : null}
                         </span>
                       ) : (
-                        <span className="text-zinc-400 font-normal">-</span>
+                        <span className="text-fg-faint">—</span>
                       )}
                     </td>
 
-                    {/* Status Badge */}
-                    <td className="py-3 px-4 whitespace-nowrap">
+                    {/* Status Pill */}
+                    <td className="py-2 px-3 whitespace-nowrap">
                       {renderStatusBadge(status, lateMin)}
                     </td>
 
                     {/* Regularization Action (Employee) or Ask Checkout (HR) */}
                     {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                      <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <td className="py-2 px-3 text-right whitespace-nowrap">
                         {!readOnly ? (
                           isOffDay ? (
-                            <span className="text-zinc-400">-</span>
+                            <span className="text-fg-faint">—</span>
                           ) : isMissedPunch ? (
-                            <button
+                            <Button
                               type="button"
+                              variant="secondary"
+                              size="sm"
                               onClick={() => onOpenRegularizationModal?.(record)}
-                              className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 transition-colors cursor-pointer"
                             >
                               Correction
-                            </button>
+                            </Button>
                           ) : (
-                            <button
+                            <Button
                               type="button"
+                              variant="ghost"
+                              size="sm"
                               onClick={() => onOpenRegularizationModal?.(record || ({ date } as any))}
-                              className="px-2.5 py-1 text-[11px] font-medium rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
                             >
-                              Correct
-                            </button>
+                              Adjustment
+                            </Button>
                           )
                         ) : (
-                          // HR / Admin Viewing Employee Timesheet (Only show Ask Checkout for true missed punch days)
+                          // HR / Admin Viewing Employee Timesheet
                           isMissedPunch ? (
                             inquiredDates.has(date) ? (
-                              <span className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/80 dark:border-indigo-800/80">
-                                <Clock className="w-3 h-3 text-indigo-500 animate-pulse" />
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 text-micro font-medium rounded-full bg-accent-soft-2 text-accent-text">
+                                <Clock className="w-3 h-3 text-accent" />
                                 <span>Inquired</span>
                               </span>
                             ) : (
-                              <button
+                              <Button
                                 type="button"
+                                variant="secondary"
+                                size="sm"
                                 onClick={() => handleInquireMissedCheckout(date, record)}
-                                disabled={inquiryLoadingDate === date}
-                                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] font-bold rounded-lg bg-amber-500 hover:bg-amber-600 active:bg-amber-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                                loading={inquiryLoadingDate === date}
+                                icon={Send}
                                 title={`Ask ${employeeName || 'employee'} to provide checkout time and explanation`}
                               >
-                                {inquiryLoadingDate === date ? (
-                                  <Loader2 className="w-3 h-3 animate-spin" />
-                                ) : (
-                                  <Send className="w-3 h-3" />
-                                )}
-                                <span>Ask Checkout</span>
-                              </button>
+                                Ask checkout
+                              </Button>
                             )
                           ) : (
-                            <span className="text-zinc-400">-</span>
+                            <span className="text-fg-faint">—</span>
                           )
                         )}
                       </td>
@@ -706,4 +636,3 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
     </div>
   );
 };
-

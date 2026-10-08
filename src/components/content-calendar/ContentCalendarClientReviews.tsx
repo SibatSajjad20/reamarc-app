@@ -4,111 +4,91 @@ import {
   RotateCcw,
   LayoutGrid,
   Inbox,
-  CheckCircle2,
-  ExternalLink,
   Search,
-  Sparkles,
   RefreshCw,
-  FolderKanban,
-  AlertCircle,
-  Eye,
-  ChevronDown,
-  ChevronUp,
   Image as ImageIcon,
+  Play,
+  ExternalLink,
+  Eye,
 } from 'lucide-react';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
+import { PageHeader } from '../ui/PageHeader';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+import { StatusPill } from '../ui/StatusPill';
+import { EmptyState } from '../ui/EmptyState';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../ui/dialog';
+import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
+import { InstagramIcon, FacebookIcon, GoogleIcon } from '../ui/brand-icons';
 import { ContentCalendarPipelineView } from './ContentCalendarPipelineView';
 import { ContentCalendarDrawer } from './ContentCalendarDrawer';
 import { CreativeAssetGallery } from './CreativeAssetGallery';
 import type { StageAction } from '../../utils/contentCalendarWorkflow';
+import { cn } from '../../lib/utils';
 
-type PortalTab = 'approvals' | 'pipeline';
+type ViewMode = 'approvals' | 'pipeline';
+type ReviewFilter = 'pending' | 'approved' | 'revision';
 
-function reviewBadgeStyle(stage: string): { bg: string; text: string; border: string; label: string } {
-  if (stage === 'Creative Client Review') {
-    return {
-      bg: 'bg-purple-500/10 dark:bg-purple-500/20',
-      text: 'text-purple-700 dark:text-purple-300',
-      border: 'border-purple-200 dark:border-purple-800',
-      label: 'Creative Review',
-    };
+function renderChannelIcons(channels?: string[]) {
+  if (!channels || channels.length === 0) {
+    return <InstagramIcon size={14} className="text-fg-muted" />;
   }
-  return {
-    bg: 'bg-indigo-500/10 dark:bg-indigo-500/20',
-    text: 'text-indigo-700 dark:text-indigo-300',
-    border: 'border-indigo-200 dark:border-indigo-800',
-    label: 'Content Review',
-  };
+  return (
+    <div className="flex items-center gap-1.5">
+      {channels.map((ch) => {
+        const lower = ch.toLowerCase();
+        if (lower.includes('insta')) return <InstagramIcon key={ch} size={14} className="text-fg-muted" />;
+        if (lower.includes('fb') || lower.includes('face')) return <FacebookIcon key={ch} size={14} className="text-fg-muted" />;
+        if (lower.includes('google')) return <GoogleIcon key={ch} size={14} className="text-fg-muted" />;
+        return <span key={ch} className="text-[10px] text-fg-muted uppercase font-mono">{ch}</span>;
+      })}
+    </div>
+  );
 }
-
-function approveButtonLabel(stage: string): string {
-  return stage === 'Creative Client Review' ? 'Approve Creative' : 'Approve Content';
-}
-
-const ClientReviewSkeletonCard: React.FC = () => (
-  <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#12141c] p-5 space-y-4 shadow-sm animate-pulse">
-    <div className="flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2">
-        <div className="h-5 w-28 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-        <div className="h-5 w-16 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-      </div>
-      <div className="h-4 w-24 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-    </div>
-
-    <div className="space-y-2">
-      <div className="h-5 w-3/4 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-      <div className="h-3.5 w-1/2 bg-zinc-100 dark:bg-zinc-800/60 rounded-md" />
-    </div>
-
-    <div className="flex flex-wrap gap-2">
-      <div className="h-5 w-20 bg-zinc-100 dark:bg-zinc-800/80 rounded-md" />
-      <div className="h-5 w-24 bg-zinc-100 dark:bg-zinc-800/80 rounded-md" />
-      <div className="h-5 w-20 bg-zinc-100 dark:bg-zinc-800/80 rounded-md" />
-    </div>
-
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-100 dark:border-zinc-800/60">
-      <div className="space-y-1">
-        <div className="h-3 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
-        <div className="h-4 w-32 bg-zinc-200 dark:bg-zinc-800 rounded" />
-      </div>
-      <div className="space-y-1">
-        <div className="h-3 w-10 bg-zinc-200 dark:bg-zinc-800 rounded" />
-        <div className="h-4 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
-      </div>
-    </div>
-
-    <div className="space-y-2">
-      <div className="h-3 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
-      <div className="h-14 w-full bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-100 dark:border-zinc-800/50 rounded-xl" />
-    </div>
-
-    <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-3">
-      <div className="h-8 w-1/2 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
-      <div className="flex items-center gap-2">
-        <div className="h-8 w-28 bg-zinc-200 dark:bg-zinc-800 rounded-xl" />
-        <div className="h-8 w-32 bg-zinc-300 dark:bg-zinc-700 rounded-xl" />
-      </div>
-    </div>
-  </div>
-);
 
 export const ContentCalendarClientReviews: React.FC = () => {
   const { addToast } = useToast();
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState<PortalTab>('approvals');
+  const { setTrail } = useBreadcrumb();
+
+  const [viewMode, setViewMode] = useState<ViewMode>('approvals');
+  const [activeFilter, setActiveFilter] = useState<ReviewFilter>('pending');
   const [items, setItems] = useState<ContentCalendarItem[]>([]);
-  const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [selectedDrawerItem, setSelectedDrawerItem] = useState<ContentCalendarItem | null>(null);
+
+  // Detail Dialog state (880px)
+  const [detailItem, setDetailItem] = useState<ContentCalendarItem | null>(null);
+  const [isDetailOpen, setIsDetailOpen] = useState(false);
+  const [dialogNote, setDialogNote] = useState('');
+  const [isRevisionMode, setIsRevisionMode] = useState(false);
+
+  // Fallback drawer
+  const [drawerItem, setDrawerItem] = useState<ContentCalendarItem | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    setTrail([
+      { label: user?.name || 'Client portal' },
+      { label: 'Approvals' },
+    ]);
+    return () => setTrail(null);
+  }, [setTrail, user?.name]);
 
   const loadData = useCallback(async (options?: { silent?: boolean }) => {
     try {
@@ -129,18 +109,37 @@ export const ContentCalendarClientReviews: React.FC = () => {
     void loadData();
   }, [loadData]);
 
-  // Items waiting for client approval
-  const waitingItems = useMemo(() => {
+  // Categorize items
+  const pendingItems = useMemo(() => {
     return items.filter(
       (item) => item.stage === 'Content Client Review' || item.stage === 'Creative Client Review',
     );
   }, [items]);
 
-  // Filtered waiting items based on search
-  const filteredWaitingItems = useMemo(() => {
-    if (!search.trim()) return waitingItems;
+  const approvedItems = useMemo(() => {
+    return items.filter((item) =>
+      ['Creative Production', 'Creative Internal Review', 'Ready to Post', 'Posted'].includes(item.stage),
+    );
+  }, [items]);
+
+  const revisionItems = useMemo(() => {
+    return items.filter(
+      (item) => item.stage === 'Content Revision' || item.stage === 'Creative Revision',
+    );
+  }, [items]);
+
+  // Items to display based on active filter
+  const currentTabItems = useMemo(() => {
+    if (activeFilter === 'approved') return approvedItems;
+    if (activeFilter === 'revision') return revisionItems;
+    return pendingItems;
+  }, [activeFilter, pendingItems, approvedItems, revisionItems]);
+
+  // Filtered by search
+  const filteredItems = useMemo(() => {
+    if (!search.trim()) return currentTabItems;
     const q = search.trim().toLowerCase();
-    return waitingItems.filter(
+    return currentTabItems.filter(
       (item) =>
         item.serial?.toLowerCase().includes(q) ||
         item.content_concept?.toLowerCase().includes(q) ||
@@ -150,44 +149,26 @@ export const ContentCalendarClientReviews: React.FC = () => {
         item.campaign_type?.toLowerCase().includes(q) ||
         item.content_pillar?.toLowerCase().includes(q),
     );
-  }, [waitingItems, search]);
+  }, [currentTabItems, search]);
 
-  // Collapsible cards state: track which items are expanded
-  const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
+  // Recently reviewed items for the table (approved or revision requested)
+  const recentlyReviewed = useMemo(() => {
+    const list = [...approvedItems, ...revisionItems];
+    return list.slice(0, 5);
+  }, [approvedItems, revisionItems]);
 
-  const toggleExpanded = (id: string) => {
-    setExpandedIds((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
-  };
-
-  const isAllExpanded = useMemo(() => {
-    if (filteredWaitingItems.length === 0) return false;
-    return filteredWaitingItems.every((item) => expandedIds[item.id]);
-  }, [filteredWaitingItems, expandedIds]);
-
-  const toggleExpandAll = () => {
-    if (isAllExpanded) {
-      setExpandedIds({});
-    } else {
-      const next: Record<string, boolean> = {};
-      filteredWaitingItems.forEach((item) => {
-        next[item.id] = true;
-      });
-      setExpandedIds(next);
-    }
-  };
-
-  const handleAction = async (item: ContentCalendarItem, action: 'approve' | 'request_revision') => {
-    const noteText = (notes[item.id] || '').trim();
-    if (action === 'request_revision' && !noteText) {
+  const handleAction = async (
+    item: ContentCalendarItem,
+    action: 'approve' | 'request_revision',
+    noteText?: string,
+  ) => {
+    const note = (noteText || '').trim();
+    if (action === 'request_revision' && !note) {
       addToast('Revision note required', 'Please describe what changes the team should make.', 'error');
       return;
     }
     setBusyId(item.id);
 
-    // Optimistic local state update
     const nextStage =
       action === 'approve'
         ? item.stage === 'Content Client Review'
@@ -204,7 +185,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
           ? {
               ...i,
               stage: nextStage,
-              revision_note: action === 'request_revision' ? noteText : i.revision_note,
+              revision_note: action === 'request_revision' ? note : i.revision_note,
             }
           : i,
       ),
@@ -213,7 +194,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
     try {
       await contentCalendarService.transition(item.id, {
         action,
-        note: action === 'request_revision' ? noteText : undefined,
+        note: action === 'request_revision' ? note : undefined,
       });
 
       addToast(
@@ -226,17 +207,15 @@ export const ContentCalendarClientReviews: React.FC = () => {
         'success',
       );
 
-      // Clear the revision note for this item
-      setNotes((prev) => {
-        const next = { ...prev };
-        delete next[item.id];
-        return next;
-      });
+      if (detailItem?.id === item.id) {
+        setIsDetailOpen(false);
+        setDetailItem(null);
+        setDialogNote('');
+        setIsRevisionMode(false);
+      }
 
-      // Background silent sync
       await loadData({ silent: true });
     } catch (err: any) {
-      // Revert optimistic update
       setItems(previousItems);
       addToast('Could not process review', err?.message || 'Please try again', 'error');
     } finally {
@@ -265,449 +244,368 @@ export const ContentCalendarClientReviews: React.FC = () => {
     }
   };
 
+  const openDetail = (item: ContentCalendarItem, revision = false) => {
+    setDetailItem(item);
+    setIsRevisionMode(revision);
+    setDialogNote(item.revision_note || '');
+    setIsDetailOpen(true);
+  };
+
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-slate-50 dark:bg-[#090a0f]">
-      {/* Client Portal Header */}
-      <header className="px-6 py-4 bg-white dark:bg-[#12141c] border-b border-zinc-200 dark:border-zinc-800 shrink-0">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/60 dark:border-indigo-900/60">
-                <FolderKanban className="w-5 h-5" />
-              </div>
-              <h1 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">Client Portal</h1>
-              <span className="text-[11px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                {items.length} campaigns
-              </span>
-            </div>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-              Review and approve content & creative drafts, or explore all campaigns across the production pipeline.
-            </p>
-          </div>
-
-          {/* Navigation Mode Switcher */}
-          <div className="flex items-center gap-2">
-            <div className="flex items-center p-1 rounded-xl bg-zinc-100 dark:bg-zinc-900 border border-zinc-200/80 dark:border-zinc-800">
-              <button
-                type="button"
-                onClick={() => setActiveTab('approvals')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'approvals'
-                    ? 'bg-white dark:bg-[#181a24] text-indigo-600 dark:text-indigo-400 shadow-xs'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
+    <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-canvas">
+      {/* Page Header */}
+      <div className="px-6 py-5 border-b border-border bg-surface shrink-0">
+        <PageHeader
+          title="Content approvals"
+          description="Review posts from Reamarc before they go live."
+          actions={
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setViewMode((prev) => (prev === 'approvals' ? 'pipeline' : 'approvals'))}
+                icon={viewMode === 'approvals' ? LayoutGrid : Inbox}
               >
-                <Inbox className="w-3.5 h-3.5" />
-                <span>Pending Approvals</span>
-                <span
-                  className={`px-1.5 py-0.2 rounded-full text-[10px] font-bold ${
-                    waitingItems.length > 0
-                      ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 border border-amber-300 dark:border-amber-800'
-                      : 'bg-zinc-200/70 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400'
-                  }`}
-                >
-                  {waitingItems.length}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setActiveTab('pipeline')}
-                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeTab === 'pipeline'
-                    ? 'bg-white dark:bg-[#181a24] text-indigo-600 dark:text-indigo-400 shadow-xs'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
-                }`}
+                {viewMode === 'approvals' ? 'View campaign pipeline' : 'View approvals'}
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => void loadData()}
+                disabled={isLoading}
+                title="Refresh campaigns"
               >
-                <LayoutGrid className="w-3.5 h-3.5" />
-                <span>Campaign Pipeline</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-zinc-200/70 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
-                  {PIPELINE_STAGES.length}
-                </span>
-              </button>
+                <RefreshCw className={cn('w-4 h-4', isLoading && 'animate-spin text-accent')} />
+              </Button>
             </div>
+          }
+        />
+      </div>
 
-            <button
-              type="button"
-              onClick={() => void loadData()}
-              disabled={isLoading}
-              title="Refresh campaigns"
-              className="p-2 rounded-xl text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 border border-zinc-200 dark:border-zinc-700/80 transition cursor-pointer"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-indigo-600' : ''}`} />
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Tab Content */}
+      {/* Main View Area */}
       <main className="flex-1 min-h-0 overflow-y-auto">
         {error && (
-          <div className="max-w-4xl mx-auto px-6 pt-4">
-            <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
+          <div className="max-w-7xl mx-auto px-6 pt-4">
+            <div className="p-3.5 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs flex items-center gap-2">
               <span>{error}</span>
             </div>
           </div>
         )}
 
-        {activeTab === 'approvals' ? (
-          <div className="max-w-4xl mx-auto px-6 py-6 space-y-4">
-            {/* Search and summary bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2">
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                  {waitingItems.length === 1
-                    ? '1 Campaign Needs Your Review'
-                    : `${waitingItems.length} Campaigns Need Your Review`}
-                </span>
-                {waitingItems.length > 0 && (
-                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-                    <Sparkles className="w-3 h-3" />
-                    <span>Action Required</span>
-                  </span>
-                )}
-              </div>
+        {viewMode === 'approvals' ? (
+          <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+            {/* Filter Bar with Tabs and Search */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
+              <Tabs
+                value={activeFilter}
+                onValueChange={(val) => setActiveFilter(val as ReviewFilter)}
+              >
+                <TabsList className="mb-0 border-b-0">
+                  <TabsTrigger value="pending" count={pendingItems.length}>
+                    Pending
+                  </TabsTrigger>
+                  <TabsTrigger value="approved" count={approvedItems.length}>
+                    Approved
+                  </TabsTrigger>
+                  <TabsTrigger value="revision" count={revisionItems.length}>
+                    Revision requested
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
 
-              {waitingItems.length > 0 && (
-                <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <div className="relative flex-1 sm:w-64">
-                    <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={search}
-                      onChange={(e) => setSearch(e.target.value)}
-                      placeholder="Search pending reviews..."
-                      className="w-full pl-8 pr-3 py-1.5 text-xs rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={toggleExpandAll}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 shadow-2xs transition cursor-pointer shrink-0"
-                    title={isAllExpanded ? "Collapse all campaigns" : "Expand all campaigns"}
-                  >
-                    {isAllExpanded ? (
-                      <>
-                        <ChevronUp className="w-3.5 h-3.5 text-zinc-500" />
-                        <span className="hidden sm:inline">Collapse All</span>
-                      </>
-                    ) : (
-                      <>
-                        <ChevronDown className="w-3.5 h-3.5 text-zinc-500" />
-                        <span className="hidden sm:inline">Expand All</span>
-                      </>
-                    )}
-                  </button>
-                </div>
-              )}
+              <div className="w-full sm:w-72">
+                <Input
+                  inputSize="sm"
+                  icon={Search}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search reviews..."
+                  clearable
+                  onClear={() => setSearch('')}
+                />
+              </div>
             </div>
 
-            {/* Skeleton Loading States */}
+            {/* Loading State */}
             {isLoading && (
-              <div className="space-y-4">
-                <ClientReviewSkeletonCard />
-                <ClientReviewSkeletonCard />
-              </div>
-            )}
-
-            {/* Empty State Placeholder */}
-            {!isLoading && waitingItems.length === 0 && (
-              <div className="rounded-3xl border border-dashed border-zinc-300 dark:border-zinc-800 bg-white/70 dark:bg-[#12141c]/50 p-12 text-center space-y-4 shadow-xs">
-                <div className="inline-flex p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/80 dark:border-emerald-800/80">
-                  <CheckCircle2 className="w-8 h-8" />
-                </div>
-                <div className="max-w-md mx-auto space-y-1.5">
-                  <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                    All caught up! No reviews pending
-                  </h3>
-                  <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                    There are currently no campaigns waiting for your approval. When content copy or creative drafts are
-                    ready, they will appear here.
-                  </p>
-                </div>
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => setActiveTab('pipeline')}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 transition shadow-sm shadow-indigo-600/20 cursor-pointer"
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {[1, 2, 3].map((n) => (
+                  <div
+                    key={n}
+                    className="rounded-lg border border-border bg-surface p-4 space-y-4 animate-pulse"
                   >
-                    <LayoutGrid className="w-3.5 h-3.5" />
-                    <span>View Campaign Pipeline</span>
-                  </button>
-                </div>
+                    <div className="aspect-[4/5] bg-subtle rounded-md" />
+                    <div className="h-4 bg-subtle rounded-sm w-3/4" />
+                    <div className="h-3 bg-subtle rounded-sm w-1/2" />
+                    <div className="h-8 bg-subtle rounded-md" />
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* No match for search */}
-            {!isLoading && waitingItems.length > 0 && filteredWaitingItems.length === 0 && (
-              <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#12141c] p-8 text-center text-xs text-zinc-500">
-                No pending campaigns match "{search}".
-              </div>
-            )}
-
-            {/* Review Cards List */}
-            {!isLoading &&
-              filteredWaitingItems.map((item) => {
-                const badge = reviewBadgeStyle(item.stage);
-                const isItemBusy = busyId === item.id;
-                const isExpanded = !!expandedIds[item.id];
-                const attachmentsCount = item.attachments?.length || 0;
-
-                return (
-                  <article
-                    key={item.id}
-                    className={`rounded-2xl border transition-all ${
-                      isExpanded
-                        ? 'border-indigo-300 dark:border-indigo-800/80 bg-white dark:bg-[#12141c] shadow-sm'
-                        : 'border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#12141c] hover:border-zinc-300 dark:hover:border-zinc-700 shadow-2xs'
-                    }`}
-                  >
-                    {/* Collapsible Card Header: Clickable banner to toggle expand */}
-                    <div
-                      onClick={() => toggleExpanded(item.id)}
-                      className={`p-4 sm:p-5 flex items-start justify-between gap-3 cursor-pointer select-none rounded-2xl ${
-                        isExpanded
-                          ? 'border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20'
-                          : 'hover:bg-zinc-50/50 dark:hover:bg-zinc-900/30'
-                      }`}
+            {/* Empty State */}
+            {!isLoading && filteredItems.length === 0 && (
+              <EmptyState
+                icon={Inbox}
+                title={
+                  activeFilter === 'pending'
+                    ? 'All caught up! No reviews pending'
+                    : `No ${activeFilter} campaigns found`
+                }
+                description={
+                  activeFilter === 'pending'
+                    ? 'There are currently no campaigns waiting for your approval. When content copy or creative drafts are ready, they will appear here.'
+                    : 'No campaigns match this status filter or search query.'
+                }
+                action={
+                  activeFilter === 'pending' ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setViewMode('pipeline')}
+                      icon={LayoutGrid}
                     >
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold border ${badge.bg} ${badge.text} ${badge.border}`}
-                          >
-                            {badge.label}
-                          </span>
-                          <span className="text-xs font-mono font-bold text-zinc-500 dark:text-zinc-400">
-                            {item.serial}
-                          </span>
-                          {item.publish_date && (
-                            <span className="text-[11px] text-zinc-400">
-                              Target Publish: {item.publish_date}
-                            </span>
-                          )}
-                          {attachmentsCount > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700/80">
-                              <ImageIcon className="w-3 h-3 text-indigo-500" />
-                              <span>
-                                {attachmentsCount} {attachmentsCount === 1 ? 'Asset' : 'Assets'}
-                              </span>
-                            </span>
-                          )}
-                        </div>
+                      View campaign pipeline
+                    </Button>
+                  ) : undefined
+                }
+              />
+            )}
 
-                        <h2 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100 mt-1.5 leading-snug">
-                          {item.content_concept}
-                        </h2>
+            {/* Review Cards Grid (3 columns matching mock 13) */}
+            {!isLoading && filteredItems.length > 0 && (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredItems.map((item) => {
+                  const previewAsset = item.attachments?.[0];
+                  const isPending =
+                    item.stage === 'Content Client Review' || item.stage === 'Creative Client Review';
+                  const isItemBusy = busyId === item.id;
 
-                        {/* Metadata chips */}
-                        <div className="flex flex-wrap gap-1.5 text-[11px] mt-2">
-                          {item.campaign_type && (
-                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                              {item.campaign_type}
-                            </span>
-                          )}
-                          {item.content_pillar && (
-                            <span className="px-2 py-0.5 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                              {item.content_pillar}
-                            </span>
-                          )}
-                          {item.creative_type && (
-                            <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800">
-                              {item.creative_type}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 pt-0.5">
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedDrawerItem(item);
-                            setIsDrawerOpen(true);
-                          }}
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-zinc-500 hover:text-indigo-600 dark:text-zinc-400 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 px-2.5 py-1.5 rounded-xl transition cursor-pointer border border-transparent hover:border-zinc-200 dark:hover:border-zinc-700"
-                          title="View Full Item Specs"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span className="hidden md:inline">Inspect Specs</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggleExpanded(item.id);
-                          }}
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                            isExpanded
-                              ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800'
-                              : 'bg-zinc-100 dark:bg-zinc-800/80 hover:bg-zinc-200/80 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 border border-zinc-200/80 dark:border-zinc-700'
-                          }`}
-                        >
-                          <span>{isExpanded ? 'Collapse' : 'Expand Content'}</span>
-                          {isExpanded ? (
-                            <ChevronUp className="w-3.5 h-3.5" />
+                  return (
+                    <article
+                      key={item.id}
+                      className="rounded-lg border border-border bg-surface shadow-xs hover:border-border-strong hover:shadow-sm transition-all flex flex-col overflow-hidden"
+                    >
+                      {/* Asset Preview Frame 4:5 */}
+                      <div
+                        className="aspect-[4/5] w-full bg-subtle relative flex items-center justify-center border-b border-border overflow-hidden cursor-pointer group select-none"
+                        onClick={() => openDetail(item)}
+                      >
+                        {previewAsset ? (
+                          previewAsset.kind === 'video' ? (
+                            <div className="relative w-full h-full">
+                              <video
+                                src={previewAsset.url}
+                                className="w-full h-full object-cover"
+                                preload="metadata"
+                              />
+                              <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/35 transition-colors">
+                                <div className="w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center">
+                                  <Play className="w-5 h-5 fill-white ml-0.5" />
+                                </div>
+                              </div>
+                            </div>
                           ) : (
-                            <ChevronDown className="w-3.5 h-3.5" />
-                          )}
-                        </button>
+                            <img
+                              src={previewAsset.thumbnail_url || previewAsset.url}
+                              alt={item.content_concept || 'Campaign asset'}
+                              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
+                            />
+                          )
+                        ) : (
+                          <div className="flex flex-col items-center justify-center text-fg-faint p-6 text-center">
+                            <ImageIcon className="w-12 h-12 stroke-[1.25] text-fg-muted/50 mb-2" />
+                            <span className="text-xs text-fg-muted font-medium">Awaiting visual asset</span>
+                          </div>
+                        )}
+                        <span className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 rounded text-xs font-medium bg-black/80 text-white">
+                          Inspect
+                        </span>
                       </div>
-                    </div>
 
-                    {/* Expandable Body */}
-                    {isExpanded && (
-                      <div className="p-4 sm:p-5 pt-3 sm:pt-4 space-y-4 animate-in fade-in-50 duration-200">
-                        {/* Offer & CTA Box */}
-                        {(item.offer || item.cta) && (
-                          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/70 dark:border-zinc-800/80 text-xs">
-                            <div>
-                              <dt className="text-[11px] font-medium text-zinc-400">Offer / Angle</dt>
-                              <dd className="font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                      {/* Card Content */}
+                      <div className="p-4.5 flex-1 flex flex-col justify-between space-y-3">
+                        <div>
+                          {/* Top Meta Line: Serial + Stage Status */}
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-xs font-mono font-medium text-fg-muted">
+                              {item.serial}
+                            </span>
+                            <span
+                              className={cn(
+                                'inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium leading-tight',
+                                item.stage === 'Creative Client Review'
+                                  ? 'bg-accent-soft text-accent-text border border-accent/20'
+                                  : item.stage === 'Content Client Review'
+                                  ? 'bg-warning-bg text-warning-fg border border-warning-bd'
+                                  : 'bg-subtle text-fg-muted border border-border'
+                              )}
+                            >
+                              <span
+                                className={cn(
+                                  'w-1.5 h-1.5 rounded-full shrink-0',
+                                  item.stage === 'Creative Client Review'
+                                    ? 'bg-accent'
+                                    : item.stage === 'Content Client Review'
+                                    ? 'bg-warning-dot'
+                                    : 'bg-fg-muted'
+                                )}
+                              />
+                              {item.stage === 'Creative Client Review'
+                                ? 'Creative review'
+                                : item.stage === 'Content Client Review'
+                                ? 'Content review'
+                                : item.stage}
+                            </span>
+                          </div>
+
+                          {/* Title */}
+                          <h3
+                            className="text-sm font-semibold text-fg mt-2 line-clamp-2 leading-snug cursor-pointer hover:text-accent transition-colors"
+                            onClick={() => openDetail(item)}
+                          >
+                            {item.content_concept || item.headlines_hooks || item.serial}
+                          </h3>
+
+                          {/* Subtitle / Format & Publish date */}
+                          <p className="text-xs text-fg-muted mt-1 line-clamp-1">
+                            {[
+                              item.creative_type || item.campaign_type || 'Post',
+                              item.publish_date ? `Publishing ${item.publish_date}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                          </p>
+
+                          {/* Key-Value Details */}
+                          <dl className="mt-3.5 space-y-1.5 text-xs border-t border-border/60 pt-3">
+                            <div className="flex items-start justify-between gap-2">
+                              <dt className="text-fg-muted text-xs shrink-0">Offer</dt>
+                              <dd className="font-medium text-fg text-right truncate">
                                 {item.offer || '—'}
                               </dd>
                             </div>
-                            <div>
-                              <dt className="text-[11px] font-medium text-zinc-400">Call to Action (CTA)</dt>
-                              <dd className="font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5">
+                            <div className="flex items-start justify-between gap-2">
+                              <dt className="text-fg-muted text-xs shrink-0">CTA</dt>
+                              <dd className="font-medium text-fg text-right truncate">
                                 {item.cta || '—'}
                               </dd>
                             </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <dt className="text-fg-muted text-xs shrink-0">Channels</dt>
+                              <dd className="flex items-center gap-1.5 text-fg-muted">
+                                {renderChannelIcons(item.channels)}
+                              </dd>
+                            </div>
                           </dl>
-                        )}
-
-                        {/* Primary Text */}
-                        {item.primary_text && (
-                          <section className="space-y-1">
-                            <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                              Ad Copy / Caption
-                            </h3>
-                            <p className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800/80 text-xs whitespace-pre-wrap text-zinc-800 dark:text-zinc-200 max-h-48 overflow-y-auto leading-relaxed">
-                              {item.primary_text}
-                            </p>
-                          </section>
-                        )}
-
-                        {/* Headlines / Hooks */}
-                        {item.headlines_hooks && (
-                          <section className="space-y-1">
-                            <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                              Headlines & Hook Variations
-                            </h3>
-                            <p className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800/80 text-xs whitespace-pre-wrap text-zinc-700 dark:text-zinc-300 max-h-32 overflow-y-auto font-mono">
-                              {item.headlines_hooks}
-                            </p>
-                          </section>
-                        )}
-
-                        {/* Copy on Creative */}
-                        {item.content_on_creative && (
-                          <section className="space-y-1">
-                            <h3 className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-                              On-Graphic / Video Text
-                            </h3>
-                            <p className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200/80 dark:border-zinc-800/80 text-xs whitespace-pre-wrap text-zinc-700 dark:text-zinc-300 max-h-32 overflow-y-auto leading-relaxed">
-                              {item.content_on_creative}
-                            </p>
-                          </section>
-                        )}
-
-                        {/* Creative Media Deliverables */}
-                        {item.attachments && item.attachments.length > 0 && (
-                          <div className="pt-1">
-                            <CreativeAssetGallery
-                              itemId={item.id}
-                              attachments={item.attachments}
-                              readOnly={true}
-                              compact={true}
-                            />
-                          </div>
-                        )}
-
-                        {/* Deliverables / Preview Links */}
-                        {(item.draft_preview_link || item.final_asset_link) && (
-                          <div className="flex flex-wrap items-center gap-2 pt-1">
-                            {item.draft_preview_link && safeHttpUrl(item.draft_preview_link) && (
-                              <a
-                                href={safeHttpUrl(item.draft_preview_link) || undefined}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold hover:bg-indigo-100 transition"
-                              >
-                                <span>Open Draft Preview</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                            {item.final_asset_link && safeHttpUrl(item.final_asset_link) && (
-                              <a
-                                href={safeHttpUrl(item.final_asset_link) || undefined}
-                                target="_blank"
-                                rel="noreferrer noopener"
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-semibold hover:bg-emerald-100 transition"
-                              >
-                                <span>Open Final Asset</span>
-                                <ExternalLink className="w-3.5 h-3.5" />
-                              </a>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Actions and Feedback Form */}
-                        <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 space-y-3">
-                          <div className="space-y-1">
-                            <label className="block text-[11px] font-bold text-zinc-500">
-                              Revision Feedback (Optional for approval, required for revision requests)
-                            </label>
-                            <textarea
-                              rows={2}
-                              value={notes[item.id] || ''}
-                              onChange={(e) => setNotes((prev) => ({ ...prev, [item.id]: e.target.value }))}
-                              placeholder="Provide detailed revision feedback here if requesting changes..."
-                              className="w-full px-3.5 py-2 rounded-xl text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-end gap-2.5">
-                            <button
-                              type="button"
-                              disabled={isItemBusy}
-                              onClick={() => void handleAction(item, 'request_revision')}
-                              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold border border-zinc-300 dark:border-zinc-700 text-zinc-700 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50 transition cursor-pointer"
-                            >
-                              <RotateCcw className={`w-3.5 h-3.5 ${isItemBusy ? 'animate-spin' : ''}`} />
-                              <span>Request Revision</span>
-                            </button>
-                            <button
-                              type="button"
-                              disabled={isItemBusy}
-                              onClick={() => void handleAction(item, 'approve')}
-                              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 transition shadow-sm shadow-indigo-600/20 cursor-pointer"
-                            >
-                              <Check className={`w-3.5 h-3.5 ${isItemBusy ? 'animate-spin' : ''}`} />
-                              <span>{approveButtonLabel(item.stage)}</span>
-                            </button>
-                          </div>
                         </div>
+
+                        {/* Card Actions Footer */}
+                        {isPending && (
+                          <div className="pt-3 border-t border-border flex items-center gap-2">
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              block
+                              disabled={isItemBusy}
+                              onClick={() => openDetail(item, true)}
+                            >
+                              Request revision
+                            </Button>
+                            <Button
+                              variant="primary"
+                              size="sm"
+                              block
+                              disabled={isItemBusy}
+                              loading={isItemBusy}
+                              onClick={() => void handleAction(item, 'approve')}
+                            >
+                              Approve
+                            </Button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </article>
-                );
-              })}
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Recently Reviewed Section (matching mock 13) */}
+            {activeFilter === 'pending' && recentlyReviewed.length > 0 && (
+              <section className="pt-6 border-t border-border space-y-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-fg">Recently reviewed</h3>
+                  <button
+                    type="button"
+                    onClick={() => setActiveFilter('approved')}
+                    className="text-xs text-accent-text hover:underline font-medium cursor-pointer"
+                  >
+                    View all
+                  </button>
+                </div>
+
+                <div className="rounded-lg border border-border bg-surface overflow-hidden shadow-xs">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="border-b border-border bg-subtle text-fg-muted font-medium">
+                        <th className="py-2.5 px-4 font-medium">Serial</th>
+                        <th className="py-2.5 px-4 font-medium">Content</th>
+                        <th className="py-2.5 px-4 font-medium">Decision</th>
+                        <th className="py-2.5 px-4 font-medium">Stage</th>
+                        <th className="py-2.5 px-4 font-medium text-right">Date</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {recentlyReviewed.map((item) => {
+                        const isApproved = [
+                          'Creative Production',
+                          'Creative Internal Review',
+                          'Ready to Post',
+                          'Posted',
+                        ].includes(item.stage);
+
+                        return (
+                          <tr
+                            key={item.id}
+                            className="hover:bg-subtle/50 transition-colors cursor-pointer"
+                            onClick={() => openDetail(item)}
+                          >
+                            <td className="py-2.5 px-4 font-mono font-medium text-fg-muted">
+                              {item.serial}
+                            </td>
+                            <td className="py-2.5 px-4 font-medium text-fg max-w-xs truncate">
+                              {item.content_concept || item.headlines_hooks || item.serial}
+                            </td>
+                            <td className="py-2.5 px-4">
+                              <StatusPill
+                                variant={isApproved ? 'success' : 'warning'}
+                                dot
+                                label={isApproved ? 'Approved' : 'Revision requested'}
+                              />
+                            </td>
+                            <td className="py-2.5 px-4 text-fg-muted">
+                              {item.stage}
+                            </td>
+                            <td className="py-2.5 px-4 text-right text-fg-muted font-numeric">
+                              {item.publish_date || '—'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </div>
         ) : (
-          /* Pipeline Kanban View across All 11 Stages */
+          /* Full Production Pipeline View */
           <div className="h-full flex flex-col min-w-0">
-            <div className="px-6 py-2 bg-indigo-50/50 dark:bg-indigo-950/20 border-b border-indigo-100 dark:border-indigo-900/40 text-[11px] text-indigo-700 dark:text-indigo-300 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="w-3.5 h-3.5 shrink-0" />
-                <span>
-                  Viewing your full production pipeline. Click any campaign card to inspect copy, media links, and status.
-                </span>
-              </div>
+            <div className="px-6 py-2 bg-subtle border-b border-border text-xs text-fg-muted flex items-center justify-between">
+              <span>
+                Viewing full campaign production pipeline across all {PIPELINE_STAGES.length} stages. Click any card to inspect specs.
+              </span>
             </div>
 
             <div className="flex-1 min-h-0 overflow-hidden">
@@ -717,7 +615,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                 actor={user}
                 isLoading={isLoading}
                 onSelectItem={(item) => {
-                  setSelectedDrawerItem(item);
+                  setDrawerItem(item);
                   setIsDrawerOpen(true);
                 }}
                 onTransition={handlePipelineTransition}
@@ -727,15 +625,223 @@ export const ContentCalendarClientReviews: React.FC = () => {
         )}
       </main>
 
-      {/* Campaign Details Drawer */}
+      {/* Detail Review Dialog (880px / maxWidth="xl" per §13.17) */}
+      <Dialog open={isDetailOpen} onOpenChange={setIsDetailOpen}>
+        <DialogContent maxWidth="xl" className="p-0 overflow-hidden">
+          {detailItem && (
+            <div>
+              <DialogHeader className="p-5 border-b border-border">
+                <div className="flex items-center justify-between gap-3 pr-6">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-medium text-fg-muted">
+                        {detailItem.serial}
+                      </span>
+                      <StatusPill status={detailItem.stage} />
+                    </div>
+                    <DialogTitle className="mt-1 text-base">
+                      {detailItem.content_concept}
+                    </DialogTitle>
+                    <DialogDescription className="text-xs mt-0.5">
+                      {[
+                        detailItem.creative_type || detailItem.campaign_type || 'Campaign Post',
+                        detailItem.publish_date ? `Target Publish: ${detailItem.publish_date}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
+
+              {/* Two-Column Detail Body */}
+              <div className="p-6 grid grid-cols-1 md:grid-cols-12 gap-6 max-h-[calc(80vh-140px)] overflow-y-auto">
+                {/* Left Column: Media Deliverables Preview */}
+                <div className="md:col-span-6 space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      Creative Deliverables
+                    </span>
+                    {detailItem.attachments && detailItem.attachments.length > 0 ? (
+                      <CreativeAssetGallery
+                        itemId={detailItem.id}
+                        attachments={detailItem.attachments}
+                        readOnly={true}
+                        compact={false}
+                      />
+                    ) : (
+                      <div className="aspect-video w-full rounded-lg bg-subtle border border-border flex flex-col items-center justify-center text-fg-muted p-6 text-center">
+                        <ImageIcon className="w-10 h-10 text-fg-faint mb-2" />
+                        <span className="text-xs">Visual asset pending from creative team</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* External Asset Links */}
+                  {(detailItem.draft_preview_link || detailItem.final_asset_link) && (
+                    <div className="flex flex-wrap gap-2 pt-2 border-t border-border">
+                      {detailItem.draft_preview_link && safeHttpUrl(detailItem.draft_preview_link) && (
+                        <a
+                          href={safeHttpUrl(detailItem.draft_preview_link) || undefined}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-subtle hover:bg-hover border border-border text-fg transition-colors"
+                        >
+                          <span>Draft preview link</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                      {detailItem.final_asset_link && safeHttpUrl(detailItem.final_asset_link) && (
+                        <a
+                          href={safeHttpUrl(detailItem.final_asset_link) || undefined}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-accent-soft hover:bg-accent-soft-2 border border-accent/20 text-accent-text transition-colors"
+                        >
+                          <span>Final asset file</span>
+                          <ExternalLink className="w-3.5 h-3.5" />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {/* On-Graphic Text */}
+                  {detailItem.content_on_creative && (
+                    <div className="space-y-1 pt-2">
+                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                        Copy on Graphic / Video
+                      </span>
+                      <p className="p-3 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap">
+                        {detailItem.content_on_creative}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Column: Copy, Strategy Details & Feedback Form */}
+                <div className="md:col-span-6 space-y-4">
+                  {/* Ad Copy */}
+                  {detailItem.primary_text && (
+                    <div className="space-y-1">
+                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                        Ad Copy / Caption
+                      </span>
+                      <p className="p-3.5 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {detailItem.primary_text}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Headlines & Hooks */}
+                  {detailItem.headlines_hooks && (
+                    <div className="space-y-1">
+                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                        Headlines & Hooks
+                      </span>
+                      <p className="p-3 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap font-mono">
+                        {detailItem.headlines_hooks}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Strategy Info Grid */}
+                  <dl className="grid grid-cols-2 gap-3 p-3 rounded-md bg-subtle border border-border text-xs">
+                    <div>
+                      <dt className="text-fg-muted text-xs">Campaign Type</dt>
+                      <dd className="font-semibold text-fg mt-0.5">{detailItem.campaign_type || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-fg-muted text-xs">Content Pillar</dt>
+                      <dd className="font-semibold text-fg mt-0.5">{detailItem.content_pillar || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-fg-muted text-xs">Offer</dt>
+                      <dd className="font-semibold text-fg mt-0.5">{detailItem.offer || '—'}</dd>
+                    </div>
+                    <div>
+                      <dt className="text-fg-muted text-xs">Call to Action</dt>
+                      <dd className="font-semibold text-fg mt-0.5">{detailItem.cta || '—'}</dd>
+                    </div>
+                  </dl>
+
+                  {/* Revision Feedback Form */}
+                  <div className="space-y-2 pt-2 border-t border-border">
+                    <label
+                      htmlFor="dialog-revision-feedback"
+                      className="text-xs font-medium text-fg flex items-center justify-between"
+                    >
+                      <span>Revision Feedback</span>
+                      {isRevisionMode && (
+                        <span className="text-xs text-danger-fg font-medium">Required for revision</span>
+                      )}
+                    </label>
+                    <Textarea
+                      id="dialog-revision-feedback"
+                      rows={3}
+                      value={dialogNote}
+                      onChange={(e) => setDialogNote(e.target.value)}
+                      placeholder="Specify requested changes or adjustments to the copy or creative..."
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Dialog Footer Actions */}
+              <div className="px-6 py-4 border-t border-border bg-subtle/50 flex items-center justify-between gap-3">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setDrawerItem(detailItem);
+                    setIsDrawerOpen(true);
+                  }}
+                  icon={Eye}
+                >
+                  Inspect all specs
+                </Button>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busyId === detailItem.id}
+                    onClick={() => {
+                      if (!isRevisionMode) {
+                        setIsRevisionMode(true);
+                      } else {
+                        void handleAction(detailItem, 'request_revision', dialogNote);
+                      }
+                    }}
+                    icon={RotateCcw}
+                  >
+                    Request revision
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={busyId === detailItem.id}
+                    loading={busyId === detailItem.id}
+                    onClick={() => void handleAction(detailItem, 'approve', dialogNote)}
+                    icon={Check}
+                  >
+                    {detailItem.stage === 'Creative Client Review' ? 'Approve creative' : 'Approve content'}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Campaign Details Drawer (Specs inspection) */}
       <ContentCalendarDrawer
-        item={selectedDrawerItem}
+        item={drawerItem}
         isOpen={isDrawerOpen}
         onClose={() => setIsDrawerOpen(false)}
         actor={user}
         onTransition={handlePipelineTransition}
         onItemUpdated={(updated) => {
-          setSelectedDrawerItem(updated);
+          setDrawerItem(updated);
           setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
         }}
       />

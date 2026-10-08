@@ -1,8 +1,9 @@
 import React, { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronDown, Plus, Search } from 'lucide-react';
+import { ChevronDown, Plus, Search, Loader2 } from 'lucide-react';
 import { crmService } from '../../services/crmService';
 import type { CrmLead } from '../../types/crm';
+import { Button } from '../ui/button';
 
 interface CrmWonLeadMenuProps {
   onSelect: (lead: CrmLead) => void;
@@ -115,9 +116,10 @@ export const CrmWonLeadMenu: React.FC<CrmWonLeadMenuProps> = ({
 
   return (
     <>
-      <button
+      <Button
         ref={buttonRef}
         type="button"
+        variant="primary"
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={menuId}
@@ -125,12 +127,12 @@ export const CrmWonLeadMenu: React.FC<CrmWonLeadMenuProps> = ({
           setOpen((current) => !current);
           if (!open) setQuery('');
         }}
-        className={`h-8 px-3.5 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/40 ${className}`}
+        className={className}
       >
-        <Plus className="w-3.5 h-3.5" />
+        <Plus className="w-3.5 h-3.5 mr-1" />
         {label}
-        <ChevronDown className={`w-3.5 h-3.5 transition ${open ? 'rotate-180' : ''}`} />
-      </button>
+        <ChevronDown className={`w-3.5 h-3.5 ml-1 transition-transform duration-150 ${open ? 'rotate-180' : ''}`} />
+      </Button>
       {open &&
         box &&
         createPortal(
@@ -140,28 +142,33 @@ export const CrmWonLeadMenu: React.FC<CrmWonLeadMenuProps> = ({
             role="listbox"
             aria-label="Won leads"
             style={{ top: box.top, left: box.left }}
-            className="fixed z-[80] w-80 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-950 shadow-xl overflow-hidden"
+            className="fixed z-[var(--z-dialog,50)] w-80 rounded-lg border border-border bg-surface shadow-lg overflow-hidden animate-in fade-in-0 zoom-in-95 duration-150"
           >
-            <div className="p-2 border-b border-zinc-100 dark:border-zinc-800">
+            <div className="p-2 border-b border-border bg-subtle/50">
               <div className="relative">
-                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-400" />
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
                 <input
                   autoFocus
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search won leads"
-                  className="w-full h-8 pl-8 pr-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 text-xs text-zinc-900 dark:text-zinc-100 outline-none focus:ring-2 focus:ring-indigo-500/30"
+                  placeholder="Search won leads…"
+                  className="w-full h-8 pl-8 pr-2 rounded-md border border-border bg-surface text-xs text-fg placeholder:text-fg-muted outline-none focus:ring-1 focus:ring-accent"
                 />
               </div>
-              <p className="px-1 pt-1.5 text-[10px] text-zinc-400">
+              <p className="px-1 pt-1.5 text-micro text-fg-muted">
                 Only leads marked won can receive a deal.
               </p>
             </div>
-            <div className="max-h-64 overflow-y-auto p-1">
-              {loading && <p className="px-2.5 py-3 text-xs text-zinc-400">Loading won leads…</p>}
-              {!loading && error && <p className="px-2.5 py-3 text-xs text-rose-600">{error}</p>}
+            <div className="max-h-64 overflow-y-auto p-1 divide-y divide-border/40">
+              {loading && (
+                <div className="flex items-center gap-2 px-3 py-3 text-xs text-fg-muted">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Loading won leads…</span>
+                </div>
+              )}
+              {!loading && error && <p className="px-3 py-3 text-xs text-danger-fg">{error}</p>}
               {!loading && !error && leads.length === 0 && (
-                <p className="px-2.5 py-3 text-xs text-zinc-500">
+                <p className="px-3 py-3 text-xs text-fg-muted">
                   {query.trim()
                     ? 'No won leads match that search.'
                     : 'No won leads yet. Mark a lead as won, then create the deal.'}
@@ -175,17 +182,17 @@ export const CrmWonLeadMenu: React.FC<CrmWonLeadMenuProps> = ({
                     type="button"
                     role="option"
                     onClick={() => choose(lead)}
-                    className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/40 cursor-pointer"
+                    className="w-full text-left px-2.5 py-2 rounded-md hover:bg-hover transition-colors cursor-pointer"
                   >
-                    <span className="block text-xs font-semibold text-zinc-900 dark:text-zinc-100 truncate">
+                    <span className="block text-xs font-medium text-fg truncate">
                       {lead.name}
                     </span>
-                    <span className="block text-[11px] text-zinc-500 truncate">{leadSubtitle(lead)}</span>
+                    <span className="block text-micro text-fg-muted truncate">{leadSubtitle(lead)}</span>
                   </button>
                 ))}
             </div>
             {!loading && !error && total > leads.length && (
-              <p className="px-3 py-2 border-t border-zinc-100 dark:border-zinc-800 text-[10px] text-zinc-400">
+              <p className="px-3 py-2 border-t border-border bg-subtle/30 text-micro text-fg-muted">
                 Showing {leads.length} of {total}. Search to narrow the list.
               </p>
             )}

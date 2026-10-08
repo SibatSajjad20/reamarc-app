@@ -3,6 +3,10 @@
  * Communicates with /api/v1/content-calendar endpoints via apiClient.
  */
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
+
+const ccItemsCache = new BoundedCache<ContentCalendarListResponse>(10);
+const ccConstantsCache = new BoundedCache<ContentCalendarConstants>(2);
 import type {
   ContentCalendarItem,
   ContentCalendarListResponse,
@@ -12,6 +16,8 @@ import type {
   BatchUpdateResponse,
   BulkImportRequest,
   BulkImportResponse,
+  DrivePickedFile,
+  DrivePickerConfig,
 } from '../types/contentCalendar';
 
 export const contentCalendarService = {
@@ -147,6 +153,41 @@ export const contentCalendarService = {
     payload: { url: string; title: string; role?: string },
   ): Promise<ContentCalendarItem> {
     return apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/links`, payload);
+  },
+
+  async getDrivePickerConfig(itemId: string): Promise<DrivePickerConfig> {
+    return apiClient.get<DrivePickerConfig>(`/content-calendar/${itemId}/picker-config`);
+  },
+
+  async attachDriveAssets(
+    itemId: string,
+    files: DrivePickedFile[],
+    role: string = 'primary',
+  ): Promise<ContentCalendarItem> {
+    return apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/assets/from-drive`, {
+      files,
+      role,
+    });
+  },
+
+  getCachedItems(filterKey: string): CacheEntry<ContentCalendarListResponse> | undefined {
+    return ccItemsCache.get(filterKey);
+  },
+  setCachedItems(filterKey: string, data: ContentCalendarListResponse): void {
+    ccItemsCache.set(filterKey, data);
+  },
+  getCachedConstants(): CacheEntry<ContentCalendarConstants> | undefined {
+    return ccConstantsCache.get('constants');
+  },
+  setCachedConstants(data: ContentCalendarConstants): void {
+    ccConstantsCache.set('constants', data);
+  },
+  hasInitialCache(): boolean {
+    return ccItemsCache.size() > 0;
+  },
+  clearAllCaches(): void {
+    ccItemsCache.clear();
+    ccConstantsCache.clear();
   },
 };
 

@@ -1,56 +1,72 @@
 import React, { useState, useEffect } from 'react';
-import type { ViewType, ThemeMode } from '../types';
-import { useAuth } from '../context/AuthContext';
-import { dailyLogService } from '../services/dailyLogService';
-import { NotificationBell } from './NotificationBell';
-const ReamarcLogo3D = React.lazy(() => import('./ui/ReamarcLogo3D'));
-import { getInitials } from '../utils/badgeStyles';
-import { canAccessCrm, canAssignCrmLeads } from '../utils/crmAccess';
-import { canAccessContentCalendar } from '../utils/contentCalendarAccess';
-import type { CrmSubSection } from '../types/crm';
-import type { AttendanceSubSection } from '../types/attendance';
+import type { ViewType, ThemeMode, ThemePreference } from '@/types';
+import { useAuth } from '@/context/AuthContext';
+import { dailyLogService } from '@/services/dailyLogService';
+import { getInitials } from '@/utils/badgeStyles';
+import { getRoleDisplayName } from '@/lib/roleLabel';
+import { canAccessCrm, canAssignCrmLeads } from '@/utils/crmAccess';
+import { canAccessContentCalendar } from '@/utils/contentCalendarAccess';
+import { canAccessWebsitePipeline } from '@/utils/websiteProjectAccess';
+import type { CrmSubSection } from '@/types/crm';
+import type { AttendanceSubSection } from '@/types/attendance';
 import type { AdminSectionType } from './admin/AdminSidebarNav';
+import { BrandMark } from '@/components/ui/BrandMark';
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
-  LogOut,
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+} from '@/components/ui/dropdown-menu';
+import {
+  LayoutDashboard,
+  Building2,
+  Contact,
+  TrendingUp,
+  CalendarDays,
+  Globe,
+  Clock,
+  NotebookPen,
+  Inbox,
+  Shield,
+  CircleCheck,
+  Settings,
+  ChevronRight,
+  ChevronsUpDown,
   PanelLeftClose,
   PanelLeft,
   Sun,
   Moon,
-  Shield,
-  TrendingUp,
-  ClipboardList,
-  Clock,
-  Settings,
-  LayoutDashboard,
-  Inbox,
-  Building2,
-  Contact,
-  ChevronDown,
-  ChevronRight,
-  LayoutGrid,
-  List,
-  SlidersHorizontal,
-  Users,
-  BarChart3,
-  Calendar,
-  BellRing,
-  FolderKanban,
-  Briefcase,
-  Smartphone,
+  Monitor,
+  Keyboard,
+  LogOut,
+  Check,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-interface SidebarProps {
+export interface SidebarProps {
   currentView: ViewType;
   onSelectView: (view: ViewType) => void;
   onSignOut: () => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
+  themePreference?: ThemePreference;
+  onSelectThemePreference?: (preference: ThemePreference) => void;
   activeCrmSection?: CrmSubSection;
   onSelectCrmSection?: (section: CrmSubSection) => void;
   activeAttendanceSection?: AttendanceSubSection;
   onSelectAttendanceSection?: (section: AttendanceSubSection) => void;
   activeAdminSection?: AdminSectionType;
   onSelectAdminSection?: (section: AdminSectionType) => void;
+  activeWebsiteSection?: 'board' | 'tasks' | 'table';
+  onSelectWebsiteSection?: (section: 'board' | 'tasks' | 'table') => void;
+  activePortalTab?: 'content' | 'website';
+  onSelectPortalTab?: (tab: 'content' | 'website') => void;
+  onOpenShortcuts?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -58,16 +74,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectView,
   onSignOut,
   theme,
-  onToggleTheme,
+  themePreference = 'system',
+  onSelectThemePreference,
   activeCrmSection = 'board',
   onSelectCrmSection,
   activeAttendanceSection,
   onSelectAttendanceSection,
   activeAdminSection = 'directory',
   onSelectAdminSection,
+  activeWebsiteSection = 'board',
+  onSelectWebsiteSection,
+  activePortalTab = 'content',
+  onSelectPortalTab,
+  onOpenShortcuts,
 }) => {
   const { user } = useAuth();
-  const [isCollapsed, setIsCollapsed] = useState(() => {
+  const [isCollapsed, setIsCollapsed] = useState<boolean>(() => {
     try {
       const saved = localStorage.getItem('sidebar_collapsed');
       return saved !== null ? saved === 'true' : false;
@@ -86,10 +108,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
-  const [isCrmExpanded, setIsCrmExpanded] = useState(true);
-  const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(true);
-  const [isAdminExpanded, setIsAdminExpanded] = useState(true);
+  // Expand states: open only for the group whose view is active initially (§8.4)
+  const [isCrmExpanded, setIsCrmExpanded] = useState(() => currentView === 'crm');
+  const [isAttendanceExpanded, setIsAttendanceExpanded] = useState(() => currentView === 'attendance');
+  const [isAdminExpanded, setIsAdminExpanded] = useState(() => currentView === 'admin');
+  const [isWebsiteExpanded, setIsWebsiteExpanded] = useState(() => currentView === 'website-pipeline');
+  const [isPortalExpanded, setIsPortalExpanded] = useState(() => currentView === 'portal');
   const [requestCount, setRequestCount] = useState(0);
+
+  // When currentView changes to a parent view, expand that group; leave other groups as the user left them (§8.4)
+  useEffect(() => {
+    if (currentView === 'crm') setIsCrmExpanded(true);
+    if (currentView === 'attendance') setIsAttendanceExpanded(true);
+    if (currentView === 'admin') setIsAdminExpanded(true);
+    if (currentView === 'website-pipeline') setIsWebsiteExpanded(true);
+    if (currentView === 'portal') setIsPortalExpanded(true);
+  }, [currentView]);
 
   useEffect(() => {
     const role = user?.role;
@@ -112,7 +146,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }, [user?.id, user?.role, currentView]);
 
   const displayName = user?.full_name || user?.name || 'Guest Contributor';
+  const displayEmail = user?.email || '';
   const displayInitials = getInitials(user?.full_name || user?.name, user?.email);
+  const displayRole = getRoleDisplayName(user?.role);
 
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
@@ -123,41 +159,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
   const canSeeCrm = canAccessCrm(user);
   const canSeeContentCalendar = canAccessContentCalendar(user);
+  const canSeeWebsitePipeline = canAccessWebsitePipeline(user);
   const canAssign = canAssignCrmLeads(user);
   const isManagementRole = isAdmin || isHR || isOperations;
-
-  const crmSubItems = [
-    { id: 'board' as CrmSubSection, label: 'Pipeline', icon: LayoutGrid },
-    { id: 'deals' as CrmSubSection, label: 'Deals', icon: Briefcase },
-    { id: 'list' as CrmSubSection, label: 'All Leads', icon: List },
-    { id: 'followup' as CrmSubSection, label: 'Follow-ups', icon: Clock },
-    ...(canAssign
-      ? [
-          { id: 'settings' as CrmSubSection, label: 'Pipeline Settings', icon: SlidersHorizontal },
-        ]
-      : []),
-  ];
-
-  const attendanceSubItems = isManagementRole
-    ? [
-        { id: 'daily-matrix' as AttendanceSubSection, label: 'Daily Attendance', icon: LayoutGrid },
-        { id: 'punctuality-hub' as AttendanceSubSection, label: 'Punctuality Reports', icon: BarChart3 },
-        { id: 'employee-timesheets' as AttendanceSubSection, label: 'Timesheets', icon: Users },
-        { id: 'approvals' as AttendanceSubSection, label: 'Approvals', icon: Inbox },
-      ]
-    : [
-        { id: 'timesheet' as AttendanceSubSection, label: 'My Timesheet', icon: Calendar },
-        { id: 'requests' as AttendanceSubSection, label: 'My Requests', icon: Inbox },
-      ];
-
-  const adminSubItems = [
-    { id: 'directory' as AdminSectionType, label: 'Team Directory', icon: Users, visible: true },
-    { id: 'compliance' as AdminSectionType, label: 'Log Compliance', icon: BellRing, visible: isAdmin },
-    { id: 'attendance_policies' as AdminSectionType, label: 'Attendance Policies', icon: Clock, visible: isAdmin || isHR },
-    { id: 'mobile_ops' as AdminSectionType, label: 'Mobile & Alerts', icon: Smartphone, visible: isAdmin || isHR },
-    { id: 'workspaces' as AdminSectionType, label: 'Workspaces', icon: FolderKanban, visible: isAdmin || isOperations },
-    { id: 'ad_accounts' as AdminSectionType, label: 'Ad Accounts', icon: Briefcase, visible: isAdmin },
-  ].filter((item) => item.visible);
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -166,448 +170,683 @@ export const Sidebar: React.FC<SidebarProps> = ({
     ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
-  const adminLabel = isAdmin ? 'Admin Panel' : isHR ? 'HR Panel' : 'Operations Panel';
+  const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
 
-  const navItems = [
-    ...(!isAdmin && !isClient
+  // Sub-items definitions (no icons per mocks)
+  const crmSubItems = [
+    { id: 'board' as CrmSubSection, label: 'Leads board' },
+    { id: 'deals' as CrmSubSection, label: 'Deals' },
+    { id: 'list' as CrmSubSection, label: 'All leads' },
+    { id: 'followup' as CrmSubSection, label: 'Follow-ups' },
+    ...(canAssign
       ? [
-          {
-            id: 'dashboard' as ViewType,
-            label: 'Dashboard',
-            icon: LayoutDashboard,
-          },
-        ]
-      : []),
-    ...(isClient
-      ? [
-          {
-            id: 'portal' as ViewType,
-            label: 'Client Portal',
-            icon: FolderKanban,
-          },
-        ]
-      : []),
-    ...(canSeeActiveClients
-      ? [
-          {
-            id: 'active-clients' as ViewType,
-            label: 'Active Clients',
-            icon: Building2,
-          },
-        ]
-      : []),
-    ...(canSeeCrm
-      ? [
-          {
-            id: 'crm' as ViewType,
-            label: 'Sales Pipeline',
-            icon: Contact,
-          },
-        ]
-      : []),
-    ...(canSeeMarketing
-      ? [
-          {
-            id: 'marketing' as ViewType,
-            label: 'Performance Marketing',
-            icon: TrendingUp,
-          },
-        ]
-      : []),
-    ...(canSeeContentCalendar
-      ? [
-          {
-            id: 'content-calendar' as ViewType,
-            label: 'Content Calendar',
-            icon: Calendar,
-          },
-        ]
-      : []),
-    ...(!isClient
-      ? [
-          {
-            id: 'attendance' as ViewType,
-            label: 'Attendance',
-            icon: Clock,
-          },
-          {
-            id: 'daily-log' as ViewType,
-            label: 'Daily Log',
-            icon: ClipboardList,
-          },
-        ]
-      : []),
-    ...(canSeeExceptions
-      ? [
-          {
-            id: 'exceptions' as ViewType,
-            label: 'Exceptions',
-            icon: Inbox,
-          },
-        ]
-      : []),
-    ...(canSeeAdmin
-      ? [
-          {
-            id: 'admin' as ViewType,
-            label: adminLabel,
-            icon: Shield,
-          },
+          { id: 'settings' as CrmSubSection, label: 'Pipeline settings' },
         ]
       : []),
   ];
 
+  const attendanceSubItems = isManagementRole
+    ? [
+        { id: 'daily-matrix' as AttendanceSubSection, label: 'Daily attendance' },
+        { id: 'punctuality-hub' as AttendanceSubSection, label: 'Punctuality reports' },
+        { id: 'employee-timesheets' as AttendanceSubSection, label: 'Timesheets' },
+        { id: 'approvals' as AttendanceSubSection, label: 'Approvals' },
+      ]
+    : [
+        { id: 'timesheet' as AttendanceSubSection, label: 'My timesheet' },
+        { id: 'requests' as AttendanceSubSection, label: 'My requests' },
+      ];
+
+  const adminSubItems = [
+    { id: 'directory' as AdminSectionType, label: 'Team directory', visible: true },
+    { id: 'compliance' as AdminSectionType, label: 'Log compliance', visible: isAdmin },
+    { id: 'attendance_policies' as AdminSectionType, label: 'Attendance policies', visible: isAdmin || isHR },
+    { id: 'mobile_ops' as AdminSectionType, label: 'Mobile & alerts', visible: isAdmin || isHR },
+    { id: 'workspaces' as AdminSectionType, label: 'Workspaces', visible: isAdmin || isOperations },
+    { id: 'ad_accounts' as AdminSectionType, label: 'Ad accounts', visible: isAdmin },
+  ].filter((item) => item.visible);
+
+  const websitePipelineSubItems = [
+    { id: 'board' as const, label: 'Websites pipeline' },
+    { id: 'tasks' as const, label: 'Tasks pipeline' },
+    { id: 'table' as const, label: 'Table view' },
+  ];
+
+  const portalSubItems = [
+    { id: 'content' as const, label: 'Content calendar' },
+    { id: 'website' as const, label: 'Website portal' },
+  ];
+
+  // Grouped navigation per §8.2
+  interface NavGroup {
+    id: string;
+    label: string;
+    items: {
+      id: ViewType;
+      label: string;
+      icon: React.ComponentType<{ className?: string; size?: number }>;
+      badge?: number;
+      badgeAttention?: boolean;
+      hasSubItems?: boolean;
+      isExpanded?: boolean;
+      onToggleExpand?: () => void;
+      subItems?: { id: string; label: string; isActive: boolean; onSelect: () => void }[];
+    }[];
+  }
+
+  const groups: NavGroup[] = [
+    {
+      id: 'overview',
+      label: 'Overview',
+      items: [
+        ...(!isAdmin && !isClient
+          ? [
+              {
+                id: 'dashboard' as ViewType,
+                label: 'Dashboard',
+                icon: LayoutDashboard,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'portal-group',
+      label: 'Client portal',
+      items: [
+        ...(isClient
+          ? [
+              {
+                id: 'portal' as ViewType,
+                label: 'Approvals',
+                icon: CircleCheck,
+                hasSubItems: true,
+                isExpanded: isPortalExpanded,
+                onToggleExpand: () => setIsPortalExpanded(!isPortalExpanded),
+                subItems: portalSubItems.map((sub) => ({
+                  id: sub.id,
+                  label: sub.label,
+                  isActive:
+                    currentView === 'portal' &&
+                    (activePortalTab === sub.id || (!activePortalTab && sub.id === 'content')),
+                  onSelect: () => {
+                    if (currentView !== 'portal') onSelectView('portal');
+                    onSelectPortalTab?.(sub.id);
+                  },
+                })),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'clients',
+      label: 'Clients',
+      items: [
+        ...(canSeeActiveClients
+          ? [
+              {
+                id: 'active-clients' as ViewType,
+                label: 'Active clients',
+                icon: Building2,
+              },
+            ]
+          : []),
+        ...(canSeeCrm
+          ? [
+              {
+                id: 'crm' as ViewType,
+                label: 'Sales pipeline',
+                icon: Contact,
+                hasSubItems: true,
+                isExpanded: isCrmExpanded,
+                onToggleExpand: () => setIsCrmExpanded(!isCrmExpanded),
+                subItems: crmSubItems.map((sub) => ({
+                  id: sub.id,
+                  label: sub.label,
+                  isActive:
+                    currentView === 'crm' &&
+                    (activeCrmSection === sub.id ||
+                      (!activeCrmSection && sub.id === 'board') ||
+                      (sub.id === 'settings' &&
+                        (activeCrmSection === 'templates' ||
+                          activeCrmSection === 'ingest' ||
+                          activeCrmSection === 'rules'))),
+                  onSelect: () => {
+                    if (currentView !== 'crm') onSelectView('crm');
+                    onSelectCrmSection?.(sub.id);
+                  },
+                })),
+              },
+            ]
+          : []),
+        ...(canSeeMarketing
+          ? [
+              {
+                id: 'marketing' as ViewType,
+                label: 'Performance marketing',
+                icon: TrendingUp,
+              },
+            ]
+          : []),
+        ...(canSeeContentCalendar
+          ? [
+              {
+                id: 'content-calendar' as ViewType,
+                label: 'Content calendar',
+                icon: CalendarDays,
+              },
+            ]
+          : []),
+        ...(canSeeWebsitePipeline
+          ? [
+              {
+                id: 'website-pipeline' as ViewType,
+                label: 'Website pipeline',
+                icon: Globe,
+                hasSubItems: true,
+                isExpanded: isWebsiteExpanded,
+                onToggleExpand: () => setIsWebsiteExpanded(!isWebsiteExpanded),
+                subItems: websitePipelineSubItems.map((sub) => ({
+                  id: sub.id,
+                  label: sub.label,
+                  isActive:
+                    currentView === 'website-pipeline' &&
+                    (activeWebsiteSection === sub.id || (!activeWebsiteSection && sub.id === 'board')),
+                  onSelect: () => {
+                    if (currentView !== 'website-pipeline') onSelectView('website-pipeline');
+                    onSelectWebsiteSection?.(sub.id);
+                  },
+                })),
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'team',
+      label: 'Team',
+      items: [
+        ...(!isClient
+          ? [
+              {
+                id: 'attendance' as ViewType,
+                label: 'Attendance',
+                icon: Clock,
+                hasSubItems: true,
+                isExpanded: isAttendanceExpanded,
+                onToggleExpand: () => setIsAttendanceExpanded(!isAttendanceExpanded),
+                subItems: attendanceSubItems.map((sub) => {
+                  const defaultActiveId = isManagementRole ? 'daily-matrix' : 'timesheet';
+                  return {
+                    id: sub.id,
+                    label: sub.label,
+                    isActive:
+                      currentView === 'attendance' &&
+                      (activeAttendanceSection === sub.id || (!activeAttendanceSection && sub.id === defaultActiveId)),
+                    onSelect: () => {
+                      if (currentView !== 'attendance') onSelectView('attendance');
+                      onSelectAttendanceSection?.(sub.id);
+                    },
+                  };
+                }),
+              },
+              {
+                id: 'daily-log' as ViewType,
+                label: 'Daily log',
+                icon: NotebookPen,
+                badge: requestCount > 0 ? requestCount : undefined,
+                badgeAttention: true,
+              },
+            ]
+          : []),
+        ...(canSeeExceptions
+          ? [
+              {
+                id: 'exceptions' as ViewType,
+                label: 'Exceptions',
+                icon: Inbox,
+              },
+            ]
+          : []),
+      ],
+    },
+    {
+      id: 'admin',
+      label: 'Admin',
+      items: [
+        ...(canSeeAdmin
+          ? [
+              {
+                id: 'admin' as ViewType,
+                label: adminLabel,
+                icon: Shield,
+                hasSubItems: true,
+                isExpanded: isAdminExpanded,
+                onToggleExpand: () => setIsAdminExpanded(!isAdminExpanded),
+                subItems: adminSubItems.map((sub) => ({
+                  id: sub.id,
+                  label: sub.label,
+                  isActive:
+                    currentView === 'admin' &&
+                    (activeAdminSection === sub.id || (!activeAdminSection && sub.id === 'directory')),
+                  onSelect: () => {
+                    if (currentView !== 'admin') onSelectView('admin');
+                    onSelectAdminSection?.(sub.id);
+                  },
+                })),
+              },
+            ]
+          : []),
+      ],
+    },
+  ].filter((group) => group.items.length > 0);
+
   return (
     <aside
-      className={`relative flex flex-col h-full bg-zinc-50 dark:bg-[#0d0f14] border-r border-zinc-200 dark:border-zinc-800/80 transition-all duration-300 ease-in-out z-30 select-none ${
-        isCollapsed ? 'w-20' : 'w-64'
-      } shadow-xs`}
+      className={cn(
+        'relative flex flex-col h-full bg-surface border-r border-border p-3 select-none transition-[width] duration-200 ease-[var(--ease-standard)] shrink-0 z-20',
+        isCollapsed ? 'w-[64px]' : 'w-[248px]'
+      )}
     >
-      {/* Top Branding Bar */}
-      <div className="px-4 py-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between">
-        {!isCollapsed ? (
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center shrink-0">
-              <React.Suspense fallback={<div style={{ width: 32, height: 32 }} className="shrink-0" />}>
-                <ReamarcLogo3D size={32} />
-              </React.Suspense>
-            </div>
-            <div>
-              <h1 className="text-sm font-bold text-zinc-950 dark:text-zinc-100 tracking-tight flex items-center gap-1.5 leading-none">
-                Reamarc
-                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-indigo-600 text-white">
-                  AI
-                </span>
-              </h1>
-              <p className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium mt-0.5">Agency Operations Hub</p>
-            </div>
+      {/* 1. Brand Block (§8.1) */}
+      {!isCollapsed ? (
+        <div className="h-11 px-2 py-1.5 border border-border rounded-[10px] flex items-center gap-2.5 mb-4 shrink-0 bg-surface">
+          <BrandMark size={28} />
+          <div className="min-w-0 flex-1">
+            <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
+              Reamarc
+            </span>
+            <span className="block text-xs text-fg-muted leading-4 truncate">
+              Operations hub
+            </span>
           </div>
-        ) : (
-          <div className="mx-auto flex items-center justify-center shrink-0">
-            <React.Suspense fallback={<div style={{ width: 30, height: 30 }} className="shrink-0" />}>
-              <ReamarcLogo3D size={30} />
-            </React.Suspense>
-          </div>
-        )}
+        </div>
+      ) : (
+        <div className="h-11 flex items-center justify-center mb-4 shrink-0">
+          <BrandMark size={28} />
+        </div>
+      )}
 
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          className="text-zinc-400 hover:text-zinc-600 dark:text-zinc-400 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800/80 transition-colors cursor-pointer"
-          title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
-        >
-          {isCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-        </button>
-      </div>
-
-      {/* Navigation Links */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        {!isCollapsed && (
-          <div className="px-2.5 pb-2 pt-1 text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-widest">
-            Modules
-          </div>
-        )}
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = currentView === item.id;
-          const isCrm = item.id === 'crm';
-          const isAttendance = item.id === 'attendance';
-          const isAdminItem = item.id === 'admin';
-          const hasSubItems = isCrm || isAttendance || isAdminItem;
-          const isExpanded = isCrm ? isCrmExpanded : isAttendance ? isAttendanceExpanded : isAdminItem ? isAdminExpanded : false;
-
-          return (
-            <div key={item.id} className="space-y-0.5">
-              <button
-                type="button"
-                onClick={() => {
-                  onSelectView(item.id);
-                  if (isCrm) {
-                    if (currentView === 'crm') {
-                      setIsCrmExpanded(!isCrmExpanded);
-                    } else {
-                      setIsCrmExpanded(true);
-                    }
-                  } else if (isAttendance) {
-                    if (currentView === 'attendance') {
-                      setIsAttendanceExpanded(!isAttendanceExpanded);
-                    } else {
-                      setIsAttendanceExpanded(true);
-                    }
-                  } else if (isAdminItem) {
-                    if (currentView === 'admin') {
-                      setIsAdminExpanded(!isAdminExpanded);
-                    } else {
-                      setIsAdminExpanded(true);
-                    }
-                  }
-                }}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-[13px] font-semibold transition-all duration-150 cursor-pointer ${
-                  isActive
-                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
-                    : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/60'
-                } ${isCollapsed ? 'justify-center px-0' : ''}`}
-                title={isCollapsed ? item.label : undefined}
+      {/* 2. Navigation Groups (§8.2, §8.3) */}
+      <nav aria-label="Main" className="flex-1 overflow-y-auto space-y-3.5 pr-0.5">
+        {groups.map((group, groupIndex) => (
+          <div key={group.id} role="group" aria-labelledby={`nav-group-${group.id}`}>
+            {/* Group Label / Divider */}
+            {!isCollapsed ? (
+              <div
+                id={`nav-group-${group.id}`}
+                className="text-xs font-medium text-fg-muted px-2.5 pb-1 leading-4 select-none"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
-                  {!isCollapsed && <span className="truncate">{item.label}</span>}
-                </div>
-                {!isCollapsed && hasSubItems && (
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (isCrm) setIsCrmExpanded(!isCrmExpanded);
-                      if (isAttendance) setIsAttendanceExpanded(!isAttendanceExpanded);
-                      if (isAdminItem) setIsAdminExpanded(!isAdminExpanded);
-                    }}
-                    className="p-1 rounded-md hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
-                  >
-                    {isExpanded ? (
-                      <ChevronDown className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
-                    ) : (
-                      <ChevronRight className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-zinc-400'}`} />
+                {group.label}
+              </div>
+            ) : (
+              groupIndex > 0 && <div className="my-2 border-t border-border" />
+            )}
+
+            {/* Group Items */}
+            <div className="space-y-0.5">
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isItemActive = currentView === item.id;
+                const isParentOfActive = isItemActive && item.hasSubItems;
+
+                // Collapsed item with Tooltip / DropdownMenu
+                if (isCollapsed) {
+                  const buttonElement = (
+                    <button
+                      type="button"
+                      onClick={() => onSelectView(item.id)}
+                      className={cn(
+                        'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer relative focus-visible:focus-ring',
+                        isItemActive
+                          ? 'bg-accent-soft text-accent-text'
+                          : 'text-fg-2 hover:bg-hover hover:text-fg'
+                      )}
+                      aria-current={isItemActive ? 'page' : undefined}
+                      aria-label={item.label}
+                    >
+                      <Icon
+                        size={18}
+                        className={cn('shrink-0', isItemActive ? 'text-accent-text' : 'text-fg-muted')}
+                      />
+                      {item.badge && item.badge > 0 && (
+                        <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-accent" />
+                      )}
+                    </button>
+                  );
+
+                  // If item has sub-items in collapsed mode, hover/click opens right dropdown (§8.5)
+                  if (item.hasSubItems && item.subItems) {
+                    return (
+                      <DropdownMenu key={item.id}>
+                        <Tooltip delayDuration={300}>
+                          <TooltipTrigger asChild>
+                            <DropdownMenuTrigger asChild>
+                              {buttonElement}
+                            </DropdownMenuTrigger>
+                          </TooltipTrigger>
+                          <TooltipContent side="right">
+                            <span>{item.label}</span>
+                          </TooltipContent>
+                        </Tooltip>
+
+                        <DropdownMenuContent side="right" align="start" sideOffset={8} className="w-48">
+                          <div className="px-2 py-1.5 text-xs font-semibold text-fg-muted">
+                            {item.label}
+                          </div>
+                          <DropdownMenuSeparator />
+                          {item.subItems.map((sub) => (
+                            <DropdownMenuItem
+                              key={sub.id}
+                              onClick={sub.onSelect}
+                              className={cn(
+                                'text-[13px] h-8 cursor-pointer',
+                                sub.isActive && 'bg-accent-soft text-accent-text font-medium'
+                              )}
+                            >
+                              {sub.label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    );
+                  }
+
+                  return (
+                    <Tooltip key={item.id} delayDuration={300}>
+                      <TooltipTrigger asChild>{buttonElement}</TooltipTrigger>
+                      <TooltipContent side="right">
+                        <span>{item.label}</span>
+                        {item.badge && item.badge > 0 && <span> ({item.badge})</span>}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
+                }
+
+                // Expanded Mode
+                return (
+                  <div key={item.id} className="space-y-0.5">
+                    <div
+                      className={cn(
+                        'h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none group',
+                        isItemActive && !item.hasSubItems
+                          ? 'bg-accent-soft text-accent-text font-medium'
+                          : isParentOfActive
+                          ? 'text-fg font-medium hover:bg-hover'
+                          : 'text-fg-2 hover:bg-hover hover:text-fg'
+                      )}
+                      onClick={() => {
+                        onSelectView(item.id);
+                        if (item.hasSubItems && currentView === item.id) {
+                          item.onToggleExpand?.();
+                        }
+                      }}
+                    >
+                      <Icon
+                        size={18}
+                        className={cn(
+                          'shrink-0',
+                          isItemActive ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
+                        )}
+                      />
+                      <span className="text-[13px] font-medium truncate flex-1 leading-5">
+                        {item.label}
+                      </span>
+
+                      {/* Attention or standard badge */}
+                      {item.badge !== undefined && item.badge > 0 && (
+                        <span
+                          className={cn(
+                            'ml-auto text-micro leading-4 px-1.5 rounded-full font-mono font-medium',
+                            item.badgeAttention
+                              ? 'bg-accent-soft-2 text-accent-text'
+                              : 'bg-subtle text-fg-2'
+                          )}
+                        >
+                          {item.badge}
+                        </span>
+                      )}
+
+                      {/* Sub-item Chevron toggle */}
+                      {item.hasSubItems && (
+                        <button
+                          type="button"
+                          aria-label={`Toggle ${item.label} sub-items`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            item.onToggleExpand?.();
+                          }}
+                          className="p-0.5 rounded hover:bg-subtle text-fg-faint hover:text-fg transition-colors"
+                        >
+                          <ChevronRight
+                            size={14}
+                            className={cn(
+                              'transition-transform duration-160',
+                              item.isExpanded && 'rotate-90'
+                            )}
+                          />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Sub-item List (§8.3) */}
+                    {item.hasSubItems && item.isExpanded && item.subItems && (
+                      <div className="my-0.5 ml-[21px] pl-3 border-l border-border space-y-0.5">
+                        {item.subItems.map((sub) => (
+                          <button
+                            key={sub.id}
+                            type="button"
+                            onClick={sub.onSelect}
+                            className={cn(
+                              'w-full h-[30px] px-2.5 rounded-md flex items-center text-[13px] transition-colors cursor-pointer select-none truncate text-left',
+                              sub.isActive
+                                ? 'bg-accent-soft text-accent-text font-medium'
+                                : 'text-fg-2 hover:bg-hover hover:text-fg font-normal'
+                            )}
+                          >
+                            <span className="truncate">{sub.label}</span>
+                          </button>
+                        ))}
+                      </div>
                     )}
                   </div>
-                )}
-                {!isCollapsed && !hasSubItems && requestCount > 0 && (item.id === 'daily-log' || item.id === 'dashboard') && (
-                  <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-amber-500/15 text-amber-700 dark:text-amber-300'}`}>
-                    {requestCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Expandable Sub-items for Sales Pipeline */}
-              {!isCollapsed && isCrm && isCrmExpanded && (
-                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
-                  {crmSubItems.map((sub) => {
-                    const SubIcon = sub.icon;
-                    const isSubActive =
-                      currentView === 'crm' &&
-                      (activeCrmSection === sub.id ||
-                        (!activeCrmSection && sub.id === 'board') ||
-                        (sub.id === 'settings' &&
-                          (activeCrmSection === 'templates' ||
-                            activeCrmSection === 'ingest' ||
-                            activeCrmSection === 'rules')));
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => {
-                          if (currentView !== 'crm') {
-                            onSelectView('crm');
-                          }
-                          onSelectCrmSection?.(sub.id);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
-                          isSubActive
-                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
-                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
-                        }`}
-                      >
-                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Expandable Sub-items for Attendance */}
-              {!isCollapsed && isAttendance && isAttendanceExpanded && (
-                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
-                  {attendanceSubItems.map((sub) => {
-                    const SubIcon = sub.icon;
-                    const defaultActiveId = isManagementRole ? 'daily-matrix' : 'timesheet';
-                    const isSubActive =
-                      currentView === 'attendance' &&
-                      (activeAttendanceSection === sub.id || (!activeAttendanceSection && sub.id === defaultActiveId));
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => {
-                          if (currentView !== 'attendance') {
-                            onSelectView('attendance');
-                          }
-                          onSelectAttendanceSection?.(sub.id);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
-                          isSubActive
-                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
-                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
-                        }`}
-                      >
-                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Expandable Sub-items for Admin Panel */}
-              {!isCollapsed && isAdminItem && isAdminExpanded && (
-                <div className="ml-3.5 pl-3 border-l-2 border-zinc-200 dark:border-zinc-800 space-y-1 py-1.5 mt-0.5">
-                  {adminSubItems.map((sub) => {
-                    const SubIcon = sub.icon;
-                    const isSubActive =
-                      currentView === 'admin' &&
-                      (activeAdminSection === sub.id || (!activeAdminSection && sub.id === 'directory'));
-                    return (
-                      <button
-                        key={sub.id}
-                        type="button"
-                        onClick={() => {
-                          if (currentView !== 'admin') {
-                            onSelectView('admin');
-                          }
-                          onSelectAdminSection?.(sub.id);
-                        }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] transition-all cursor-pointer ${
-                          isSubActive
-                            ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-bold shadow-2xs'
-                            : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800/60 font-medium'
-                        }`}
-                      >
-                        <SubIcon className={`w-4 h-4 shrink-0 ${isSubActive ? 'text-indigo-600 dark:text-indigo-400' : 'text-zinc-400 dark:text-zinc-500'}`} />
-                        <span className="truncate">{sub.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
+      </nav>
 
-        {/* Profile Settings Nav Item */}
-        {user && (
+      {/* 3. Bottom Area (§8.1, §8.7) */}
+      <div className="mt-auto pt-2 space-y-1 shrink-0">
+        {/* Settings nav item */}
+        {!isCollapsed ? (
           <button
             type="button"
             onClick={() => onSelectView('profile')}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-semibold transition-all cursor-pointer ${
+            className={cn(
+              'w-full h-[34px] px-2.5 rounded-md flex items-center gap-2.5 transition-colors cursor-pointer select-none group',
               currentView === 'profile'
-                ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/20'
-                : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200/50 dark:hover:bg-zinc-900/60'
-            } ${isCollapsed ? 'justify-center px-0' : ''}`}
-            title={isCollapsed ? 'Profile Settings' : undefined}
-          >
-            <Settings className={`w-4 h-4 shrink-0 ${currentView === 'profile' ? 'text-white' : 'text-zinc-400 dark:text-zinc-500'}`} />
-            {!isCollapsed && <span>Profile Settings</span>}
-          </button>
-        )}
-      </nav>
-
-      {/* Light / Dark Mode Toggle */}
-      {!isCollapsed ? (
-        <div className="mx-3 mb-3 p-2.5 rounded-xl bg-white dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between shadow-2xs">
-          <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center gap-2">
-            {theme === 'dark' ? (
-              <Moon className="w-4 h-4 text-indigo-400" />
-            ) : (
-              <Sun className="w-4 h-4 text-amber-500" />
+                ? 'bg-accent-soft text-accent-text font-medium'
+                : 'text-fg-2 hover:bg-hover hover:text-fg'
             )}
-            <span>{theme === 'dark' ? 'Dark Mode' : 'Light Mode'}</span>
-          </span>
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full p-0.5 transition-colors duration-200 ease-in-out focus:outline-none cursor-pointer ${
-              theme === 'dark' ? 'bg-indigo-600' : 'bg-zinc-300'
-            }`}
-            title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
           >
-            <span
-              className={`pointer-events-none flex h-5 w-5 items-center justify-center rounded-full bg-white shadow-md transition-transform duration-200 ease-in-out ${
-                theme === 'dark' ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            >
-              {theme === 'dark' ? (
-                <Moon className="w-3 h-3 text-indigo-600 shrink-0" />
-              ) : (
-                <Sun className="w-3 h-3 text-amber-500 shrink-0" />
+            <Settings
+              size={18}
+              className={cn(
+                'shrink-0',
+                currentView === 'profile' ? 'text-accent-text' : 'text-fg-muted group-hover:text-fg'
               )}
-            </span>
+            />
+            <span className="text-[13px] font-medium truncate leading-5">Settings</span>
           </button>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          className="w-10 h-10 mx-auto mb-3 flex items-center justify-center rounded-xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer shadow-2xs"
-          title={`Switch to ${theme === 'dark' ? 'Light' : 'Dark'} Mode`}
-        >
-          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-500" /> : <Moon className="w-4 h-4 text-indigo-600" />}
-        </button>
-      )}
-
-      {/* User Profile Footer */}
-      <div className="p-3 border-t border-zinc-200 dark:border-zinc-800/80 flex items-center justify-between">
-        {!isCollapsed ? (
-          <div className="flex items-center justify-between w-full">
-            <div
-              className="flex items-center gap-2.5 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
-              onClick={() => onSelectView('profile')}
-              title="Open Profile Settings"
-            >
-              <div className="relative shrink-0">
-                <div className="w-8 h-8 rounded-full bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 flex items-center justify-center font-bold text-xs uppercase">
-                  {displayInitials}
-                </div>
-                <span
-                  className={`absolute bottom-0 right-0 w-2 h-2 rounded-full ring-2 ring-white dark:ring-zinc-950 ${
-                    user ? 'bg-emerald-500' : 'bg-zinc-400'
-                  }`}
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-zinc-950 dark:text-zinc-200 truncate leading-tight">{displayName}</p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-1">
-              <NotificationBell collapsed={false} onSelectView={onSelectView} />
+        ) : (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={() => onSelectView('profile')}
-                className="text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 p-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer"
-                title="Profile Settings"
+                className={cn(
+                  'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer focus-visible:focus-ring',
+                  currentView === 'profile'
+                    ? 'bg-accent-soft text-accent-text'
+                    : 'text-fg-2 hover:bg-hover hover:text-fg'
+                )}
+                aria-label="Settings"
               >
-                <Settings className="w-4 h-4" />
+                <Settings
+                  size={18}
+                  className={currentView === 'profile' ? 'text-accent-text' : 'text-fg-muted'}
+                />
               </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <span>Settings</span>
+            </TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Collapse Toggle */}
+        <div className={cn('flex items-center', isCollapsed ? 'justify-center' : 'justify-end pr-1')}>
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={onSignOut}
-                className="text-zinc-400 hover:text-rose-600 p-1.5 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
-                title={user ? 'Sign Out' : 'Sign In'}
+                onClick={toggleSidebar}
+                className="w-8 h-8 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer select-none focus-visible:focus-ring"
+                aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               >
-                <LogOut className="w-4 h-4" />
+                {isCollapsed ? <PanelLeft size={18} /> : <PanelLeftClose size={18} />}
               </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex flex-col items-center gap-2 mx-auto">
-            <NotificationBell collapsed onSelectView={onSelectView} />
-            <button
-              type="button"
-              onClick={() => onSelectView('profile')}
-              className="w-10 h-10 flex items-center justify-center rounded-xl text-zinc-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer"
-              title="Profile Settings"
-            >
-              <Settings className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={onSignOut}
-              className="w-10 h-10 flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors cursor-pointer"
-              title={user ? 'Sign Out' : 'Sign In'}
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              <span>{isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</span>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+
+        {/* User Block + DropdownMenu (§8.3, §8.7) */}
+        <div className="border-t border-border mt-2 pt-2.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              {!isCollapsed ? (
+                <button
+                  type="button"
+                  className="w-full flex items-center gap-2.5 p-1 rounded-md hover:bg-hover transition-colors cursor-pointer select-none text-left focus-visible:focus-ring"
+                >
+                  <div className="w-8 h-8 rounded-full bg-accent-soft-2 text-accent-text border border-accent-200 flex items-center justify-center text-xs font-medium shrink-0">
+                    {displayInitials}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <span className="block text-[13px] font-medium text-fg leading-4 truncate">
+                      {displayName}
+                    </span>
+                    <span className="block text-xs text-fg-muted leading-4 truncate">
+                      {displayRole}
+                    </span>
+                  </div>
+                  <ChevronsUpDown size={16} className="text-fg-muted shrink-0" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="w-10 h-10 mx-auto rounded-full flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer select-none focus-visible:focus-ring"
+                  aria-label="User menu"
+                >
+                  <div className="w-8 h-8 rounded-full bg-accent-soft-2 text-accent-text border border-accent-200 flex items-center justify-center text-xs font-medium shrink-0">
+                    {displayInitials}
+                  </div>
+                </button>
+              )}
+            </DropdownMenuTrigger>
+
+            <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-60">
+              {/* 1. Header non-interactive */}
+              <div className="px-2.5 py-2 select-none">
+                <p className="text-[13px] font-medium text-fg truncate leading-tight">{displayName}</p>
+                {displayEmail && (
+                  <p className="text-xs text-fg-muted truncate mt-0.5">{displayEmail}</p>
+                )}
+              </div>
+
+              <DropdownMenuSeparator />
+
+              {/* 2. Profile & settings */}
+              <DropdownMenuItem
+                onClick={() => onSelectView('profile')}
+                className="text-[13px] gap-2.5 cursor-pointer"
+              >
+                <Settings size={16} className="text-fg-muted" />
+                <span>Profile & settings</span>
+              </DropdownMenuItem>
+
+              {/* 3. Theme sub-menu */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="text-[13px] gap-2.5 cursor-pointer">
+                  {theme === 'dark' ? (
+                    <Moon size={16} className="text-fg-muted" />
+                  ) : (
+                    <Sun size={16} className="text-fg-muted" />
+                  )}
+                  <span>Theme</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-36">
+                  <DropdownMenuItem
+                    onClick={() => onSelectThemePreference?.('light')}
+                    className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Sun size={14} className="text-fg-muted" />
+                      <span>Light</span>
+                    </div>
+                    {themePreference === 'light' && <Check size={14} className="text-accent" />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onSelectThemePreference?.('dark')}
+                    className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Moon size={14} className="text-fg-muted" />
+                      <span>Dark</span>
+                    </div>
+                    {themePreference === 'dark' && <Check size={14} className="text-accent" />}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => onSelectThemePreference?.('system')}
+                    className="text-[13px] gap-2 cursor-pointer flex justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Monitor size={14} className="text-fg-muted" />
+                      <span>System</span>
+                    </div>
+                    {themePreference === 'system' && <Check size={14} className="text-accent" />}
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+
+              {/* 4. Keyboard shortcuts */}
+              <DropdownMenuItem
+                onClick={() => onOpenShortcuts?.()}
+                className="text-[13px] gap-2.5 cursor-pointer"
+              >
+                <Keyboard size={16} className="text-fg-muted" />
+                <span>Keyboard shortcuts</span>
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+
+              {/* 5. Sign out */}
+              <DropdownMenuItem
+                onClick={onSignOut}
+                className="text-[13px] gap-2.5 cursor-pointer"
+              >
+                <LogOut size={16} className="text-fg-muted" />
+                <span>Sign out</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </div>
     </aside>
   );

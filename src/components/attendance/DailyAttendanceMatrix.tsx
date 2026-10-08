@@ -279,9 +279,9 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
   return (
     <div className="space-y-4">
-      <div className="p-3.5 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex flex-wrap items-end gap-2.5">
+      <div className="p-3.5 bg-surface rounded-xl border border-border shadow-xs flex flex-wrap items-end gap-2.5">
         <div>
-          <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
             Date
           </span>
           <div className="flex items-center gap-1.5">
@@ -289,7 +289,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               type="button"
               onClick={() => handleJumpDate(-1)}
               disabled={isAtStartDate}
-              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-subtle hover:bg-hover text-fg border border-border transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title={isAtStartDate ? `Attendance tracking starts from ${START_DATE}` : 'Previous Day'}
             >
               <ChevronLeft className="w-4 h-4" />
@@ -307,7 +307,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
             <button
               type="button"
               onClick={() => handleJumpDate(1)}
-              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-subtle hover:bg-hover text-fg border border-border transition-colors cursor-pointer"
               title="Next Day"
             >
               <ChevronRight className="w-4 h-4" />
@@ -345,17 +345,17 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
         </div>
 
         <div className="flex-1 min-w-[180px] max-w-xs ml-auto">
-          <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
             Search
           </span>
           <div className="relative">
-            <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <Search className="w-3.5 h-3.5 text-fg-muted absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               placeholder="Search employee..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-10 pl-8 pr-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full h-10 pl-8 pr-3 rounded-xl bg-subtle border border-border text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:border-border-strong"
             />
           </div>
         </div>
@@ -366,14 +366,14 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
       )}
 
       {/* Main Register Table */}
-      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+      <div className="bg-surface rounded-xl border border-border shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+            <FileText className="w-4 h-4 text-accent" />
             Live Daily Attendance Register ({selectedDate})
-            {isWaitingForNewDate && <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />}
+            {isWaitingForNewDate && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />}
           </h3>
-          <span className="text-xs font-semibold text-zinc-500">
+          <span className="text-xs font-medium text-fg-muted">
             {isWaitingForNewDate
               ? 'Loading...'
               : `Showing ${filteredRows.length} of ${matrixData?.rows.length || 0} employees`}
@@ -382,7 +382,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
         <div className="overflow-x-auto custom-scrollbar">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
-                <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
+                <tr className="bg-subtle text-fg-muted border-b border-border font-semibold">
                   <th className="py-3 px-4 w-10">#</th>
                   <th className="py-3 px-4">Employee</th>
                   <th className="py-3 px-4">Department</th>
@@ -395,53 +395,53 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   {canEditOverride && <th className="py-3 px-4 text-right">Override</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
+              <tbody className="divide-y divide-border font-medium">
                 {isWaitingForNewDate ? (
                   Array.from({ length: 12 }).map((_, idx) => (
                     <tr key={`matrix-skel-${idx}`} className="animate-pulse">
                       <td className="py-3 px-4">
-                        <div className="w-4 h-3 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                        <div className="w-4 h-3 bg-skel rounded" />
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+                          <div className="w-7 h-7 rounded-lg bg-skel shrink-0" />
                           <div className="space-y-1">
-                            <div className="h-3.5 bg-zinc-200 dark:bg-zinc-800 rounded w-28" />
-                            <div className="h-2.5 bg-zinc-200/70 dark:bg-zinc-800/60 rounded w-16" />
+                            <div className="h-3.5 bg-skel rounded w-28" />
+                            <div className="h-2.5 bg-skel rounded w-16" />
                           </div>
                         </div>
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="h-5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-lg w-24" />
+                        <div className="h-5 bg-skel rounded-lg w-24" />
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="h-4 bg-zinc-200/70 dark:bg-zinc-800/60 rounded w-20" />
+                        <div className="h-4 bg-skel rounded w-20" />
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="h-4 bg-zinc-200/80 dark:bg-zinc-800/70 rounded w-14" />
+                        <div className="h-4 bg-skel rounded w-14" />
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="h-4 bg-zinc-200/80 dark:bg-zinc-800/70 rounded w-14" />
+                        <div className="h-4 bg-skel rounded w-14" />
                       </td>
-                      <td className="py-3 px-4 text-zinc-500 font-numeric">
-                        <div className="h-4 bg-zinc-200/60 dark:bg-zinc-800/50 rounded w-10" />
+                      <td className="py-3 px-4 text-fg-muted font-numeric">
+                        <div className="h-4 bg-skel rounded w-10" />
                       </td>
                       <td className="py-3 px-4">
-                        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-16" />
+                        <div className="h-4 bg-skel rounded w-16" />
                       </td>
                       <td className="py-3 px-4 whitespace-nowrap">
-                        <div className="h-5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-md w-20" />
+                        <div className="h-5 bg-skel rounded-md w-20" />
                       </td>
                       {canEditOverride && (
                         <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="w-6 h-6 bg-zinc-200/60 dark:bg-zinc-800/50 rounded-lg ml-auto" />
+                          <div className="w-6 h-6 bg-skel rounded-lg ml-auto" />
                         </td>
                       )}
                     </tr>
                   ))
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-zinc-400 dark:text-zinc-500">
+                    <td colSpan={10} className="py-12 text-center text-fg-subtle">
                       No employee records found matching your filters.
                     </td>
                   </tr>
@@ -457,21 +457,21 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                     return (
                       <tr
                         key={row.user_id}
-                        className="hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors"
+                        className="hover:bg-hover transition-colors"
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-zinc-400 font-numeric">{idx + 1}</td>
+                        <td className="py-3 px-4 text-fg-muted font-numeric">{idx + 1}</td>
 
                         {/* Employee Info */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 font-bold text-[11px] flex items-center justify-center">
+                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-fg font-semibold text-xs flex items-center justify-center border border-accent-border">
                               {initials}
                             </div>
                             <span
-                              className={`font-bold text-zinc-900 dark:text-zinc-100 leading-tight ${
+                              className={`font-semibold text-fg leading-tight ${
                                 onSelectEmployee
-                                  ? 'hover:text-blue-600 dark:hover:text-blue-400 hover:underline cursor-pointer'
+                                  ? 'hover:text-accent-fg hover:underline cursor-pointer'
                                   : ''
                               }`}
                               onClick={() => onSelectEmployee?.(row.user_id)}
@@ -490,65 +490,65 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         </td>
 
                         {/* Shift */}
-                        <td className="py-3 px-4 text-zinc-600 dark:text-zinc-400 whitespace-nowrap">
+                        <td className="py-3 px-4 text-fg-muted whitespace-nowrap">
                           {row.shift_name}
                         </td>
 
                         {/* Punch In */}
-                        <td className="py-3 px-4 font-numeric font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-semibold whitespace-nowrap">
                           {row.punch_in ? (
                             <span
                               className={
                                 row.is_late || row.is_late_alert || row.status === 'late'
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : 'text-emerald-600 dark:text-emerald-400'
+                                  ? 'text-danger-fg'
+                                  : 'text-success-fg'
                               }
                             >
                               {row.punch_in}
                             </span>
                           ) : (
-                            <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                            <span className="text-fg-subtle font-normal">&mdash;</span>
                           )}
                         </td>
 
                         {/* Punch Out */}
-                        <td className="py-3 px-4 font-numeric font-bold text-zinc-900 dark:text-zinc-100 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-semibold text-fg whitespace-nowrap">
                           {row.punch_out ? (
                             <span>{row.punch_out}</span>
                           ) : (
-                            <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                            <span className="text-fg-subtle font-normal">&mdash;</span>
                           )}
                         </td>
 
                         {/* Break */}
-                        <td className="py-3 px-4 text-zinc-500 font-numeric">
+                        <td className="py-3 px-4 text-fg-muted font-numeric">
                           {`${row.break_minutes ?? 0}m`}
                         </td>
 
                         {/* Effective Hours */}
-                        <td className="py-3 px-4 font-numeric font-bold text-zinc-800 dark:text-zinc-200">
+                        <td className="py-3 px-4 font-numeric font-semibold text-fg">
                           <div>
                             {row.punch_in || row.check_in ? (
                               row.status === 'missed_punch' ? (
-                                <span className="text-zinc-400 font-normal">0h 0m</span>
+                                <span className="text-fg-muted font-normal">0h 0m</span>
                               ) : row.effective_hours_minutes > 0 ? (
                                 `${Math.floor(row.effective_hours_minutes / 60)}h ${row.effective_hours_minutes % 60}m`
                               ) : row.punch_out || row.check_out ? (
                                 '0h 0m'
                               ) : (
-                                <span className="text-blue-600 dark:text-blue-400 font-semibold">In Progress</span>
+                                <span className="text-accent-fg font-semibold">In Progress</span>
                               )
                             ) : (
-                              <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                              <span className="text-fg-subtle font-normal">&mdash;</span>
                             )}
                             {row.overtime_status === 'pending' && (row.pending_overtime_minutes || 0) > 0 && (
-                              <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400" title={row.overtime_reason || 'Pending overtime'}>
+                              <p className="text-[10px] font-semibold text-warning-fg" title={row.overtime_reason || 'Pending overtime'}>
                                 OT pending +{String(Math.floor((row.pending_overtime_minutes || 0) / 60)).padStart(2, '0')}:
                                 {String((row.pending_overtime_minutes || 0) % 60).padStart(2, '0')}
                               </p>
                             )}
                             {(row.overtime_reason || row.undertime_reason) && (
-                              <p className="text-[10px] font-normal text-zinc-400 truncate max-w-[160px]" title={row.overtime_reason || row.undertime_reason || undefined}>
+                              <p className="text-[10px] font-normal text-fg-muted truncate max-w-[160px]" title={row.overtime_reason || row.undertime_reason || undefined}>
                                 {row.overtime_reason || row.undertime_reason}
                               </p>
                             )}
@@ -558,53 +558,53 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* Register Status */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           {row.status === 'missed_punch' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 dark:bg-rose-950/60 text-rose-800 dark:text-rose-200 border border-rose-300">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
                               ⚠️ Missed Punch
                             </span>
                           ) : row.status === 'present' ? (
                             row.is_late ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
                                 Late Arrival
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-success-subtle text-success-fg border border-success-border">
                                 Present
                               </span>
                             )
                           ) : row.status === 'late' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                              Late Arrival
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                               Late Arrival
                             </span>
                           ) : row.status === 'wfh' || row.is_wfh_approved ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
                               W.F.H
                             </span>
                           ) : ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'on_leave'].includes(row.status) ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 capitalize">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-warning-subtle text-warning-fg border border-warning-border capitalize">
                               {row.status.replace('_', ' ')}
                             </span>
                           ) : row.status === 'short_leave' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
                               Short Leave
                             </span>
                           ) : row.status === 'sunday_off' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-subtle text-fg-muted border border-border">
                               Sunday Off
                             </span>
                           ) : row.status === 'first_saturday_off' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-500">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-subtle text-fg-muted border border-border">
                               1st Sat Off
                             </span>
                           ) : row.status === 'holiday' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
                               Holiday
                             </span>
                           ) : row.status === 'awaiting_checkin' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-subtle text-fg-muted border border-border">
                               Awaiting
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold bg-zinc-100 dark:bg-zinc-800/80 text-zinc-500 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
                               Absent
                             </span>
                           )}
@@ -616,7 +616,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                             <button
                               type="button"
                               onClick={() => handleOpenOverride(row)}
-                              className="p-1.5 rounded-lg text-zinc-400 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-fg-muted hover:text-accent-fg hover:bg-hover transition-colors cursor-pointer"
                               title="HR Manual Override"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
@@ -634,24 +634,24 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
       {/* HR Override Dialog Modal */}
       {editingRow && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-surface rounded-xl border border-border w-full max-w-md p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-border">
+              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-accent" />
                 HR Attendance Override
               </h3>
               <button
                 type="button"
                 onClick={() => setEditingRow(null)}
-                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-lg cursor-pointer"
+                className="text-fg-muted hover:text-fg p-1 rounded-lg cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              Adjusting record for <strong className="text-zinc-900 dark:text-zinc-200">{editingRow.employee_name}</strong> on <strong className="text-zinc-900 dark:text-zinc-200">{selectedDate}</strong>.
+            <p className="text-xs text-fg-muted">
+              Adjusting record for <strong className="text-fg">{editingRow.employee_name}</strong> on <strong className="text-fg">{selectedDate}</strong>.
             </p>
 
             <form onSubmit={handleSaveOverride} className="space-y-3 text-xs">
@@ -676,7 +676,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 </div>
               </div>
               {!['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) && (
-                <p className="text-[10px] text-zinc-500 dark:text-zinc-400 -mt-1">
+                <p className="text-[10px] text-fg-muted -mt-1">
                   Time Out is optional. Click the X to remove checkout so the day stays <strong>In Progress</strong> and the employee can still Check Out.
                 </p>
               )}
@@ -712,7 +712,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               </div>
 
               <div>
-                <label className="block font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block font-semibold text-fg mb-1">
                   Audit Reason (Optional)
                 </label>
                 <textarea
@@ -720,7 +720,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   placeholder="Optional reason for manual adjustment (e.g. biometric machine glitch, client visit)..."
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 placeholder-zinc-400"
+                  className="w-full px-3 py-2 rounded-xl bg-subtle border border-border text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong"
                 />
               </div>
 
@@ -728,14 +728,14 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingRow(null)}
-                  className="px-4 py-2 rounded-xl text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 font-semibold cursor-pointer"
+                  className="px-4 py-2 rounded-xl text-fg-muted hover:bg-hover border border-border font-semibold cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSavingOverride}
-                  className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold cursor-pointer disabled:opacity-50"
+                  className="px-4 py-2 rounded-xl bg-accent hover:bg-accent/90 text-accent-fg font-semibold cursor-pointer disabled:opacity-50"
                 >
                   {isSavingOverride ? 'Saving...' : 'Apply Override'}
                 </button>

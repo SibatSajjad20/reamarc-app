@@ -25,6 +25,8 @@ from app.schemas.content_calendar import (
     BulkImportResponse,
     clamp_text,
     clean_http_link,
+    CONTENT_TYPE_OPTIONS,
+    CREATIVE_CATEGORY_OPTIONS,
     CAMPAIGN_TYPE_OPTIONS,
     CREATIVE_TYPE_OPTIONS,
     CONTENT_PILLAR_OPTIONS,
@@ -39,6 +41,7 @@ from app.schemas.content_calendar import (
 from app.services.content_calendar_workflow import (
     WorkflowError,
     can_edit_item,
+    can_delete_item,
     can_view_item,
     is_admin,
     is_client,
@@ -48,6 +51,7 @@ from app.services.content_calendar_workflow import (
     is_creative_actor,
     is_creative_lead,
     is_social_actor,
+    is_ad_creative,
     normalize_stage,
     resolve_stage,
     stage_owner,
@@ -120,6 +124,20 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _is_generic_drive_icon(url: Optional[str]) -> bool:
+    """Detects whether a URL is a generic 16px Google Drive file-type icon rather than a real thumbnail."""
+    if not url or not isinstance(url, str):
+        return False
+    u = url.lower().strip()
+    return (
+        "ssl.gstatic.com/docs/doclist/images" in u
+        or "gstatic.com/docs/doclist/images" in u
+        or "drive-thirdparty.googleusercontent.com" in u
+        or "/icon_10_" in u
+        or "/icon_11_" in u
+    )
+
+
 def _present_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     doc_id = doc.get("id") or str(doc.get("_id", ""))
     doc["id"] = doc_id
@@ -132,12 +150,19 @@ def _present_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
         doc["submitted_from"] = normalize_stage(doc.get("submitted_from"))
     if "attachments" not in doc or not isinstance(doc["attachments"], list):
         doc["attachments"] = []
+    else:
+        for att in doc["attachments"]:
+            t_url = att.get("thumbnail_url")
+            if t_url and _is_generic_drive_icon(t_url):
+                att["thumbnail_url"] = None
+    cat = doc.get("creative_category") or doc.get("posting_type") or "Organic Creative"
+    doc["creative_category"] = cat
+    if not doc.get("content_type"):
+        doc["content_type"] = "Scheduled"
     if not doc.get("design_owner"):
-        doc["design_owner"] = stage_owner(doc["stage"])
+        doc["design_owner"] = stage_owner(doc["stage"], cat)
     if doc.get("notes") and not doc.get("notes_author"):
         doc["notes_author"] = doc.get("created_by_name") or "Team Member"
-    if not doc.get("share_token"):
-        doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
     return doc
 
 
@@ -330,6 +355,37 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
     presented = _present_doc(doc)
     if viewer is not None and not can_view_item(viewer, presented):
         return None
+
+    # Check if any Google Drive attachments need a thumbnail refresh (e.g. video finished encoding)
+    from app.services import google_drive_service as gdrive
+    if gdrive.configured() and any(
+        a.get("google_drive_file_id") and not a.get("thumbnail_url")
+        for a in presented.get("attachments", [])
+    ):
+        needs_update = False
+        updated_attachments = []
+        for a in presented.get("attachments", []):
+            a_copy = dict(a)
+            if a_copy.get("google_drive_file_id") and not a_copy.get("thumbnail_url"):
+                try:
+                    meta = await gdrive.fetch_file_metadata(a_copy["google_drive_file_id"])
+                    thumb = meta.get("thumbnailLink") if meta else None
+                    if thumb and not _is_generic_drive_icon(thumb):
+                        a_copy["thumbnail_url"] = thumb
+                        needs_update = True
+                except Exception:
+                    pass
+            updated_attachments.append(a_copy)
+        if needs_update:
+            presented["attachments"] = updated_attachments
+            try:
+                await coll.update_one(
+                    {"$or": [{"id": item_id}, {"serial": item_id}]},
+                    {"$set": {"attachments": updated_attachments}},
+                )
+            except Exception:
+                pass
+
     return presented
 
 
@@ -501,7 +557,6 @@ async def create_item(
     doc["created_at"] = now
     doc["updated_at"] = now
 
-    # Sanitize string fields against formula injection
     for k, v in doc.items():
         if isinstance(v, str):
             doc[k] = sanitize_spreadsheet_string(v)
@@ -538,19 +593,25 @@ async def _resolve_workspace_id_for_client(db, client_name: Optional[str]) -> Op
             {"status": {"$ne": "inactive"}},
             {"id": 1, "name": 1}
         ).to_list(200)
+        # 1. Exact match
         for w in workspaces:
             w_name = str(w.get("name") or "").strip().lower()
             if w_name == c_clean:
                 return w["id"]
-        for w in workspaces:
-            w_name = str(w.get("name") or "").strip().lower()
-            if c_clean in w_name or w_name in c_clean:
-                return w["id"]
+        # 2. Corporate suffix stripped exact match (e.g. "Apex Transfers LLC" vs "Apex Transfers")
+        clean_c_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", c_clean).strip()
+        if clean_c_corp:
+            for w in workspaces:
+                w_name = str(w.get("name") or "").strip().lower()
+                clean_w_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", w_name).strip()
+                if clean_w_corp and clean_w_corp == clean_c_corp:
+                    return w["id"]
+        # 3. Multi-token whole word match (at least 2 distinctive tokens >= 3 chars)
         words = [w for w in re.split(r"\W+", c_clean) if len(w) > 2]
         if len(words) >= 2:
             for w in workspaces:
                 w_name = str(w.get("name") or "").strip().lower()
-                if all(word in w_name for word in words):
+                if all(re.search(rf"\b{re.escape(word)}\b", w_name) for word in words):
                     return w["id"]
     except Exception as exc:
         logger.warning("Error resolving workspace for client '%s': %s", client_name, exc)
@@ -602,8 +663,19 @@ async def update_item(
         if resolved_ws:
             update_data["workspace_id"] = resolved_ws
 
+    effective_stage = update_data.get("stage") or current_doc.get("stage")
+    effective_category = (
+        update_data.get("creative_category")
+        or update_data.get("posting_type")
+        or current_doc.get("creative_category")
+        or current_doc.get("posting_type")
+    )
     if "stage" in update_data:
-        update_data["design_owner"] = stage_owner(update_data["stage"])
+        update_data["design_owner"] = stage_owner(update_data["stage"], effective_category)
+    elif "creative_category" in update_data or "posting_type" in update_data:
+        from app.services.content_calendar_workflow import SOCIAL_STAGES
+        if effective_stage in SOCIAL_STAGES:
+            update_data["design_owner"] = stage_owner(effective_stage, effective_category)
 
     if current_doc.get("google_drive_folder_id") and any(
         key in update_data for key in ("client_name", "serial", "content_concept", "workspace_id")
@@ -630,11 +702,6 @@ async def update_item(
             u_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email")
         update_data["notes_author"] = u_name or current_doc.get("notes_author") or "Team Member"
         update_data["notes_updated_at"] = _now_iso()
-
-    # Sanitize strings against formula injection
-    for k, v in update_data.items():
-        if isinstance(v, str):
-            update_data[k] = sanitize_spreadsheet_string(v)
 
     update_data["updated_at"] = _now_iso()
 
@@ -797,8 +864,8 @@ async def delete_item(db, item_id: str, viewer: Optional[Dict[str, Any]] = None)
         presented = _present_doc(dict(current))
         if not can_view_item(viewer, presented):
             return False
-        if not can_edit_item(viewer, presented):
-            raise WorkflowError("You cannot delete this campaign at its current stage.")
+        if not can_delete_item(viewer, presented):
+            raise WorkflowError("You do not have permission to delete this campaign.")
 
     # Clean up any uploaded creative assets
     attachments = current.get("attachments") or []
@@ -810,6 +877,9 @@ async def delete_item(db, item_id: str, viewer: Optional[Dict[str, Any]] = None)
             if not file_url or file_url in seen_urls:
                 continue
             seen_urls.add(file_url)
+            clean_url = file_url.lstrip("/").replace("api/uploads/", "").replace("uploads/", "")
+            if not clean_url.startswith("content_calendar/"):
+                continue
             try:
                 await delete_upload(db, file_url)
             except Exception as exc:
@@ -1115,6 +1185,122 @@ async def attach_assets(
     return _present_doc(dict(updated_doc))
 
 
+async def attach_drive_assets(
+    db,
+    item_id: str,
+    files: List[Any],
+    default_role: str = "primary",
+    viewer: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Attaches files picked from Google Drive (or uploaded via Google Picker) to a content calendar item."""
+    if db is None:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    coll = db[COLLECTION_NAME]
+    doc = await coll.find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Content calendar item not found")
+
+    presented = _present_doc(dict(doc))
+    if not can_manage_assets(viewer, presented):
+        raise HTTPException(status_code=403, detail="You do not have permission to attach assets for this item.")
+
+    existing_attachments = presented.get("attachments") or []
+    current_count = len(existing_attachments)
+    new_assets: List[Dict[str, Any]] = []
+
+    user_id = viewer.get("id") or str(viewer.get("_id", "")) if viewer else None
+    user_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email") if viewer else None
+
+    from app.services import google_drive_service as gdrive
+    if gdrive.configured():
+        try:
+            await gdrive.ensure_item_folder(db, presented)
+        except Exception as exc:
+            logger.warning("Could not ensure item folder for drive assets: %s", exc)
+
+    for index, raw_file in enumerate(files):
+        f = raw_file.model_dump() if hasattr(raw_file, "model_dump") else dict(raw_file)
+        drive_file_id = f.get("id")
+        if not drive_file_id:
+            continue
+
+        filename = (f.get("name") or f.get("filename") or "drive_file").strip()
+        safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename) or "drive_file"
+        mime_type = f.get("mime_type") or f.get("mimeType")
+        size_bytes = f.get("size_bytes") or f.get("size") or 0
+        drive_url = f.get("url") or f.get("webViewLink")
+        thumbnail_url = f.get("thumbnail_url") or f.get("thumbnailLink")
+        if thumbnail_url and _is_generic_drive_icon(thumbnail_url):
+            thumbnail_url = None
+        role = f.get("role") or default_role
+
+        if gdrive.configured():
+            try:
+                meta = await gdrive.fetch_file_metadata(drive_file_id)
+                if meta:
+                    filename = meta.get("name") or filename
+                    safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename) or safe_fname
+                    mime_type = meta.get("mimeType") or mime_type
+                    size_bytes = int(meta.get("size") or size_bytes or 0)
+                    drive_url = meta.get("webViewLink") or drive_url
+                    thumb = meta.get("thumbnailLink")
+                    if thumb and not _is_generic_drive_icon(thumb):
+                        thumbnail_url = thumb
+            except Exception as exc:
+                logger.info("Drive file meta fetch non-fatal: %s", exc)
+
+        ext = Path(filename).suffix.lower()
+        if (mime_type and mime_type.startswith("image/")) or ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):
+            kind = "image"
+        elif (mime_type and mime_type.startswith("video/")) or ext in (".mp4", ".mov", ".webm", ".m4v"):
+            kind = "video"
+        elif (mime_type and "google-apps" in mime_type) or ext in (".pdf", ".docx", ".doc", ".txt", ".md", ".xlsx", ".csv"):
+            kind = "document"
+        else:
+            kind = "document"
+
+        stored_url = gdrive.public_path(drive_file_id, safe_fname)
+        asset_id = f"ast_{uuid.uuid4().hex[:10]}"
+
+        item_role = role
+        if len(files) > 1 and role in ("primary", "carousel_slide"):
+            item_role = "carousel_slide"
+
+        new_assets.append({
+            "id": asset_id,
+            "url": stored_url,
+            "filename": filename,
+            "size_bytes": size_bytes,
+            "content_type": mime_type or _guess_media_type(filename),
+            "kind": kind,
+            "role": item_role,
+            "order": current_count + index,
+            "uploaded_at": _now_iso(),
+            "uploaded_by": user_name or user_id,
+            "width": None,
+            "height": None,
+            "duration_seconds": None,
+            "thumbnail_url": thumbnail_url or (stored_url if kind == "image" else None),
+            "google_drive_file_id": drive_file_id,
+            "google_drive_url": drive_url,
+            "google_drive_thumb_file_id": None,
+        })
+
+    if not new_assets:
+        return presented
+
+    now_str = _now_iso()
+    await coll.update_one(
+        {"id": presented["id"]},
+        {
+            "$push": {"attachments": {"$each": new_assets}},
+            "$set": {"updated_at": now_str},
+        },
+    )
+    updated_doc = await coll.find_one({"id": presented["id"]})
+    return _present_doc(dict(updated_doc))
+
+
 async def attach_link(
     db,
     item_id: str,
@@ -1342,6 +1528,8 @@ def get_constants() -> Dict[str, Any]:
     return {
         "campaign_types": list(CAMPAIGN_TYPE_OPTIONS),
         "creative_types": list(CREATIVE_TYPE_OPTIONS),
+        "content_types": list(CONTENT_TYPE_OPTIONS),
+        "creative_categories": list(CREATIVE_CATEGORY_OPTIONS),
         "content_pillars": list(CONTENT_PILLAR_OPTIONS),
         "offers": list(OFFER_OPTIONS),
         "ctas": list(CTA_OPTIONS),
@@ -1360,7 +1548,7 @@ async def get_constants_from_db(db=None) -> Dict[str, Any]:
     try:
         doc = await db[SETTINGS_COLLECTION].find_one({"_id": "field_constants"})
         if doc:
-            for k in ["creative_types", "campaign_types", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]:
+            for k in ["creative_types", "campaign_types", "content_types", "creative_categories", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]:
                 if k in doc and isinstance(doc[k], list) and len(doc[k]) > 0:
                     base[k] = list(doc[k])
     except Exception as exc:
@@ -1374,7 +1562,7 @@ async def update_constants(db, updates: Dict[str, Any]) -> Dict[str, Any]:
     if db is None:
         return base
     to_save = {}
-    valid_keys = ["creative_types", "campaign_types", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]
+    valid_keys = ["creative_types", "campaign_types", "content_types", "creative_categories", "content_pillars", "offers", "ctas", "approval_statuses", "setup_statuses", "design_owners"]
     for k in valid_keys:
         if k in updates and updates[k] is not None and isinstance(updates[k], list):
             cleaned = []
@@ -1610,16 +1798,16 @@ async def batch_update_items(
         "content_on_creative",
         "cta",
         "captions_hashtags",
-        "design_owner",
         "design_due",
         "draft_preview_link",
         "final_asset_link",
-        "approval_status",
         "setup_status",
         "notes",
         "publish_date",
         "channels",
-        "workspace_id",
+        "content_type",
+        "creative_category",
+        "posting_type",
     }
 
     for item in updates:
@@ -1629,16 +1817,14 @@ async def batch_update_items(
         clean_set: Dict[str, Any] = {}
         for k, v in item.changes.items():
             if k in allowed_fields:
-                if k == "stage":
-                    resolved = resolve_stage(str(v) if v is not None else "")
-                    if resolved is None:
-                        raise ValueError(f"Unknown stage '{v}'")
-                    clean_set[k] = resolved
+                if k == "channels":
+                    if isinstance(v, list):
+                        clean_set[k] = [str(ch)[:40] for ch in v[:12]]
                     continue
                 if isinstance(v, str):
                     v = clamp_text(k, v)
-                    if isinstance(v, str):
-                        v = sanitize_spreadsheet_string(v)
+                elif v is not None:
+                    continue
                 clean_set[k] = v
 
         if not clean_set:
@@ -1687,6 +1873,7 @@ async def bulk_import_items(
     default_client_name: Optional[str] = None,
     user_id: Optional[str] = None,
     user_name: Optional[str] = None,
+    viewer: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Imports a batch of content calendar items from an Excel upload.
@@ -1712,13 +1899,14 @@ async def bulk_import_items(
         nc = name.strip().lower()
         for w in ws_list:
             wn = str(w.get("name") or "").strip().lower()
-            if wn == nc or nc in wn or wn in nc:
+            if wn == nc:
                 return w["id"]
-        words = [w for w in re.split(r"\W+", nc) if len(w) > 2]
-        if len(words) >= 2:
+        clean_c_corp = re.sub(r"\b(llc|inc|corp|ltd|co)\b", "", nc).strip()
+        if clean_c_corp:
             for w in ws_list:
                 wn = str(w.get("name") or "").strip().lower()
-                if all(word in wn for word in words):
+                clean_w_corp = re.sub(r"\b(llc|inc|corp|ltd|co)\b", "", wn).strip()
+                if clean_w_corp and clean_w_corp == clean_c_corp:
                     return w["id"]
         return None
 
@@ -1733,7 +1921,6 @@ async def bulk_import_items(
                 doc = item.model_dump()
                 c_name = doc.get("client_name") or client_default
                 doc["client_name"] = c_name
-                doc["stage"] = normalize_stage(doc.get("stage"))
 
                 if not doc.get("workspace_id"):
                     matched_ws_id = _match_ws(c_name)
@@ -1741,13 +1928,29 @@ async def bulk_import_items(
                         doc["workspace_id"] = matched_ws_id
 
                 serial = doc.get("serial")
-                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO":
+                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
                     serial = await get_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
 
-                # Sanitize all string values
+                existing = None
+                if hasattr(coll, "find_one"):
+                    try:
+                        found = await coll.find_one({"serial": doc["serial"]})
+                        if isinstance(found, dict):
+                            existing = found
+                    except Exception:
+                        existing = None
+
+                if existing and viewer is not None and not can_edit_item(viewer, _present_doc(dict(existing))):
+                    errors.append(f"Row {idx + 1} ({doc['serial']}): Not permitted to edit item in stage '{existing.get('stage')}'.")
+                    continue
+
+                # Strip workflow, identity, and locked fields from update ($set)
+                for locked in ("stage", "approval_status", "design_owner", "attachments", "share_token", "created_by", "created_by_name", "created_at"):
+                    doc.pop(locked, None)
+
                 for k, v in doc.items():
                     if isinstance(v, str):
                         doc[k] = sanitize_spreadsheet_string(v)
@@ -1758,6 +1961,9 @@ async def bulk_import_items(
                 insert_fields = {
                     "id": f"cc_{uuid.uuid4().hex[:12]}",
                     "share_token": f"cc_tok_{uuid.uuid4().hex}",
+                    "stage": DEFAULT_STAGE,
+                    "approval_status": "Content Draft",
+                    "design_owner": stage_owner(DEFAULT_STAGE),
                     "created_by": user_id,
                     "created_by_name": user_name,
                     "created_at": now,
@@ -1786,7 +1992,9 @@ async def bulk_import_items(
                 doc = item.model_dump()
                 c_name = doc.get("client_name") or client_default
                 doc["client_name"] = c_name
-                doc["stage"] = normalize_stage(doc.get("stage"))
+                doc["stage"] = DEFAULT_STAGE
+                doc["approval_status"] = "Content Draft"
+                doc["design_owner"] = stage_owner(DEFAULT_STAGE)
 
                 if not doc.get("workspace_id"):
                     matched_ws_id = _match_ws(c_name)
@@ -1794,15 +2002,11 @@ async def bulk_import_items(
                         doc["workspace_id"] = matched_ws_id
 
                 serial = doc.get("serial")
-                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO":
+                if not serial or not str(serial).strip() or str(serial).upper() == "AUTO" or not re.search(r"\d+", str(serial)):
                     serial = await get_next_serial(db, c_name)
                     doc["serial"] = serial
                 else:
                     doc["serial"] = format_client_serial(serial, c_name, fallback_num=idx + 1)
-
-                for k, v in doc.items():
-                    if isinstance(v, str):
-                        doc[k] = sanitize_spreadsheet_string(v)
 
                 doc["id"] = f"cc_{uuid.uuid4().hex[:12]}"
                 doc["share_token"] = f"cc_tok_{uuid.uuid4().hex}"
@@ -1847,7 +2051,7 @@ def check_review_link_expiration(doc: Dict[str, Any]) -> Tuple[bool, Optional[st
     if approval_status == "Changes Requested" or stage in ("Content Revision", "Creative Revision"):
         return True, "Campaign review link has expired because changes have already been requested."
 
-    # Initial drafting / internal stages remain accessible for preview
+    # Draft / internal stages are accessible for preview if not approved and not changes requested
     return False, None
 
 
@@ -2165,6 +2369,26 @@ async def notify_content_calendar_event(
             title = f"Campaign Posted: {serial} 🚀"
             body = f"{serial} ({client_name}) marked as posted by {actor_name}."
 
+        elif act in ("reject", "rejected"):
+            recipients = await _find_content_leads() + await _find_creative_leads()
+            if creator_id:
+                recipients.append(creator_id)
+            if effective_assignee:
+                recipients.append(effective_assignee)
+            title = f"Campaign Rejected: {serial} ❌"
+            detail = f": {note}" if note else "."
+            body = f"{serial} ({client_name}) was rejected by {actor_name}{detail}"
+
+        elif act in ("return_to_creative", "return"):
+            recipients = await _find_creative_leads()
+            if creator_id:
+                recipients.append(creator_id)
+            if effective_assignee:
+                recipients.append(effective_assignee)
+            title = f"Campaign Returned to Creative: {serial} ↩️"
+            detail = f": {note}" if note else "."
+            body = f"{serial} ({client_name}) was returned to creative by {actor_name}{detail}"
+
         elif act == "comment":
             recipients = [u for u in [effective_assignee, creator_id] if u]
             if not recipients:
@@ -2235,6 +2459,25 @@ async def stream_public_asset(
     target_url = target.get("thumbnail_url") if (thumb and target.get("thumbnail_url")) else target.get("url")
     if not target_url:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset file not found.")
+
+    clean_url = target_url.lstrip("/").replace("api/uploads/", "").replace("uploads/", "")
+    doc_id = str(presented.get("id") or "")
+    doc_serial = str(presented.get("serial") or "")
+    gdrive_id = str(target.get("google_drive_file_id") or "")
+    gdrive_thumb_id = str(target.get("google_drive_thumb_file_id") or "")
+
+    is_valid_internal = clean_url.startswith("content_calendar/") and (
+        f"content_calendar/{doc_id}/" in clean_url
+        or (doc_serial and f"content_calendar/{doc_serial}/" in clean_url)
+        or clean_url.startswith("content_calendar/")
+    )
+    is_valid_gdrive = clean_url.startswith("gdrive/") and (
+        (gdrive_id and gdrive_id in clean_url)
+        or (gdrive_thumb_id and gdrive_thumb_id in clean_url)
+    )
+
+    if not (is_valid_internal or is_valid_gdrive):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this asset.")
 
     from app.core.uploads import open_upload_response
     range_header = request.headers.get("range") if request else None

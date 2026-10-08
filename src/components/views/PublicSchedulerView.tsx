@@ -6,10 +6,8 @@ import {
   Mail,
   Phone,
   Globe,
-  ChevronLeft,
-  ChevronRight,
   ChevronDown,
-  CheckCircle2,
+  CircleCheck,
   Video,
   ArrowRight,
   ArrowLeft,
@@ -25,6 +23,10 @@ import {
   GraduationCap,
   MapPin,
 } from 'lucide-react';
+import { BrandMark } from '../ui/BrandMark';
+import { Calendar } from '../ui/calendar';
+import { buttonVariants } from '../ui/button';
+import { cn } from '../../lib/utils';
 import { API_BASE_URL } from '../../services/apiClient';
 import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
 import {
@@ -35,8 +37,6 @@ import {
   validatePhoneNumber,
   validateWebsiteUrl,
 } from '../crm/leadFieldValidation';
-
-const ReamarcLogo3D = React.lazy(() => import('../ui/ReamarcLogo3D'));
 
 interface SchedulerConfig {
   title: string;
@@ -149,21 +149,21 @@ export interface TopicOption {
 export const TOPIC_OPTIONS: TopicOption[] = [
   {
     value: 'branding_and_marketing',
-    label: 'BRANDING AND MARKETING SERVICES',
-    description: '(get you free audit/assessment)',
+    label: 'Branding and Marketing',
+    description: 'Free audit & growth strategy session',
     icon: Briefcase,
   },
   {
-    value: 'jobs_and_career',
-    label: 'JOBS AND CAREERS',
-    description: '(HR, Hiring, Open vacancies)',
-    icon: GraduationCap,
+    value: 'collaboration_and_partnership',
+    label: 'Partnership & Alliance',
+    description: 'Agency alliances & executive office',
+    icon: Users,
   },
   {
-    value: 'collaboration_and_partnership',
-    label: 'COLLABORATION AND PARTNERSHIP',
-    description: '(Agency Alliances, CEO Office)',
-    icon: Users,
+    value: 'jobs_and_career',
+    label: 'Jobs and Careers',
+    description: 'HR, hiring & open vacancies',
+    icon: GraduationCap,
   },
 ];
 
@@ -220,25 +220,24 @@ function CountryCodeDropdown({ value, onChange }: CountryCodeDropdownProps) {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`h-10 px-2.5 sm:px-3 rounded-xl text-xs font-semibold flex items-center justify-between gap-1.5 sm:gap-2 transition border cursor-pointer select-none min-w-[86px] sm:min-w-[100px] touch-manipulation ${
+        className={cn(
+          'h-10 px-2.5 sm:px-3 rounded-md text-xs font-medium flex items-center justify-between gap-1.5 transition-colors border select-none min-w-[86px] sm:min-w-[96px] cursor-pointer',
           isOpen
-            ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100 shadow-xs'
-            : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 text-zinc-900 dark:text-zinc-100'
-        }`}
+            ? 'bg-surface border-accent ring-1 ring-accent text-fg'
+            : 'bg-surface border-border hover:border-border-strong text-fg'
+        )}
       >
         <span className="flex items-center gap-1.5 truncate">
-          <span className="text-base shrink-0 leading-none">{selectedCountry.flag}</span>
-          <span className="text-xs font-semibold">{selectedCountry.code}</span>
+          <span className="text-sm shrink-0 leading-none">{selectedCountry.flag}</span>
+          <span className="text-xs font-mono">{selectedCountry.code}</span>
         </span>
         <ChevronDown
-          className={`w-3.5 h-3.5 text-zinc-400 transition-transform duration-200 shrink-0 ${
-            isOpen ? 'rotate-180 text-blue-500' : ''
-          }`}
+          className={cn('w-3.5 h-3.5 text-fg-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180 text-fg')}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 top-full mt-1.5 z-50 w-60 max-w-[calc(100vw-2.5rem)] p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-0.5 max-h-56 overflow-y-auto">
+        <div className="absolute left-0 top-full mt-1.5 z-50 w-60 max-w-[calc(100vw-2.5rem)] p-1 rounded-lg bg-surface border border-border shadow-md space-y-0.5 max-h-56 overflow-y-auto">
           {COUNTRY_CODES.map((c) => {
             const isSelected = c.code === value;
             return (
@@ -249,18 +248,19 @@ function CountryCodeDropdown({ value, onChange }: CountryCodeDropdownProps) {
                   onChange(c.code);
                   setIsOpen(false);
                 }}
-                className={`w-full px-2.5 py-2 rounded-xl text-left transition flex items-center justify-between gap-2 text-xs cursor-pointer touch-manipulation ${
+                className={cn(
+                  'w-full px-2.5 py-1.5 rounded-md text-left transition-colors flex items-center justify-between gap-2 text-xs cursor-pointer',
                   isSelected
-                    ? 'bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 font-semibold'
-                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/70 border border-transparent text-zinc-800 dark:text-zinc-200'
-                }`}
+                    ? 'bg-accent-soft text-accent-text font-medium'
+                    : 'hover:bg-hover text-fg'
+                )}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-base shrink-0 leading-none">{c.flag}</span>
-                  <span className="font-bold shrink-0">{c.code}</span>
-                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400 truncate">{c.name}</span>
+                  <span className="text-sm shrink-0 leading-none">{c.flag}</span>
+                  <span className="font-mono font-medium shrink-0">{c.code}</span>
+                  <span className="text-xs text-fg-muted truncate">{c.name}</span>
                 </div>
-                {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-blue-600 dark:text-blue-400" />}
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-accent-text" />}
               </button>
             );
           })}
@@ -306,24 +306,23 @@ function FormSelect({
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`w-full h-10 px-3.5 rounded-xl flex items-center justify-between gap-2 text-sm sm:text-xs font-medium transition border cursor-pointer select-none touch-manipulation ${
+        className={cn(
+          'w-full h-10 px-3 rounded-md flex items-center justify-between gap-2 text-xs font-normal transition-colors border select-none cursor-pointer',
           isOpen
-            ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100'
-            : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 text-zinc-900 dark:text-zinc-100'
-        }`}
+            ? 'bg-surface border-accent ring-1 ring-accent text-fg'
+            : 'bg-surface border-border hover:border-border-strong text-fg'
+        )}
       >
-        <span className={`truncate ${selected ? '' : 'text-zinc-400 dark:text-zinc-500'}`}>
+        <span className={cn('truncate', !selected && 'text-fg-faint')}>
           {selected ? selected.label : placeholder}
         </span>
         <ChevronDown
-          className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
-            isOpen ? 'rotate-180 text-blue-500' : ''
-          }`}
+          className={cn('w-3.5 h-3.5 text-fg-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180 text-fg')}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-0.5 max-h-60 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1 rounded-lg bg-surface border border-border shadow-md space-y-0.5 max-h-60 overflow-y-auto">
           {options.map((opt) => {
             const isSelected = opt.value === value;
             return (
@@ -334,11 +333,12 @@ function FormSelect({
                   onChange(opt.value);
                   setIsOpen(false);
                 }}
-                className={`w-full px-3 py-2 rounded-xl text-left transition flex items-center justify-between gap-2 text-xs cursor-pointer touch-manipulation ${
+                className={cn(
+                  'w-full px-3 py-1.5 rounded-md text-left transition-colors flex items-center justify-between gap-2 text-xs cursor-pointer',
                   isSelected
-                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400 font-semibold'
-                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/70 text-zinc-800 dark:text-zinc-200'
-                }`}
+                    ? 'bg-accent-soft text-accent-text font-medium'
+                    : 'hover:bg-hover text-fg'
+                )}
               >
                 <span className="truncate">{opt.label}</span>
                 {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
@@ -365,22 +365,24 @@ function FormOption({
       type="button"
       onClick={onToggle}
       aria-pressed={checked}
-      className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left text-sm sm:text-xs font-medium transition cursor-pointer touch-manipulation ${
+      className={cn(
+        'w-full flex items-center gap-2.5 px-3 py-2 rounded-md border text-left text-xs font-normal transition-colors cursor-pointer',
         checked
-          ? 'bg-blue-500/10 border-blue-500 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500/20'
-          : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 text-zinc-800 dark:text-zinc-200 hover:border-blue-500/40'
-      }`}
+          ? 'bg-accent-soft/40 border-accent text-fg'
+          : 'bg-surface border-border hover:border-border-strong text-fg'
+      )}
     >
       <span
-        className={`w-4 h-4 rounded-md border flex items-center justify-center shrink-0 ${
+        className={cn(
+          'w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors',
           checked
-            ? 'bg-blue-600 border-blue-600 text-white'
-            : 'bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-600'
-        }`}
+            ? 'bg-accent border-accent text-white'
+            : 'bg-surface border-border-strong text-transparent'
+        )}
       >
-        {checked && <Check className="w-3 h-3" />}
+        <Check className="w-3 h-3" />
       </span>
-      <span>{label}</span>
+      <span className="truncate">{label}</span>
     </button>
   );
 }
@@ -416,27 +418,24 @@ function RoleDropdown({ value, onChange, options }: RoleDropdownProps) {
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
-        className={`w-full h-10 px-3.5 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold transition border cursor-pointer select-none touch-manipulation ${
+        className={cn(
+          'w-full h-10 px-3 rounded-md flex items-center justify-between gap-2.5 text-xs font-normal transition-colors border select-none cursor-pointer',
           isOpen
-            ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100 shadow-xs'
-            : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/40 text-zinc-900 dark:text-zinc-100'
-        }`}
+            ? 'bg-surface border-accent ring-1 ring-accent text-fg'
+            : 'bg-surface border-border hover:border-border-strong text-fg'
+        )}
       >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <div className="w-6 h-6 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-            <Briefcase className="w-3.5 h-3.5" />
-          </div>
+        <div className="flex items-center gap-2 min-w-0">
+          <Briefcase className="w-3.5 h-3.5 text-fg-muted shrink-0" />
           <span className="truncate">{value || 'Select a position'}</span>
         </div>
         <ChevronDown
-          className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
-            isOpen ? 'rotate-180 text-blue-500' : ''
-          }`}
+          className={cn('w-3.5 h-3.5 text-fg-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180 text-fg')}
         />
       </button>
 
       {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-1 max-h-60 overflow-y-auto">
+        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1 rounded-lg bg-surface border border-border shadow-md space-y-0.5 max-h-60 overflow-y-auto">
           {options.map((role) => {
             const isSelected = role === value;
             return (
@@ -447,25 +446,15 @@ function RoleDropdown({ value, onChange, options }: RoleDropdownProps) {
                   onChange(role);
                   setIsOpen(false);
                 }}
-                className={`w-full px-3 py-2.5 rounded-xl text-left transition flex items-center justify-between gap-2 text-xs cursor-pointer touch-manipulation ${
+                className={cn(
+                  'w-full px-3 py-1.5 rounded-md text-left transition-colors flex items-center justify-between gap-2 text-xs cursor-pointer',
                   isSelected
-                    ? 'bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400 font-bold'
-                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/70 border border-transparent text-zinc-800 dark:text-zinc-200 font-medium'
-                }`}
+                    ? 'bg-accent-soft text-accent-text font-medium'
+                    : 'hover:bg-hover text-fg'
+                )}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 ${
-                      isSelected
-                        ? 'bg-blue-600 text-white shadow-xs'
-                        : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-                    }`}
-                  >
-                    <Briefcase className="w-3 h-3" />
-                  </div>
-                  <span className="truncate">{role}</span>
-                </div>
-                {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-blue-600 dark:text-blue-400" />}
+                <span className="truncate">{role}</span>
+                {isSelected && <Check className="w-3.5 h-3.5 shrink-0" />}
               </button>
             );
           })}
@@ -475,7 +464,7 @@ function RoleDropdown({ value, onChange, options }: RoleDropdownProps) {
   );
 }
 
-export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'light' }) {
+export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'light' }) {
   const isEmbed = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
     return params.get('embed') === 'true';
@@ -486,8 +475,8 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     return params.get('theme') || theme;
   }, [theme]);
 
-  // Selected Inquiry Topic: 'branding_and_marketing' | 'jobs_and_career' | 'collaboration_and_partnership' | null
-  const [topic, setTopic] = useState<MeetingTopic | null>(() => {
+  // Selected Inquiry Topic: 'branding_and_marketing' | 'jobs_and_career' | 'collaboration_and_partnership'
+  const [topic, setTopic] = useState<MeetingTopic>(() => {
     const params = new URLSearchParams(window.location.search);
     const q = (params.get('topic') || params.get('intent') || params.get('type') || params.get('tab') || '').toLowerCase();
     if (q.includes('job') || q.includes('career') || q.includes('interview') || q.includes('hiring') || q.includes('vacanc') || q.includes('hr')) {
@@ -496,24 +485,19 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     if (q.includes('collab') || q.includes('partner') || q.includes('alliance') || q.includes('ceo')) {
       return 'collaboration_and_partnership';
     }
-    if (q.includes('brand') || q.includes('market') || q.includes('audit') || q.includes('assess')) {
-      return 'branding_and_marketing';
-    }
-    return null;
+    return 'branding_and_marketing';
   });
 
-  // View steps for Client flow: 1 = date & slot, 2 = brief form, 3 = confirmation
+  // Steps: 1 = date & slot, 2 = brief form, 3 = confirmation
   const [step, setStep] = useState<Step>(1);
 
   // Scheduler metadata
   const [config, setConfig] = useState<SchedulerConfig>({
-    title: 'Digital Services Consultancy Session',
+    title: 'Book a meeting',
     description: (
-      "Hi! thanks for showing interest.\n" +
-      "Our upcoming 30-minute meeting will provide an excellent opportunity for us to get better acquainted. " +
-      "During our conversation, we'll explore the challenges you're currently encountering and brainstorm ways in which " +
-      "we can collaborate effectively to address them and meet your specific requirements.\n" +
-      "I'm eagerly looking forward to our discussion. Thanks once again!"
+      "Hi! Thanks for your interest in Reamarc.\n" +
+      "This 30-minute introductory meeting is an opportunity to discuss your goals, explore the challenges " +
+      "you're encountering, and see how our team can help you build and scale."
     ),
     host_name: 'Muhammad Faizan Khan',
     duration_minutes: 30,
@@ -532,7 +516,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   });
 
   // Calendar State
-  const [currentMonth, setCurrentMonth] = useState(() => civilDateFromYmd(ymdInTimeZone('Asia/Karachi')));
+  const [currentMonth, setCurrentMonth] = useState<Date>(() => civilDateFromYmd(ymdInTimeZone('Asia/Karachi')));
   const [selectedDate, setSelectedDate] = useState<Date | null>(() => {
     const tz = 'Asia/Karachi';
     const today = civilDateFromYmd(ymdInTimeZone(tz));
@@ -601,9 +585,19 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   }, [isTopicDropdownOpen]);
 
   const selectedTopicOption = useMemo(() => {
-    return TOPIC_OPTIONS.find((o) => o.value === topic) || null;
+    return TOPIC_OPTIONS.find((o) => o.value === topic) || TOPIC_OPTIONS[0];
   }, [topic]);
 
+  const isDateDisabled = (d: Date) => {
+    const tzToday = ymdInTimeZone(config.timezone || 'Asia/Karachi');
+    const dStr = formatCivilYmd(d);
+    if (dStr < tzToday) return true;
+    const isoDay = d.getDay() === 0 ? 7 : d.getDay();
+    const workingDays = config.working_days || [1, 2, 3, 4, 5, 6];
+    if (!workingDays.includes(isoDay)) return true;
+    if (fullyBookedDates.includes(dStr)) return true;
+    return false;
+  };
 
   const handleTopicChange = (newTopic: MeetingTopic) => {
     setTopic(newTopic);
@@ -643,7 +637,11 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
         }
         if (res.ok) {
           const data = await res.json();
-          setConfig((prev) => ({ ...prev, ...data }));
+          setConfig((prev) => ({
+            ...prev,
+            ...data,
+            title: data.title && !data.title.includes('Digital Services Consultancy') ? data.title : prev.title,
+          }));
         }
       } catch {
         // Fallback to initial defaults
@@ -670,7 +668,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
           }
         }
       } catch {
-        // Fallback: keep previous or empty
+        // Fallback
       }
     };
 
@@ -705,7 +703,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     }
   }, [fullyBookedDates]);
 
-  // Fetch slots whenever selectedDate changes (only if meeting topic is selected)
+  // Fetch slots whenever selectedDate changes
   useEffect(() => {
     if (!selectedDate || !topic || topic === 'jobs_and_career') {
       setSlots([]);
@@ -742,48 +740,6 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     void fetchSlots();
   }, [selectedDate, topic, slotsRefreshKey]);
 
-  // Calendar Helpers
-  const daysInMonth = useMemo(() => {
-    const year = currentMonth.getFullYear();
-    const month = currentMonth.getMonth();
-    const firstDay = new Date(year, month, 1).getDay(); // 0 = Sun, 1 = Mon...
-    const totalDays = new Date(year, month + 1, 0).getDate();
-    return { firstDay, totalDays };
-  }, [currentMonth]);
-
-  const monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-
-  const handlePrevMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1, 1));
-  };
-
-  const handleNextMonth = () => {
-    setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1, 1));
-  };
-
-  const isSameDay = (d1: Date, d2: Date | null) => {
-    if (!d2) return false;
-    return (
-      d1.getFullYear() === d2.getFullYear() &&
-      d1.getMonth() === d2.getMonth() &&
-      d1.getDate() === d2.getDate()
-    );
-  };
-
-  const isDateDisabled = (d: Date) => {
-    const tzToday = ymdInTimeZone(config.timezone || 'Asia/Karachi');
-    const dStr = formatCivilYmd(d);
-    if (dStr < tzToday) return true;
-    const isoDay = d.getDay() === 0 ? 7 : d.getDay();
-    const workingDays = config.working_days || [1, 2, 3, 4, 5, 6];
-    if (!workingDays.includes(isoDay)) return true;
-    if (fullyBookedDates.includes(dStr)) return true;
-    return false;
-  };
-
   const toggleService = (srv: string) => {
     setSelectedServices((prev) => {
       const next = prev.includes(srv) ? prev.filter((s) => s !== srv) : [...prev, srv];
@@ -807,8 +763,6 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     setBookingError(null);
 
     const dateStr = formatCivilYmd(selectedDate);
-
-    // Read UTMs from parent / current window URL
     const urlParams = new URLSearchParams(window.location.search);
     const fullPhone = `${countryCode} ${phone.trim()}`;
     const helpOptions = topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH;
@@ -820,6 +774,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     const companyError = validateCompanyName(company);
     const websiteError = validateWebsiteUrl(website, noWebsite);
     const noteError = validateDescription(note, 'The description');
+
     if (nameError) problems.name = nameError;
     if (emailError) problems.email = emailError;
     if (phoneError) problems.phone = phoneError;
@@ -834,6 +789,7 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     if (!startTimeline) problems.start = 'Select when you are looking to start.';
     if (!meetingMode) problems.meeting = 'Select a meeting method.';
     if (noteError) problems.note = noteError;
+
     const firstProblem = Object.values(problems)[0];
     if (firstProblem) {
       setFieldErrors(problems);
@@ -969,13 +925,11 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
     }
 
     const text = messageLines.join('\n');
-
     const rawHrPhone = config.hr_whatsapp || '+923265550022';
     const cleanHrPhone = rawHrPhone.replace(/[^0-9]/g, '');
     const waUrl = `https://wa.me/${cleanHrPhone}?text=${encodeURIComponent(text)}`;
     setLastWhatsAppUrl(waUrl);
 
-    // Best-effort non-blocking backup log to backend
     try {
       void fetch(getApiUrl('/crm/public/careers/inquiry'), {
         method: 'POST',
@@ -990,10 +944,9 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
         }),
       }).catch(() => {});
     } catch {
-      // Ignore network errors on non-critical backup log
+      // Ignore backup log failure
     }
 
-    // Open WhatsApp (use direct navigation on mobile to avoid popup blockers)
     const isMobile = typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '');
     if (isMobile) {
       window.location.href = waUrl;
@@ -1018,907 +971,853 @@ export function PublicSchedulerView({ theme = 'dark' }: { theme?: 'dark' | 'ligh
   const isDark = embedTheme === 'dark';
 
   useEffect(() => {
-    if (isEmbed) {
-      document.documentElement.classList.remove('dark', 'light');
-      document.documentElement.classList.add(embedTheme);
-      document.body.classList.remove('dark', 'light');
-      document.body.classList.add(embedTheme);
-    }
-  }, [isEmbed, embedTheme]);
+    const activeTheme = embedTheme || theme;
+    const isDarkTheme = activeTheme === 'dark';
+    document.documentElement.classList.toggle('dark', isDarkTheme);
+    document.documentElement.classList.toggle('light', !isDarkTheme);
+    document.body.classList.toggle('dark', isDarkTheme);
+    document.body.classList.toggle('light', !isDarkTheme);
+  }, [embedTheme, theme]);
+
+  const hostInitials = useMemo(() => {
+    if (!config.host_name) return 'R';
+    return config.host_name
+      .split(' ')
+      .map((n) => n[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join('')
+      .toUpperCase();
+  }, [config.host_name]);
+
+  const displayTitle = config.title || 'Book a meeting';
 
   return (
     <div
-      className={`${isDark ? 'dark' : ''} min-h-screen flex items-center justify-center ${
-        isEmbed
-          ? 'bg-transparent p-0'
-          : isDark
-          ? 'bg-[#09090b] text-zinc-100 p-2.5 sm:p-4 md:p-6'
-          : 'bg-slate-50 text-slate-900 p-2.5 sm:p-4 md:p-6'
-      }`}
+      className={cn(
+        isDark ? 'dark' : '',
+        'min-h-screen flex items-center justify-center font-sans antialiased',
+        isEmbed ? 'bg-transparent p-0' : 'bg-canvas text-fg p-3 sm:p-6 md:p-8'
+      )}
     >
+      {/* 960px 2-column card (§ 13.19) */}
       <div
-        className={`w-full max-w-4xl rounded-2xl transition-all duration-300 ${
-          isEmbed
-            ? isDark
-              ? 'bg-zinc-900/95 border border-zinc-800 shadow-2xl p-3.5 sm:p-6'
-              : 'bg-white border border-zinc-200 shadow-lg p-3.5 sm:p-6'
-            : isDark
-            ? 'bg-zinc-900 border border-zinc-800/80 shadow-2xl p-4 sm:p-6 md:p-8'
-            : 'bg-white border border-slate-200 shadow-xl p-4 sm:p-6 md:p-8'
-        }`}
+        className={cn(
+          'w-full max-w-[960px] bg-surface rounded-xl border border-border shadow-xs overflow-hidden',
+          isEmbed ? 'border border-border' : ''
+        )}
       >
-        {/* Header Section */}
-        <div className="border-b border-zinc-200 dark:border-zinc-800 pb-4 sm:pb-5 mb-5 sm:mb-6">
-          <div className="flex flex-wrap items-start justify-between gap-3 sm:gap-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-3 sm:gap-3.5">
-                <React.Suspense
-                  fallback={<div style={{ width: 40, height: 40 }} className="shrink-0" />}
-                >
-                  <ReamarcLogo3D size={40} className="shrink-0" />
-                </React.Suspense>
-                <h1 className="text-lg sm:text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 leading-snug">
-                  {config.title || 'Digital Services Consultancy Session'}
-                </h1>
+        <div className="flex flex-col md:flex-row">
+          {/* LEFT COLUMN (320px on desktop): Meeting summary (§ 13.19) */}
+          <div className="w-full md:w-80 md:min-w-[320px] md:max-w-[320px] shrink-0 border-b md:border-b-0 md:border-r border-border p-6 bg-surface flex flex-col justify-between">
+            <div className="space-y-5">
+              {/* Brand mark + Wordmark */}
+              <div className="flex items-center gap-2.5">
+                <BrandMark size={28} />
+                <span className="font-semibold text-base text-fg tracking-tight">Reamarc</span>
               </div>
-              <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1.5 sm:mt-2 max-w-2xl whitespace-pre-line leading-relaxed">
-                {config.description}
-              </p>
+
+              {/* Host Avatar & Name */}
+              <div className="flex items-center gap-3 pt-1">
+                <div className="w-10 h-10 rounded-full bg-accent-soft text-accent-text flex items-center justify-center text-xs font-semibold shrink-0">
+                  {hostInitials}
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs text-fg-muted uppercase tracking-wider font-medium">Host</div>
+                  <div className="text-sm font-semibold text-fg truncate">{config.host_name}</div>
+                </div>
+              </div>
+
+              {/* Meeting Title & Meta */}
+              <div className="space-y-2 pt-1">
+                <h1 className="text-lg font-semibold text-fg tracking-tight leading-snug">
+                  {topic === 'jobs_and_career' ? 'Careers & Applications' : displayTitle}
+                </h1>
+
+                <div className="flex flex-col gap-1.5 text-xs text-fg-muted">
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                    <span>{config.duration_minutes} min duration</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Video className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                    <span>Google Meet, Zoom, Teams or Office</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div className="text-xs text-fg-muted leading-relaxed whitespace-pre-line border-t border-border pt-3">
+                {topic === 'jobs_and_career'
+                  ? 'Join the Reamarc team. Submit your details and direct application note to connect with our talent team.'
+                  : config.description}
+              </div>
+
+              {/* Topic / Purpose Selector */}
+              <div className="border-t border-border pt-3 space-y-1.5" ref={topicDropdownRef}>
+                <label className="text-xs font-semibold uppercase tracking-wider text-fg-muted block">
+                  Purpose / Topic
+                </label>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setIsTopicDropdownOpen((prev) => !prev)}
+                    className={cn(
+                      'w-full h-9 px-2.5 rounded-md border text-xs font-medium flex items-center justify-between gap-2 transition-colors cursor-pointer select-none',
+                      isTopicDropdownOpen
+                        ? 'border-accent ring-1 ring-accent bg-surface text-fg'
+                        : 'border-border hover:border-border-strong bg-surface text-fg'
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <selectedTopicOption.icon className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                      <span className="truncate">{selectedTopicOption.label}</span>
+                    </div>
+                    <ChevronDown
+                      className={cn('w-3.5 h-3.5 text-fg-muted transition-transform shrink-0', isTopicDropdownOpen && 'rotate-180 text-fg')}
+                    />
+                  </button>
+
+                  {isTopicDropdownOpen && (
+                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1 rounded-lg bg-surface border border-border shadow-md space-y-0.5">
+                      {TOPIC_OPTIONS.map((opt) => {
+                        const isSelected = topic === opt.value;
+                        const Icon = opt.icon;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => handleTopicChange(opt.value)}
+                            className={cn(
+                              'w-full px-2.5 py-2 rounded-md text-left transition-colors flex items-start gap-2.5 cursor-pointer',
+                              isSelected ? 'bg-accent-soft text-accent-text font-medium' : 'hover:bg-hover text-fg'
+                            )}
+                          >
+                            <Icon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                              <div className="text-xs leading-tight font-medium">{opt.label}</div>
+                              <div className="text-[10px] text-fg-muted mt-0.5 leading-tight">{opt.description}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
 
-            {/* Badges - Constant Always */}
-            <div className="flex flex-wrap items-center gap-2 sm:gap-3 shrink-0">
-              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                <Clock className="w-3.5 h-3.5 text-blue-500" />
-                <span>{config.duration_minutes} Mins</span>
-              </div>
-              <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                <Video className="w-3.5 h-3.5 text-blue-500" />
-                <span>Meet, Zoom or Office</span>
-              </div>
+            {/* Left Column Footer note */}
+            <div className="pt-6 border-t border-border mt-6 flex items-center gap-2 text-xs text-fg-faint">
+              <ShieldCheck className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+              <span>Mon – Sat (Asia/Karachi PKT)</span>
             </div>
           </div>
-        </div>
 
-        {/* STEP 1: PURPOSE / TOPIC SELECTION (Modern Custom Dropdown) */}
-        {!(topic !== 'jobs_and_career' && step === 3 && bookingResult) &&
-          !(topic === 'jobs_and_career' && candidateSubmitted) && (
-            <div
-              className={
-                topic && topic !== 'jobs_and_career' && step === 1
-                  ? 'mb-6 pb-6 border-b border-zinc-200 dark:border-zinc-800'
-                  : topic
-                    ? 'mb-6'
-                    : ''
-              }
-              ref={topicDropdownRef}
-            >
-              <div className="flex items-center gap-2 mb-3">
-                <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold shadow-xs">
-                  1
-                </span>
-                <label className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
-                  Select Purpose / Topic <span className="text-rose-500">*</span>
-                </label>
-              </div>
+          {/* RIGHT COLUMN: Calendar / Form / Confirmation (§ 13.19) */}
+          <div className="flex-1 p-5 sm:p-6 bg-surface overflow-y-auto">
+            {/* STEP 1: Date & Time Picker */}
+            {topic !== 'jobs_and_career' && step === 1 && (
+              <div className="space-y-6">
+                <div>
+                  <h2 className="text-sm font-semibold text-fg">Select date and time</h2>
+                  <p className="text-xs text-fg-muted mt-0.5">Choose an available date and time slot for your session.</p>
+                </div>
 
-              <div className="relative w-full">
-                <button
-                  type="button"
-                  onClick={() => setIsTopicDropdownOpen((prev) => !prev)}
-                  className={`w-full h-12 px-4 rounded-xl flex items-center justify-between gap-3 text-xs font-semibold transition border cursor-pointer select-none touch-manipulation ${
-                    isTopicDropdownOpen
-                      ? 'bg-white dark:bg-zinc-900 border-blue-500 ring-2 ring-blue-500/20 text-zinc-900 dark:text-zinc-100 shadow-md'
-                      : selectedTopicOption
-                      ? 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/50 text-zinc-900 dark:text-zinc-100'
-                      : 'bg-zinc-50 dark:bg-zinc-950 border-zinc-200 dark:border-zinc-800 hover:border-blue-500/50 text-zinc-400 dark:text-zinc-500'
-                  }`}
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    {selectedTopicOption ? (
-                      <>
-                        <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center shrink-0">
-                          <selectedTopicOption.icon className="w-4 h-4" />
-                        </div>
-                        <div className="text-left min-w-0">
-                          <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                            {selectedTopicOption.label}
-                          </div>
-                        </div>
-                      </>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+                  {/* Calendar Widget */}
+                  <div className="border border-border rounded-lg p-2.5 bg-surface">
+                    <Calendar
+                      mode="single"
+                      selected={selectedDate || undefined}
+                      onSelect={(date) => {
+                        if (date) setSelectedDate(date);
+                      }}
+                      month={currentMonth}
+                      onMonthChange={setCurrentMonth}
+                      disabled={(date) => isDateDisabled(date)}
+                      className="p-0 bg-transparent text-fg"
+                      classNames={{
+                        month_caption: 'flex justify-center pt-0 relative items-center mb-2',
+                        caption_label: 'text-xs font-semibold text-fg',
+                        day: 'h-8 w-8 text-center text-xs p-0 relative',
+                        day_button: cn(
+                          buttonVariants({ variant: 'ghost' }),
+                          'h-8 w-8 p-0 font-medium text-fg aria-selected:opacity-100 hover:bg-hover rounded-md select-none font-numeric'
+                        ),
+                        selected: 'bg-accent text-white hover:bg-accent hover:text-white focus:bg-accent focus:text-white rounded-md font-semibold',
+                        disabled: 'text-fg-faint opacity-35 cursor-not-allowed no-underline',
+                      }}
+                    />
+                  </div>
+
+                  {/* Time Slots Column */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between border-b border-border pb-2">
+                      <div className="text-xs font-semibold text-fg flex items-center gap-1.5">
+                        <Clock className="w-3.5 h-3.5 text-fg-muted" />
+                        <span>Available times</span>
+                      </div>
+                      {selectedDate && (
+                        <span className="text-xs text-fg-muted font-mono font-medium">
+                          {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                      )}
+                    </div>
+
+                    {loadingSlots ? (
+                      <div className="flex flex-col items-center justify-center p-8 text-fg-muted">
+                        <Loader2 className="w-5 h-5 animate-spin text-accent mb-2" />
+                        <span className="text-xs">Checking availability…</span>
+                      </div>
+                    ) : slots.length === 0 || !slots.some((s) => s.available) ? (
+                      <div className="flex flex-col items-center justify-center p-8 border border-dashed border-border rounded-lg text-center">
+                        <CalendarIcon className="w-6 h-6 text-fg-faint mb-2" />
+                        <p className="text-xs font-medium text-fg">No available slots for this date</p>
+                        <p className="text-xs text-fg-muted mt-0.5">Please choose another day on the calendar.</p>
+                      </div>
                     ) : (
-                      <div className="text-zinc-400 dark:text-zinc-500 flex items-center gap-2">
-                        <span>Select what this is regarding...</span>
+                      <div className="grid grid-cols-2 gap-2 max-h-[320px] overflow-y-auto pr-1">
+                        {slots.map((slot) => {
+                          const isSelected = selectedSlot?.time === slot.time;
+                          return (
+                            <button
+                              key={slot.time}
+                              type="button"
+                              disabled={!slot.available}
+                              onClick={() => {
+                                setSelectedSlot(slot);
+                                setStep(2);
+                              }}
+                              className={cn(
+                                'h-10 px-3 rounded-md border text-xs font-medium transition-colors flex items-center justify-between cursor-pointer select-none font-numeric',
+                                isSelected
+                                  ? 'bg-accent text-white border-accent'
+                                  : slot.available
+                                  ? 'border-border text-fg hover:border-border-strong hover:bg-hover'
+                                  : 'border-border/30 text-fg-faint bg-subtle cursor-not-allowed opacity-40'
+                              )}
+                            >
+                              <span>{slot.label}</span>
+                              {slot.available && <ArrowRight className="w-3 h-3 text-fg-muted" />}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
+                </div>
+              </div>
+            )}
 
-                  <ChevronDown
-                    className={`w-4 h-4 text-zinc-400 transition-transform duration-200 shrink-0 ${
-                      isTopicDropdownOpen ? 'rotate-180 text-blue-500' : ''
-                    }`}
-                  />
-                </button>
+            {/* STEP 2: Booking Details Form */}
+            {topic !== 'jobs_and_career' && step === 2 && selectedDate && selectedSlot && (
+              <form onSubmit={handleConfirmBooking} noValidate className="space-y-5">
+                {/* Header with Back button */}
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                  <div>
+                    <h2 className="text-sm font-semibold text-fg">Enter your details</h2>
+                    <p className="text-xs text-fg-muted mt-0.5">Please provide your contact information and meeting details.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="inline-flex items-center gap-1 text-xs text-fg-muted hover:text-fg font-medium transition-colors cursor-pointer"
+                  >
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back</span>
+                  </button>
+                </div>
 
-                {isTopicDropdownOpen && (
-                  <div className="absolute left-0 right-0 top-full mt-2 z-50 p-1.5 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-1 max-h-80 overflow-y-auto">
-                    {TOPIC_OPTIONS.map((opt) => {
-                      const isSelected = topic === opt.value;
-                      const Icon = opt.icon;
-                      return (
-                        <button
-                          key={opt.value}
-                          type="button"
-                          onClick={() => {
-                            handleTopicChange(opt.value);
-                            setIsTopicDropdownOpen(false);
-                          }}
-                          className={`w-full p-3 rounded-xl text-left transition flex items-start justify-between gap-3 cursor-pointer touch-manipulation ${
-                            isSelected
-                              ? 'bg-blue-500/10 border border-blue-500/30 text-blue-600 dark:text-blue-400'
-                              : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/70 border border-transparent text-zinc-800 dark:text-zinc-200'
-                          }`}
-                        >
-                          <div className="flex items-start gap-3 min-w-0">
-                            <div
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                                isSelected
-                                  ? 'bg-blue-600 text-white shadow-xs'
-                                  : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400'
-                              }`}
-                            >
-                              <Icon className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                                {opt.label}
-                              </div>
-                              <div className="text-[11px] text-zinc-500 dark:text-zinc-400 font-normal mt-0.5 leading-snug">
-                                {opt.description}
-                              </div>
-                            </div>
-                          </div>
+                {/* Selected Time Pill */}
+                <div className="flex items-center justify-between p-3 rounded-md bg-subtle border border-border text-xs">
+                  <div className="flex items-center gap-2 text-fg">
+                    <CalendarIcon className="w-4 h-4 text-accent shrink-0" />
+                    <span className="font-mono">
+                      {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
+                      {' at '}
+                      <strong>{selectedSlot.label}</strong> (PKT)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStep(1)}
+                    className="text-xs font-medium text-accent hover:underline cursor-pointer"
+                  >
+                    Change
+                  </button>
+                </div>
 
-                          {isSelected && (
-                            <div className="w-5 h-5 rounded-full bg-blue-600 text-white flex items-center justify-center shrink-0 mt-1">
-                              <Check className="w-3 h-3" />
-                            </div>
-                          )}
-                        </button>
-                      );
-                    })}
+                {bookingError && (
+                  <div role="alert" className="p-3 rounded-md bg-danger-soft border border-danger-border text-danger-fg text-xs font-medium">
+                    {bookingError}
                   </div>
                 )}
-              </div>
-            </div>
-          )}
 
-        {/* STEP 2: DATE & TIME SELECTION — only after a purpose is selected */}
-        {topic && topic !== 'jobs_and_career' && step === 1 && (
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-            {/* Calendar Column */}
-            <div className="md:col-span-7 space-y-4">
-              <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold bg-blue-600 text-white shadow-xs">
-                    2
-                  </span>
-                  <CalendarIcon className="w-4 h-4 text-blue-500" />
-                  Select a Date
-                </h2>
-                <div className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={handlePrevMonth}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer touch-manipulation"
-                    title="Previous month"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-semibold px-2 text-zinc-800 dark:text-zinc-200 min-w-[110px] text-center">
-                    {monthNames[currentMonth.getMonth()]} {currentMonth.getFullYear()}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleNextMonth}
-                    className="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-300 transition cursor-pointer touch-manipulation"
-                    title="Next month"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Calendar Grid */}
-              <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-2.5 sm:p-3 bg-zinc-50/50 dark:bg-zinc-950/40">
-                <div className="grid grid-cols-7 gap-1 text-center mb-2">
-                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                    <span key={d} className="text-[11px] font-bold text-zinc-400 dark:text-zinc-500 py-1">
-                      {d}
-                    </span>
-                  ))}
-                </div>
-                <div className="grid grid-cols-7 gap-1">
-                  {Array.from({ length: daysInMonth.firstDay }).map((_, i) => (
-                    <div key={`empty-${i}`} className="p-2" />
-                  ))}
-                  {Array.from({ length: daysInMonth.totalDays }).map((_, i) => {
-                    const d = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), i + 1);
-                    const dStr = formatCivilYmd(d);
-                    const isBookedOut = fullyBookedDates.includes(dStr);
-                    const disabled = isDateDisabled(d);
-                    const selected = isSameDay(d, selectedDate);
-
-                    return (
-                      <button
-                        key={`day-${i + 1}`}
-                        type="button"
-                        disabled={disabled}
-                        onClick={() => setSelectedDate(d)}
-                        title={isBookedOut ? 'Fully booked' : undefined}
-                        className={`h-9 sm:h-10 rounded-lg text-xs font-medium transition flex items-center justify-center cursor-pointer touch-manipulation select-none active:scale-95 ${
-                          selected
-                            ? 'bg-blue-600 text-white font-bold shadow-md shadow-blue-600/25'
-                            : disabled
-                            ? isBookedOut
-                              ? 'text-zinc-400 dark:text-zinc-600 cursor-not-allowed opacity-40 line-through'
-                              : 'text-zinc-300 dark:text-zinc-700 cursor-not-allowed opacity-30'
-                            : 'hover:bg-blue-500/15 hover:text-blue-600 dark:hover:text-blue-400 text-zinc-800 dark:text-zinc-200'
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 text-[11px] text-zinc-500 dark:text-zinc-400">
-                <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-                <span>Working days: Monday – Saturday (Asia/Karachi PKT)</span>
-              </div>
-            </div>
-
-            {/* Time Slots Column */}
-            <div className="md:col-span-5 flex flex-col space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold uppercase tracking-wider text-zinc-600 dark:text-zinc-400 flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-blue-500" />
-                  Available Times
-                </h2>
-                {selectedDate && (
-                  <span className="text-xs text-zinc-500 font-medium">
-                    {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-              </div>
-
-              {loadingSlots ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 text-zinc-400">
-                  <Loader2 className="w-6 h-6 animate-spin text-blue-500 mb-2" />
-                  <span className="text-xs">Checking real-time schedule…</span>
-                </div>
-              ) : slots.length === 0 || !slots.some((s) => s.available) ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-8 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl text-center">
-                  <CalendarIcon className="w-8 h-8 text-zinc-400 mb-2" />
-                  <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    {slots.length > 0 && !slots.some((s) => s.available)
-                      ? 'All slots booked for this date'
-                      : 'No available slots'}
-                  </p>
-                  <p className="text-[11px] text-zinc-400 mt-1">Please select another date on the calendar.</p>
-                </div>
-              ) : (
-                <div className="flex-1 max-h-[280px] sm:max-h-[320px] overflow-y-auto space-y-1.5 pr-1 custom-scrollbar">
-                  {slots.map((slot) => {
-                    const isSelected = selectedSlot?.time === slot.time;
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        disabled={!slot.available}
-                        onClick={() => {
-                          setSelectedSlot(slot);
-                          setStep(2);
-                        }}
-                        className={`w-full py-2.5 sm:py-3 px-3 rounded-xl text-xs font-semibold flex items-center justify-between border transition cursor-pointer touch-manipulation active:scale-[0.99] ${
-                          isSelected
-                            ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-600/25'
-                            : slot.available
-                            ? 'bg-zinc-100/80 dark:bg-zinc-800/60 hover:bg-blue-50 dark:hover:bg-blue-950/30 border-zinc-200 dark:border-zinc-700/60 hover:border-blue-500 text-zinc-800 dark:text-zinc-100'
-                            : 'bg-zinc-50 dark:bg-zinc-900/40 border-transparent text-zinc-300 dark:text-zinc-700 cursor-not-allowed opacity-40 line-through'
-                        }`}
-                      >
-                        <span>{slot.label}</span>
-                        {slot.available ? (
-                          <span className="text-[11px] font-normal text-blue-600 dark:text-blue-400 flex items-center gap-1">
-                            Select <ArrowRight className="w-3 h-3" />
-                          </span>
-                        ) : (
-                          <span className="text-[10px] uppercase font-bold text-zinc-400">Booked</span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* STEP 2: PROJECT BRIEF & DETAILS */}
-        {topic !== 'jobs_and_career' && step === 2 && selectedDate && selectedSlot && (
-          <form onSubmit={handleConfirmBooking} noValidate className="space-y-5">
-            {/* Selected Summary Pill */}
-            <div className="flex flex-wrap items-center justify-between gap-2.5 p-3 sm:p-3.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
-              <div className="flex items-center gap-2 text-blue-800 dark:text-blue-300 font-medium min-w-0">
-                <CalendarIcon className="w-4 h-4 text-blue-500 shrink-0" />
-                <span className="truncate sm:whitespace-normal">
-                  {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
-                  {' at '}
-                  <strong>{selectedSlot.label}</strong> (PKT)
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer ml-auto sm:ml-0 shrink-0 touch-manipulation"
-              >
-                Change Time
-              </button>
-            </div>
-
-            {bookingError && (
-              <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-medium">
-                {bookingError}
-              </div>
-            )}
-
-            {isLikelyJobSeeker && (
-              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs gap-2.5">
-                <span>Applying for a job? Please select JOBS AND CAREERS instead of booking a client meeting.</span>
-                <button
-                  type="button"
-                  onClick={() => handleTopicChange('jobs_and_career')}
-                  className="font-semibold underline text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 shrink-0 cursor-pointer touch-manipulation"
-                >
-                  Switch to Jobs &amp; Careers →
-                </button>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Full Name */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <User className="w-3.5 h-3.5 text-zinc-400" />
-                  Your Full Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Sarah Jenkins"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                />
-                {fieldErrors.name && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.name}</p>}
-              </div>
-
-              {/* Email Address */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-zinc-400" />
-                  Business Email <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="e.g. sarah@company.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                />
-                {fieldErrors.email && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.email}</p>}
-              </div>
-
-              {/* Phone / WhatsApp */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                  <Phone className="w-3.5 h-3.5 text-zinc-400" />
-                  Phone / WhatsApp <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <CountryCodeDropdown value={countryCode} onChange={setCountryCode} />
-                  <input
-                    type="tel"
-                    placeholder="300 1234567"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    className="flex-1 h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 min-w-0"
-                  />
-                </div>
-                {fieldErrors.phone && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.phone}</p>}
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Company / business name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Acme Corp"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                />
-                {fieldErrors.company && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.company}</p>}
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  What does your business do? <span className="text-rose-500">*</span>
-                </label>
-                <FormSelect
-                  value={industry}
-                  onChange={setIndustry}
-                  placeholder="Select"
-                  options={LEAD_INDUSTRIES.map((item) => ({ value: item, label: item }))}
-                />
-                {fieldErrors.industry && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.industry}</p>}
-              </div>
-
-              <div className="sm:col-span-2 space-y-1.5">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Website / business URL {!noWebsite && <span className="text-rose-500">*</span>}
-                </label>
-                <input
-                  type="text"
-                  disabled={noWebsite}
-                  placeholder="https://acmecorp.com"
-                  value={website}
-                  onChange={(e) => setWebsite(e.target.value)}
-                  className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-                />
-                {fieldErrors.website && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.website}</p>}
-                <FormOption
-                  checked={noWebsite}
-                  label="No website"
-                  onToggle={() => {
-                    setNoWebsite((prev) => {
-                      if (!prev) setWebsite('');
-                      return !prev;
-                    });
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                {topic === 'collaboration_and_partnership'
-                  ? 'What type of collaboration are you interested in?'
-                  : 'What do you need help with?'}{' '}
-                <span className="text-rose-500">*</span>
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH).map((srv) => (
-                  <FormOption
-                    key={srv}
-                    checked={selectedServices.includes(srv)}
-                    label={srv}
-                    onToggle={() => toggleService(srv)}
-                  />
-                ))}
-              </div>
-              {fieldErrors.help && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.help}</p>}
-              {selectedServices.includes('Other') && (
-                <label className="block space-y-1.5">
-                  <span className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                    Describe the specific need <span className="text-rose-500">*</span>
-                  </span>
-                  <textarea
-                    rows={2}
-                    value={helpOther}
-                    onChange={(e) => setHelpOther(e.target.value)}
-                    placeholder="What else do you need help with?"
-                    className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none"
-                  />
-                  {fieldErrors.helpOther && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.helpOther}</p>}
-                </label>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                When are you looking to start? <span className="text-rose-500">*</span>
-              </label>
-              <FormSelect
-                value={startTimeline}
-                onChange={setStartTimeline}
-                placeholder="Select"
-                options={LEAD_START_TIMELINES.map((item) => ({ value: item, label: item }))}
-              />
-              {fieldErrors.start && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.start}</p>}
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Preferred Meeting Method <span className="text-rose-500">*</span>
-              </label>
-              <FormSelect
-                value={meetingMode}
-                onChange={(value) => setMeetingMode(value as MeetingMode)}
-                options={MEETING_MODE_OPTIONS}
-              />
-            </div>
-
-            {/* Project Brief */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                Briefly describe what you need <span className="text-rose-500">*</span>
-              </label>
-              <textarea
-                rows={3}
-                placeholder="What are you trying to achieve, and what problem are you facing?"
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none leading-relaxed"
-              />
-              {fieldErrors.note && <p className="text-[11px] font-medium text-rose-600 dark:text-rose-400">{fieldErrors.note}</p>}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 transition flex items-center justify-center gap-1.5 shadow-xs cursor-pointer touch-manipulation"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Back</span>
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 disabled:opacity-50 cursor-pointer touch-manipulation"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>Confirming Session…</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Confirm Strategy Session</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </>
-                )}
-              </button>
-            </div>
-          </form>
-        )}
-
-        {/* STEP 3: CONFIRMATION & CALENDAR LINKS */}
-        {topic !== 'jobs_and_career' && step === 3 && bookingResult && (
-          <div className="text-center py-6 sm:py-8 space-y-6">
-            <div className="w-16 h-16 rounded-full bg-blue-500/15 text-blue-500 flex items-center justify-center mx-auto ring-8 ring-blue-500/10 animate-bounce-short">
-              <CheckCircle2 className="w-8 h-8" />
-            </div>
-
-            <div>
-              <h2 className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">
-                You're Scheduled!
-              </h2>
-              <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1 max-w-md mx-auto">
-                Your session is booked. The meeting link will be sent to you on WhatsApp.
-              </p>
-            </div>
-
-            {/* Booking Details Card */}
-            <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-left space-y-2.5 text-xs">
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-zinc-400 shrink-0">Meeting:</span>
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-right">
-                  {bookingResult.meeting?.title}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-zinc-400 shrink-0">Date &amp; Time:</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400 text-right">
-                  {bookingResult.meeting?.date} at {bookingResult.meeting?.time_label} ({bookingResult.meeting?.timezone || config.timezone})
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-zinc-400 shrink-0">Host:</span>
-                <span className="font-medium text-zinc-800 dark:text-zinc-200 text-right">
-                  {bookingResult.meeting?.host_name}
-                </span>
-              </div>
-              <div className="flex flex-wrap items-center justify-between gap-1">
-                <span className="text-zinc-400 shrink-0">Meeting Method:</span>
-                <span className="font-semibold text-zinc-900 dark:text-zinc-100 text-right">
-                  {MEETING_MODE_OPTIONS.find((opt) => opt.value === bookingResult.meeting?.meeting_mode)?.label
-                    || bookingResult.meeting?.location_label
-                    || 'Google Meet'}
-                </span>
-              </div>
-            </div>
-
-            {bookingResult.meeting?.meeting_mode === 'in_person' ? (
-              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-amber-500/10 border border-amber-500/25 text-left space-y-2 text-xs">
-                <div className="font-bold text-amber-800 dark:text-amber-200">
-                  Office visit
-                </div>
-                <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
-                  {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
-                </p>
-                <a
-                  href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="font-semibold text-amber-700 dark:text-amber-300 underline inline-flex items-center gap-1"
-                >
-                  <span>View on Google Maps</span>
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            ) : (
-              <div className="max-w-md mx-auto p-3.5 sm:p-4 rounded-2xl bg-blue-500/10 border border-blue-500/25 text-left text-xs">
-                <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed">
-                  The sales person in charge will send the meeting link on WhatsApp before the call.
-                </p>
-              </div>
-            )}
-
-            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-2.5 sm:gap-3 pt-2 max-w-sm sm:max-w-none mx-auto">
-              {bookingResult.meeting?.meeting_mode === 'in_person' && (
-                <a
-                  href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-500 active:bg-amber-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md shadow-amber-600/25 cursor-pointer touch-manipulation"
-                >
-                  <MapPin className="w-4 h-4" />
-                  <span>View Office Map</span>
-                </a>
-              )}
-
-              <a
-                href={bookingResult.calendar_links?.google || '#'}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-zinc-900 hover:bg-zinc-800 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-md cursor-pointer touch-manipulation"
-              >
-                <CalendarIcon className="w-4 h-4" />
-                <span>Add to Google Calendar</span>
-              </a>
-
-              <a
-                href={bookingResult.calendar_links?.ics_path ? getApiUrl(bookingResult.calendar_links.ics_path) : '#'}
-                download
-                className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900/40 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-800 dark:text-zinc-200 text-xs font-semibold transition flex items-center justify-center gap-2 shadow-xs cursor-pointer touch-manipulation"
-              >
-                <Clock className="w-4 h-4 text-zinc-500 dark:text-zinc-400" />
-                <span>Outlook / iCal (.ics)</span>
-              </a>
-            </div>
-
-            <div className="pt-4">
-              <button
-                type="button"
-                onClick={handleBookAnotherSession}
-                className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 underline underline-offset-4 hover:underline transition cursor-pointer"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Book another session</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* CAREERS & INTERVIEW APPLICATION SECTION */}
-        {topic === 'jobs_and_career' && (
-          <div>
-            {candidateSubmitted ? (
-              <div className="text-center py-6 sm:py-8 space-y-6">
-                <div className="w-14 h-14 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 flex items-center justify-center mx-auto">
-                  <CheckCircle2 className="w-7 h-7" />
-                </div>
-
-                <div>
-                  <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">
-                    Application Ready
-                  </h2>
-                  <p className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400 mt-1 max-w-md mx-auto">
-                    Click below to send your application message to our HR team on WhatsApp.
-                  </p>
-                </div>
-
-                <div className="max-w-xs mx-auto pt-2">
-                  <a
-                    href={lastWhatsAppUrl || '#'}
-                    target={typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ? undefined : '_blank'}
-                    rel="noopener noreferrer"
-                    className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-semibold transition flex items-center justify-center gap-2 shadow-md shadow-blue-600/25 cursor-pointer touch-manipulation"
-                  >
-                    <MessageSquare className="w-4 h-4" />
-                    <span>Open WhatsApp</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-
-                <div className="pt-2 flex flex-wrap items-center justify-center gap-3 text-xs">
-                  <button
-                    type="button"
-                    onClick={handleResetCandidate}
-                    className="font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition cursor-pointer touch-manipulation"
-                  >
-                    Submit another application
-                  </button>
-                  <span className="text-zinc-300 dark:text-zinc-700 hidden sm:inline">·</span>
-                  <button
-                    type="button"
-                    onClick={() => handleTopicChange('branding_and_marketing')}
-                    className="font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer touch-manipulation"
-                  >
-                    Book a meeting instead
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <form onSubmit={handleCandidateSubmit} className="space-y-5">
-                {candidateError && (
-                  <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-medium">
-                    {candidateError}
+                {isLikelyJobSeeker && (
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-md bg-warning-soft border border-warning-border text-warning-fg text-xs gap-2">
+                    <span>Applying for a job? Please select Jobs &amp; Careers instead of booking a client meeting.</span>
+                    <button
+                      type="button"
+                      onClick={() => handleTopicChange('jobs_and_career')}
+                      className="font-medium underline hover:opacity-80 shrink-0 cursor-pointer"
+                    >
+                      Switch to Jobs &amp; Careers →
+                    </button>
                   </div>
                 )}
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Full Name */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-zinc-400" />
-                      Full Name <span className="text-rose-500">*</span>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Full Name</span>
+                      <span className="text-danger-fg">*</span>
                     </label>
                     <input
                       type="text"
-                      required
-                      placeholder="e.g. John Doe"
-                      value={candidateName}
-                      onChange={(e) => setCandidateName(e.target.value)}
-                      className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      autoComplete="name"
+                      placeholder="e.g. Sarah Jenkins"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
                     />
+                    {fieldErrors.name && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.name}</p>}
                   </div>
 
-                  {/* Email */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Mail className="w-3.5 h-3.5 text-zinc-400" />
-                      Email Address <span className="text-rose-500">*</span>
+                  {/* Business Email */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                      <Mail className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Work Email</span>
+                      <span className="text-danger-fg">*</span>
                     </label>
                     <input
                       type="email"
-                      required
-                      placeholder="e.g. john@example.com"
-                      value={candidateEmail}
-                      onChange={(e) => setCandidateEmail(e.target.value)}
-                      className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      autoComplete="email"
+                      placeholder="e.g. sarah@company.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
                     />
+                    {fieldErrors.email && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.email}</p>}
                   </div>
 
                   {/* Phone / WhatsApp */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Phone className="w-3.5 h-3.5 text-zinc-400" />
-                      Phone / WhatsApp <span className="text-rose-500">*</span>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                      <Phone className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Phone / WhatsApp</span>
+                      <span className="text-danger-fg">*</span>
                     </label>
                     <div className="flex gap-2">
-                      <CountryCodeDropdown
-                        value={candidateCountryCode}
-                        onChange={setCandidateCountryCode}
-                      />
+                      <CountryCodeDropdown value={countryCode} onChange={setCountryCode} />
                       <input
                         type="tel"
-                        required
+                        autoComplete="tel"
                         placeholder="300 1234567"
-                        value={candidatePhone}
-                        onChange={(e) => setCandidatePhone(e.target.value)}
-                        className="flex-1 h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 min-w-0"
+                        value={phone}
+                        onChange={(e) => setPhone(e.target.value)}
+                        className="flex-1 h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent min-w-0 font-mono"
                       />
                     </div>
+                    {fieldErrors.phone && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.phone}</p>}
                   </div>
 
-                  {/* Role Applied For */}
-                  <div className="space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Briefcase className="w-3.5 h-3.5 text-zinc-400" />
-                      Position Applying For <span className="text-rose-500">*</span>
+                  {/* Company */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg">
+                      <span>Company Name</span> <span className="text-danger-fg">*</span>
                     </label>
-                    <RoleDropdown
-                      value={candidateRole}
-                      onChange={setCandidateRole}
-                      options={config.careers_roles || DEFAULT_CAREERS_ROLES}
+                    <input
+                      type="text"
+                      autoComplete="organization"
+                      placeholder="e.g. Acme Corp"
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
                     />
+                    {fieldErrors.company && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.company}</p>}
                   </div>
 
-                  {/* Custom Role Input if 'Other Position' is selected */}
-                  {candidateRole === 'Other Position' && (
-                    <div className="sm:col-span-2 space-y-1.5">
-                      <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                        Specify Position <span className="text-rose-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        placeholder="e.g. Media Buyer / Animator"
-                        value={customRole}
-                        onChange={(e) => setCustomRole(e.target.value)}
-                        className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  )}
+                  {/* Industry */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg">
+                      <span>Business Industry</span> <span className="text-danger-fg">*</span>
+                    </label>
+                    <FormSelect
+                      value={industry}
+                      onChange={setIndustry}
+                      placeholder="Select industry"
+                      options={LEAD_INDUSTRIES.map((item) => ({ value: item, label: item }))}
+                    />
+                    {fieldErrors.industry && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.industry}</p>}
+                  </div>
 
-                  {/* Portfolio / LinkedIn / Resume Link */}
-                  <div className="sm:col-span-2 space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <Globe className="w-3.5 h-3.5 text-zinc-400" />
-                      Portfolio / CV Link (optional)
+                  {/* Website */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg">
+                      <span>Website / URL</span> {!noWebsite && <span className="text-danger-fg">*</span>}
                     </label>
                     <input
                       type="url"
-                      placeholder="https://linkedin.com/in/... or Google Drive link"
-                      value={candidatePortfolio}
-                      onChange={(e) => setCandidatePortfolio(e.target.value)}
-                      className="w-full h-10 px-3.5 py-2 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500"
+                      disabled={noWebsite}
+                      placeholder="https://example.com"
+                      value={website}
+                      onChange={(e) => setWebsite(e.target.value)}
+                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent disabled:opacity-50"
                     />
+                    {fieldErrors.website && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.website}</p>}
+                    <div className="pt-1">
+                      <FormOption
+                        checked={noWebsite}
+                        label="No website yet"
+                        onToggle={() => {
+                          setNoWebsite((prev) => {
+                            if (!prev) setWebsite('');
+                            return !prev;
+                          });
+                        }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Services Needed */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-fg">
+                    {topic === 'collaboration_and_partnership'
+                      ? 'What type of collaboration are you interested in?'
+                      : 'What do you need help with?'}{' '}
+                    <span className="text-danger-fg">*</span>
+                  </label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(topic === 'collaboration_and_partnership' ? COLLABORATION_SERVICES : LEAD_HELP_WITH).map((srv) => (
+                      <FormOption
+                        key={srv}
+                        checked={selectedServices.includes(srv)}
+                        label={srv}
+                        onToggle={() => toggleService(srv)}
+                      />
+                    ))}
+                  </div>
+                  {fieldErrors.help && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.help}</p>}
+                  {selectedServices.includes('Other') && (
+                    <div className="space-y-1 pt-1">
+                      <label className="text-xs font-medium text-fg">
+                        <span>Describe specific need</span> <span className="text-danger-fg">*</span>
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={helpOther}
+                        onChange={(e) => setHelpOther(e.target.value)}
+                        placeholder="What else do you need assistance with?"
+                        className="w-full p-2.5 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent resize-none"
+                      />
+                      {fieldErrors.helpOther && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.helpOther}</p>}
+                    </div>
+                  )}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Start Timeline */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg">
+                      <span>Target Start Timeline</span> <span className="text-danger-fg">*</span>
+                    </label>
+                    <FormSelect
+                      value={startTimeline}
+                      onChange={setStartTimeline}
+                      placeholder="Select timeline"
+                      options={LEAD_START_TIMELINES.map((item) => ({ value: item, label: item }))}
+                    />
+                    {fieldErrors.start && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.start}</p>}
                   </div>
 
-                  {/* Cover Note / Background */}
-                  <div className="sm:col-span-2 space-y-1.5">
-                    <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-zinc-400" />
-                      Short Note (optional)
+                  {/* Meeting Mode */}
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-fg">
+                      <span>Preferred Meeting Method</span> <span className="text-danger-fg">*</span>
                     </label>
-                    <textarea
-                      rows={3}
-                      placeholder="Brief note about your experience..."
-                      value={candidateNote}
-                      onChange={(e) => setCandidateNote(e.target.value)}
-                      className="w-full px-3.5 py-2.5 rounded-xl text-sm sm:text-xs bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-2 focus:ring-blue-500 resize-none leading-relaxed"
+                    <FormSelect
+                      value={meetingMode}
+                      onChange={(value) => setMeetingMode(value as MeetingMode)}
+                      options={MEETING_MODE_OPTIONS}
                     />
                   </div>
                 </div>
 
+                {/* Brief description / notes */}
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-fg">
+                    <span>Brief project notes</span> <span className="text-danger-fg">*</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Briefly describe what you are looking to achieve..."
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    className="w-full p-2.5 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent resize-none leading-relaxed"
+                  />
+                  {fieldErrors.note && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.note}</p>}
+                </div>
+
                 {/* Action Buttons */}
-                <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-2">
+                <div className="flex items-center justify-between pt-2 border-t border-border">
                   <button
                     type="button"
-                    onClick={() => handleTopicChange('branding_and_marketing')}
-                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 text-xs font-semibold text-zinc-600 dark:text-zinc-300 transition flex items-center justify-center cursor-pointer touch-manipulation"
+                    onClick={() => setStep(1)}
+                    className="h-10 px-4 rounded-md border border-border hover:bg-hover text-xs font-medium text-fg transition-colors flex items-center gap-1.5 cursor-pointer"
                   >
-                    Back to Meeting Scheduler
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back</span>
                   </button>
                   <button
                     type="submit"
-                    disabled={candidateSubmitting}
-                    className="w-full sm:w-auto px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white text-xs font-bold transition flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 disabled:opacity-50 cursor-pointer touch-manipulation"
+                    disabled={submitting}
+                    className="h-10 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
                   >
-                    {candidateSubmitting ? (
+                    {submitting ? (
                       <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>Opening WhatsApp…</span>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Confirming booking…</span>
                       </>
                     ) : (
                       <>
-                        <MessageSquare className="w-4 h-4" />
-                        <span>Continue to WhatsApp</span>
+                        <span>Confirm booking</span>
+                        <ArrowRight className="w-3.5 h-3.5" />
                       </>
                     )}
                   </button>
                 </div>
               </form>
             )}
+
+            {/* STEP 3: Confirmation Screen (§ 13.19) */}
+            {topic !== 'jobs_and_career' && step === 3 && bookingResult && (
+              <div className="text-center py-6 space-y-5">
+                {/* Success Tile */}
+                <div className="w-10 h-10 rounded-full bg-success-soft text-success-fg flex items-center justify-center mx-auto">
+                  <CircleCheck className="w-5 h-5" />
+                </div>
+
+                <div>
+                  <h2 className="text-lg font-semibold text-fg">You're booked</h2>
+                  <p className="text-xs text-fg-muted mt-1 max-w-sm mx-auto">
+                    Your session is confirmed. A meeting link and invitation will be sent to your WhatsApp.
+                  </p>
+                </div>
+
+                {/* Details Summary Card */}
+                <div className="max-w-md mx-auto p-4 rounded-lg bg-subtle border border-border text-left space-y-2 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-fg-muted">Meeting</span>
+                    <span className="font-medium text-fg text-right">{bookingResult.meeting?.title}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-fg-muted">Date &amp; Time</span>
+                    <span className="font-mono font-medium text-accent text-right">
+                      {bookingResult.meeting?.date} at {bookingResult.meeting?.time_label} ({bookingResult.meeting?.timezone || config.timezone})
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-fg-muted">Host</span>
+                    <span className="font-medium text-fg text-right">{bookingResult.meeting?.host_name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-fg-muted">Method</span>
+                    <span className="font-medium text-fg text-right">
+                      {MEETING_MODE_OPTIONS.find((opt) => opt.value === bookingResult.meeting?.meeting_mode)?.label ||
+                        bookingResult.meeting?.location_label ||
+                        'Google Meet'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* In-Person vs Virtual Location Info */}
+                {bookingResult.meeting?.meeting_mode === 'in_person' ? (
+                  <div className="max-w-md mx-auto p-3.5 rounded-lg bg-warning-soft border border-warning-border text-left space-y-1.5 text-xs">
+                    <div className="font-medium text-warning-fg">Office visit</div>
+                    <p className="text-fg-muted leading-relaxed">
+                      {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
+                    </p>
+                    <a
+                      href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="font-medium text-accent underline inline-flex items-center gap-1"
+                    >
+                      <span>View on Google Maps</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                ) : (
+                  <div className="max-w-md mx-auto p-3 rounded-lg bg-subtle border border-border text-left text-xs text-fg-muted">
+                    The meeting link will be shared via WhatsApp and email prior to the call.
+                  </div>
+                )}
+
+                {/* Calendar & Map Actions */}
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+                  {bookingResult.meeting?.meeting_mode === 'in_person' && (
+                    <a
+                      href={bookingResult.meeting?.office_map_url || 'https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA'}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="h-9 px-3.5 rounded-md border border-border hover:bg-hover text-fg text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
+                    >
+                      <MapPin className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>View Office Map</span>
+                    </a>
+                  )}
+
+                  <a
+                    href={bookingResult.calendar_links?.google || '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="h-9 px-3.5 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <CalendarIcon className="w-3.5 h-3.5" />
+                    <span>Add to Google Calendar</span>
+                  </a>
+
+                  <a
+                    href={bookingResult.calendar_links?.ics_path ? getApiUrl(bookingResult.calendar_links.ics_path) : '#'}
+                    download
+                    className="h-9 px-3.5 rounded-md border border-border hover:bg-hover text-fg text-xs font-medium inline-flex items-center gap-1.5 transition-colors"
+                  >
+                    <Clock className="w-3.5 h-3.5 text-fg-muted" />
+                    <span>Outlook / iCal (.ics)</span>
+                  </a>
+                </div>
+
+                {/* Ghost action: Book another time */}
+                <div className="pt-3">
+                  <button
+                    type="button"
+                    onClick={handleBookAnotherSession}
+                    className="inline-flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg font-medium transition-colors cursor-pointer"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Book another time</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* CAREERS & INTERVIEW APPLICATION SECTION */}
+            {topic === 'jobs_and_career' && (
+              <div>
+                {candidateSubmitted ? (
+                  <div className="text-center py-6 space-y-5">
+                    <div className="w-10 h-10 rounded-full bg-success-soft text-success-fg flex items-center justify-center mx-auto">
+                      <CircleCheck className="w-5 h-5" />
+                    </div>
+
+                    <div>
+                      <h2 className="text-lg font-semibold text-fg">Application ready</h2>
+                      <p className="text-xs text-fg-muted mt-1 max-w-sm mx-auto">
+                        Click below to send your application message to our HR team on WhatsApp.
+                      </p>
+                    </div>
+
+                    <div className="max-w-xs mx-auto pt-1">
+                      <a
+                        href={lastWhatsAppUrl || '#'}
+                        target={typeof navigator !== 'undefined' && /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent || '') ? undefined : '_blank'}
+                        rel="noopener noreferrer"
+                        className="h-10 px-5 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium inline-flex items-center justify-center gap-2 transition-colors w-full"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        <span>Open WhatsApp</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    </div>
+
+                    <div className="pt-2 flex items-center justify-center gap-3 text-xs">
+                      <button
+                        type="button"
+                        onClick={handleResetCandidate}
+                        className="text-fg-muted hover:text-fg font-medium transition-colors cursor-pointer"
+                      >
+                        Submit another application
+                      </button>
+                      <span className="text-border">•</span>
+                      <button
+                        type="button"
+                        onClick={() => handleTopicChange('branding_and_marketing')}
+                        className="text-accent hover:underline font-medium transition-colors cursor-pointer"
+                      >
+                        Book a meeting instead
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleCandidateSubmit} className="space-y-4">
+                    <div className="border-b border-border pb-3">
+                      <h2 className="text-sm font-semibold text-fg">Career Application</h2>
+                      <p className="text-xs text-fg-muted mt-0.5">Submit your details to apply for an open position at Reamarc.</p>
+                    </div>
+
+                    {candidateError && (
+                      <div role="alert" className="p-3 rounded-md bg-danger-soft border border-danger-border text-danger-fg text-xs font-medium">
+                        {candidateError}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Full Name */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <User className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Full Name</span>
+                          <span className="text-danger-fg">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="e.g. John Doe"
+                          value={candidateName}
+                          onChange={(e) => setCandidateName(e.target.value)}
+                          className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                        />
+                      </div>
+
+                      {/* Email */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <Mail className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Email Address</span>
+                          <span className="text-danger-fg">*</span>
+                        </label>
+                        <input
+                          type="email"
+                          required
+                          placeholder="e.g. john@example.com"
+                          value={candidateEmail}
+                          onChange={(e) => setCandidateEmail(e.target.value)}
+                          className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                        />
+                      </div>
+
+                      {/* Phone / WhatsApp */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <Phone className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Phone / WhatsApp</span>
+                          <span className="text-danger-fg">*</span>
+                        </label>
+                        <div className="flex gap-2">
+                          <CountryCodeDropdown
+                            value={candidateCountryCode}
+                            onChange={setCandidateCountryCode}
+                          />
+                          <input
+                            type="tel"
+                            required
+                            placeholder="300 1234567"
+                            value={candidatePhone}
+                            onChange={(e) => setCandidatePhone(e.target.value)}
+                            className="flex-1 h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent min-w-0 font-mono"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Position */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <Briefcase className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Position Applying For</span>
+                          <span className="text-danger-fg">*</span>
+                        </label>
+                        <RoleDropdown
+                          value={candidateRole}
+                          onChange={setCandidateRole}
+                          options={config.careers_roles || DEFAULT_CAREERS_ROLES}
+                        />
+                      </div>
+
+                      {/* Custom Role */}
+                      {candidateRole === 'Other Position' && (
+                        <div className="sm:col-span-2 space-y-1">
+                          <label className="text-xs font-medium text-fg">
+                            <span>Specify Position</span> <span className="text-danger-fg">*</span>
+                          </label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="e.g. Media Buyer / Animator"
+                            value={customRole}
+                            onChange={(e) => setCustomRole(e.target.value)}
+                            className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                          />
+                        </div>
+                      )}
+
+                      {/* Portfolio / Link */}
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Portfolio / CV Link (optional)</span>
+                        </label>
+                        <input
+                          type="url"
+                          placeholder="https://linkedin.com/in/... or Google Drive link"
+                          value={candidatePortfolio}
+                          onChange={(e) => setCandidatePortfolio(e.target.value)}
+                          className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                        />
+                      </div>
+
+                      {/* Note */}
+                      <div className="sm:col-span-2 space-y-1">
+                        <label className="text-xs font-medium text-fg flex items-center gap-1.5">
+                          <FileText className="w-3.5 h-3.5 text-fg-muted" />
+                          <span>Short Note (optional)</span>
+                        </label>
+                        <textarea
+                          rows={3}
+                          placeholder="Brief note about your experience..."
+                          value={candidateNote}
+                          onChange={(e) => setCandidateNote(e.target.value)}
+                          className="w-full p-2.5 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent resize-none leading-relaxed"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-border">
+                      <button
+                        type="button"
+                        onClick={() => handleTopicChange('branding_and_marketing')}
+                        className="h-10 px-4 rounded-md border border-border hover:bg-hover text-xs font-medium text-fg transition-colors cursor-pointer"
+                      >
+                        Back to Meeting Scheduler
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={candidateSubmitting}
+                        className="h-10 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                      >
+                        {candidateSubmitting ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Opening WhatsApp…</span>
+                          </>
+                        ) : (
+                          <>
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>Continue to WhatsApp</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,8 @@
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
 import type { Workspace } from '../types';
+
+const workspacesCache = new BoundedCache<Workspace[]>(2);
 
 export interface WorkspaceCreatePayload {
   name: string;
@@ -47,7 +50,23 @@ export interface WorkspaceUpdatePayload {
 
 export const workspaceService = {
   async getWorkspaces(): Promise<Workspace[]> {
-    return apiClient.get<Workspace[]>('/workspaces');
+    const res = await apiClient.get<Workspace[]>('/workspaces');
+    if (res) {
+      workspacesCache.set('workspaces', res);
+    }
+    return res;
+  },
+
+  getCachedWorkspaces(): CacheEntry<Workspace[]> | undefined {
+    return workspacesCache.get('workspaces');
+  },
+
+  setCachedWorkspaces(data: Workspace[]): void {
+    workspacesCache.set('workspaces', data);
+  },
+
+  clearAllCaches(): void {
+    workspacesCache.clear();
   },
 
   async createWorkspace(payload: WorkspaceCreatePayload): Promise<Workspace> {

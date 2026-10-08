@@ -1,4 +1,11 @@
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
+
+const dlColumnsCache = new BoundedCache<DailyLogColumn[]>(2);
+const dlSheetsCache = new BoundedCache<string[]>(2);
+const dlEntriesCache = new BoundedCache<DailyLogEntry[]>(10);
+const dlActivityCache = new BoundedCache<import('../types/dailyLog').UserLogActivity>(2);
+const dlDayTargetCache = new BoundedCache<import('../types/dailyLog').DayTarget>(5);
 import type {
   DailyLogEntry,
   DailyLogColumn,
@@ -106,6 +113,47 @@ export const dailyLogService = {
       `/daily-log/upload${qs}`,
       formData
     );
+  },
+
+  getCachedColumns(): CacheEntry<DailyLogColumn[]> | undefined {
+    return dlColumnsCache.get('columns');
+  },
+  setCachedColumns(data: DailyLogColumn[]): void {
+    dlColumnsCache.set('columns', data);
+  },
+  getCachedSheets(): CacheEntry<string[]> | undefined {
+    return dlSheetsCache.get('sheets');
+  },
+  setCachedSheets(data: string[]): void {
+    dlSheetsCache.set('sheets', data);
+  },
+  getCachedEntries(key: string): CacheEntry<DailyLogEntry[]> | undefined {
+    return dlEntriesCache.get(key);
+  },
+  setCachedEntries(key: string, data: DailyLogEntry[]): void {
+    dlEntriesCache.set(key, data);
+  },
+  getCachedActivity(): CacheEntry<import('../types/dailyLog').UserLogActivity> | undefined {
+    return dlActivityCache.get('activity');
+  },
+  setCachedActivity(data: import('../types/dailyLog').UserLogActivity): void {
+    dlActivityCache.set('activity', data);
+  },
+  getCachedDayTarget(date?: string): CacheEntry<import('../types/dailyLog').DayTarget> | undefined {
+    return dlDayTargetCache.get(date || 'today');
+  },
+  setCachedDayTarget(data: import('../types/dailyLog').DayTarget, date?: string): void {
+    dlDayTargetCache.set(date || 'today', data);
+  },
+  hasInitialCache(): boolean {
+    return dlEntriesCache.size() > 0;
+  },
+  clearAllCaches(): void {
+    dlColumnsCache.clear();
+    dlSheetsCache.clear();
+    dlEntriesCache.clear();
+    dlActivityCache.clear();
+    dlDayTargetCache.clear();
   },
 };
 

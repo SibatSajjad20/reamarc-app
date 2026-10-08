@@ -386,12 +386,11 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
     relative = normalize_upload_key(file_path)
     if relative.startswith("gdrive/"):
         from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_access import can_access_content_calendar
-        from app.services.content_calendar_workflow import client_owns, is_client
+        from app.services.content_calendar_workflow import can_view_item
         from app.services.google_drive_service import file_id_from_path
 
         role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES or can_access_content_calendar(current_user):
+        if role in _MANAGEMENT_ROLES:
             return
 
         file_id = file_id_from_path(relative)
@@ -405,7 +404,7 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
                     ]
                 }
             )
-        if is_client(current_user) and item and client_owns(current_user, item):
+        if item and can_view_item(current_user, item):
             return
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -414,31 +413,52 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
 
     if relative.startswith("content_calendar/"):
         from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_access import can_access_content_calendar
-        from app.services.content_calendar_workflow import is_client, client_owns
+        from app.services.content_calendar_workflow import can_view_item
 
         role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES or can_access_content_calendar(current_user):
+        if role in _MANAGEMENT_ROLES:
             return
 
-        if is_client(current_user):
-            meta = await get_upload_authz(db, file_path)
-            client_workspaces = [str(w) for w in (current_user.get("workspace_ids") or [])]
-            if meta.workspace_id and str(meta.workspace_id) in client_workspaces:
+        parts = relative.split("/")
+        if len(parts) >= 2 and db is not None:
+            item_id = parts[1]
+            item = await db.content_calendar_items.find_one(
+                {"$or": [{"id": item_id}, {"serial": item_id}]}
+            )
+            if item and can_view_item(current_user, item):
                 return
-
-            parts = relative.split("/")
-            if len(parts) >= 2 and db is not None:
-                item_id = parts[1]
-                item = await db.content_calendar_items.find_one(
-                    {"$or": [{"id": item_id}, {"serial": item_id}]}
-                )
-                if item and client_owns(current_user, item):
-                    return
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not authorized to access this file.",
+        )
+
+    if relative.startswith("website_projects/"):
+        from app.services.website_project_workflow import (
+            is_admin_or_ops,
+            is_website_lead,
+            is_client,
+            can_view_project,
+        )
+
+        if is_admin_or_ops(current_user) or is_website_lead(current_user):
+            return
+
+        parts = relative.split("/")
+        project_id = parts[1] if len(parts) >= 2 else None
+        if project_id and db is not None:
+            project = await db.website_projects.find_one({"id": project_id})
+            if project:
+                if is_client(current_user):
+                    client_workspaces = [str(w) for w in (current_user.get("workspace_ids") or [])]
+                    if str(project.get("workspace_id")) in client_workspaces:
+                        return
+                elif can_view_project(current_user, project):
+                    return
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not authorized to access this website project file.",
         )
 
     meta = await get_upload_authz(db, file_path)

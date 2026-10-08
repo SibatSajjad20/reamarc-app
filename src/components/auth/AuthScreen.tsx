@@ -2,23 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { authService } from '../../services/authService';
-
-const ReamarcLogo3D = React.lazy(() => import('../ui/ReamarcLogo3D'));
-import {
-  Lock,
-  Mail,
-  Sparkles,
-  ArrowRight,
-  ArrowLeft,
-  ShieldCheck,
-  Eye,
-  EyeOff,
-  KeyRound,
-  RotateCw,
-  Clock,
-  CheckCircle2,
-  X,
-} from 'lucide-react';
+import { BrandMark } from '../ui/BrandMark';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Checkbox } from '../ui/checkbox';
+import { Callout } from '../ui/Callout';
+import { InputOTP, InputOTPGroup, InputOTPSlot } from '../ui/input-otp';
+import { Clock, RotateCw } from 'lucide-react';
 
 type AuthScreenMode = 'login' | 'forgot_email' | 'forgot_code' | 'forgot_password';
 
@@ -29,13 +19,10 @@ export const AuthScreen: React.FC = () => {
   const [mode, setMode] = useState<AuthScreenMode>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-
-  const [showPassword, setShowPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -57,19 +44,20 @@ export const AuthScreen: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (!email.trim() || !password.trim()) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
       setErrorMessage('Please fill in all required fields.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await login({ email: email.trim(), password });
-      addToast('Welcome Back! 👋', 'Signed into Reamarc AI.', 'success');
+      await login({ email: cleanEmail, password });
+      addToast('Signed in', undefined, 'success');
     } catch (err: any) {
-      const msg = err.message || 'Authentication failed. Please check your credentials.';
+      const msg = err.message || 'Incorrect email or password.';
       setErrorMessage(msg);
-      addToast('Authentication Failed', msg, 'warning');
+      addToast('Authentication Failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -80,26 +68,27 @@ export const AuthScreen: React.FC = () => {
     setErrorMessage(null);
     setSuccessMessage(null);
 
-    if (!email.trim()) {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
       setErrorMessage('Please enter your email address.');
       return;
     }
 
     setIsSubmitting(true);
     try {
-      await authService.forgotPassword(email.trim());
+      await authService.forgotPassword(cleanEmail);
       setResendCountdown(60);
       setCode('');
       setMode('forgot_code');
       addToast(
-        'Verification Code Sent 📩',
-        `If ${email.trim()} is registered, a 6-digit code has been dispatched.`,
+        'Code sent',
+        `If ${cleanEmail} is registered, a 6-digit code has been dispatched.`,
         'info'
       );
     } catch (err: any) {
       const msg = err.message || 'Failed to send verification code.';
       setErrorMessage(msg);
-      addToast('Request Failed', msg, 'warning');
+      addToast('Request Failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -107,20 +96,21 @@ export const AuthScreen: React.FC = () => {
 
   const handleResendCode = async () => {
     if (resendCountdown > 0 || isSubmitting) return;
+    const cleanEmail = email.trim();
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
-      await authService.forgotPassword(email.trim());
+      await authService.forgotPassword(cleanEmail);
       setResendCountdown(60);
       addToast(
-        'Verification Code Resent 📩',
-        `A new 6-digit code was sent to ${email.trim()}.`,
+        'Code resent',
+        `A new 6-digit code was sent to ${cleanEmail}.`,
         'info'
       );
     } catch (err: any) {
       const msg = err.message || 'Failed to resend verification code.';
       setErrorMessage(msg);
-      addToast('Resend Failed', msg, 'warning');
+      addToast('Resend Failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -143,11 +133,11 @@ export const AuthScreen: React.FC = () => {
       setNewPassword('');
       setConfirmPassword('');
       setMode('forgot_password');
-      addToast('Code Verified ✅', 'Please create your new password.', 'success');
+      addToast('Code verified', 'Please create your new password.', 'success');
     } catch (err: any) {
       const msg = err.message || 'Invalid or expired verification code.';
       setErrorMessage(msg);
-      addToast('Verification Failed', msg, 'warning');
+      addToast('Verification Failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -177,7 +167,7 @@ export const AuthScreen: React.FC = () => {
       });
 
       addToast(
-        'Password Reset Successfully! 🎉',
+        'Password updated',
         'You can now sign in with your new password.',
         'success'
       );
@@ -190,520 +180,462 @@ export const AuthScreen: React.FC = () => {
     } catch (err: any) {
       const msg = err.message || 'Failed to reset password. Please try again.';
       setErrorMessage(msg);
-      addToast('Reset Failed', msg, 'warning');
+      addToast('Reset Failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 dark:bg-zinc-950/80 backdrop-blur-md text-zinc-900 dark:text-zinc-100 overflow-y-auto p-4 select-none font-sans">
-      {/* Background Glow */}
-      <div className="absolute top-1/3 left-1/3 w-[350px] h-[350px] bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
+    <div className="flex h-screen w-full bg-canvas text-fg overflow-hidden select-none">
+      {/* Left panel: Form column */}
+      <div className="w-full lg:w-[600px] shrink-0 bg-surface flex flex-col p-8 sm:p-10 border-r border-border overflow-y-auto min-h-full">
+        {/* Brand header */}
+        <div className="flex items-center gap-2.5">
+          <BrandMark size={28} />
+          <span className="text-[15px] font-semibold text-fg">Reamarc</span>
+        </div>
 
-      {/* Main Container Card */}
-      <div className="relative w-full max-w-md bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-3xl shadow-2xl p-8 space-y-6">
-        {/* Brand Header */}
-        <div className="text-center space-y-2">
-          <div className="flex items-center justify-center mb-1">
-            <React.Suspense fallback={<div style={{ width: 56, height: 56 }} className="shrink-0" />}>
-              <ReamarcLogo3D size={56} />
-            </React.Suspense>
-          </div>
-          <h2 className="text-2xl font-extrabold text-slate-900 dark:text-zinc-100 tracking-tight">
-            Reamarc AI
+        {/* Centered form wrapper */}
+        <div className="w-full max-w-[380px] m-auto py-8">
+          {/* Alerts */}
+          {errorMessage && (
+            <Callout
+              variant="danger"
+              role="alert"
+              className="mb-5 animate-in fade-in duration-120"
+            >
+              {errorMessage}
+            </Callout>
+          )}
+
+          {successMessage && (
+            <Callout
+              variant="success"
+              role="status"
+              className="mb-5 animate-in fade-in duration-120"
+            >
+              {successMessage}
+            </Callout>
+          )}
+
+          {/* MODE 1: LOGIN */}
+          {mode === 'login' && (
+            <div className="animate-in fade-in slide-in-from-bottom-2 duration-[240ms] ease-[var(--ease-standard)]">
+              <h1 className="text-[26px] leading-[32px] font-semibold tracking-[-0.02em] text-fg">
+                Sign in to Reamarc
+              </h1>
+              <p className="text-body text-fg-muted mt-1.5">
+                Welcome back. Use your work email.
+              </p>
+
+              <form onSubmit={handleLogin} className="mt-7 space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="login-email" className="block text-label font-medium text-fg">
+                    Work email
+                  </label>
+                  <Input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="name@reamarc.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label htmlFor="login-password" className="block text-label font-medium text-fg">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      onClick={() => {
+                        setErrorMessage(null);
+                        setSuccessMessage(null);
+                        setMode('forgot_email');
+                      }}
+                      className="text-ui font-medium text-accent-text hover:underline cursor-pointer disabled:opacity-50"
+                    >
+                      Forgot password?
+                    </button>
+                  </div>
+                  <Input
+                    id="login-password"
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder="••••••••••••"
+                    value={password}
+                    onChange={(e) => {
+                      setPassword(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <Checkbox
+                    id="remember-me"
+                    checked={rememberMe}
+                    onCheckedChange={(checked) => setRememberMe(!!checked)}
+                    disabled={isSubmitting}
+                  />
+                  <label
+                    htmlFor="remember-me"
+                    className="text-ui font-normal text-fg-2 cursor-pointer select-none"
+                  >
+                    Keep me signed in on this device
+                  </label>
+                </div>
+
+                <div className="pt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    size="lg"
+                    loading={isSubmitting}
+                    disabled={isSubmitting}
+                    className="h-10 text-body font-medium"
+                  >
+                    {isSubmitting ? 'Signing in…' : 'Sign in'}
+                  </Button>
+                </div>
+
+                <p className="text-small text-fg-muted mt-5 text-center">
+                  New to Reamarc? Ask your admin for an invite.
+                </p>
+              </form>
+            </div>
+          )}
+
+          {/* MODE 2: FORGOT PASSWORD - STEP 1 (EMAIL ENTRY) */}
+          {mode === 'forgot_email' && (
+            <div className="animate-in fade-in duration-160">
+              <h1 className="text-[26px] leading-[32px] font-semibold tracking-[-0.02em] text-fg">
+                Forgot your password?
+              </h1>
+              <p className="text-body text-fg-muted mt-1.5">
+                Enter your registered email address and we'll send you a 6-digit verification code.
+              </p>
+
+              <form onSubmit={handleSendCode} className="mt-7 space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="forgot-email" className="block text-label font-medium text-fg">
+                    Work email
+                  </label>
+                  <Input
+                    id="forgot-email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    placeholder="name@reamarc.com"
+                    value={email}
+                    onChange={(e) => {
+                      setEmail(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="pt-2 space-y-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    size="lg"
+                    loading={isSubmitting}
+                    disabled={isSubmitting}
+                    className="h-10 text-body font-medium"
+                  >
+                    {isSubmitting ? 'Sending code…' : 'Send verification code'}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    block
+                    size="md"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setMode('login');
+                    }}
+                    className="text-ui font-medium text-fg-2 hover:text-fg"
+                  >
+                    Back to sign in
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* MODE 3: FORGOT PASSWORD - STEP 2 (CODE ENTRY) */}
+          {mode === 'forgot_code' && (
+            <div className="animate-in fade-in duration-160">
+              <h1 className="text-[26px] leading-[32px] font-semibold tracking-[-0.02em] text-fg">
+                Enter verification code
+              </h1>
+              <p className="text-body text-fg-muted mt-1.5">
+                We sent a 6-digit code to{' '}
+                <span className="font-medium text-fg">{email}</span>. Code expires in 10 minutes.
+              </p>
+
+              <form onSubmit={handleVerifyCode} className="mt-7 space-y-5">
+                <div className="space-y-2 text-center">
+                  <label htmlFor="otp-input" className="block text-label font-medium text-fg">
+                    6-digit verification code
+                  </label>
+                  <InputOTP
+                    id="otp-input"
+                    maxLength={6}
+                    value={code}
+                    onChange={(val) => {
+                      setCode(val);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    autoFocus
+                  >
+                    <InputOTPGroup>
+                      <InputOTPSlot index={0} />
+                      <InputOTPSlot index={1} />
+                      <InputOTPSlot index={2} />
+                      <InputOTPSlot index={3} />
+                      <InputOTPSlot index={4} />
+                      <InputOTPSlot index={5} />
+                    </InputOTPGroup>
+                  </InputOTP>
+                </div>
+
+                {/* Resend and change email row */}
+                <div className="flex items-center justify-between text-small pt-1">
+                  <button
+                    type="button"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setMode('forgot_email');
+                    }}
+                    className="text-fg-muted hover:text-fg underline cursor-pointer disabled:opacity-50"
+                  >
+                    Change email
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleResendCode}
+                    disabled={resendCountdown > 0 || isSubmitting}
+                    className="inline-flex items-center gap-1.5 font-medium text-accent-text hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer disabled:cursor-not-allowed"
+                  >
+                    {resendCountdown > 0 ? (
+                      <>
+                        <Clock className="w-3.5 h-3.5" /> Resend code in {resendCountdown}s
+                      </>
+                    ) : (
+                      <>
+                        <RotateCw className="w-3.5 h-3.5" /> Resend code
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <div className="pt-2 space-y-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    size="lg"
+                    loading={isSubmitting}
+                    disabled={isSubmitting || code.trim().length !== 6}
+                    className="h-10 text-body font-medium"
+                  >
+                    {isSubmitting ? 'Verifying…' : 'Verify code'}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    block
+                    size="md"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setMode('login');
+                    }}
+                    className="text-ui font-medium text-fg-2 hover:text-fg"
+                  >
+                    Back to sign in
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* MODE 4: FORGOT PASSWORD - STEP 3 (NEW PASSWORD ENTRY) */}
+          {mode === 'forgot_password' && (
+            <div className="animate-in fade-in duration-160">
+              <h1 className="text-[26px] leading-[32px] font-semibold tracking-[-0.02em] text-fg">
+                Create new password
+              </h1>
+              <p className="text-body text-fg-muted mt-1.5">
+                Choose a secure password for your account (minimum 8 characters).
+              </p>
+
+              <form onSubmit={handleResetPassword} className="mt-7 space-y-4">
+                <div className="space-y-1.5">
+                  <label htmlFor="new-password" className="block text-label font-medium text-fg">
+                    New password
+                  </label>
+                  <Input
+                    id="new-password"
+                    name="new-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••••••"
+                    value={newPassword}
+                    onChange={(e) => {
+                      setNewPassword(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    required
+                    autoFocus
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label htmlFor="confirm-password" className="block text-label font-medium text-fg">
+                    Confirm new password
+                  </label>
+                  <Input
+                    id="confirm-password"
+                    name="confirm-password"
+                    type="password"
+                    autoComplete="new-password"
+                    placeholder="••••••••••••"
+                    value={confirmPassword}
+                    onChange={(e) => {
+                      setConfirmPassword(e.target.value);
+                      if (errorMessage) setErrorMessage(null);
+                    }}
+                    disabled={isSubmitting}
+                    required
+                  />
+                </div>
+
+                {/* Validation indicators */}
+                <div className="space-y-1 pt-1 text-small">
+                  <div className="flex items-center gap-2 text-fg-muted">
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        newPassword.length >= 8 ? 'bg-success-dot' : 'bg-border-strong'
+                      }`}
+                    />
+                    <span className={newPassword.length >= 8 ? 'text-success-fg font-medium' : ''}>
+                      At least 8 characters
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 text-fg-muted">
+                    <div
+                      className={`w-1.5 h-1.5 rounded-full ${
+                        confirmPassword && newPassword === confirmPassword
+                          ? 'bg-success-dot'
+                          : 'bg-border-strong'
+                      }`}
+                    />
+                    <span
+                      className={
+                        confirmPassword && newPassword === confirmPassword
+                          ? 'text-success-fg font-medium'
+                          : ''
+                      }
+                    >
+                      Passwords match
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2 space-y-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    size="lg"
+                    loading={isSubmitting}
+                    disabled={
+                      isSubmitting ||
+                      newPassword.length < 8 ||
+                      newPassword !== confirmPassword
+                    }
+                    className="h-10 text-body font-medium"
+                  >
+                    {isSubmitting ? 'Updating password…' : 'Update password'}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    block
+                    size="md"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setErrorMessage(null);
+                      setMode('login');
+                    }}
+                    className="text-ui font-medium text-fg-2 hover:text-fg"
+                  >
+                    Back to sign in
+                  </Button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="text-small text-fg-muted flex items-center justify-between pt-6 mt-auto">
+          <span>© 2026 Reamarc</span>
+          <span>Privacy · Terms · Help</span>
+        </div>
+      </div>
+
+      {/* Right panel: Static preview panel (hidden on smaller screens) */}
+      <div className="hidden lg:flex flex-1 bg-canvas flex-col justify-center py-14 pl-16 pr-10 overflow-hidden relative select-none animate-in fade-in duration-[240ms] delay-[60ms] ease-[var(--ease-standard)]">
+        <div className="max-w-[520px]">
+          <h2 className="text-[22px] leading-[30px] font-semibold tracking-[-0.015em] text-fg">
+            Attendance, daily logs, leads and content approvals in one place.
           </h2>
-          <p className="text-xs text-slate-500 dark:text-zinc-400 font-medium">
-            Enterprise Multi-Tenant Director Portal
+          <p className="text-small text-fg-muted mt-2">
+            Built for the Reamarc team and its clients.
           </p>
         </div>
 
-        {/* Dynamic Wizard Step Indicators for Forgot Password */}
-        {mode !== 'login' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[11px] font-bold text-slate-500 dark:text-zinc-400 uppercase tracking-wider">
-              <span>
-                {mode === 'forgot_email' && 'Step 1 of 3: Email Address'}
-                {mode === 'forgot_code' && 'Step 2 of 3: Verification Code'}
-                {mode === 'forgot_password' && 'Step 3 of 3: Set New Password'}
-              </span>
-              <span className="text-blue-600 dark:text-blue-400">
-                {mode === 'forgot_email' && '33%'}
-                {mode === 'forgot_code' && '66%'}
-                {mode === 'forgot_password' && '100%'}
-              </span>
-            </div>
-            <div className="w-full bg-slate-100 dark:bg-zinc-800 h-1.5 rounded-full overflow-hidden">
-              <div
-                className="bg-blue-600 h-full transition-all duration-300 rounded-full"
-                style={{
-                  width:
-                    mode === 'forgot_email'
-                      ? '33.33%'
-                      : mode === 'forgot_code'
-                      ? '66.66%'
-                      : '100%',
-                }}
-              />
-            </div>
-          </div>
-        )}
-
-        {/* Error Alert Box */}
-        {errorMessage && (
-          <div
-            role="alert"
-            aria-live="polite"
-            className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between gap-2"
-          >
-            <span className="flex-1 text-center">{errorMessage}</span>
-            <button
-              type="button"
-              onClick={() => setErrorMessage(null)}
-              className="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 p-0.5 rounded cursor-pointer transition-colors"
-              aria-label="Dismiss error"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* Success Alert Box */}
-        {successMessage && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center justify-between gap-2"
-          >
-            <div className="flex items-center justify-center gap-1.5 flex-1">
-              <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-              <span>{successMessage}</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setSuccessMessage(null)}
-              className="text-emerald-400 hover:text-emerald-600 dark:hover:text-emerald-200 p-0.5 rounded cursor-pointer transition-colors"
-              aria-label="Dismiss success message"
-            >
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
-        {/* MODE 1: LOGIN */}
-        {mode === 'login' && (
-          <form onSubmit={handleLogin} className="space-y-4">
-            <div>
-              <label htmlFor="login-email" className="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1.5">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@reamarc.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                />
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label htmlFor="login-password" className="block text-xs font-bold text-slate-700 dark:text-zinc-300">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setErrorMessage(null);
-                    setSuccessMessage(null);
-                    setMode('forgot_email');
-                  }}
-                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline cursor-pointer disabled:opacity-50"
-                >
-                  Forgot Password?
-                </button>
-              </div>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="login-password"
-                  name="password"
-                  type={showPassword ? 'text' : 'password'}
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-3.5 text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 transition-colors"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" /> Authenticating...
-                </>
-              ) : (
-                <>
-                  Sign In to Dashboard <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
-        )}
-
-        {/* MODE 2: FORGOT PASSWORD - STEP 1 (EMAIL ENTRY) */}
-        {mode === 'forgot_email' && (
-          <form onSubmit={handleSendCode} className="space-y-4">
-            <div className="text-center space-y-1 pb-1">
-              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100">
-                Forgot your password?
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Enter your registered email address and we'll send you a 6-digit verification code.
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="forgot-email" className="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1.5">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="forgot-email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  placeholder="admin@reamarc.com"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" /> Dispatching Code...
-                </>
-              ) : (
-                <>
-                  Send Verification Code <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => {
-                setErrorMessage(null);
-                setMode('login');
-              }}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors pt-2 cursor-pointer disabled:opacity-50"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" /> Back to Sign In
-            </button>
-          </form>
-        )}
-
-        {/* MODE 3: FORGOT PASSWORD - STEP 2 (CODE ENTRY) */}
-        {mode === 'forgot_code' && (
-          <form onSubmit={handleVerifyCode} className="space-y-4">
-            <div className="text-center space-y-1 pb-1">
-              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100">
-                Enter Verification Code
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-zinc-400">
-                We sent a 6-digit code to{' '}
-                <span className="font-semibold text-blue-600 dark:text-blue-400">{email}</span>.
-                Code expires in 10 minutes.
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="forgot-code" className="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1.5 text-center">
-                6-Digit Security Code
-              </label>
-              <div className="relative">
-                <KeyRound className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="forgot-code"
-                  name="code"
-                  type="text"
-                  maxLength={6}
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="one-time-code"
-                  placeholder="••••••"
-                  value={code}
-                  onChange={(e) => {
-                    const val = e.target.value.replace(/\D/g, '').slice(0, 6);
-                    setCode(val);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  onPaste={(e) => {
-                    e.preventDefault();
-                    const pasted = e.clipboardData.getData('text');
-                    const digits = pasted.replace(/\D/g, '').slice(0, 6);
-                    if (digits) {
-                      setCode(digits);
-                      if (errorMessage) setErrorMessage(null);
-                    }
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-4 py-3 text-center text-lg tracking-[0.4em] font-numeric font-bold text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                  autoFocus
-                />
-              </div>
-            </div>
-
-            {/* Resend Code & Cooldown Section */}
-            <div className="flex items-center justify-between text-xs px-1">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => {
-                  setErrorMessage(null);
-                  setMode('forgot_email');
-                }}
-                className="text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200 underline cursor-pointer text-[11px] disabled:opacity-50"
-              >
-                Change Email
-              </button>
-
-              <button
-                type="button"
-                onClick={handleResendCode}
-                disabled={resendCountdown > 0 || isSubmitting}
-                className="inline-flex items-center gap-1.5 font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 hover:underline disabled:opacity-50 disabled:no-underline cursor-pointer disabled:cursor-not-allowed text-[11px]"
-              >
-                {resendCountdown > 0 ? (
-                  <>
-                    <Clock className="w-3.5 h-3.5" /> Resend code in {resendCountdown}s
-                  </>
-                ) : (
-                  <>
-                    <RotateCw className="w-3.5 h-3.5" /> Resend Code
-                  </>
-                )}
-              </button>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isSubmitting || code.trim().length !== 6}
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" /> Verifying Code...
-                </>
-              ) : (
-                <>
-                  Verify Code <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => {
-                setErrorMessage(null);
-                setMode('login');
-              }}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors pt-1 cursor-pointer disabled:opacity-50"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" /> Back to Sign In
-            </button>
-          </form>
-        )}
-
-        {/* MODE 4: FORGOT PASSWORD - STEP 3 (NEW PASSWORD ENTRY) */}
-        {mode === 'forgot_password' && (
-          <form onSubmit={handleResetPassword} className="space-y-4">
-            <div className="text-center space-y-1 pb-1">
-              <h3 className="text-base font-bold text-slate-900 dark:text-zinc-100">
-                Create New Password
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-zinc-400">
-                Choose a secure password for your account (minimum 8 characters).
-              </p>
-            </div>
-
-            <div>
-              <label htmlFor="new-password" className="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1.5">
-                New Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="new-password"
-                  name="new-password"
-                  type={showNewPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  value={newPassword}
-                  onChange={(e) => {
-                    setNewPassword(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowNewPassword(!showNewPassword)}
-                  className="absolute right-3.5 top-3.5 text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 transition-colors"
-                >
-                  {showNewPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="confirm-password" className="block text-xs font-bold text-slate-700 dark:text-zinc-300 mb-1.5">
-                Confirm New Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 dark:text-zinc-500 absolute left-3.5 top-3.5" />
-                <input
-                  id="confirm-password"
-                  name="confirm-password"
-                  type={showConfirmPassword ? 'text' : 'password'}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  value={confirmPassword}
-                  onChange={(e) => {
-                    setConfirmPassword(e.target.value);
-                    if (errorMessage) setErrorMessage(null);
-                  }}
-                  className="w-full bg-slate-50 dark:bg-zinc-950 border border-slate-300 dark:border-zinc-800 focus:border-blue-600 dark:focus:border-blue-500 focus:bg-white dark:focus:bg-zinc-950 rounded-xl pl-10 pr-10 py-3 text-xs text-slate-900 dark:text-zinc-100 placeholder-slate-400 dark:placeholder-zinc-500 focus:outline-none transition-colors shadow-sm"
-                  required
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3.5 top-3.5 text-slate-400 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 transition-colors"
-                >
-                  {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {/* Validation indicators */}
-            <div className="space-y-1.5 pt-1 text-[11px]">
-              <div className="flex items-center gap-1.5 text-slate-500 dark:text-zinc-400">
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    newPassword.length >= 6 ? 'bg-emerald-500' : 'bg-slate-300 dark:bg-zinc-600'
-                  }`}
-                />
-                <span className={newPassword.length >= 6 ? 'text-emerald-600 dark:text-emerald-400 font-medium' : ''}>
-                  At least 6 characters
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-slate-500 dark:text-zinc-400">
-                <div
-                  className={`w-1.5 h-1.5 rounded-full ${
-                    confirmPassword && newPassword === confirmPassword
-                      ? 'bg-emerald-500'
-                      : 'bg-slate-300 dark:bg-zinc-600'
-                  }`}
-                />
-                <span
-                  className={
-                    confirmPassword && newPassword === confirmPassword
-                      ? 'text-emerald-600 dark:text-emerald-400 font-medium'
-                      : ''
-                  }
-                >
-                  Passwords match
-                </span>
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={
-                isSubmitting ||
-                newPassword.length < 6 ||
-                newPassword !== confirmPassword
-              }
-              className="w-full flex items-center justify-center gap-2 py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-blue-600 text-white font-bold text-xs shadow-lg shadow-blue-600/25 transition-all cursor-pointer disabled:opacity-90 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <Sparkles className="w-4 h-4 animate-spin" /> Updating Password...
-                </>
-              ) : (
-                <>
-                  Reset Password <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={() => {
-                setErrorMessage(null);
-                setMode('login');
-              }}
-              className="w-full flex items-center justify-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-zinc-400 hover:text-slate-900 dark:hover:text-zinc-200 transition-colors pt-1 cursor-pointer disabled:opacity-50"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" /> Cancel and Return to Sign In
-            </button>
-          </form>
-        )}
-
-        {/* Footer info */}
-        <div className="pt-4 border-t border-slate-200 dark:border-zinc-800 flex items-center justify-center text-xs text-slate-500 dark:text-zinc-400">
-          <span className="flex items-center gap-1.5 font-medium text-[11px]">
-            <ShieldCheck className="w-4 h-4 text-emerald-600 dark:text-emerald-400" /> Enterprise Secured Auth
-          </span>
+        <div className="mt-8 w-[980px] max-w-full rounded-lg border border-border overflow-hidden shadow-lg bg-surface">
+          <img
+            src="/login-shot.png"
+            alt="Reamarc operations hub preview"
+            className="w-full block"
+          />
         </div>
       </div>
     </div>
   );
 };
 
+export default AuthScreen;

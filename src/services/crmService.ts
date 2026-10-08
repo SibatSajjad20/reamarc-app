@@ -303,4 +303,6 @@ export const crmService = {
   updateSchedulerSettings(payload: Record<string, any>): Promise<any> {
     return apiClient.patch('/crm/scheduler/settings', payload);
   },
+
+  clearAllCaches(): void {},
 };

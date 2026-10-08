@@ -1,7 +1,9 @@
 import React from 'react';
 import { Plus, Minus } from 'lucide-react';
+import { cn } from '../../lib/utils';
+import { IconButton } from './button';
 
-interface NumberStepperProps {
+export interface NumberStepperProps {
   value: number;
   onChange: (value: number) => void;
   min?: number;
@@ -37,37 +39,38 @@ export const NumberStepper: React.FC<NumberStepperProps> = ({
   };
 
   return (
-    <div className={`text-left ${className}`}>
+    <div className={cn('text-left w-full', className)}>
       {label && (
-        <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+        <label className="block text-label font-medium text-fg mb-1.5">
           {label}
         </label>
       )}
 
-      <div className="flex items-center rounded-xl bg-zinc-100 dark:bg-zinc-800/90 border border-zinc-200 dark:border-zinc-700 overflow-hidden shadow-2xs">
-        <button
-          type="button"
+      <div className="h-9 px-1 flex items-center justify-between rounded-md bg-surface border border-border-strong shadow-xs focus-within:border-ring-border focus-within:ring-3 focus-within:ring-[var(--ring)]">
+        <IconButton
+          variant="ghost"
+          size="sm"
+          icon={Minus}
+          label="Decrease value"
           disabled={disabled || value <= min}
           onClick={handleDecrement}
-          className="p-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-        >
-          <Minus className="w-3.5 h-3.5" />
-        </button>
+          className="h-7 w-7 text-fg-muted hover:text-fg"
+        />
 
-        <div className="flex-1 text-center font-numeric font-bold text-xs text-zinc-900 dark:text-zinc-100 px-2 select-none">
-          {value} {unit && <span className="font-sans text-[11px] font-normal text-zinc-400">{unit}</span>}
+        <div className="flex-1 text-center font-numeric tabular-nums font-medium text-ui text-fg px-2 select-none">
+          {value} {unit && <span className="font-sans text-small text-fg-muted font-normal ml-0.5">{unit}</span>}
         </div>
 
-        <button
-          type="button"
+        <IconButton
+          variant="ghost"
+          size="sm"
+          icon={Plus}
+          label="Increase value"
           disabled={disabled || (max !== undefined && value >= max)}
           onClick={handleIncrement}
-          className="p-2 text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-        >
-          <Plus className="w-3.5 h-3.5" />
-        </button>
+          className="h-7 w-7 text-fg-muted hover:text-fg"
+        />
       </div>
     </div>
   );
 };
-

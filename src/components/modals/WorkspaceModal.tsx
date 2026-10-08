@@ -377,29 +377,29 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-black/60 backdrop-blur-xs animate-fadeIn p-4 select-none"
+      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-overlay animate-fadeIn p-4 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-3xl p-6 sm:p-7 shadow-2xl space-y-6 animate-scaleIn"
+        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-surface border border-border rounded-xl p-6 sm:p-7 shadow-xl space-y-6 animate-scaleIn"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-4">
+        <div className="flex items-center justify-between border-b border-border pb-4">
           <div className="flex items-center gap-3">
             <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0 transition-colors"
+              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-semibold text-sm shrink-0 transition-colors"
               style={{ backgroundColor: brandColor }}
             >
               {currentDisplayInitials}
             </div>
             <div>
-              <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
+              <h2 className="text-base font-semibold text-fg">
                 {workspaceToEdit ? 'Edit Client Workspace' : 'Add Client Workspace'}
               </h2>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-xs text-fg-muted">
                 Configure client proposal, contract lifecycle, services, health, POC & billing details
               </p>
             </div>
@@ -407,7 +407,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1.5 text-fg-muted hover:text-fg rounded-lg hover:bg-hover transition-colors cursor-pointer"
             title="Close (Esc)"
           >
             <X className="w-5 h-5" />
@@ -417,7 +417,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-6">
           {errorMessage && (
-            <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+            <div className="p-3 rounded-lg bg-danger-subtle border border-danger-border text-danger-fg text-xs flex items-center gap-2">
               <X className="w-4 h-4 shrink-0" />
               <span>{errorMessage}</span>
             </div>
@@ -425,17 +425,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 1: Client & Brand Basics */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <Building2 className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <Building2 className="w-4 h-4 text-accent-fg" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                 1. Client & Brand Identity
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
-                  Client Name / Brand Name <span className="text-rose-500">*</span>
+                <label className="block text-xs font-medium text-fg mb-1.5">
+                  Client Name / Brand Name <span className="text-danger-fg">*</span>
                 </label>
                 <input
                   type="text"
@@ -447,14 +447,14 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       setInitials(e.target.value.slice(0, 2).toUpperCase());
                     }
                   }}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2.5 text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                   required
                   autoComplete="off"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5">
+                <label className="block text-xs font-medium text-fg mb-1.5">
                   Badge Initials
                 </label>
                 <input
@@ -463,24 +463,24 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="e.g. AT"
                   value={initials}
                   onChange={(e) => setInitials(e.target.value.toUpperCase())}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3 py-2.5 text-xs font-bold text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors uppercase font-numeric text-center"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3 py-2.5 text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors uppercase font-mono text-center"
                 />
               </div>
             </div>
 
             {/* Brand Color Picker Section with Presets & Custom Eyedropper */}
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-2 flex items-center justify-between">
+              <label className="block text-xs font-medium text-fg mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <Palette className="w-3.5 h-3.5 text-indigo-500" />
+                  <Palette className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Brand Avatar Color</span>
                 </div>
-                <span className="font-numeric text-[11px] text-zinc-400 font-bold uppercase">
+                <span className="font-mono text-xs text-fg-muted font-semibold uppercase">
                   {brandColor}
                 </span>
               </label>
 
-              <div className="flex items-center gap-3 flex-wrap p-3 rounded-2xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800/80">
+              <div className="flex items-center gap-3 flex-wrap p-3 rounded-xl bg-subtle border border-border">
                 {/* Preset Swatches */}
                 <div className="flex items-center gap-2 flex-wrap">
                   {BRAND_PRESETS.map((c) => (
@@ -489,17 +489,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       type="button"
                       onClick={() => setBrandColor(c.value)}
                       style={{ backgroundColor: c.value }}
-                      className={`w-7 h-7 rounded-xl border-2 transition-all cursor-pointer ${
+                      className={`w-7 h-7 rounded-lg border-2 transition-all cursor-pointer ${
                         brandColor.toLowerCase() === c.value.toLowerCase()
-                          ? 'border-white dark:border-zinc-900 scale-115 shadow-md ring-2 ring-indigo-500'
-                          : 'border-transparent opacity-70 hover:opacity-100 hover:scale-105'
+                          ? 'border-white scale-110 shadow-sm ring-2 ring-accent'
+                          : 'border-transparent opacity-75 hover:opacity-100 hover:scale-105'
                       }`}
                       title={c.name}
                     />
                   ))}
                 </div>
 
-                <div className="h-6 w-px bg-zinc-200 dark:bg-zinc-800 hidden sm:block" />
+                <div className="h-6 w-px bg-border hidden sm:block" />
 
                 {/* Custom Color Eyedropper & Hex Input */}
                 <div className="flex items-center gap-2">
@@ -508,7 +508,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       type="color"
                       value={brandColor.startsWith('#') && brandColor.length === 7 ? brandColor : '#4f46e5'}
                       onChange={(e) => setBrandColor(e.target.value)}
-                      className="w-8 h-8 rounded-xl border border-zinc-200 dark:border-zinc-700 cursor-pointer p-0.5 bg-white dark:bg-zinc-800 overflow-hidden shadow-2xs"
+                      className="w-8 h-8 rounded-lg border border-border cursor-pointer p-0.5 bg-subtle overflow-hidden"
                       title="Pick custom brand color"
                     />
                   </div>
@@ -523,7 +523,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                         const val = e.target.value;
                         setBrandColor(val);
                       }}
-                      className="w-24 px-2.5 py-1.5 text-xs font-numeric font-bold bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 uppercase focus:outline-none focus:border-indigo-500"
+                      className="w-24 px-2.5 py-1.5 text-xs font-mono font-semibold bg-surface border border-border rounded-lg text-fg uppercase focus:outline-hidden focus:border-accent"
                     />
                   </div>
                 </div>
@@ -533,45 +533,45 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 2: Engagement Lifecycle, Health & Priority */}
           <div className="space-y-4">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <Clock className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <Clock className="w-4 h-4 text-accent-fg" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                 2. Status, Cycle, Health & Contract Timeline
               </span>
             </div>
 
             {/* Workspace Active / Inactive Toggle */}
             <div>
-              <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center justify-between">
+              <label className="block text-xs font-medium text-fg mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-indigo-500" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Workspace Status</span>
                 </span>
-                <span className="text-[10px] text-zinc-400">Controls visibility for team members</span>
+                <span className="text-[10px] text-fg-muted">Controls visibility for team members</span>
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => setStatus('active')}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
                     status === 'active'
-                      ? 'bg-emerald-500/15 border-emerald-500 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500/20'
-                      : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                      ? 'bg-success-subtle border-success-border text-success-fg ring-2 ring-success-border/20'
+                      : 'bg-subtle border-border text-fg-muted hover:border-border-strong'
                   }`}
                 >
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-success-fg" />
                   <span>Active (Visible to Team)</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setStatus('inactive')}
-                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
+                  className={`px-3 py-2 rounded-lg text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
                     status === 'inactive'
-                      ? 'bg-zinc-200 dark:bg-zinc-800 border-zinc-500 text-zinc-800 dark:text-zinc-200 ring-2 ring-zinc-500/20'
-                      : 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-600 dark:text-zinc-400 hover:border-zinc-300'
+                      ? 'bg-hover border-border-strong text-fg ring-2 ring-border-strong/20'
+                      : 'bg-subtle border-border text-fg-muted hover:border-border-strong'
                   }`}
                 >
-                  <X className="w-3.5 h-3.5 text-zinc-500" />
+                  <X className="w-3.5 h-3.5 text-fg-muted" />
                   <span>Inactive (Operations Only)</span>
                 </button>
               </div>
@@ -579,8 +579,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Layers className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Project Cycle</span>
                 </label>
                 <CustomSelect
@@ -592,8 +592,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Flame className="w-3.5 h-3.5 text-amber-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Flame className="w-3.5 h-3.5 text-warning-fg" />
                   <span>Priority Level</span>
                 </label>
                 <CustomSelect
@@ -605,8 +605,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <HeartPulse className="w-3.5 h-3.5 text-rose-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <HeartPulse className="w-3.5 h-3.5 text-danger-fg" />
                   <span>Account Health</span>
                 </label>
                 <CustomSelect
@@ -620,10 +620,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Contract Start Date</span>
-                  <span className="text-rose-500 font-bold">*</span>
+                  <span className="text-danger-fg font-semibold">*</span>
                 </label>
                 <CustomDatePicker
                   value={contractStartDate}
@@ -636,10 +636,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Contract End Date</span>
-                  <span className="text-rose-500 font-bold">*</span>
+                  <span className="text-danger-fg font-semibold">*</span>
                 </label>
                 <CustomDatePicker
                   value={contractEndDate}
@@ -656,21 +656,21 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 3: Services Provided (Multi-Select Tags) */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
+            <div className="flex items-center justify-between pb-1 border-b border-border">
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-500" />
-                <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+                <Layers className="w-4 h-4 text-accent-fg" />
+                <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                   3. Services Provided
                 </span>
-                <span className="text-rose-500 font-bold">*</span>
+                <span className="text-danger-fg font-semibold">*</span>
               </div>
               <div className="flex items-center gap-2">
                 {selectedServices.length === 0 && (
-                  <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-full border border-rose-500/20">
+                  <span className="text-[10px] font-semibold text-danger-fg bg-danger-subtle px-2 py-0.5 rounded-full border border-danger-border">
                     At least 1 required
                   </span>
                 )}
-                <span className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-full">
+                <span className="text-xs font-semibold text-accent-fg bg-subtle px-2 py-0.5 rounded-full border border-border">
                   {selectedServices.length} selected
                 </span>
               </div>
@@ -684,10 +684,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                     key={s}
                     type="button"
                     onClick={() => toggleService(s)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                       isSelected
-                        ? 'bg-indigo-600 text-white shadow-xs scale-102 ring-2 ring-indigo-500/20'
-                        : 'bg-zinc-100 dark:bg-zinc-800/80 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200 dark:hover:bg-zinc-700 border border-zinc-200/60 dark:border-zinc-700/60'
+                        ? 'bg-accent text-accent-fg ring-2 ring-accent/20'
+                        : 'bg-subtle text-fg-muted hover:text-fg hover:bg-hover border border-border'
                     }`}
                   >
                     {isSelected && <CheckCircle2 className="w-3.5 h-3.5" />}
@@ -700,32 +700,32 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 4: Proposal Document Upload */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <Paperclip className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <Paperclip className="w-4 h-4 text-accent-fg" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                 4. Client Proposal / Agreement (Attachment)
               </span>
             </div>
 
             {uploadError && (
-              <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2">
+              <div className="p-2.5 rounded-lg bg-danger-subtle border border-danger-border text-danger-fg text-xs flex items-center gap-2">
                 <X className="w-3.5 h-3.5 shrink-0" />
                 <span>{uploadError}</span>
               </div>
             )}
 
             {proposalUrl ? (
-              <div className="flex items-center justify-between p-3 rounded-2xl bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-200/80 dark:border-indigo-800/80 text-xs">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-subtle border border-border text-xs">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-surface text-accent-fg border border-border flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
-                    <p className="font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                    <p className="font-semibold text-fg truncate">
                       {proposalName || 'Client Proposal Document'}
                     </p>
                     {proposalSize && (
-                      <p className="text-[10px] text-zinc-400 font-numeric mt-0.5">
+                      <p className="text-[10px] text-fg-muted font-mono mt-0.5">
                         {formatFileSize(proposalSize)}
                       </p>
                     )}
@@ -736,7 +736,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <button
                     type="button"
                     onClick={() => openFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
-                    className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg transition cursor-pointer"
+                    className="p-1.5 text-accent-fg hover:underline rounded-md transition cursor-pointer"
                     title="View Proposal in Browser"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -744,7 +744,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <button
                     type="button"
                     onClick={() => downloadFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
-                    className="p-1.5 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 rounded-lg transition cursor-pointer"
+                    className="p-1.5 text-accent-fg hover:underline rounded-md transition cursor-pointer"
                     title="Download Proposal Document"
                   >
                     <Download className="w-4 h-4" />
@@ -752,7 +752,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <button
                     type="button"
                     onClick={handleRemoveProposal}
-                    className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                    className="p-1.5 text-fg-muted hover:text-danger-fg rounded-md transition cursor-pointer"
                     title="Remove Proposal"
                   >
                     <Trash2 className="w-4 h-4" />
@@ -772,20 +772,20 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploadingProposal}
-                  className="w-full py-4 px-4 border-2 border-dashed border-zinc-200 dark:border-zinc-800 hover:border-indigo-500 dark:hover:border-indigo-500 rounded-2xl flex flex-col items-center justify-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer bg-zinc-50/50 dark:bg-zinc-900/30 disabled:opacity-50"
+                  className="w-full py-4 px-4 border border-dashed border-border hover:border-accent rounded-xl flex flex-col items-center justify-center gap-1.5 text-xs text-fg-muted hover:text-fg transition cursor-pointer bg-subtle disabled:opacity-50"
                 >
                   {isUploadingProposal ? (
-                    <div className="flex items-center gap-2 font-bold text-indigo-600 dark:text-indigo-400">
+                    <div className="flex items-center gap-2 font-semibold text-accent-fg">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Uploading Proposal Document...</span>
                     </div>
                   ) : (
                     <>
-                      <UploadCloud className="w-5 h-5 text-indigo-500" />
-                      <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                      <UploadCloud className="w-5 h-5 text-accent-fg" />
+                      <span className="font-semibold text-fg">
                         Click to upload Client Proposal (PDF, Word, Excel, Zip)
                       </span>
-                      <span className="text-[10px] text-zinc-400">Up to 25MB supported</span>
+                      <span className="text-[10px] text-fg-muted">Up to 25MB supported</span>
                     </>
                   )}
                 </button>
@@ -795,17 +795,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 5: Point of Contact (POC) Details */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <User className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <User className="w-4 h-4 text-accent-fg" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                 5. Point of Contact (POC) Details
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-accent-fg" />
                   <span>POC Full Name</span>
                 </label>
                 <input
@@ -813,13 +813,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="e.g. Sarah Jenkins"
                   value={pocName}
                   onChange={(e) => setPocName(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5 text-accent-fg" />
                   <span>POC Email</span>
                 </label>
                 <input
@@ -827,13 +827,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="sarah@client.com"
                   value={pocEmail}
                   onChange={(e) => setPocEmail(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Phone className="w-3.5 h-3.5 text-accent-fg" />
                   <span>POC Phone Number</span>
                 </label>
                 <input
@@ -841,7 +841,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="+1 (555) 019-2834"
                   value={pocPhone}
                   onChange={(e) => setPocPhone(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
             </div>
@@ -849,17 +849,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
           {/* SECTION 6: Billing Contact Details */}
           <div className="space-y-3">
-            <div className="flex items-center gap-2 pb-1 border-b border-zinc-100 dark:border-zinc-800/80">
-              <CreditCard className="w-4 h-4 text-indigo-500" />
-              <span className="text-xs font-bold uppercase tracking-wider text-zinc-700 dark:text-zinc-300">
+            <div className="flex items-center gap-2 pb-1 border-b border-border">
+              <CreditCard className="w-4 h-4 text-accent-fg" />
+              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
                 6. Billing Contact Details
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Billing Contact Name</span>
                 </label>
                 <input
@@ -867,13 +867,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="e.g. Accounts Department"
                   value={billingName}
                   onChange={(e) => setBillingName(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Mail className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Billing Email</span>
                 </label>
                 <input
@@ -881,13 +881,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="billing@client.com"
                   value={billingEmail}
                   onChange={(e) => setBillingEmail(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-indigo-500" />
+                <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
+                  <Phone className="w-3.5 h-3.5 text-accent-fg" />
                   <span>Billing Phone Number</span>
                 </label>
                 <input
@@ -895,26 +895,26 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   placeholder="+1 (555) 839-2019"
                   value={billingPhone}
                   onChange={(e) => setBillingPhone(e.target.value)}
-                  className="w-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 rounded-xl px-3.5 py-2 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none transition-colors"
+                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2 text-xs text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
                 />
               </div>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-end gap-2.5">
+          <div className="pt-4 border-t border-border flex items-center justify-end gap-2.5">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-fg bg-subtle hover:bg-hover transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting || isUploadingProposal}
-              className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none"
+              className="px-5 py-2 rounded-lg bg-accent text-accent-fg hover:opacity-90 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none text-xs font-medium"
             >
               {isSubmitting ? (
                 <>

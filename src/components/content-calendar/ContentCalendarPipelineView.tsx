@@ -15,7 +15,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import type { ContentCalendarItem, PipelineStage } from '../../types/contentCalendar';
-import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../utils/badgeStyles';
 import {
   actionsFor,
   getDropTransition,
@@ -25,7 +24,15 @@ import {
   type StageAction,
 } from '../../utils/contentCalendarWorkflow';
 import { useToast } from '../../context/ToastContext';
-import { getBackendFileUrl } from '../../utils/fileUrl';
+import { usePrompt } from '../ui/ConfirmProvider';
+import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { renderPlatformIcon } from './ContentCalendarTableView';
+
+function getInitials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  return name.slice(0, 2).toUpperCase();
+}
 
 function parseDateScore(dateStr?: string | null): number {
   if (!dateStr || !dateStr.trim()) return Infinity;
@@ -55,6 +62,7 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
   onTransition,
 }) => {
   const { addToast } = useToast();
+  const prompt = usePrompt();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [draggingItem, setDraggingItem] = useState<ContentCalendarItem | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
@@ -130,9 +138,10 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
 
     let note: string | undefined = undefined;
     if (transition.needsNote) {
-      const input = window.prompt(
-        `Please enter a revision note for ${currentItem.serial} (moving to ${targetStage}):`,
-      );
+      const input = await prompt({
+        title: 'Revision note required',
+        label: `Please enter a revision note for ${currentItem.serial} (moving to ${targetStage}):`,
+      });
       if (input === null) return; // User cancelled prompt
       if (!input.trim()) {
         addToast('Note required', 'A revision note is required to move this item.', 'warning');
@@ -145,10 +154,10 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
       note,
       target_stage: transition.target_stage,
     });
-  }, [draggingItem, actor, runAction, addToast]);
+  }, [draggingItem, actor, runAction, addToast, prompt]);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-slate-50/60 dark:bg-[#090a0f]">
+    <div className="flex-1 min-h-0 flex flex-col bg-bg">
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
       {stages.map((stage, stageIdx) => {
         const stageItems = byStage[stage] || [];
@@ -174,25 +183,21 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
               e.preventDefault();
               void handleDropOnStage(stage);
             }}
-            className={`w-[260px] min-w-[260px] max-w-[260px] flex-shrink-0 flex flex-col rounded-2xl transition-all duration-150 ${
+            className={`w-[280px] min-w-[280px] max-w-[280px] flex-shrink-0 flex flex-col rounded-lg transition-colors ${
               isColumnOver
-                ? 'bg-indigo-50/60 dark:bg-indigo-950/30 border-2 border-dashed border-indigo-500 shadow-md scale-[1.01]'
-                : 'bg-zinc-100/70 dark:bg-zinc-900/40 border border-zinc-200/80 dark:border-zinc-800/80'
+                ? 'bg-accent-soft/30 border-2 border-dashed border-accent shadow-xs'
+                : 'bg-surface border border-border'
             }`}
           >
             {/* Column Header */}
-            <div className="p-3 border-b border-zinc-200/70 dark:border-zinc-800/70 flex items-center justify-between shrink-0">
+            <div className="p-3 border-b border-border flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2 min-w-0">
-                <span className={`w-2 h-2 rounded-full shrink-0 ${isColumnOver ? 'bg-indigo-600 motion-safe:animate-ping' : 'bg-indigo-500'}`} />
-                <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate" title={stage}>
+                <span className="w-2 h-2 rounded-full shrink-0 bg-accent" />
+                <h3 className="text-xs font-semibold text-fg truncate" title={stage}>
                   {stage}
                 </h3>
               </div>
-              <span className={`text-[11px] font-numeric font-bold px-2 py-0.5 rounded-full transition-colors ${
-                isColumnOver
-                  ? 'bg-indigo-600 text-white'
-                  : 'bg-zinc-200/70 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
-              }`}>
+              <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-subtle text-fg-muted">
                 {stageItems.length}
               </span>
             </div>
@@ -291,12 +296,12 @@ function StageCardList({
   if (!isLoading && items.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto p-2.5 min-h-[150px] flex flex-col justify-center">
-        <div className={`h-32 rounded-xl border-2 border-dashed flex flex-col items-center justify-center p-3 text-center transition-colors ${
+        <div className={`h-32 rounded-lg border-2 border-dashed flex flex-col items-center justify-center p-3 text-center transition-colors ${
           isColumnOver
-            ? 'border-indigo-400 dark:border-indigo-600 bg-indigo-50/40 dark:bg-indigo-950/20'
-            : 'border-zinc-300/80 dark:border-zinc-800/80'
+            ? 'border-accent bg-accent-soft/30'
+            : 'border-border'
         }`}>
-          <span className="text-[11px] text-zinc-400 font-medium">
+          <span className="text-xs text-fg-muted font-medium">
             {isColumnOver ? 'Drop card here' : 'Nothing in this stage'}
           </span>
         </div>
@@ -348,19 +353,20 @@ function StageCardList({
                 }}
                 onDragEnd={() => onCardDragEnd()}
                 onClick={() => onSelectItem(item)}
-                className={`p-3 rounded-xl bg-white dark:bg-[#141620] border border-zinc-200/80 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all cursor-grab active:cursor-grabbing group relative select-none ${
+                className={`p-3 rounded-lg bg-surface border border-border hover:border-border-strong hover:shadow-xs transition-all cursor-grab active:cursor-grabbing group relative select-none ${
                   isBusy ? 'opacity-50 pointer-events-none' : ''
-                } ${isDragging ? 'opacity-30 scale-95 border-indigo-400 ring-2 ring-indigo-400/40' : 'hover:shadow-xs'}`}
+                } ${isDragging ? 'opacity-30 scale-95 border-accent ring-2 ring-accent/40' : ''}`}
               >
-                {/* Card Header: Serial & Format */}
-                <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                {/* Card Header: Platform Icon, Serial & Format */}
+                <div className="flex items-center justify-between gap-1.5 mb-2">
                   <div className="flex items-center gap-1.5 truncate min-w-0">
-                    <span className="font-numeric font-bold text-[10px] text-indigo-600 dark:text-indigo-400 shrink-0">
+                    {renderPlatformIcon(item)}
+                    <span className="font-mono font-medium text-xs text-accent shrink-0">
                       {item.serial}
                     </span>
                     {item.client_name && (
                       <span
-                        className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 truncate max-w-[110px]"
+                        className="text-xs font-medium text-fg-muted truncate max-w-[110px]"
                         title={item.client_name}
                       >
                         • {item.client_name}
@@ -368,7 +374,7 @@ function StageCardList({
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className={`${NEUTRAL_METADATA_BADGE_COMPACT_CLASS} shrink-0 text-[10px]`}>
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted shrink-0">
                       {item.creative_type}
                     </span>
 
@@ -380,10 +386,10 @@ function StageCardList({
                             e.stopPropagation();
                             setMenuOpenId(menuOpenId === item.id ? null : item.id);
                           }}
-                          className={`p-1 rounded-md transition-colors cursor-pointer ${
+                          className={`p-1 rounded-sm transition-colors cursor-pointer ${
                             menuOpenId === item.id
-                              ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400'
-                              : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                              ? 'bg-accent-soft text-accent'
+                              : 'text-fg-muted hover:text-fg hover:bg-hover'
                           }`}
                           title="Share Client Review Link"
                         >
@@ -393,10 +399,10 @@ function StageCardList({
                         {menuOpenId === item.id && (
                           <div
                             onClick={(e) => e.stopPropagation()}
-                            className="absolute right-0 top-7 z-40 w-48 rounded-xl bg-white dark:bg-[#181a24] border border-zinc-200 dark:border-zinc-700 shadow-xl py-1 text-xs animate-in fade-in-50 zoom-in-95 duration-150"
+                            className="absolute right-0 top-7 z-40 w-48 rounded-lg bg-surface border border-border shadow-lg py-1 text-xs animate-in fade-in-50 zoom-in-95 duration-150"
                           >
-                            <div className="px-3 py-1.5 border-b border-zinc-100 dark:border-zinc-800/80">
-                              <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                            <div className="px-3 py-1.5 border-b border-border">
+                              <span className="text-[10px] font-medium uppercase tracking-wider text-fg-muted">
                                 Client Review Link
                               </span>
                             </div>
@@ -415,19 +421,19 @@ function StageCardList({
                                   setMenuOpenId(null);
                                 }, 1200);
                               }}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer"
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-fg hover:bg-hover transition cursor-pointer"
                             >
                               {copiedReviewId === item.id ? (
                                 <>
-                                  <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
-                                    Link Copied!
+                                  <Check className="w-3.5 h-3.5 text-success-fg shrink-0" />
+                                  <span className="text-success-fg font-medium">
+                                    Link copied!
                                   </span>
                                 </>
                               ) : (
                                 <>
-                                  <Copy className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
-                                  <span>Copy Review Link</span>
+                                  <Copy className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                                  <span>Copy review link</span>
                                 </>
                               )}
                             </button>
@@ -443,9 +449,9 @@ function StageCardList({
                                 window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
                                 setMenuOpenId(null);
                               }}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 hover:text-emerald-600 dark:hover:text-emerald-400 transition cursor-pointer"
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-fg hover:bg-hover transition cursor-pointer"
                             >
-                              <MessageCircle className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                              <MessageCircle className="w-3.5 h-3.5 text-success-fg shrink-0" />
                               <span>Share via WhatsApp</span>
                             </button>
 
@@ -457,10 +463,10 @@ function StageCardList({
                                 e.stopPropagation();
                                 setMenuOpenId(null);
                               }}
-                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-zinc-700 dark:text-zinc-200 hover:bg-blue-50 dark:hover:bg-blue-950/40 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                              className="w-full px-3 py-2 text-left flex items-center gap-2 text-fg hover:bg-hover transition"
                             >
-                              <ExternalLink className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                              <span>Open Review Page</span>
+                              <ExternalLink className="w-3.5 h-3.5 text-accent shrink-0" />
+                              <span>Open review page</span>
                             </a>
                           </div>
                         )}
@@ -470,11 +476,11 @@ function StageCardList({
                 </div>
 
                 {/* Concept Title */}
-                <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 line-clamp-2 leading-snug mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                <h4 className="text-[13px] font-medium text-fg line-clamp-2 leading-snug mb-2 group-hover:text-accent transition-colors">
                   {item.content_concept}
                 </h4>
 
-                {/* Creative Deliverable Media Preview */}
+                {/* Creative Deliverable Media Preview (100% x 120 rounded-sm) */}
                 {item.attachments && item.attachments.length > 0 && (() => {
                   const primaryMedia =
                     item.attachments.find((a) => a.kind === 'image') ||
@@ -485,7 +491,7 @@ function StageCardList({
 
                   if (primaryMedia.kind === 'image') {
                     return (
-                      <div className="relative mb-2 rounded-lg overflow-hidden bg-zinc-950 aspect-[16/9] max-h-32 w-full flex items-center justify-center">
+                      <div className="relative mb-2 rounded-sm overflow-hidden bg-subtle h-[120px] w-full flex items-center justify-center border border-border">
                         <img
                           src={getBackendFileUrl(primaryMedia.thumbnail_url || primaryMedia.url) || primaryMedia.thumbnail_url || primaryMedia.url}
                           alt={primaryMedia.filename}
@@ -496,7 +502,7 @@ function StageCardList({
                           }}
                         />
                         {imageCount > 1 && (
-                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[9px] font-bold flex items-center gap-1 backdrop-blur-xs">
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-[9px] font-medium flex items-center gap-1">
                             <ImageIcon className="w-2.5 h-2.5" />
                             <span>+{imageCount - 1}</span>
                           </span>
@@ -506,11 +512,12 @@ function StageCardList({
                   }
 
                   if (primaryMedia.kind === 'video') {
+                    const hasValidThumb = isRealThumbnailUrl(primaryMedia.thumbnail_url);
                     return (
-                      <div className="relative mb-2 rounded-lg overflow-hidden bg-zinc-950 border border-zinc-800 aspect-[16/9] max-h-32 w-full flex items-center justify-center group/vid">
-                        {primaryMedia.thumbnail_url ? (
+                      <div className="relative mb-2 rounded-sm overflow-hidden bg-subtle border border-border h-[120px] w-full flex items-center justify-center group/vid">
+                        {hasValidThumb ? (
                           <img
-                            src={getBackendFileUrl(primaryMedia.thumbnail_url) || primaryMedia.thumbnail_url}
+                            src={getBackendFileUrl(primaryMedia.thumbnail_url!) || primaryMedia.thumbnail_url!}
                             alt={primaryMedia.filename}
                             className="w-full h-full object-cover select-none"
                             loading="lazy"
@@ -524,13 +531,13 @@ function StageCardList({
                             className="w-full h-full object-cover pointer-events-none"
                           />
                         )}
-                        <div className="absolute inset-0 bg-black/25 flex items-center justify-center pointer-events-none">
-                          <div className="p-2 rounded-full bg-white/20 backdrop-blur-xs text-white group-hover/vid:bg-indigo-600 transition-colors">
-                            <Play className="w-3.5 h-3.5 fill-white translate-x-0.5" />
+                        <div className="absolute inset-0 bg-black/40 flex items-center justify-center pointer-events-none">
+                          <div className="p-2 rounded-full bg-black/60 text-white group-hover/vid:bg-accent transition-colors">
+                            <Play className="w-3.5 h-3.5 fill-current translate-x-0.5" />
                           </div>
                         </div>
-                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[9px] font-bold flex items-center gap-1 backdrop-blur-xs">
-                          <Film className="w-2.5 h-2.5 text-indigo-400" />
+                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-[9px] font-medium flex items-center gap-1">
+                          <Film className="w-2.5 h-2.5 text-white" />
                           <span>Video</span>
                         </span>
                       </div>
@@ -539,14 +546,14 @@ function StageCardList({
 
                   if (primaryMedia.kind === 'link') {
                     return (
-                      <div className="mb-2 p-2 rounded-lg bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/80 dark:border-emerald-800/50 flex items-center justify-between gap-1.5">
+                      <div className="mb-2 p-2 rounded-sm bg-subtle border border-border flex items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <Link2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                          <span className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300 truncate">
+                          <Link2 className="w-3.5 h-3.5 text-accent shrink-0" />
+                          <span className="text-[10px] font-medium text-fg truncate">
                             {primaryMedia.filename || 'Deliverable link'}
                           </span>
                         </div>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded font-mono uppercase font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/60 shrink-0">
+                        <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-mono uppercase font-medium text-fg-muted bg-surface border border-border shrink-0">
                           Link
                         </span>
                       </div>
@@ -554,9 +561,9 @@ function StageCardList({
                   }
 
                   return (
-                    <div className="mb-2 p-1.5 rounded-lg bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200/80 dark:border-zinc-800 flex items-center gap-1.5">
-                      <FileText className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      <span className="text-[10px] font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                    <div className="mb-2 p-1.5 rounded-sm bg-subtle border border-border flex items-center gap-1.5">
+                      <FileText className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="text-[10px] font-medium text-fg truncate">
                         {primaryMedia.filename}
                       </span>
                     </div>
@@ -570,16 +577,16 @@ function StageCardList({
                   return (
                     <div className="flex items-center flex-wrap gap-1 mb-2">
                       <span
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-bold bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-                        title={`${counts.total} Total Deliverable Asset${counts.total > 1 ? 's' : ''}`}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[9px] font-medium bg-subtle text-fg border border-border"
+                        title={`${counts.total} Total deliverable asset${counts.total > 1 ? 's' : ''}`}
                       >
-                        <Paperclip className="w-2.5 h-2.5" />
+                        <Paperclip className="w-2.5 h-2.5 text-fg-muted" />
                         <span>{counts.total} {counts.total === 1 ? 'asset' : 'assets'}</span>
                       </span>
                       {counts.images > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200/50 dark:border-blue-800/40"
-                          title={`${counts.images} Image${counts.images > 1 ? 's' : ''}`}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          title={`${counts.images} image${counts.images > 1 ? 's' : ''}`}
                         >
                           <ImageIcon className="w-2.5 h-2.5" />
                           <span>{counts.images} img</span>
@@ -587,8 +594,8 @@ function StageCardList({
                       )}
                       {counts.videos > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200/50 dark:border-purple-800/40"
-                          title={`${counts.videos} Video${counts.videos > 1 ? 's' : ''}`}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          title={`${counts.videos} video${counts.videos > 1 ? 's' : ''}`}
                         >
                           <Film className="w-2.5 h-2.5" />
                           <span>{counts.videos} vid</span>
@@ -596,8 +603,8 @@ function StageCardList({
                       )}
                       {counts.links > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200/50 dark:border-emerald-800/40"
-                          title={`${counts.links} Link${counts.links > 1 ? 's' : ''}`}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          title={`${counts.links} link${counts.links > 1 ? 's' : ''}`}
                         >
                           <Link2 className="w-2.5 h-2.5" />
                           <span>{counts.links} link</span>
@@ -605,8 +612,8 @@ function StageCardList({
                       )}
                       {counts.docs > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-medium bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200/50 dark:border-amber-800/40"
-                          title={`${counts.docs} Document${counts.docs > 1 ? 's' : ''}`}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          title={`${counts.docs} document${counts.docs > 1 ? 's' : ''}`}
                         >
                           <FileText className="w-2.5 h-2.5" />
                           <span>{counts.docs} doc</span>
@@ -646,36 +653,36 @@ function StageCardList({
                   }
 
                   return (
-                    <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/80 flex flex-col gap-1.5 text-[11px] text-zinc-400">
+                    <div className="pt-2 border-t border-border flex flex-col gap-1.5 text-xs text-fg-muted">
                       <div className="flex items-center justify-between gap-1.5 w-full">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           {dateStr ? (
                             <span
-                              className={`font-numeric text-[10px] inline-flex items-center gap-1 font-semibold shrink-0 ${
+                              className={`font-mono text-[10px] inline-flex items-center gap-1 font-medium shrink-0 ${
                                 isOverdue
-                                  ? 'text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 px-1.5 py-0.5 rounded'
+                                  ? 'text-danger bg-danger-soft px-1.5 py-0.5 rounded-sm'
                                   : isToday
-                                  ? 'text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-1.5 py-0.5 rounded'
-                                  : 'text-zinc-600 dark:text-zinc-300'
+                                  ? 'text-warning bg-warning-soft px-1.5 py-0.5 rounded-sm'
+                                  : 'text-fg-muted'
                               }`}
-                              title={`${label}: ${formattedDate}${isOverdue ? ' (Overdue)' : isToday ? ' (Due Today)' : ''}`}
+                              title={`${label}: ${formattedDate}${isOverdue ? ' (Overdue)' : isToday ? ' (Due today)' : ''}`}
                             >
                               <Clock className="w-2.5 h-2.5 shrink-0" />
                               <span>{label}: {formattedDate}</span>
                             </span>
                           ) : (
-                            <span className="text-[10px] text-zinc-400 font-medium">No date</span>
-                          )}
-
-                          {item.assignee_name && (
-                            <span
-                              className="text-[10px] text-zinc-400 dark:text-zinc-500 truncate"
-                              title={`Assigned to ${item.assignee_name}`}
-                            >
-                              • {item.assignee_name}
-                            </span>
+                            <span className="text-[10px] text-fg-muted font-medium">No date</span>
                           )}
                         </div>
+
+                        {item.assignee_name && (
+                          <div
+                            className="w-5 h-5 rounded-full bg-accent-soft text-accent text-[9px] font-medium flex items-center justify-center shrink-0 border border-accent/20"
+                            title={`Assigned to ${item.assignee_name}`}
+                          >
+                            {getInitials(item.assignee_name)}
+                          </div>
+                        )}
                       </div>
 
                       {primary && (
@@ -686,7 +693,7 @@ function StageCardList({
                             e.stopPropagation();
                             onAction(item, primary.action);
                           }}
-                          className="w-full py-1 px-2 rounded-md text-[10px] font-bold text-center text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/50 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 cursor-pointer disabled:opacity-50 transition-colors"
+                          className="w-full py-1 px-2 rounded-sm text-[10px] font-medium text-center text-accent bg-accent-soft hover:bg-accent-soft/80 border border-accent/20 cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           {primary.label}
                         </button>
@@ -720,26 +727,26 @@ function PipelineCardSkeleton({ index }: { index: number }) {
   const secondWidth = widthClasses[index % widthClasses.length];
 
   return (
-    <div className="p-3 rounded-xl bg-white dark:bg-[#141620] border border-zinc-200/80 dark:border-zinc-800/80 animate-pulse space-y-2.5">
+    <div className="p-3 rounded-lg bg-surface border border-border animate-pulse space-y-2.5">
       {/* Top Header Row */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <div className="h-3 w-12 rounded-md bg-zinc-200 dark:bg-zinc-800" />
-          <div className="h-2.5 w-16 rounded bg-zinc-100 dark:bg-zinc-800/60" />
+          <div className="h-3 w-12 rounded-sm bg-subtle" />
+          <div className="h-2.5 w-16 rounded-sm bg-subtle" />
         </div>
-        <div className="h-4 w-12 rounded-full bg-zinc-200/70 dark:bg-zinc-800/70" />
+        <div className="h-4 w-12 rounded-sm bg-subtle" />
       </div>
 
       {/* Title Lines */}
       <div className="space-y-1.5 pt-0.5">
-        <div className="h-3.5 w-full rounded bg-zinc-200/90 dark:bg-zinc-800" />
-        <div className={`h-3 ${secondWidth} rounded bg-zinc-150 dark:bg-zinc-800/60`} />
+        <div className="h-3.5 w-full rounded-sm bg-subtle" />
+        <div className={`h-3 ${secondWidth} rounded-sm bg-subtle`} />
       </div>
 
       {/* Footer Row */}
-      <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800/70 flex items-center justify-between gap-2">
-        <div className="h-3 w-16 rounded bg-zinc-200/70 dark:bg-zinc-800/70" />
-        <div className="h-4 w-14 rounded-md bg-indigo-100/70 dark:bg-indigo-950/40" />
+      <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
+        <div className="h-3 w-16 rounded-sm bg-subtle" />
+        <div className="h-4 w-14 rounded-sm bg-subtle" />
       </div>
     </div>
   );

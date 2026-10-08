@@ -5,8 +5,22 @@ import { useAsync } from './useAsync';
 import { apiClient } from '../services/apiClient';
 
 export function useWorkspaces(enabled: boolean = true) {
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [selectedWorkspace, setSelectedWorkspaceState] = useState<Workspace | null>(null);
+  const cachedWorkspaces = workspaceService.getCachedWorkspaces();
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => {
+    if (cachedWorkspaces?.data) {
+      return [...cachedWorkspaces.data].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    }
+    return [];
+  });
+  const [selectedWorkspace, setSelectedWorkspaceState] = useState<Workspace | null>(() => {
+    if (cachedWorkspaces?.data) {
+      const savedWsId = localStorage.getItem('reamarc_selected_workspace_id') || localStorage.getItem('reamarc_active_workspace_id');
+      if (savedWsId && savedWsId !== 'ALL') {
+        return cachedWorkspaces.data.find((w) => w.id === savedWsId) || null;
+      }
+    }
+    return null;
+  });
 
   const fetchFn = useCallback(() => (enabled ? workspaceService.getWorkspaces() : Promise.resolve([])), [enabled]);
   const { isLoading, error, execute } = useAsync(fetchFn);

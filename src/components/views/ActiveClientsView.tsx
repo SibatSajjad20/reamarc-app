@@ -9,7 +9,6 @@ import {
   User,
   Mail,
   Phone,
-  X,
   ChevronRight,
   ExternalLink,
 } from 'lucide-react';
@@ -17,8 +16,23 @@ import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
-import { LoadingScreen } from '../ui/LoadingScreen';
 import { HealthBadge, PriorityBadge } from '../ui/WorkspaceBadges';
+import { PageHeader } from '../ui/PageHeader';
+import { Input } from '../ui/input';
+import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
+import {
+  TableCard,
+  Table,
+  THead,
+  TBody,
+  TH,
+  TD,
+  TR,
+  TableEmpty,
+  TableSkeletonRows,
+} from '../ui/DataTable';
+import { Sheet, SheetContent } from '../ui/sheet';
+import { Button } from '../ui/button';
 
 interface ActiveClientsViewProps {
   workspaces?: Workspace[];
@@ -27,22 +41,31 @@ interface ActiveClientsViewProps {
 
 type ClientFilter = 'All' | 'Retainer' | 'One-Time Project' | 'High Priority' | 'Emergency';
 
-function avatarStyle(ws: Workspace): React.CSSProperties | undefined {
-  if (ws.brandColor?.startsWith('#')) return { backgroundColor: ws.brandColor };
-  if (ws.brandColor?.startsWith('bg-')) return undefined;
-  return { backgroundColor: '#4f46e5' };
-}
+const FILTER_OPTIONS: SegmentedOption[] = [
+  { value: 'All', label: 'All' },
+  { value: 'Retainer', label: 'Retainer' },
+  { value: 'One-Time Project', label: 'One-time project' },
+  { value: 'High Priority', label: 'High priority' },
+  { value: 'Emergency', label: 'Emergency' },
+];
 
-function Avatar({ ws, size = 'md' }: { ws: Workspace; size?: 'sm' | 'md' }) {
-  const dim = size === 'sm' ? 'w-9 h-9 text-xs rounded-xl' : 'w-10 h-10 text-sm rounded-2xl';
+export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 }) {
+  const fontSize = Math.round(size * 0.42);
+  const initials = ws.initials || ws.name.substring(0, 2).toUpperCase();
+  const bg = ws.brandColor?.startsWith('#') ? ws.brandColor : '#4f46e5';
+
   return (
     <div
-      className={`${dim} text-white flex items-center justify-center font-black shrink-0`}
-      style={avatarStyle(ws)}
+      style={{
+        width: `${size}px`,
+        height: `${size}px`,
+        fontSize: `${fontSize}px`,
+        backgroundColor: bg,
+      }}
+      className="rounded-mark text-white font-semibold flex items-center justify-center shrink-0 select-none shadow-xs"
+      aria-hidden="true"
     >
-      <span className={ws.brandColor?.startsWith('bg-') ? ws.brandColor : ''}>
-        {ws.initials || ws.name.substring(0, 2).toUpperCase()}
-      </span>
+      <span>{initials}</span>
     </div>
   );
 }
@@ -124,257 +147,215 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     adAccounts.filter((a) => a.workspace_id === wsId).length;
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
-      {/* Header */}
-      <div className="p-5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#10121a]">
-        <div className="flex items-center gap-3">
-          <div className="p-2.5 rounded-2xl bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20 shrink-0">
-            <Building2 className="w-5 h-5" />
+    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-bg p-6">
+      {/* Page Header */}
+      <PageHeader
+        title={
+          <div className="flex items-center gap-2.5">
+            <span>Active clients</span>
+            <span className="px-2 py-0.5 text-xs font-mono font-medium rounded-full bg-subtle text-fg-muted border border-border">
+              {filteredWorkspaces.length}
+            </span>
           </div>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">Active Clients</h1>
-              <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20">
-                {filteredWorkspaces.length}{' '}
-                {filteredWorkspaces.length === 1 ? 'client' : 'clients'}
-              </span>
-            </div>
-            <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
-              Scan accounts quickly — open a row for contracts, services, POC, and proposals
-            </p>
-          </div>
-        </div>
-      </div>
+        }
+        description="Contracts, services and contacts for every active account."
+      />
 
-      {/* Search + filters */}
-      <div className="p-4 border-b border-zinc-200 dark:border-zinc-800/80 bg-white/70 dark:bg-[#10121a]/70 backdrop-blur-sm flex flex-wrap items-center justify-between gap-3">
-        <div className="relative max-w-md w-full">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Search by name, services, or POC..."
+      {/* Toolbar: Search input (320px) + Segmented control */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div className="w-80">
+          <Input
+            inputSize="sm"
+            icon={Search}
+            placeholder="Search by name, service or contact"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3.5 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl focus:bg-white dark:focus:bg-zinc-900 focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-none text-zinc-900 dark:text-zinc-100 transition-all"
+            clearable
+            onClear={() => setSearchQuery('')}
           />
         </div>
 
-        <div className="flex items-center gap-1.5 flex-wrap">
-          {(
-            ['All', 'Retainer', 'One-Time Project', 'High Priority', 'Emergency'] as const
-          ).map((tab) => {
-            const isSelected = activeFilter === tab;
-            return (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveFilter(tab)}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  isSelected
-                    ? tab === 'Emergency'
-                      ? 'bg-rose-600 text-white'
-                      : tab === 'High Priority'
-                        ? 'bg-amber-600 text-white'
-                        : 'bg-indigo-600 text-white'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100'
-                }`}
-              >
-                {tab === 'All' ? 'All Active' : tab}
-              </button>
-            );
-          })}
-        </div>
+        <SegmentedControl
+          size="sm"
+          value={activeFilter}
+          onValueChange={(val) => setActiveFilter(val as ClientFilter)}
+          options={FILTER_OPTIONS}
+        />
       </div>
 
-      {/* List */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-5">
-        {isLoading && workspaces.length === 0 ? (
-          <LoadingScreen message="Loading active client accounts..." size={72} />
-        ) : filteredWorkspaces.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
-              <Building2 className="w-6 h-6" />
-            </div>
-            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-              No active clients found
-            </h3>
-            <p className="text-xs text-zinc-400 mt-1 max-w-sm">
-              {searchQuery || activeFilter !== 'All'
-                ? 'Try adjusting your search query or filter.'
-                : 'No active client workspaces are currently registered.'}
-            </p>
-          </div>
-        ) : (
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl overflow-hidden">
-            {/* Column headers — desktop */}
-            <div className="hidden md:grid grid-cols-[minmax(0,1.6fr)_100px_110px_minmax(0,1fr)_88px_28px] gap-3 px-4 py-2.5 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/80 dark:bg-zinc-900/40 text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-              <span>Client</span>
-              <span>Health</span>
-              <span>Cycle</span>
-              <span>POC</span>
-              <span className="text-right">Services</span>
-              <span />
-            </div>
-
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
-              {filteredWorkspaces.map((ws) => {
+      {/* Client List DataTable */}
+      <TableCard>
+        <Table>
+          <THead>
+            <tr>
+              <TH>Client</TH>
+              <TH>Engagement</TH>
+              <TH>Services</TH>
+              <TH>POC</TH>
+              <TH>Health</TH>
+              <TH>Priority</TH>
+              <TH align="center">Ad accounts</TH>
+              <TH>Contract end</TH>
+              <TH className="w-10" />
+            </tr>
+          </THead>
+          <TBody>
+            {isLoading && workspaces.length === 0 ? (
+              <TableSkeletonRows rows={6} columns={9} />
+            ) : filteredWorkspaces.length === 0 ? (
+              <TableEmpty
+                colSpan={9}
+                title="No active clients found"
+                description={
+                  searchQuery || activeFilter !== 'All'
+                    ? 'Try adjusting your search query or filter.'
+                    : 'No active client workspaces are currently registered.'
+                }
+                icon={Building2}
+                isFiltered={Boolean(searchQuery || activeFilter !== 'All')}
+                onClearFilters={() => {
+                  setSearchQuery('');
+                  setActiveFilter('All');
+                }}
+              />
+            ) : (
+              filteredWorkspaces.map((ws) => {
                 const serviceCount = ws.services?.length ?? 0;
                 const isOpen = selectedId === ws.id;
                 const ads = linkedCountFor(ws.id);
+                const firstTwoServices = (ws.services || []).slice(0, 2);
+                const extraServices = serviceCount - 2;
 
                 return (
-                  <li key={ws.id}>
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(ws.id)}
-                      aria-pressed={isOpen}
-                      className={`w-full text-left px-4 py-3.5 transition cursor-pointer group ${
-                        isOpen
-                          ? 'bg-indigo-50/70 dark:bg-indigo-950/25'
-                          : 'hover:bg-zinc-50 dark:hover:bg-zinc-900/50'
-                      }`}
-                    >
-                      {/* Mobile stacked row */}
-                      <div className="md:hidden flex items-start gap-3">
-                        <Avatar ws={ws} size="sm" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-2">
-                            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                              {ws.name}
-                            </h3>
-                            <HealthBadge health={ws.health} />
+                  <TR
+                    key={ws.id}
+                    clickable
+                    selected={isOpen}
+                    onClick={() => setSelectedId(ws.id)}
+                  >
+                    <TD>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <ClientMark ws={ws} size={28} />
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-medium text-fg truncate">
+                            {ws.name}
                           </div>
-                          <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 truncate">
-                            {ws.project_cycle || 'Retainer'}
-                            {ws.poc_name ? ` · ${ws.poc_name}` : ''}
-                            {serviceCount > 0
-                              ? ` · ${serviceCount} service${serviceCount === 1 ? '' : 's'}`
-                              : ''}
-                            {ads > 0 ? ` · ${ads} ads` : ''}
-                          </p>
+                          {ws.industry && (
+                            <div className="text-xs text-fg-muted truncate">
+                              {ws.industry}
+                            </div>
+                          )}
                         </div>
-                        <ChevronRight
-                          className={`w-4 h-4 text-zinc-300 dark:text-zinc-600 shrink-0 mt-1 transition ${
-                            isOpen ? 'text-indigo-500' : 'group-hover:text-zinc-400'
-                          }`}
-                        />
                       </div>
-
-                      {/* Desktop columns */}
-                      <div className="hidden md:grid grid-cols-[minmax(0,1.6fr)_100px_110px_minmax(0,1fr)_88px_28px] gap-3 items-center">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <Avatar ws={ws} size="sm" />
-                          <div className="min-w-0">
-                            <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
-                              {ws.name}
-                            </h3>
-                            {ads > 0 && (
-                              <p className="text-[10px] font-semibold text-zinc-400 mt-0.5 flex items-center gap-1">
-                                <Layers className="w-3 h-3 text-indigo-500" />
-                                {ads} ad{ads === 1 ? '' : 's'}
-                              </p>
-                            )}
+                    </TD>
+                    <TD>
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-medium bg-subtle border border-border text-fg-muted">
+                        {ws.project_cycle || 'Retainer'}
+                      </span>
+                    </TD>
+                    <TD>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {firstTwoServices.map((s) => (
+                          <span
+                            key={s}
+                            className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted"
+                          >
+                            {s}
+                          </span>
+                        ))}
+                        {extraServices > 0 && (
+                          <span className="text-[10px] text-fg-muted font-medium">
+                            +{extraServices}
+                          </span>
+                        )}
+                        {serviceCount === 0 && (
+                          <span className="text-fg-muted text-xs">—</span>
+                        )}
+                      </div>
+                    </TD>
+                    <TD>
+                      {ws.poc_name ? (
+                        <div className="min-w-0">
+                          <div className="text-xs font-medium text-fg truncate">
+                            {ws.poc_name}
                           </div>
+                          {ws.poc_email && (
+                            <div className="text-xs text-fg-muted truncate">
+                              {ws.poc_email}
+                            </div>
+                          )}
                         </div>
-
-                        <div>
-                          <HealthBadge health={ws.health} />
-                        </div>
-
-                        <span className="text-[11px] font-semibold text-zinc-600 dark:text-zinc-300 truncate">
-                          {ws.project_cycle || 'Retainer'}
-                        </span>
-
-                        <span className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400 truncate">
-                          {ws.poc_name || '—'}
-                        </span>
-
-                        <span className="text-[11px] font-semibold text-zinc-500 dark:text-zinc-400 text-right tabular-nums">
-                          {serviceCount > 0
-                            ? `${serviceCount} service${serviceCount === 1 ? '' : 's'}`
-                            : '—'}
-                        </span>
-
-                        <ChevronRight
-                          className={`w-4 h-4 justify-self-end transition ${
-                            isOpen
-                              ? 'text-indigo-500'
-                              : 'text-zinc-300 dark:text-zinc-600 group-hover:text-zinc-400'
-                          }`}
-                        />
-                      </div>
-                    </button>
-                  </li>
+                      ) : (
+                        <span className="text-fg-muted text-xs">—</span>
+                      )}
+                    </TD>
+                    <TD>
+                      <HealthBadge health={ws.health} />
+                    </TD>
+                    <TD>
+                      <PriorityBadge priority={ws.priority} />
+                    </TD>
+                    <TD align="center">
+                      <span className="font-mono text-xs font-medium text-fg-muted">
+                        {ads > 0 ? ads : '—'}
+                      </span>
+                    </TD>
+                    <TD>
+                      <span className="font-mono text-xs text-fg-muted">
+                        {ws.contract_end_date || 'Ongoing'}
+                      </span>
+                    </TD>
+                    <TD className="w-10 text-right pr-4">
+                      <ChevronRight className="w-4 h-4 text-fg-muted group-hover:text-fg transition-colors inline-block" />
+                    </TD>
+                  </TR>
                 );
-              })}
-            </ul>
-          </div>
-        )}
-      </div>
+              })
+            )}
+          </TBody>
+        </Table>
+      </TableCard>
 
-      {/* Detail drawer */}
-      {selectedClient && (
-        <div className="fixed inset-0 z-50 overflow-hidden" role="dialog" aria-modal="true">
-          <div
-            className="absolute inset-0 bg-black/50 backdrop-blur-xs transition-opacity animate-in fade-in duration-200"
-            onClick={() => setSelectedId(null)}
-            aria-hidden="true"
-          />
-
-          <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-            <div className="w-screen max-w-md bg-white dark:bg-[#11131a] border-l border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
-              {/* Drawer header */}
-              <div className="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800 flex items-start justify-between gap-3">
-                <div className="flex items-center gap-3 min-w-0">
-                  <Avatar ws={selectedClient} />
+      {/* Detail Sheet (640px) */}
+      <Sheet open={Boolean(selectedClient)} onOpenChange={(open) => { if (!open) setSelectedId(null); }}>
+        <SheetContent side="right" size="wide" className="p-0 flex flex-col bg-surface border-l border-border">
+          {selectedClient && (
+            <>
+              {/* Header with ClientMark 40, badges */}
+              <div className="p-6 border-b border-border flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3.5 min-w-0">
+                  <ClientMark ws={selectedClient} size={40} />
                   <div className="min-w-0">
-                    <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate">
+                    <h2 className="text-base font-semibold text-fg truncate">
                       {selectedClient.name}
                     </h2>
-                    <p className="text-xs text-zinc-400 truncate mt-0.5">
-                      {selectedClient.project_cycle || 'Retainer'}
-                      {selectedClient.industry ? ` · ${selectedClient.industry}` : ''}
-                    </p>
+                    <div className="flex items-center gap-2 mt-1 text-xs text-fg-muted">
+                      <span>{selectedClient.project_cycle || 'Retainer'}</span>
+                      {selectedClient.industry && (
+                        <>
+                          <span>•</span>
+                          <span>{selectedClient.industry}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedId(null)}
-                  className="p-1.5 rounded-xl hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 transition-colors cursor-pointer shrink-0"
-                  title="Close"
-                >
-                  <X className="w-5 h-5" />
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <HealthBadge health={selectedClient.health} />
+                  <PriorityBadge priority={selectedClient.priority} />
+                </div>
               </div>
 
               {/* Drawer body */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-5 text-xs">
-                {/* Status signals */}
-                <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                        Health
-                      </p>
-                      <HealthBadge health={selectedClient.health} />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                        Priority
-                      </p>
-                      <PriorityBadge priority={selectedClient.priority} />
-                    </div>
-                  </div>
-                </div>
-
+              <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
                 {/* Contract */}
                 {(selectedClient.contract_start_date || selectedClient.contract_end_date) && (
-                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800 space-y-2">
-                    <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                      <Calendar className="w-3.5 h-3.5 text-indigo-500" />
-                      Contract
+                  <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1.5">
+                    <h3 className="text-xs font-semibold text-fg flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-accent" />
+                      <span>Contract</span>
                     </h3>
-                    <p className="text-[12px] text-zinc-600 dark:text-zinc-300 font-medium">
+                    <p className="text-xs font-mono text-fg-muted">
                       {selectedClient.contract_start_date || 'Start'} →{' '}
                       {selectedClient.contract_end_date || 'Ongoing'}
                     </p>
@@ -384,14 +365,14 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                 {/* Services */}
                 {selectedClient.services && selectedClient.services.length > 0 && (
                   <div className="space-y-2">
-                    <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                    <h3 className="text-xs font-semibold text-fg">
                       Services ({selectedClient.services.length})
                     </h3>
                     <div className="flex flex-wrap gap-1.5">
                       {selectedClient.services.map((service) => (
                         <span
                           key={service}
-                          className="px-2 py-0.5 rounded-lg text-[10px] font-semibold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60"
+                          className="px-2 py-0.5 rounded-sm text-xs font-medium bg-subtle text-fg border border-border"
                         >
                           {service}
                         </span>
@@ -400,58 +381,17 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                   </div>
                 )}
 
-                {/* Proposal */}
-                {selectedClient.proposal_url && (
-                  <div className="w-full flex items-center justify-between p-3 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/30 border border-indigo-200/70 dark:border-indigo-800/70 text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Paperclip className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-                      <span className="truncate">
-                        {selectedClient.proposal_name || 'Client Proposal Document'}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          openFileAttachment(
-                            selectedClient.proposal_url!,
-                            selectedClient.proposal_name || `${selectedClient.name}_Proposal`
-                          )
-                        }
-                        className="px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold flex items-center gap-1 transition cursor-pointer shadow-2xs"
-                        title="View Proposal in Browser"
-                      >
-                        <span>View</span>
-                        <ExternalLink className="w-3 h-3" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          downloadFileAttachment(
-                            selectedClient.proposal_url!,
-                            selectedClient.proposal_name || `${selectedClient.name}_Proposal`
-                          )
-                        }
-                        className="p-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 transition cursor-pointer"
-                        title="Download Proposal Document"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* POC */}
+                {/* Point of contact */}
                 {(selectedClient.poc_name ||
                   selectedClient.poc_email ||
                   selectedClient.poc_phone) && (
-                  <div className="p-4 rounded-2xl bg-zinc-50 dark:bg-[#161822] border border-zinc-200 dark:border-zinc-800 space-y-2.5">
-                    <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                      <User className="w-3.5 h-3.5 text-indigo-500" />
-                      Point of contact
+                  <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-2.5">
+                    <h3 className="text-xs font-semibold text-fg flex items-center gap-1.5">
+                      <User className="w-3.5 h-3.5 text-accent" />
+                      <span>Point of contact</span>
                     </h3>
                     {selectedClient.poc_name && (
-                      <p className="font-bold text-zinc-900 dark:text-zinc-100 text-[12px]">
+                      <p className="font-medium text-fg text-sm">
                         {selectedClient.poc_name}
                       </p>
                     )}
@@ -459,7 +399,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       {selectedClient.poc_email && (
                         <a
                           href={`mailto:${selectedClient.poc_email}`}
-                          className="text-indigo-600 dark:text-indigo-400 hover:underline flex items-center gap-1.5 truncate"
+                          className="text-accent hover:underline flex items-center gap-1.5 truncate text-xs"
                           title={selectedClient.poc_email}
                         >
                           <Mail className="w-3.5 h-3.5 shrink-0" />
@@ -469,10 +409,10 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       {selectedClient.poc_phone && (
                         <a
                           href={`tel:${selectedClient.poc_phone}`}
-                          className="text-zinc-600 dark:text-zinc-300 hover:text-zinc-900 dark:hover:text-zinc-100 flex items-center gap-1.5"
+                          className="text-fg-muted hover:text-fg flex items-center gap-1.5 text-xs font-mono"
                           title={selectedClient.poc_phone}
                         >
-                          <Phone className="w-3.5 h-3.5 shrink-0 text-emerald-500" />
+                          <Phone className="w-3.5 h-3.5 shrink-0 text-success-fg" />
                           <span>{selectedClient.poc_phone}</span>
                         </a>
                       )}
@@ -480,30 +420,75 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                   </div>
                 )}
 
-                {/* Ad accounts */}
-                <div className="flex items-center justify-between gap-2 pt-1 border-t border-zinc-100 dark:border-zinc-800/80">
-                  <span className="inline-flex items-center gap-1.5 text-[11px] font-bold px-2.5 py-1 rounded-xl bg-zinc-100 dark:bg-zinc-800/90 text-zinc-600 dark:text-zinc-300 border border-zinc-200/70 dark:border-zinc-700/70">
-                    <Layers className="w-3.5 h-3.5 text-indigo-500" />
-                    {selectedAdCount}{' '}
-                    {selectedAdCount === 1 ? 'Ad Account' : 'Ad Accounts'}
-                  </span>
-                  {selectedClient.tagline && (
-                    <span className="text-[10px] text-zinc-400 truncate max-w-[55%]">
-                      {selectedClient.tagline}
+                {/* Linked ad accounts */}
+                <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg">
+                      <Layers className="w-3.5 h-3.5 text-accent" />
+                      <span>Linked ad accounts</span>
                     </span>
+                    <span className="font-mono text-xs font-medium px-2 py-0.5 rounded-full bg-subtle text-fg border border-border">
+                      {selectedAdCount}
+                    </span>
+                  </div>
+                  {selectedClient.tagline && (
+                    <p className="text-xs text-fg-muted">
+                      {selectedClient.tagline}
+                    </p>
                   )}
                 </div>
 
+                {/* Proposals */}
+                {selectedClient.proposal_url && (
+                  <div className="w-full flex items-center justify-between p-3.5 rounded-lg bg-subtle border border-border text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Paperclip className="w-3.5 h-3.5 text-accent shrink-0" />
+                      <span className="truncate font-medium text-fg">
+                        {selectedClient.proposal_name || 'Client proposal document'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() =>
+                          openFileAttachment(
+                            selectedClient.proposal_url!,
+                            selectedClient.proposal_name || `${selectedClient.name}_Proposal`
+                          )
+                        }
+                        title="View proposal in browser"
+                      >
+                        <span>View</span>
+                        <ExternalLink className="w-3 h-3 ml-1" />
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() =>
+                          downloadFileAttachment(
+                            selectedClient.proposal_url!,
+                            selectedClient.proposal_name || `${selectedClient.name}_Proposal`
+                          )
+                        }
+                        title="Download proposal document"
+                      >
+                        <Download className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
                 {selectedClient.description && (
-                  <p className="text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+                  <p className="text-xs leading-relaxed text-fg-muted">
                     {selectedClient.description}
                   </p>
                 )}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+            </>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 };

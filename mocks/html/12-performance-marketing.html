@@ -1,0 +1,516 @@
+<!doctype html><html class="light"><head><meta charset="utf-8"><title>Reamarc</title><style>
+@font-face{font-family:"Geist";src:url(geist-latin-wght-normal.woff2) format("woff2");font-weight:100 900}
+@font-face{font-family:"Geist Mono";src:url(geist-mono-latin-wght-normal.woff2) format("woff2");font-weight:100 900}
+:root{--bg-canvas:#F8F9FA;--bg-surface:#FFFFFF;--bg-subtle:#F1F2F4;--bg-hover:#F1F2F4;--border:#E4E5EA;--border-strong:#D1D3DA;
+--text:#14161D;--text-2:#4D5263;--text-muted:#6B7080;--text-faint:#9EA2AE;--accent:#6847E0;--accent-hover:#5735C2;--accent-soft:#F6F4FF;--accent-soft-2:#EEEAFF;--accent-200:#DDD5FF;--accent-text:#5735C2;
+--success-bg:#ECFDF3;--success-fg:#067647;--success-dot:#17B26A;--success-bd:#ABEFC6;--warning-bg:#FFFAEB;--warning-fg:#B54708;--warning-dot:#F79009;--warning-bd:#FEDF89;--danger-bg:#FEF3F2;--danger-fg:#B42318;--danger-dot:#F04438;--danger-bd:#FECDCA;--danger-solid:#D92D20;--info-bg:#EFF8FF;--info-fg:#175CD3;--info-dot:#2E90FA;--info-bd:#B2DDFF;--neutral-bg:#F1F2F4;--neutral-fg:#4D5263;--neutral-dot:#9EA2AE;
+--shadow-xs:0 1px 2px rgba(16,24,40,.04);--shadow-md:0 4px 8px -2px rgba(16,24,40,.08),0 2px 4px -2px rgba(16,24,40,.04);--shadow-lg:0 12px 24px -6px rgba(16,24,40,.12),0 4px 8px -4px rgba(16,24,40,.06);
+--skel:#ECEDF0;--heat-0:#F1F2F4;--overlay:rgba(10,12,16,.45)}
+html.dark{--bg-canvas:#0B0C10;--bg-surface:#111318;--bg-subtle:#16181F;--bg-hover:#1A1D25;--border:#23262F;--border-strong:#2E323C;--text:#ECEDF0;--text-2:#B4B8C2;--text-muted:#9096A3;--text-faint:#666B78;
+--accent:#6847E0;--accent-hover:#7B61F0;--accent-soft:rgba(123,97,240,.12);--accent-soft-2:rgba(123,97,240,.18);--accent-200:rgba(123,97,240,.35);--accent-text:#A99BFF;
+--success-bg:rgba(23,178,106,.12);--success-fg:#47CD89;--success-bd:rgba(23,178,106,.3);--warning-bg:rgba(247,144,9,.12);--warning-fg:#FDB022;--warning-bd:rgba(247,144,9,.3);--danger-bg:rgba(240,68,56,.12);--danger-fg:#F97066;--danger-bd:rgba(240,68,56,.3);--info-bg:rgba(46,144,250,.12);--info-fg:#53B1FD;--info-bd:rgba(46,144,250,.3);--neutral-bg:#1A1D25;--neutral-fg:#B4B8C2;
+--shadow-xs:none;--shadow-md:0 8px 16px -4px rgba(0,0,0,.5);--shadow-lg:0 16px 32px -8px rgba(0,0,0,.6);--skel:#1A1D25;--heat-0:#16181F;--overlay:rgba(0,0,0,.6)}
+*{box-sizing:border-box}
+body{margin:0;font-family:Geist,system-ui,sans-serif;font-size:14px;line-height:20px;color:var(--text);background:var(--bg-canvas);-webkit-font-smoothing:antialiased}
+p,h1,h2,h3,h4{margin:0}
+.ic{flex-shrink:0;color:currentColor}
+.app{display:flex;height:900px;width:1440px;overflow:hidden;position:relative}
+aside{width:248px;flex-shrink:0;background:var(--bg-surface);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:12px}
+.ws{display:flex;align-items:center;gap:10px;padding:6px 8px;height:44px;border:1px solid var(--border);border-radius:10px;margin-bottom:16px}
+.logo{width:28px;height:28px;border-radius:7px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:600;font-size:14px;flex-shrink:0}
+.ws b{font-weight:600;font-size:13px;display:block;line-height:16px}.ws small{color:var(--text-muted);font-size:12px;line-height:16px}
+.ws .ic{margin-left:auto;color:var(--text-muted)}
+.nav-group{margin-bottom:14px}.nav-label{font-size:12px;color:var(--text-muted);padding:0 10px 4px;font-weight:500;line-height:16px}
+.nav-item{display:flex;align-items:center;gap:10px;height:34px;padding:0 10px;border-radius:8px;color:var(--text-2);font-size:13px;font-weight:500;white-space:nowrap}
+.nav-item .ic{color:var(--text-muted)}.nav-item.active{background:var(--accent-soft);color:var(--accent-text)}.nav-item.active .ic{color:var(--accent-text)}
+.nav-item.parent-open{color:var(--text)}
+.nav-sub{margin:2px 0 4px 21px;padding-left:12px;border-left:1px solid var(--border)}
+.nav-sub .nav-item{height:30px;padding:0 10px;font-weight:400}
+.nav-sub .nav-item.active{font-weight:500}
+.nav-badge{margin-left:auto;font-size:11px;line-height:16px;padding:0 6px;border-radius:999px;background:var(--bg-subtle);color:var(--text-2);font-variant-numeric:tabular-nums;font-weight:500}
+.nav-badge.attn{background:var(--accent-soft-2);color:var(--accent-text)}
+.nav-bottom{margin-top:auto}
+.user{display:flex;align-items:center;gap:10px;padding:10px 8px 2px;border-top:1px solid var(--border);margin-top:8px}
+.user b{font-size:13px;font-weight:500;display:block;line-height:16px}.user small{font-size:12px;color:var(--text-muted);line-height:16px}
+.user .ic{margin-left:auto;color:var(--text-muted)}
+.avatar{border-radius:999px;background:var(--bg-subtle);border:1px solid var(--border);display:inline-grid;place-items:center;font-weight:500;color:var(--text-2);flex-shrink:0;letter-spacing:0}
+.avatar.me{background:var(--accent-soft-2);color:var(--accent-text);border-color:var(--accent-200)}
+.avs{display:inline-flex}.avs .avatar{margin-left:-6px;box-shadow:0 0 0 2px var(--bg-surface)}.avs .avatar:first-child{margin-left:0}
+main{flex:1;display:flex;flex-direction:column;min-width:0;position:relative}
+.topbar{height:56px;flex-shrink:0;border-bottom:1px solid var(--border);background:var(--bg-surface);display:flex;align-items:center;padding:0 24px 0 32px;gap:8px}
+.crumbs{font-size:13px;color:var(--text-muted);display:flex;gap:6px;align-items:center;white-space:nowrap}.crumbs b{color:var(--text);font-weight:500}.crumbs .ic{color:var(--text-faint)}
+.search{margin-left:auto;margin-right:8px;width:320px;height:32px;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 6px 0 10px;color:var(--text-faint);font-size:13px;background:var(--bg-canvas)}
+.search .ic{color:var(--text-muted)}
+.kbd{margin-left:auto;font-family:"Geist Mono";font-size:11px;line-height:18px;border:1px solid var(--border);border-radius:4px;padding:0 5px;color:var(--text-muted);background:var(--bg-surface)}
+.iconbtn{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;color:var(--text-2);position:relative;flex-shrink:0}
+.iconbtn.on{background:var(--bg-subtle);color:var(--text)}
+.dot{position:absolute;top:7px;right:8px;width:7px;height:7px;border-radius:9px;background:var(--accent);box-shadow:0 0 0 2px var(--bg-surface)}
+.content{padding:24px 32px;overflow:hidden;flex:1;min-height:0;display:flex;flex-direction:column}
+.ph{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:20px;gap:16px;flex-shrink:0}
+.ph h1{font-size:22px;line-height:28px;font-weight:600;letter-spacing:-.015em}.ph p{margin-top:4px;color:var(--text-muted);font-size:13px}
+.actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+.btn{height:32px;padding:0 12px;border-radius:8px;font-size:13px;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--border-strong);background:var(--bg-surface);color:var(--text);box-shadow:var(--shadow-xs);white-space:nowrap}
+.btn .ic{color:var(--text-muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}.btn.primary .ic{color:#fff}
+.btn.ghost{border-color:transparent;background:transparent;box-shadow:none;color:var(--text-2)}
+.btn.soft{border-color:transparent;background:var(--accent-soft-2);color:var(--accent-text);box-shadow:none}.btn.soft .ic{color:var(--accent-text)}
+.btn.danger{background:var(--danger-solid);border-color:var(--danger-solid);color:#fff}.btn.danger .ic{color:#fff}
+.btn.danger-outline{color:var(--danger-fg);border-color:var(--danger-bd)}.btn.danger-outline .ic{color:var(--danger-fg)}
+.btn.success-outline{color:var(--success-fg)}.btn.success-outline .ic{color:var(--success-fg)}
+.btn.sm{height:28px;padding:0 10px;font-size:12px}.btn.lg{height:36px;padding:0 16px;font-size:14px}.btn.block{width:100%}
+.btn.icon{width:32px;padding:0}.btn.sm.icon{width:28px}
+.card{background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-xs)}
+.card-h{display:flex;align-items:center;justify-content:space-between;padding:14px 16px 0;gap:8px}
+.card-h h3{font-size:14px;line-height:20px;font-weight:600}.card-h .sub{font-size:12px;color:var(--text-muted);font-weight:400}
+.card-b{padding:12px 16px 16px}
+.link{color:var(--accent-text);font-size:13px;font-weight:500;display:inline-flex;align-items:center;gap:4px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:16px;flex-shrink:0}
+.kpi{padding:16px}.kpi .lab{font-size:13px;color:var(--text-muted);display:flex;align-items:center;gap:6px}
+.kpi .row{display:flex;align-items:flex-end;justify-content:space-between;margin-top:8px}.kpi .val{font-size:26px;line-height:32px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.kpi .val small{font-size:14px;color:var(--text-muted);font-weight:500;letter-spacing:0;margin-left:2px}
+.delta{font-size:12px;font-weight:500;font-variant-numeric:tabular-nums}.up{color:var(--success-fg)}.down{color:var(--danger-fg)}.warn{color:var(--warning-fg)}
+.kpi .cmp{font-size:12px;color:var(--text-muted);margin-top:4px;line-height:16px}
+.toolbar{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border)}
+.seg{display:inline-flex;padding:2px;border-radius:8px;background:var(--bg-subtle);gap:2px;flex-shrink:0}
+.seg span{height:28px;padding:0 10px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text-muted);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.seg span.on{background:var(--bg-surface);color:var(--text);box-shadow:0 1px 2px rgba(16,24,40,.08)}.seg em{font-style:normal;font-size:11px;color:var(--text-muted);font-variant-numeric:tabular-nums}
+html.dark .seg span.on{background:var(--bg-hover);box-shadow:none}
+.seg.sm span{height:24px;padding:0 8px;font-size:12px}
+.fbtn{height:32px;padding:0 10px;border-radius:8px;border:1px dashed var(--border-strong);font-size:13px;color:var(--text-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fbtn .ic{color:var(--text-muted)}
+.chip{height:32px;padding:0 8px 0 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg-subtle);font-size:13px;color:var(--text-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.chip b{font-weight:500;color:var(--text)}.chip .ic{color:var(--text-muted)}
+.sel{height:32px;padding:0 8px 0 10px;border-radius:8px;border:1px solid var(--border-strong);background:var(--bg-surface);font-size:13px;color:var(--text);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.sel .ic{color:var(--text-muted)}
+.insearch{height:32px;width:240px;border:1px solid var(--border-strong);border-radius:8px;display:flex;align-items:center;gap:8px;padding:0 10px;font-size:13px;color:var(--text-faint);background:var(--bg-surface)}.insearch .ic{color:var(--text-muted)}
+.sp{margin-left:auto}.reset{font-size:13px;color:var(--text-muted);white-space:nowrap}
+table{width:100%;border-collapse:collapse}
+th{height:36px;text-align:left;font-size:12px;font-weight:500;color:var(--text-muted);padding:0 12px;background:var(--bg-canvas);border-bottom:1px solid var(--border);white-space:nowrap}
+td{height:48px;padding:0 12px;border-bottom:1px solid var(--border);font-size:13px;color:var(--text-2);white-space:nowrap}
+table.compact td{height:40px}
+tr:last-child td{border-bottom:none}
+th.r,td.r{text-align:right}th.c,td.c{text-align:center}
+.mono{font-family:"Geist Mono";font-size:12px}.muted{color:var(--text-muted)}.faint{color:var(--text-faint)}.strong{color:var(--text);font-weight:500}
+.t-title{color:var(--text);font-weight:500}.t-sub{font-size:12px;color:var(--text-muted);line-height:16px}.num{font-variant-numeric:tabular-nums}
+.cb{width:36px}.checkbox{display:inline-block;width:16px;height:16px;border:1px solid var(--border-strong);border-radius:4px;background:var(--bg-surface);vertical-align:middle}
+.checkbox.on{background:var(--accent);border-color:var(--accent);position:relative}
+.act{width:40px;color:var(--text-muted)}
+.who{display:flex;align-items:center;gap:10px}
+.pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap;line-height:16px}.pill i{width:6px;height:6px;border-radius:9px;background:currentColor;flex-shrink:0}
+.pill-success{background:var(--success-bg);color:var(--success-fg)}.pill-accent{background:var(--accent-soft-2);color:var(--accent-text)}.pill-warning{background:var(--warning-bg);color:var(--warning-fg)}
+.pill-danger{background:var(--danger-bg);color:var(--danger-fg)}.pill-info{background:var(--info-bg);color:var(--info-fg)}.pill-neutral{background:var(--neutral-bg);color:var(--neutral-fg)}
+.tag{display:inline-flex;align-items:center;height:22px;padding:0 7px;border-radius:6px;font-size:12px;font-weight:500;color:var(--text-2);border:1px solid var(--border);background:var(--bg-surface);white-space:nowrap}
+.cmark{width:28px;height:28px;border-radius:7px;background:var(--bg-subtle);border:1px solid var(--border);display:inline-grid;place-items:center;font-size:11px;font-weight:600;color:var(--text-2);flex-shrink:0}
+.foot{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;font-size:13px;color:var(--text-muted);border-top:1px solid var(--border)}
+.pages{display:flex;gap:4px}.pages span{min-width:30px;height:30px;border-radius:999px;display:grid;place-items:center;font-variant-numeric:tabular-nums;color:var(--text-2);font-size:13px}.pages .on{background:var(--accent-soft-2);color:var(--accent-text);font-weight:500}
+.per{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 8px;border:1px solid var(--border);border-radius:8px;color:var(--text-2);margin-left:8px}
+.tabs{display:flex;gap:20px;border-bottom:1px solid var(--border);margin-bottom:16px;flex-shrink:0}
+.tabs span{height:40px;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:500;color:var(--text-muted);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap}
+.tabs span.on{color:var(--text);border-color:var(--accent)}.tabs em{font-style:normal;font-size:11px;line-height:16px;padding:0 6px;border-radius:999px;background:var(--bg-subtle);color:var(--text-2)}
+.bar{height:6px;border-radius:999px;background:var(--bg-subtle);overflow:hidden}.bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.divider{height:1px;background:var(--border)}
+.field{display:flex;flex-direction:column;gap:6px}.field label{font-size:13px;font-weight:500;color:var(--text)}.field label span{color:var(--text-muted);font-weight:400}
+.input{height:36px;border:1px solid var(--border-strong);border-radius:8px;background:var(--bg-surface);padding:0 12px;font-size:14px;color:var(--text);display:flex;align-items:center;gap:8px;white-space:nowrap;overflow:hidden}
+.input.ph{color:var(--text-faint)}.input .ic{color:var(--text-muted)}.input .ic.end{margin-left:auto}
+.input.focus{border-color:#7B61F0;box-shadow:0 0 0 3px rgba(104,71,224,.24)}
+.input.err{border-color:#F04438}
+.textarea{height:auto;min-height:76px;align-items:flex-start;padding:8px 12px;white-space:normal;line-height:20px}
+.help{font-size:12px;color:var(--text-muted);line-height:16px}.errtxt{font-size:12px;color:var(--danger-fg);display:flex;gap:6px;align-items:center;line-height:16px}
+.switch{width:32px;height:18px;border-radius:999px;background:var(--border-strong);position:relative;flex-shrink:0}.switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:99px;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.switch.on{background:var(--accent)}.switch.on::after{left:16px}
+.kv{display:grid;grid-template-columns:120px 1fr;row-gap:10px;font-size:13px}.kv dt{color:var(--text-muted)}.kv dd{margin:0;color:var(--text)}
+.list-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}.list-row:last-child{border-bottom:none}
+.overlay{position:absolute;inset:0;background:var(--overlay);z-index:20}
+.dialog{position:absolute;z-index:21;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-lg)}
+.popover{position:absolute;z-index:21;background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow-md)}
+.sk{background:var(--skel);border-radius:6px;display:block}
+.grid{display:grid;gap:16px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--text-muted);align-items:center}.legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:6px;vertical-align:middle}
+</style></head><body><div class="app">
+<aside><div class="ws"><div class="logo">R</div><div><b>Reamarc</b><small>Lahore studio</small></div><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m7 15 5 5 5-5" />
+  <path d="m7 9 5-5 5 5" />
+</svg></div>
+<div class="nav-group"><div class="nav-label">Clients</div><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 12h4" />
+  <path d="M10 8h4" />
+  <path d="M14 21v-3a2 2 0 0 0-4 0v3" />
+  <path d="M6 10H4a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-2" />
+  <path d="M6 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+</svg><span>Active clients</span></a><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M16 2v2" />
+  <path d="M7 21v-2a2 2 0 012-2h6a2 2 0 012 2v2" />
+  <path d="M8 2v2" />
+  <circle cx="12" cy="10" r="3" />
+  <rect x="3" y="3" width="18" height="18" rx="2" />
+</svg><span>Sales pipeline</span><span class="nav-badge">12</span></a><a class="nav-item active"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M16 7h6v6" />
+  <path d="m22 7-8.5 8.5-5-5L2 17" />
+</svg><span>Performance marketing</span></a><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M8 2v3" />
+  <path d="M16 2v3" />
+  <rect x="3" y="3" width="18" height="18" rx="2" />
+  <path d="M3 9h18" />
+  <path d="M8 13h.01" />
+  <path d="M12 13h.01" />
+  <path d="M16 13h.01" />
+  <path d="M8 17h.01" />
+  <path d="M12 17h.01" />
+  <path d="M16 17h.01" />
+</svg><span>Content calendar</span></a><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+</svg><span>Website pipeline</span></a></div><div class="nav-group"><div class="nav-label">Team</div><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M12 6v6l4 2" />
+</svg><span>Attendance</span><span class="nav-badge">4</span></a><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4" />
+  <path d="M2 6h4" />
+  <path d="M2 10h4" />
+  <path d="M2 14h4" />
+  <path d="M2 18h4" />
+  <path d="M21.378 5.626a1 1 0 1 0-3.004-3.004l-5.01 5.012a2 2 0 0 0-.506.854l-.837 2.87a.5.5 0 0 0 .62.62l2.87-.837a2 2 0 0 0 .854-.506z" />
+</svg><span>Daily log</span></a></div><div class="nav-group"><div class="nav-label">Admin</div><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+</svg><span>Admin panel</span></a></div>
+<div class="nav-bottom"><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915" />
+  <circle cx="12" cy="12" r="3" />
+</svg><span>Settings</span></a><a class="nav-item"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="m4.93 4.93 4.24 4.24" />
+  <path d="m14.83 9.17 4.24-4.24" />
+  <path d="m14.83 14.83 4.24 4.24" />
+  <path d="m9.17 14.83-4.24 4.24" />
+  <circle cx="12" cy="12" r="4" />
+</svg><span>Help & support</span></a>
+<div class="user"><span class="avatar me" style="width:32px;height:32px;font-size:13px">FK</span><div><b>Faizan Khan</b><small>Admin</small></div><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m7 15 5 5 5-5" />
+  <path d="m7 9 5-5 5 5" />
+</svg></div></div></aside>
+<main><div class="topbar"><div class="crumbs">Clients <svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="14"
+  height="14"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m9 18 6-6-6-6" />
+</svg> <b>Performance marketing</b></div>
+<div class="search"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21 21-4.34-4.34" />
+  <circle cx="11" cy="11" r="8" />
+</svg> Search clients, leads, people…<span class="kbd">⌘K</span></div>
+<span class="iconbtn"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <circle cx="12" cy="12" r="10" />
+  <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+  <path d="M12 17h.01" />
+</svg></span><span class="iconbtn"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="18"
+  height="18"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10.268 21a2 2 0 0 0 3.464 0" />
+  <path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" />
+</svg><span class="dot"></span></span></div>
+<div class="content"><div class="ph"><div><h1>Performance marketing</h1><p>Campaign results across Meta, Google, TikTok and WhatsApp ad accounts.</p></div><div class="actions"><span class="btn  "><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M8 2v3" />
+  <path d="M16 2v3" />
+  <rect x="3" y="3" width="18" height="18" rx="2" />
+  <path d="M3 9h18" />
+</svg>Oct 1 – Oct 8</span><span class="btn  "><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M10 5H3" />
+  <path d="M12 19H3" />
+  <path d="M14 3v4" />
+  <path d="M16 17v4" />
+  <path d="M21 12h-9" />
+  <path d="M21 19h-5" />
+  <path d="M21 5h-7" />
+  <path d="M8 10v4" />
+  <path d="M8 12H3" />
+</svg>View options</span><span class="btn  "><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z" />
+  <circle cx="16.5" cy="7.5" r=".5" fill="currentColor" />
+</svg>Credentials</span></div></div><div class="kpis"><div class="card kpi"><div class="lab">Ad spend</div><div class="row"><div class="val">$16,813</div></div><div class="cmp"><span class="delta up">+9.4%</span> vs Sep 1–8</div></div><div class="card kpi"><div class="lab">Leads / conversions</div><div class="row"><div class="val">949</div></div><div class="cmp"><span class="delta up">+14.2%</span> vs Sep 1–8</div></div><div class="card kpi"><div class="lab">Blended CPL</div><div class="row"><div class="val">$17.72</div></div><div class="cmp"><span class="delta up">−4.1%</span> vs Sep 1–8</div></div><div class="card kpi"><div class="lab">Impressions</div><div class="row"><div class="val">2.15M</div></div><div class="cmp"><span class="delta up">+6.0%</span> vs Sep 1–8</div></div></div>
+<div class="card" style="flex:1;min-height:0;overflow:hidden"><div class="toolbar"><span class="sel"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" />
+  <path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" />
+  <path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" />
+</svg>All ad accounts (aggregated)<svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="14"
+  height="14"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m6 9 6 6 6-6" />
+</svg></span><div class="insearch" style="width:220px"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="16"
+  height="16"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="m21 21-4.34-4.34" />
+  <circle cx="11" cy="11" r="8" />
+</svg>Search 31 ad accounts</div><span class="fbtn"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="14"
+  height="14"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>Platform</span><span class="fbtn"><svg
+  class="ic "
+  xmlns="http://www.w3.org/2000/svg"
+  width="14"
+  height="14"
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width="1.5"
+  stroke-linecap="round"
+  stroke-linejoin="round"
+>
+  <path d="M5 12h14" />
+  <path d="M12 5v14" />
+</svg>Objective</span><span class="sp"></span><span style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-2)"><span class="switch"></span>Show paused</span></div>
+<style>.mk th,.mk td{padding:0 6px}.mk th:first-child,.mk td:first-child{padding-left:16px}.mk th:last-child,.mk td:last-child{padding-right:16px}</style><table class="compact mk"><thead><tr><th>Client / account</th><th>Campaign</th><th>Platform</th><th>Objective</th><th>Status</th><th class="r">Budget</th><th class="r">Ad spend</th><th class="r">Impressions</th><th class="r">Reach</th><th class="r">Clicks</th><th class="r">Leads / conv.</th><th class="r">CPL / CPA</th><th class="r">Avg freq</th></tr></thead><tbody><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Northwind Dental</div></td><td class="muted">Winter whitening</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span></td><td class="muted">Leads</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$3,000</td><td class="r num strong" style="font-weight:500">$1,842.50</td><td class="r num">214,300</td><td class="r num">96,200</td><td class="r num">3,120</td><td class="r num strong" style="font-weight:500">118</td><td class="r num">$15.61</td><td class="r num">2.23</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Northwind Dental</div></td><td class="muted">Brand search</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg></span></td><td class="muted">Conversions</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$1,500</td><td class="r num strong" style="font-weight:500">$1,210.00</td><td class="r num">48,900</td><td class="r num">—</td><td class="r num">2,840</td><td class="r num strong" style="font-weight:500">64</td><td class="r num">$18.91</td><td class="r num">—</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Crescent Foods</div></td><td class="muted">Diwali gift boxes</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span></td><td class="muted">Sales</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$4,500</td><td class="r num strong" style="font-weight:500">$3,906.20</td><td class="r num">512,800</td><td class="r num">231,400</td><td class="r num">8,210</td><td class="r num strong" style="font-weight:500">342</td><td class="r num">$11.42</td><td class="r num">2.22</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Crescent Foods</div></td><td class="muted">Spice range · search</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg></span></td><td class="muted">Conversions</td><td><span class="pill pill-neutral"><i></i>Paused</span></td>
+<td class="r num">$2,000</td><td class="r num strong" style="font-weight:500">—</td><td class="r num">—</td><td class="r num">—</td><td class="r num">—</td><td class="r num strong" style="font-weight:500">—</td><td class="r num">—</td><td class="r num">—</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Atlas Fitness</div></td><td class="muted">Membership funnel</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span></td><td class="muted">Leads</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$2,500</td><td class="r num strong" style="font-weight:500">$2,214.80</td><td class="r num">301,200</td><td class="r num">144,700</td><td class="r num">4,410</td><td class="r num strong" style="font-weight:500">196</td><td class="r num">$11.30</td><td class="r num">2.08</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Atlas Fitness</div></td><td class="muted">Coach spotlight</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg></span></td><td class="muted">Awareness</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$800</td><td class="r num strong" style="font-weight:500">$640.00</td><td class="r num">402,100</td><td class="r num">288,300</td><td class="r num">2,190</td><td class="r num strong" style="font-weight:500">—</td><td class="r num">—</td><td class="r num">1.39</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Lumen Realty</div></td><td class="muted">Open-house · DHA</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span></td><td class="muted">Leads</td><td><span class="pill pill-danger"><i></i>Error</span></td>
+<td class="r num">$3,500</td><td class="r num strong" style="font-weight:500">$2,911.40</td><td class="r num">188,400</td><td class="r num">90,100</td><td class="r num">2,210</td><td class="r num strong" style="font-weight:500">88</td><td class="r num">$33.08</td><td class="r num">2.09</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Harbor & Co.</div></td><td class="muted">Room upgrade · retarget</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z"/></svg></span></td><td class="muted">Sales</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$1,200</td><td class="r num strong" style="font-weight:500">$1,033.70</td><td class="r num">96,400</td><td class="r num">38,900</td><td class="r num">1,460</td><td class="r num strong" style="font-weight:500">41</td><td class="r num">$25.21</td><td class="r num">2.48</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Bloom Skincare</div></td><td class="muted">Serum launch</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M7.0301.084c-1.2768.0602-2.1487.264-2.911.5634-.7888.3075-1.4575.72-2.1228 1.3877-.6652.6677-1.075 1.3368-1.3802 2.127-.2954.7638-.4956 1.6365-.552 2.914-.0564 1.2775-.0689 1.6882-.0626 4.947.0062 3.2586.0206 3.6671.0825 4.9473.061 1.2765.264 2.1482.5635 2.9107.308.7889.72 1.4573 1.388 2.1228.6679.6655 1.3365 1.0743 2.1285 1.38.7632.295 1.6361.4961 2.9134.552 1.2773.056 1.6884.069 4.9462.0627 3.2578-.0062 3.668-.0207 4.9478-.0814 1.28-.0607 2.147-.2652 2.9098-.5633.7889-.3086 1.4578-.72 2.1228-1.3881.665-.6682 1.0745-1.3378 1.3795-2.1284.2957-.7632.4966-1.636.552-2.9124.056-1.2809.0692-1.6898.063-4.948-.0063-3.2583-.021-3.6668-.0817-4.9465-.0607-1.2797-.264-2.1487-.5633-2.9117-.3084-.7889-.72-1.4568-1.3876-2.1228C21.2982 1.33 20.628.9208 19.8378.6165 19.074.321 18.2017.1197 16.9244.0645 15.6471.0093 15.236-.005 11.977.0014 8.718.0076 8.31.0215 7.0301.0839m.1402 21.6932c-1.17-.0509-1.8053-.2453-2.2287-.408-.5606-.216-.96-.4771-1.3819-.895-.422-.4178-.6811-.8186-.9-1.378-.1644-.4234-.3624-1.058-.4171-2.228-.0595-1.2645-.072-1.6442-.079-4.848-.007-3.2037.0053-3.583.0607-4.848.05-1.169.2456-1.805.408-2.2282.216-.5613.4762-.96.895-1.3816.4188-.4217.8184-.6814 1.3783-.9003.423-.1651 1.0575-.3614 2.227-.4171 1.2655-.06 1.6447-.072 4.848-.079 3.2033-.007 3.5835.005 4.8495.0608 1.169.0508 1.8053.2445 2.228.408.5608.216.96.4754 1.3816.895.4217.4194.6816.8176.9005 1.3787.1653.4217.3617 1.056.4169 2.2263.0602 1.2655.0739 1.645.0796 4.848.0058 3.203-.0055 3.5834-.061 4.848-.051 1.17-.245 1.8055-.408 2.2294-.216.5604-.4763.96-.8954 1.3814-.419.4215-.8181.6811-1.3783.9-.4224.1649-1.0577.3617-2.2262.4174-1.2656.0595-1.6448.072-4.8493.079-3.2045.007-3.5825-.006-4.848-.0608M16.953 5.5864A1.44 1.44 0 1 0 18.39 4.144a1.44 1.44 0 0 0-1.437 1.4424M5.8385 12.012c.0067 3.4032 2.7706 6.1557 6.173 6.1493 3.4026-.0065 6.157-2.7701 6.1506-6.1733-.0065-3.4032-2.771-6.1565-6.174-6.1498-3.403.0067-6.156 2.771-6.1496 6.1738M8 12.0077a4 4 0 1 1 4.008 3.9921A3.9996 3.9996 0 0 1 8 12.0077"/></svg></span></td><td class="muted">Awareness</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$1,000</td><td class="r num strong" style="font-weight:500">$782.30</td><td class="r num">256,700</td><td class="r num">170,200</td><td class="r num">3,080</td><td class="r num strong" style="font-weight:500">—</td><td class="r num">—</td><td class="r num">1.51</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Kinetic Motors</div></td><td class="muted">Dealer test drives</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M3.9998 22.9291C1.7908 22.9291 0 21.1383 0 18.9293s1.7908-3.9998 3.9998-3.9998 3.9998 1.7908 3.9998 3.9998-1.7908 3.9998-3.9998 3.9998zm19.4643-6.0004L15.4632 3.072C14.3586 1.1587 11.9121.5028 9.9988 1.6074S7.4295 5.1585 8.5341 7.0718l8.0009 13.8567c1.1046 1.9133 3.5511 2.5679 5.4644 1.4646 1.9134-1.1046 2.568-3.5511 1.4647-5.4644zM7.5137 4.8438L1.5645 15.1484A4.5 4.5 0 0 1 4 14.4297c2.5597-.0075 4.6248 2.1585 4.4941 4.7148l3.2168-5.5723-3.6094-6.25c-.4499-.7793-.6322-1.6394-.5878-2.4784z"/></svg></span></td><td class="muted">Leads</td><td><span class="pill pill-warning"><i></i>Stopped</span></td>
+<td class="r num">$1,800</td><td class="r num strong" style="font-weight:500">$1,799.60</td><td class="r num">62,300</td><td class="r num">—</td><td class="r num">1,940</td><td class="r num strong" style="font-weight:500">37</td><td class="r num">$48.64</td><td class="r num">—</td></tr><tr><td style="position:sticky;left:0;background:var(--bg-surface)"><div class="t-title" style="font-size:13px">Saffron Lane</div></td><td class="muted">Weekend bookings</td><td><span class="muted" style="display:inline-flex"><svg class="ic brand " width="14" height="14" fill="currentColor" role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413Z"/></svg></span></td><td class="muted">Messages</td><td><span class="pill pill-success"><i></i>Active</span></td>
+<td class="r num">$600</td><td class="r num strong" style="font-weight:500">$512.90</td><td class="r num">71,800</td><td class="r num">52,400</td><td class="r num">980</td><td class="r num strong" style="font-weight:500">63</td><td class="r num">$8.14</td><td class="r num">1.37</td></tr>
+<tr><td style="background:var(--bg-canvas)" class="strong" colspan="5">Total · 11 campaigns</td><td class="r num" style="background:var(--bg-canvas)">$22,400</td><td class="r num strong" style="background:var(--bg-canvas);font-weight:600">$16,813.40</td><td class="r num" style="background:var(--bg-canvas)">2,154,900</td><td class="r num" style="background:var(--bg-canvas)">1,112,100</td><td class="r num" style="background:var(--bg-canvas)">30,440</td><td class="r num strong" style="background:var(--bg-canvas);font-weight:600">949</td><td class="r num" style="background:var(--bg-canvas)">$17.72</td><td class="r num" style="background:var(--bg-canvas)">1.94</td></tr></tbody></table></div></div></main></div></body></html>

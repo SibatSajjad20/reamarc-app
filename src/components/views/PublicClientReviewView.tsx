@@ -10,8 +10,17 @@ import {
   Layers,
   RotateCcw,
   Play,
+  CheckCircle2,
 } from 'lucide-react';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
+import { BrandMark } from '../ui/BrandMark';
+import { Button } from '../ui/button';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+import { StatusPill } from '../ui/StatusPill';
+import { EmptyState } from '../ui/EmptyState';
+import { safeHttpUrl } from '../../utils/safeHttpUrl';
+import { cn } from '../../lib/utils';
 
 interface Props {
   theme?: 'dark' | 'light';
@@ -41,52 +50,21 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const [reviewerName, setReviewerName] = useState('');
   const [isRevisionOpen, setIsRevisionOpen] = useState(false);
   const [revisionNote, setRevisionNote] = useState('');
+  const [revisionError, setRevisionError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionSuccess, setActionSuccess] = useState<string | null>(null);
 
   // Active asset preview
   const [activeAssetIndex, setActiveAssetIndex] = useState(0);
 
-  // Ensure the entire viewport and document scroll background remains a single uniform color with zero splits
+  // Uniform canvas styling
   useEffect(() => {
     document.documentElement.classList.add('public-review-page');
     document.body.classList.add('public-review-page');
 
-    const rootEl = document.getElementById('root');
-    const isDarkMode =
-      _theme === 'dark' || document.documentElement.classList.contains('dark');
-    const targetBg = isDarkMode ? '#0c0e14' : '#ffffff';
-
-    const prevHtmlBg = document.documentElement.style.backgroundColor;
-    const prevBodyBg = document.body.style.backgroundColor;
-    const prevBodyHeight = document.body.style.height;
-    const prevBodyMinHeight = document.body.style.minHeight;
-    const prevRootHeight = rootEl ? rootEl.style.height : '';
-    const prevRootMinHeight = rootEl ? rootEl.style.minHeight : '';
-    const prevRootBg = rootEl ? rootEl.style.backgroundColor : '';
-
-    document.documentElement.style.backgroundColor = targetBg;
-    document.body.style.backgroundColor = targetBg;
-    document.body.style.height = 'auto';
-    document.body.style.minHeight = '100%';
-    if (rootEl) {
-      rootEl.style.height = 'auto';
-      rootEl.style.minHeight = '100%';
-      rootEl.style.backgroundColor = targetBg;
-    }
-
     return () => {
       document.documentElement.classList.remove('public-review-page');
       document.body.classList.remove('public-review-page');
-      document.documentElement.style.backgroundColor = prevHtmlBg;
-      document.body.style.backgroundColor = prevBodyBg;
-      document.body.style.height = prevBodyHeight;
-      document.body.style.minHeight = prevBodyMinHeight;
-      if (rootEl) {
-        rootEl.style.height = prevRootHeight;
-        rootEl.style.minHeight = prevRootMinHeight;
-        rootEl.style.backgroundColor = prevRootBg;
-      }
     };
   }, [_theme]);
 
@@ -156,9 +134,10 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const handleRequestRevision = async () => {
     if (!token) return;
     if (!revisionNote.trim()) {
-      alert('Please enter your feedback or the changes you need.');
+      setRevisionError('Add your feedback or the changes you need.');
       return;
     }
+    setRevisionError(null);
     setIsSubmitting(true);
     setError(null);
     try {
@@ -208,62 +187,41 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0d0f15] flex flex-col items-center justify-center p-6 text-zinc-600 dark:text-zinc-300">
-        <div className="w-8 h-8 border-2 border-blue-600 border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="text-xs font-medium tracking-wide text-zinc-500">Loading campaign review...</p>
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-fg-muted">
+        <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
+        <p className="text-xs font-medium text-fg-muted">Loading campaign review...</p>
       </div>
     );
   }
 
+  // Error and Expired States (using EmptyState per §13.17)
   if (error && !item) {
     const isApprovedExpired = error.toLowerCase().includes('already been approved');
     const isRevisionExpired =
       error.toLowerCase().includes('changes have already been requested') ||
       error.toLowerCase().includes('changes requested');
-    const isExpired = isApprovedExpired || isRevisionExpired || error.toLowerCase().includes('expired');
 
     return (
-      <div className="min-h-screen bg-white dark:bg-[#0d0f15] flex flex-col items-center justify-center p-6 text-zinc-900 dark:text-zinc-100">
-        <div className="max-w-md w-full bg-white dark:bg-[#141620] p-8 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm text-center space-y-4">
-          <div
-            className={`w-12 h-12 rounded-2xl flex items-center justify-center mx-auto ${
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-fg">
+        <div className="max-w-md w-full bg-surface p-8 rounded-xl border border-border shadow-xs text-center space-y-4">
+          <EmptyState
+            icon={isApprovedExpired ? CheckCircle2 : isRevisionExpired ? RotateCcw : AlertCircle}
+            title={
               isApprovedExpired
-                ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/80'
+                ? 'Everything here is approved'
                 : isRevisionExpired
-                ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/80'
-                : 'bg-zinc-100 dark:bg-zinc-800 text-rose-500 border border-zinc-200 dark:border-zinc-700'
-            }`}
-          >
-            {isApprovedExpired ? (
-              <Check className="w-6 h-6 text-blue-600" />
-            ) : isRevisionExpired ? (
-              <RotateCcw className="w-6 h-6 text-amber-600" />
-            ) : (
-              <AlertCircle className="w-6 h-6 text-rose-500" />
-            )}
-          </div>
-          <div>
-            <h2 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-              {isExpired ? 'Review Link Expired' : 'Review Link Not Found'}
-            </h2>
-            <p className="text-xs text-zinc-500 leading-relaxed mt-1.5">{error}</p>
-          </div>
-          {isApprovedExpired && (
-            <div className="pt-1">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
-                <Check className="w-3 h-3 text-blue-600" />
-                Status: Approved
-              </span>
-            </div>
-          )}
-          {isRevisionExpired && (
-            <div className="pt-1">
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                <Clock className="w-3 h-3 text-amber-600" />
-                Status: Changes Requested
-              </span>
-            </div>
-          )}
+                ? 'This link has expired'
+                : 'Review link not found'
+            }
+            description={error}
+            action={
+              isApprovedExpired ? (
+                <StatusPill variant="success" dot label="Approved" />
+              ) : isRevisionExpired ? (
+                <StatusPill variant="warning" dot label="Revision requested" />
+              ) : undefined
+            }
+          />
         </div>
       </div>
     );
@@ -276,59 +234,51 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const hookLines = parseHookLines(item.headlines_hooks);
 
   return (
-    <div className="min-h-screen w-full bg-white dark:bg-[#0c0e14] text-zinc-900 dark:text-zinc-100 font-sans antialiased">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-40 bg-white/95 dark:bg-[#0c0e14]/95 backdrop-blur-sm border-b border-zinc-200 dark:border-zinc-800 px-4 sm:px-8 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-blue-600 text-white font-bold flex items-center justify-center text-xs shadow-xs">
-            R
-          </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
-                {item.client_name || 'Apex Transfers LLC'}
-              </span>
-              <span className="text-xs text-zinc-300 dark:text-zinc-600">•</span>
-              <span className="text-xs font-mono font-medium text-zinc-500">
-                {item.serial}
-              </span>
-            </div>
-            <h1 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate max-w-sm sm:max-w-md">
-              {item.content_concept}
-            </h1>
+    <div className="min-h-screen w-full bg-canvas text-fg font-sans antialiased">
+      {/* Top Navbar 56px per §13.17 */}
+      <header className="sticky top-0 z-40 h-14 bg-surface border-b border-border px-4 sm:px-8 flex items-center justify-between">
+        <div className="flex items-center gap-3 min-w-0">
+          <BrandMark size={28} />
+          <div className="flex items-center gap-2 truncate">
+            <span className="text-sm font-semibold text-fg tracking-tight">Reamarc</span>
+            <span className="text-fg-faint">•</span>
+            <span className="text-xs text-fg-muted truncate">
+              {item.client_name || 'Client review'}
+            </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 border border-zinc-200 dark:border-zinc-700">
-            {item.stage}
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="text-xs font-mono font-medium text-fg-muted hidden sm:inline">
+            {item.serial}
           </span>
+          <StatusPill status={item.stage} />
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <main className="max-w-6xl mx-auto px-4 sm:px-8 py-8">
+      {/* Main Content Area: Centred 960px column per §13.17 */}
+      <main className="max-w-[960px] mx-auto px-4 sm:px-6 py-8 space-y-6 pb-24 md:pb-8">
         {/* Banner: Action Feedback */}
         {actionSuccess && (
-          <div className="mb-6 p-4 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 text-blue-900 dark:text-blue-200 flex items-center gap-3 animate-in fade-in duration-150">
-            <Check className="w-4 h-4 shrink-0 text-blue-600" />
-            <div className="flex-1 text-xs sm:text-sm font-semibold">{actionSuccess}</div>
+          <div className="p-4 rounded-lg bg-success-bg border border-success-bd text-success-fg flex items-center gap-3">
+            <Check className="w-4 h-4 shrink-0" />
+            <div className="flex-1 text-xs font-medium">{actionSuccess}</div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-          {/* Left Column: Post Details & Deliverables (8 cols) */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* Visual Deliverables Preview (Option 2: Hidden during Content stages) */}
-            {!isContentStage && assets.length > 0 ? (
-              <div className="bg-white dark:bg-[#12141c] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Column: Post Details & Deliverables (7 cols) */}
+          <div className="lg:col-span-7 space-y-6">
+            {/* Visual Deliverables Preview Frame (4:5) */}
+            {!isContentStage && assets.length > 0 && (
+              <div className="bg-surface rounded-xl border border-border p-5 space-y-4 shadow-xs">
                 <div className="flex items-center justify-between">
-                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex items-center gap-2">
-                    <Layers className="w-3.5 h-3.5 text-blue-600" />
-                    <span>Creative Deliverables ({assets.length})</span>
-                  </h3>
+                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider flex items-center gap-2">
+                    <Layers className="w-3.5 h-3.5 text-accent" />
+                    <span>Creative deliverables ({assets.length})</span>
+                  </span>
                   {item.creative_type && (
-                    <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-subtle text-fg-muted border border-border">
                       {item.creative_type}
                     </span>
                   )}
@@ -336,33 +286,33 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
                 {/* Main Media Preview Frame */}
                 {activeAsset && (
-                  <div className="relative w-full rounded-xl overflow-hidden bg-black flex items-center justify-center min-h-[300px] max-h-[520px]">
+                  <div className="relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center min-h-[300px] max-h-[500px]">
                     {activeAsset.kind === 'video' ? (
                       <video
                         key={activeAsset.url}
                         src={activeAsset.url}
                         controls
                         playsInline
-                        className="max-h-[500px] w-auto max-w-full rounded-lg"
+                        className="max-h-[480px] w-auto max-w-full rounded-md"
                       />
                     ) : activeAsset.kind === 'image' ? (
                       <img
                         key={activeAsset.url}
                         src={activeAsset.url}
                         alt={activeAsset.filename || 'Creative asset'}
-                        className="max-h-[500px] w-auto max-w-full object-contain"
+                        className="max-h-[480px] w-auto max-w-full object-contain"
                       />
                     ) : (
-                      <div className="p-8 text-center text-zinc-400 space-y-3">
-                        <FileText className="w-10 h-10 mx-auto text-zinc-500" />
-                        <p className="text-xs font-medium">{activeAsset.filename}</p>
+                      <div className="p-8 text-center text-fg-muted space-y-3">
+                        <FileText className="w-10 h-10 mx-auto text-fg-muted" />
+                        <p className="text-xs font-medium text-fg">{activeAsset.filename}</p>
                         <a
                           href={activeAsset.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-white text-zinc-900 shadow-xs hover:bg-zinc-100 transition"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover transition-colors"
                         >
-                          <span>Open File</span>
+                          <span>Open file</span>
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>
                       </div>
@@ -378,11 +328,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         key={asset.id || idx}
                         type="button"
                         onClick={() => setActiveAssetIndex(idx)}
-                        className={`relative w-14 h-14 rounded-lg overflow-hidden shrink-0 border transition cursor-pointer ${
+                        className={cn(
+                          'relative w-14 h-14 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer',
                           activeAssetIndex === idx
-                            ? 'border-blue-600 ring-2 ring-blue-500/20'
-                            : 'border-zinc-200 dark:border-zinc-700 opacity-70 hover:opacity-100'
-                        }`}
+                            ? 'border-accent shadow-[0_0_0_2px_var(--ring)]'
+                            : 'border-border opacity-70 hover:opacity-100'
+                        )}
                       >
                         {asset.thumbnail_url || asset.kind === 'image' ? (
                           <>
@@ -393,52 +344,58 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                             />
                             {asset.kind === 'video' && (
                               <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                                <Play className="w-3.5 h-3.5 text-white fill-white/80 drop-shadow" />
+                                <Play className="w-3.5 h-3.5 text-white fill-white/80" />
                               </div>
                             )}
                           </>
                         ) : (
-                          <div className="w-full h-full bg-zinc-800 flex items-center justify-center text-zinc-300">
+                          <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
                             <FileText className="w-4 h-4" />
                           </div>
                         )}
-                        <span className="absolute bottom-1 right-1 px-1 rounded text-[8px] font-bold bg-black/70 text-white">
-                          #{idx + 1}
-                        </span>
                       </button>
                     ))}
                   </div>
                 )}
               </div>
-            ) : null}
+            )}
 
             {/* Ad Copy & Strategy Card */}
-            <div className="bg-white dark:bg-[#12141c] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 sm:p-8 space-y-6">
-              {/* Primary Text (Ad Copy / Caption) */}
-              <div className="space-y-2">
-                <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                  Ad Copy / Caption
-                </h3>
-                <div className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-zinc-800 dark:text-zinc-200 py-2">
-                  {item.primary_text || (item as any).post_copy || (
-                    <span className="text-zinc-400 italic">No copy written yet.</span>
-                  )}
-                </div>
+            <div className="bg-surface rounded-xl border border-border p-6 sm:p-7 space-y-5 shadow-xs">
+              <div className="space-y-1">
+                <span className="text-xs font-mono font-medium text-fg-muted">
+                  {item.serial}
+                </span>
+                <h2 className="text-base font-semibold text-fg">
+                  {item.content_concept}
+                </h2>
               </div>
 
-              {/* Angles & Hooks (Clean typographic list, no monospace slop) */}
+              {/* Primary Text (Ad Copy / Caption) */}
+              <div className="space-y-1.5 pt-3 border-t border-border">
+                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                  Ad copy / Caption
+                </span>
+                <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-fg py-1">
+                  {item.primary_text || (item as any).post_copy || (
+                    <span className="text-fg-faint italic">No copy written yet.</span>
+                  )}
+                </p>
+              </div>
+
+              {/* Angles & Hooks */}
               {hookLines.length > 0 && (
-                <div className="space-y-3 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                    Hooks & Opening Headlines
-                  </h3>
+                <div className="space-y-2.5 pt-4 border-t border-border">
+                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                    Hooks & Opening headlines
+                  </span>
                   <div className="space-y-2">
                     {hookLines.map((hook, idx) => (
                       <div
                         key={idx}
-                        className="py-2 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900/40 border border-zinc-200/60 dark:border-zinc-800/60 text-xs sm:text-sm text-zinc-800 dark:text-zinc-200 flex items-start gap-2.5"
+                        className="py-2 px-3 rounded-md bg-subtle border border-border text-xs sm:text-sm text-fg flex items-start gap-2.5"
                       >
-                        <span className="text-blue-600 dark:text-blue-400 font-semibold text-xs mt-0.5 shrink-0">
+                        <span className="text-accent font-semibold text-xs mt-0.5 shrink-0">
                           {idx + 1}.
                         </span>
                         <span className="leading-relaxed">{hook}</span>
@@ -450,173 +407,200 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
               {/* Visual Copy (Copy On Creative) */}
               {item.content_on_creative && (
-                <div className="space-y-2 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                    Copy on Graphic / Video
-                  </h3>
-                  <div className="text-xs sm:text-sm font-medium text-zinc-800 dark:text-zinc-200 py-1">
+                <div className="space-y-1.5 pt-4 border-t border-border">
+                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                    Copy on graphic / video
+                  </span>
+                  <p className="text-xs sm:text-sm font-medium text-fg py-1">
                     {item.content_on_creative}
-                  </div>
+                  </p>
                 </div>
               )}
 
               {/* Offer & CTA */}
               {(item.offer || item.cta) && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
                   {item.offer && (
                     <div className="space-y-1">
-                      <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
-                        Promotional Offer
+                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                        Promotional offer
                       </span>
-                      <p className="text-sm font-semibold text-zinc-800 dark:text-zinc-100">{item.offer}</p>
+                      <p className="text-sm font-semibold text-fg">{item.offer}</p>
                     </div>
                   )}
                   {item.cta && (
                     <div className="space-y-1">
-                      <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
-                        Call to Action
+                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                        Call to action
                       </span>
-                      <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">{item.cta}</p>
+                      <p className="text-sm font-semibold text-accent-text">{item.cta}</p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Hashtags */}
-              {item.captions_hashtags && (
-                <div className="space-y-2 pt-4 border-t border-zinc-100 dark:border-zinc-800">
-                  <h3 className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
-                    Hashtags & Tags
-                  </h3>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                    {item.captions_hashtags}
-                  </p>
+              {/* External Deliverable Links */}
+              {(item.draft_preview_link || item.final_asset_link) && (
+                <div className="flex flex-wrap gap-2 pt-4 border-t border-border">
+                  {item.draft_preview_link && safeHttpUrl(item.draft_preview_link) && (
+                    <a
+                      href={safeHttpUrl(item.draft_preview_link) || undefined}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-subtle hover:bg-hover border border-border text-fg transition-colors"
+                    >
+                      <span>Draft preview link</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
+                  {item.final_asset_link && safeHttpUrl(item.final_asset_link) && (
+                    <a
+                      href={safeHttpUrl(item.final_asset_link) || undefined}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-accent-soft hover:bg-accent-soft-2 border border-accent/20 text-accent-text transition-colors"
+                    >
+                      <span>Final asset file</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Right Column: Approval Card & Campaign Info (4 cols) */}
-          <div className="lg:col-span-4 space-y-6 lg:sticky lg:top-20">
+          {/* Right Column: Approval Card & Campaign Info (5 cols) */}
+          <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-20">
             {/* Approval Decision Card */}
-            <div className="bg-white dark:bg-[#12141c] rounded-2xl border border-zinc-200 dark:border-zinc-800 p-6 space-y-5">
+            <div className="bg-surface rounded-xl border border-border p-6 space-y-4 shadow-xs">
               <div className="space-y-1">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-600 dark:text-blue-400">
-                  Client Review
+                <span className="text-xs font-semibold uppercase tracking-wider text-accent-text">
+                  Client review
                 </span>
-                <h3 className="text-sm sm:text-base font-bold text-zinc-900 dark:text-zinc-100">
-                  {isPendingReview ? 'Review & Decision' : 'Campaign Progress'}
+                <h3 className="text-sm sm:text-base font-semibold text-fg">
+                  {isPendingReview ? 'Review & decision' : 'Campaign status'}
                 </h3>
               </div>
 
               {/* Current Status */}
-              <div className="py-2.5 px-3 rounded-lg bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between text-xs">
-                <span className="text-zinc-500">Stage:</span>
-                <span className="font-semibold text-blue-600 dark:text-blue-400">
-                  {item.stage}
-                </span>
+              <div className="py-2 px-3 rounded-md bg-subtle border border-border flex items-center justify-between text-xs">
+                <span className="text-fg-muted">Current stage:</span>
+                <StatusPill status={item.stage} />
               </div>
 
               {isApproved && (
-                <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/80 text-blue-900 dark:text-blue-200 text-xs flex items-center gap-2 font-medium">
-                  <Check className="w-3.5 h-3.5 shrink-0 text-blue-600" />
-                  <span>Approved. Moving forward in production.</span>
+                <div className="p-3 rounded-md bg-success-bg border border-success-bd text-success-fg text-xs flex items-center gap-2 font-medium">
+                  <Check className="w-4 h-4 shrink-0" />
+                  <span>Approved and advancing in production.</span>
                 </div>
               )}
 
               {item.publish_date && (
-                <div className="flex items-center gap-2 text-xs text-zinc-500 px-0.5">
-                  <Clock className="w-3.5 h-3.5 text-zinc-400" />
-                  <span>Scheduled: <strong className="text-zinc-800 dark:text-zinc-200">{item.publish_date}</strong></span>
+                <div className="flex items-center gap-2 text-xs text-fg-muted px-0.5">
+                  <Clock className="w-3.5 h-3.5 text-fg-faint" />
+                  <span>Scheduled date: <strong className="text-fg font-medium">{item.publish_date}</strong></span>
                 </div>
               )}
 
-              {/* Review Decision Controls (Only active when in Content Client Review or Creative Client Review) */}
+              {/* Review Decision Controls */}
               {isPendingReview ? (
                 <>
                   {/* Reviewer Name Input */}
-                  <div className="space-y-1.5 pt-1">
-                    <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 block">
-                      Your Name (Optional)
+                  <div className="pt-1">
+                    <label
+                      htmlFor="public-reviewer-name"
+                      className="text-xs font-medium text-fg block mb-1.5"
+                    >
+                      Your name (optional)
                     </label>
-                    <input
+                    <Input
+                      id="public-reviewer-name"
                       type="text"
                       value={reviewerName}
                       onChange={(e) => setReviewerName(e.target.value)}
                       placeholder="e.g. Sarah Jenkins"
-                      className="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                      inputSize="sm"
                     />
                   </div>
 
-                  {/* Action Buttons (All Blue / Neutral, Zero Green) */}
-                  <div className="space-y-2 pt-1">
-                    <button
-                      type="button"
+                  {/* Split Action Buttons (Sentence Case per §13.17) */}
+                  <div className="space-y-2 pt-2">
+                    <Button
+                      variant="primary"
+                      size="md"
+                      block
+                      disabled={isSubmitting}
+                      loading={isSubmitting}
                       onClick={handleApprove}
-                      disabled={isSubmitting}
-                      className="w-full py-3 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-semibold text-xs sm:text-sm shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      icon={Check}
                     >
-                      <Check className="w-4 h-4" />
-                      <span>
-                        {item.stage === 'Content Client Review'
-                          ? 'Approve Content Copy'
-                          : 'Approve Creative & Visuals'}
-                      </span>
-                    </button>
+                      {item.stage === 'Content Client Review'
+                        ? 'Approve content copy'
+                        : 'Approve creative'}
+                    </Button>
 
-                    <button
-                      type="button"
-                      onClick={() => setIsRevisionOpen(!isRevisionOpen)}
+                    <Button
+                      variant="outline"
+                      size="md"
+                      block
                       disabled={isSubmitting}
-                      className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-zinc-50 dark:bg-zinc-800 dark:hover:bg-zinc-700/80 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 font-medium text-xs transition cursor-pointer flex items-center justify-center gap-2"
+                      onClick={() => setIsRevisionOpen(!isRevisionOpen)}
+                      icon={MessageSquare}
                     >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>{isRevisionOpen ? 'Close Feedback' : 'Request Changes'}</span>
-                    </button>
+                      {isRevisionOpen ? 'Close feedback' : 'Request changes'}
+                    </Button>
                   </div>
 
-                  {/* Revision Feedback Box */}
+                  {/* Revision Feedback Box (with 13px helper per §13.17) */}
                   {isRevisionOpen && (
-                    <div className="space-y-2.5 pt-3 border-t border-zinc-200 dark:border-zinc-800 animate-in fade-in duration-150">
-                      <label className="text-xs font-medium text-zinc-700 dark:text-zinc-300 block">
-                        Describe requested changes:
+                    <div className="space-y-2 pt-3 border-t border-border animate-in fade-in duration-150">
+                      <label
+                        htmlFor="public-revision-feedback"
+                        className="text-xs font-medium text-fg block"
+                      >
+                        Feedback
                       </label>
-                      <textarea
+                      <p className="text-[13px] text-fg-muted">
+                        Please specify the changes or adjustments needed.
+                      </p>
+                      <Textarea
+                        id="public-revision-feedback"
                         rows={4}
                         value={revisionNote}
-                        onChange={(e) => setRevisionNote(e.target.value)}
+                        onChange={(e) => {
+                          setRevisionNote(e.target.value);
+                          if (revisionError) setRevisionError(null);
+                        }}
                         placeholder={
                           item.stage === 'Content Client Review'
                             ? 'e.g. Please update the headline or adjust the call to action...'
                             : 'e.g. Please update the graphic colors or adjust the logo placement...'
                         }
-                        className="w-full p-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-blue-500"
+                        error={revisionError}
                       />
-                      <button
-                        type="button"
-                        onClick={handleRequestRevision}
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        block
                         disabled={isSubmitting}
-                        className="w-full py-2.5 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-zinc-100 !text-white dark:!text-zinc-900 font-semibold text-xs shadow-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                        loading={isSubmitting}
+                        onClick={handleRequestRevision}
+                        icon={Send}
                       >
-                        <Send className="w-3.5 h-3.5" />
-                        <span>{isSubmitting ? 'Submitting Feedback...' : 'Submit Feedback'}</span>
-                      </button>
+                        Submit changes
+                      </Button>
                     </div>
                   )}
                 </>
               ) : (
-                <div className="p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                <div className="p-3.5 rounded-md bg-subtle border border-border text-xs text-fg-muted leading-relaxed">
                   {item.stage === 'Content Revision' || item.stage === 'Creative Revision' ? (
                     <span>
-                      Our team is actively working on revisions for this campaign. Client review decisions are paused until updated deliverables are submitted.
+                      Our team is actively working on revisions for this campaign. Client review decisions will reopen once updated deliverables are submitted.
                     </span>
                   ) : item.stage === 'Creative Production' || item.stage === 'Content' ? (
                     <span>
                       This campaign is currently in production. Client review decisions will open once deliverables are submitted.
-                    </span>
-                  ) : item.stage === 'Content Internal Review' || item.stage === 'Creative Internal Review' ? (
-                    <span>
-                      This campaign is undergoing internal quality review before client presentation.
                     </span>
                   ) : (
                     <span>
@@ -628,28 +612,59 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             </div>
 
             {/* Campaign Metadata Details */}
-            <div className="p-5 rounded-2xl bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 text-xs space-y-2.5">
-              <span className="text-[11px] font-semibold text-zinc-400 uppercase tracking-wider block">
-                Campaign Information
+            <div className="p-5 rounded-xl bg-surface border border-border text-xs space-y-2.5 shadow-xs">
+              <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                Campaign details
               </span>
-              <div className="space-y-2">
-                <div className="flex justify-between py-1 border-b border-zinc-100 dark:border-zinc-800/60">
-                  <span className="text-zinc-500">Campaign Type</span>
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">{item.campaign_type || '—'}</span>
+              <dl className="space-y-2">
+                <div className="flex justify-between py-1 border-b border-border">
+                  <dt className="text-fg-muted">Campaign type</dt>
+                  <dd className="font-medium text-fg">{item.campaign_type || '—'}</dd>
                 </div>
-                <div className="flex justify-between py-1 border-b border-zinc-100 dark:border-zinc-800/60">
-                  <span className="text-zinc-500">Content Pillar</span>
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">{item.content_pillar || '—'}</span>
+                <div className="flex justify-between py-1 border-b border-border">
+                  <dt className="text-fg-muted">Content pillar</dt>
+                  <dd className="font-medium text-fg">{item.content_pillar || '—'}</dd>
+                </div>
+                <div className="flex justify-between py-1 border-b border-border">
+                  <dt className="text-fg-muted">Target audience</dt>
+                  <dd className="font-medium text-fg">Public social</dd>
                 </div>
                 <div className="flex justify-between py-1">
-                  <span className="text-zinc-500">Target Audience</span>
-                  <span className="font-medium text-zinc-800 dark:text-zinc-200">Public Social</span>
+                  <dt className="text-fg-muted">Format</dt>
+                  <dd className="font-medium text-fg">{item.creative_type || 'Post'}</dd>
                 </div>
-              </div>
+              </dl>
             </div>
           </div>
         </div>
       </main>
+
+      {/* Mobile Sticky Action Bar at 375px (< 768px) per §13.17 */}
+      {isPendingReview && (
+        <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 bg-surface border-t border-border flex items-center gap-2 z-40 shadow-lg">
+          <Button
+            variant="outline"
+            size="sm"
+            block
+            disabled={isSubmitting}
+            onClick={() => setIsRevisionOpen(true)}
+            icon={MessageSquare}
+          >
+            Request changes
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            block
+            disabled={isSubmitting}
+            loading={isSubmitting}
+            onClick={handleApprove}
+            icon={Check}
+          >
+            {item.stage === 'Content Client Review' ? 'Approve copy' : 'Approve creative'}
+          </Button>
+        </div>
+      )}
     </div>
   );
 };

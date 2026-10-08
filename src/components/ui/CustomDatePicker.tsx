@@ -1,13 +1,16 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
+import { Popover as PopoverPrimitive } from 'radix-ui';
 import {
-  Calendar as CalendarIcon,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   X,
 } from 'lucide-react';
 import { useOffDays } from '../../hooks/useOffDays';
+import { cn } from '../../lib/utils';
+import { IconButton, Button } from './button';
 
-interface CustomDatePickerProps {
+export interface CustomDatePickerProps {
   value?: string; // ISO date string 'YYYY-MM-DD'
   onChange: (isoDate: string) => void;
   label?: string;
@@ -48,6 +51,7 @@ const formatDisplayDate = (isoStr?: string): string => {
     const [y, m, d] = isoStr.split('-').map(Number);
     const date = new Date(y, (m || 1) - 1, d || 1);
     return date.toLocaleDateString('en-US', {
+      weekday: 'short',
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -72,33 +76,6 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
 }) => {
   const { getOffDay } = useOffDays();
   const [isOpen, setIsOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [openDirection, setOpenDirection] = useState<'down' | 'up'>('down');
-  const [horizontalAlign, setHorizontalAlign] = useState<'left' | 'right'>(align);
-
-  const handleToggle = () => {
-    if (!isOpen && containerRef.current) {
-      const rect = containerRef.current.getBoundingClientRect();
-      const spaceBelow = window.innerHeight - rect.bottom;
-      const spaceAbove = rect.top;
-
-      // Smart vertical flip: if space below < 340px and space above is larger, flip upward
-      if (spaceBelow < 340 && spaceAbove > 280) {
-        setOpenDirection('up');
-      } else {
-        setOpenDirection('down');
-      }
-
-      // Smart horizontal alignment: check right boundary
-      const spaceRight = window.innerWidth - rect.left;
-      if (spaceRight < 300 || align === 'right') {
-        setHorizontalAlign('right');
-      } else {
-        setHorizontalAlign('left');
-      }
-    }
-    setIsOpen(!isOpen);
-  };
 
   // Month navigation view state
   const initialDateObj = parseIso(value);
@@ -114,22 +91,6 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     }
   }, [value]);
 
-  // Handle outside click to close dropdown
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [isOpen]);
-
   const todayIso = useMemo(() => formatIso(new Date()), []);
 
   // Calendar calculations
@@ -138,7 +99,13 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
     const offset = firstDayIndex === 0 ? 6 : firstDayIndex - 1; // Convert so Mon=0, Sun=6
     const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
-    const days: { dayNumber: number; iso: string; isCurrentMonth: boolean; isDisabled: boolean; offLabel?: string }[] = [];
+    const days: {
+      dayNumber: number;
+      iso: string;
+      isCurrentMonth: boolean;
+      isDisabled: boolean;
+      offLabel?: string;
+    }[] = [];
 
     const describe = (iso: string) => {
       const off = offDayMode !== 'none' ? getOffDay(iso) : { isOff: false, label: '' };
@@ -232,166 +199,165 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   };
 
   return (
-    <div ref={containerRef} className={`relative ${className}`}>
+    <div className={cn('relative w-full text-left', className)}>
       {label && (
-        <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1 flex items-center gap-1.5">
-          <CalendarIcon className="w-3.5 h-3.5 text-indigo-500" />
+        <label className="block text-label font-medium text-fg mb-1.5 flex items-center gap-1.5">
+          <CalendarDays size={14} className="text-fg-muted" />
           <span>{label}</span>
         </label>
       )}
 
-      {/* Trigger Button */}
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={handleToggle}
-        className={`w-full h-10 flex items-center justify-between px-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer select-none bg-zinc-50 dark:bg-zinc-900 ${
-          isOpen
-            ? 'border-indigo-500 ring-2 ring-indigo-500/20 bg-white dark:bg-zinc-900'
-            : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700'
-        } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-      >
-        <div className="flex items-center gap-2.5 min-w-0">
-          <CalendarIcon className="w-4 h-4 text-indigo-500 shrink-0" />
-          <span className={`truncate font-numeric ${value ? 'text-zinc-900 dark:text-zinc-100 font-bold' : 'text-zinc-400 font-normal'}`}>
-            {value ? formatDisplayDate(value) : placeholder}
-          </span>
-        </div>
-
-        {value && !disabled && clearable ? (
+      <PopoverPrimitive.Root open={isOpen} onOpenChange={setIsOpen}>
+        <PopoverPrimitive.Trigger asChild>
           <button
             type="button"
-            onClick={handleClear}
-            className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md hover:bg-zinc-200/60 dark:hover:bg-zinc-800 transition"
-            title="Clear date"
+            disabled={disabled}
+            className={cn(
+              'w-full h-9 px-3 flex items-center justify-between gap-2 border border-border-strong bg-surface rounded-md text-ui text-fg shadow-xs transition-colors cursor-pointer select-none outline-none disabled:opacity-50 disabled:cursor-not-allowed hover:border-fg-muted/60 focus-visible:outline-none focus-visible:border-border-strong',
+              isOpen && 'border-border-strong bg-subtle/50'
+            )}
           >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        ) : (
-          <div className="w-3.5 h-3.5" />
-        )}
-      </button>
-
-      {/* Popover Calendar Dropdown */}
-      {isOpen && (
-        <div
-          className={`absolute ${openDirection === 'up' ? 'bottom-full mb-2' : 'top-full mt-2'} z-[100] w-72 sm:w-80 p-3.5 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl animate-scaleIn select-none ${
-            horizontalAlign === 'right' ? 'right-0' : 'left-0'
-          }`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Header Navigation */}
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-zinc-100 dark:border-zinc-800/80">
-            <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-              {MONTH_NAMES[viewMonth]} <span className="font-numeric">{viewYear}</span>
-            </h4>
-
-            <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={handlePrevMonth}
-                className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition"
-                title="Previous month"
+            <div className="flex items-center gap-2 min-w-0">
+              <CalendarDays size={16} className="text-fg-muted shrink-0" />
+              <span
+                className={cn(
+                  'truncate font-numeric tabular-nums',
+                  value ? 'text-fg font-medium' : 'text-fg-muted font-normal'
+                )}
               >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button
-                type="button"
-                onClick={handleNextMonth}
-                className="p-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-600 dark:text-zinc-400 transition"
-                title="Next month"
-              >
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Weekday Labels */}
-          <div className="grid grid-cols-7 gap-1 text-center mb-1">
-            {WEEKDAY_NAMES.map((wd) => (
-              <span key={wd} className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 py-1">
-                {wd}
+                {value ? formatDisplayDate(value) : placeholder}
               </span>
-            ))}
-          </div>
+            </div>
 
-          {/* Days Grid */}
-          <div className="grid grid-cols-7 gap-1">
-            {calendarDays.map((day) => {
-              const isSelected = day.iso === value;
-              const isToday = day.iso === todayIso;
-              const isSelectablePast = !day.isDisabled && !isToday && !isSelected && day.iso < todayIso;
-              const isOffMarked = Boolean(day.offLabel) && !day.isDisabled;
-
-              return (
-                <button
-                  key={day.iso}
-                  type="button"
-                  disabled={day.isDisabled}
-                  onClick={() => handleSelectDate(day.iso, day.isDisabled)}
-                  title={
-                    day.offLabel
-                      ? day.isDisabled
-                        ? `${day.offLabel} — logging is closed`
-                        : `${day.offLabel} — viewing only / requests still allowed`
-                      : day.isDisabled
-                      ? day.iso > todayIso
-                        ? 'Future dates cannot be logged'
-                        : 'Date is before system start date'
-                      : isToday
-                      ? "Today's date"
-                      : 'Selectable previous date'
+            {value && !disabled && clearable ? (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={handleClear}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onChange('');
                   }
-                  className={`h-8 rounded-xl text-xs font-bold font-numeric transition-all flex items-center justify-center relative ${
-                    day.isDisabled
-                      ? 'opacity-25 cursor-not-allowed text-zinc-400 dark:text-zinc-600 select-none'
-                      : isSelected
-                      ? 'bg-indigo-600 text-white shadow-xs font-black ring-2 ring-indigo-600/30'
-                      : isOffMarked
-                      ? 'text-sky-800 dark:text-sky-200 bg-sky-50 dark:bg-sky-950/40 border border-sky-200 dark:border-sky-800 cursor-pointer'
-                      : isToday
-                      ? 'bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border-2 border-indigo-500 font-extrabold shadow-2xs'
-                      : isSelectablePast
-                      ? 'text-indigo-900 dark:text-indigo-200 bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/20 cursor-pointer font-bold'
-                      : day.isCurrentMonth
-                      ? 'text-zinc-800 dark:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800/80 cursor-pointer'
-                      : 'text-zinc-400 dark:text-zinc-600 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 cursor-pointer'
-                  }`}
-                >
-                  <span>{day.dayNumber}</span>
-                  {isToday && !isSelected && (
-                    <span className="w-1 h-1 rounded-full bg-indigo-600 dark:bg-indigo-400 absolute bottom-1" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
+                }}
+                className="p-0.5 text-fg-muted hover:text-fg rounded-sm hover:bg-hover transition-colors shrink-0"
+                title="Clear date"
+              >
+                <X size={14} />
+              </span>
+            ) : (
+              <div className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </PopoverPrimitive.Trigger>
 
-          {/* Quick Actions Footer */}
-          {clearable && (
-          <div className="flex items-center justify-between pt-2 mt-2 border-t border-zinc-100 dark:border-zinc-800/80">
-            <button
-              type="button"
-              onClick={() => {
-                onChange('');
-                setIsOpen(false);
-              }}
-              className="text-[11px] font-bold text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition"
-            >
-              Clear
-            </button>
-            <button
-              type="button"
-              onClick={handleSelectToday}
-              className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 px-2 py-1 rounded-lg transition"
-            >
-              Today
-            </button>
-          </div>
-          )}
-        </div>
-      )}
+        <PopoverPrimitive.Portal>
+          <PopoverPrimitive.Content
+            align={align === 'right' ? 'end' : 'start'}
+            sideOffset={4}
+            className="z-[var(--z-popover,100)] w-[280px] sm:w-[300px] p-3.5 bg-surface border border-border rounded-lg shadow-md select-none outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+          >
+            {/* Header Navigation */}
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-border">
+              <h4 className="text-ui font-semibold text-fg">
+                {MONTH_NAMES[viewMonth]} <span className="font-numeric tabular-nums">{viewYear}</span>
+              </h4>
+
+              <div className="flex items-center gap-1">
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  icon={ChevronLeft}
+                  label="Previous month"
+                  onClick={handlePrevMonth}
+                  className="h-7 w-7"
+                />
+                <IconButton
+                  variant="ghost"
+                  size="sm"
+                  icon={ChevronRight}
+                  label="Next month"
+                  onClick={handleNextMonth}
+                  className="h-7 w-7"
+                />
+              </div>
+            </div>
+
+            {/* Weekday Labels */}
+            <div className="grid grid-cols-7 gap-1 text-center mb-1">
+              {WEEKDAY_NAMES.map((wd) => (
+                <span
+                  key={wd}
+                  className="text-micro font-medium text-fg-muted py-1"
+                >
+                  {wd}
+                </span>
+              ))}
+            </div>
+
+            {/* Days Grid */}
+            <div className="grid grid-cols-7 gap-1">
+              {calendarDays.map((day) => {
+                const isSelected = day.iso === value;
+                const isToday = day.iso === todayIso;
+                const isOffMarked = Boolean(day.offLabel) && !day.isDisabled;
+
+                return (
+                  <button
+                    key={day.iso}
+                    type="button"
+                    disabled={day.isDisabled}
+                    onClick={() => handleSelectDate(day.iso, day.isDisabled)}
+                    title={
+                      day.offLabel
+                        ? day.isDisabled
+                          ? `${day.offLabel} — logging is closed`
+                          : `${day.offLabel} — viewing only / requests still allowed`
+                        : undefined
+                    }
+                    className={cn(
+                      'h-8 rounded-sm text-small font-numeric tabular-nums transition-colors flex items-center justify-center relative cursor-pointer',
+                      day.isDisabled && 'opacity-40 cursor-not-allowed text-fg-muted',
+                      isSelected && 'bg-accent text-accent-fg font-semibold shadow-xs',
+                      !isSelected && isToday && 'ring-1 ring-accent text-accent font-semibold',
+                      !isSelected && !isToday && isOffMarked && 'bg-info-bg text-info-fg border border-info-bd',
+                      !isSelected && !isToday && !isOffMarked && day.isCurrentMonth && 'text-fg hover:bg-hover',
+                      !isSelected && !isToday && !isOffMarked && !day.isCurrentMonth && 'text-fg-faint hover:bg-hover'
+                    )}
+                  >
+                    <span>{day.dayNumber}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Quick Actions Footer */}
+            {clearable && (
+              <div className="flex items-center justify-between pt-2.5 mt-2.5 border-t border-border">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    onChange('');
+                    setIsOpen(false);
+                  }}
+                  className="h-7 px-2 text-small"
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleSelectToday}
+                  className="h-7 px-2 text-small text-accent hover:text-accent font-medium"
+                >
+                  Today
+                </Button>
+              </div>
+            )}
+          </PopoverPrimitive.Content>
+        </PopoverPrimitive.Portal>
+      </PopoverPrimitive.Root>
     </div>
   );
 };
-

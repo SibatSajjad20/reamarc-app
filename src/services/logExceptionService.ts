@@ -1,10 +1,29 @@
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
 import type { LogExceptionItem, OperatingSnapshot, EmployeeComplianceDetailResponse } from '../types/dailyLog';
+
+const exceptionsCache = new BoundedCache<LogExceptionItem[]>(5);
 
 export const logExceptionService = {
   async getInbox(date?: string): Promise<LogExceptionItem[]> {
     const q = date ? `?date=${encodeURIComponent(date)}` : '';
-    return apiClient.get<LogExceptionItem[]>(`/log-exceptions/inbox${q}`);
+    const res = await apiClient.get<LogExceptionItem[]>(`/log-exceptions/inbox${q}`);
+    if (res) {
+      exceptionsCache.set(date || 'today', res);
+    }
+    return res;
+  },
+
+  getCachedInbox(date?: string): CacheEntry<LogExceptionItem[]> | undefined {
+    return exceptionsCache.get(date || 'today');
+  },
+
+  setCachedInbox(data: LogExceptionItem[], date?: string): void {
+    exceptionsCache.set(date || 'today', data);
+  },
+
+  clearAllCaches(): void {
+    exceptionsCache.clear();
   },
 
   async act(

@@ -6,23 +6,18 @@ import {
   elementScroll,
 } from '@tanstack/react-virtual';
 import {
-  TrendingUp,
-  Loader2,
-  RefreshCcw,
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
+  RefreshCw,
+  Download,
   KeyRound,
+  SlidersHorizontal,
+  MoveVertical,
   ZoomIn,
   ZoomOut,
   RotateCcw,
-  MoveVertical,
-  ChevronDown,
-  Check,
   Search,
   X,
-  Calendar as CalendarIcon,
-  SlidersHorizontal,
+  ChevronDown,
+  Check,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
@@ -32,6 +27,16 @@ import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
+import { PageHeader } from '../ui/PageHeader';
+import { KpiCard } from '../ui/KpiCard';
+import { StatusPill } from '../ui/StatusPill';
+import { Button } from '../ui/button';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { CustomSelect } from '../ui/CustomSelect';
+import { Switch } from '../ui/switch';
+import { EmptyState } from '../ui/EmptyState';
+import { ErrorState } from '../ui/ErrorState';
+import { MetaIcon, GoogleAdsIcon, TikTokIcon, WhatsAppIcon } from '../ui/brand-icons';
 
 interface Props {
   selectedWorkspace?: (Workspace | AdAccount) | null;
@@ -49,34 +54,26 @@ interface MarketingColumnDef {
 }
 
 const DEFAULT_COLUMNS: MarketingColumnDef[] = [
-  { key: 'workspace_name', label: 'Client / Account', width: 140, align: 'left' },
+  { key: 'workspace_name', label: 'Client / account', width: 160, align: 'left' },
   { key: 'industry', label: 'Industry', width: 110, align: 'left' },
-  { key: 'objective', label: 'Objective', width: 130, align: 'left' },
-  { key: 'platform', label: 'Platform', width: 80, align: 'center' },
-  { key: 'campaign_name', label: 'Campaign Name', width: 240, align: 'left' },
-  { key: 'budget_set', label: 'Budget Set', width: 95, align: 'right' },
-  { key: 'ad_spend', label: 'Ad Spend', width: 95, align: 'right' },
-  { key: 'cpl_cpa', label: 'CPL / CPA', width: 90, align: 'right' },
-  { key: 'leads_conversions', label: 'Leads / Conv.', width: 85, align: 'right' },
-  { key: 'avg_frequency', label: 'Avg Freq', width: 75, align: 'right' },
-  { key: 'impressions', label: 'Impressions', width: 95, align: 'right' },
-  { key: 'clicks', label: 'Clicks', width: 75, align: 'right' },
-  { key: 'reach', label: 'Reach', width: 85, align: 'right' },
-  { key: 'remarks', label: 'Remarks', width: 160, align: 'left' },
+  { key: 'platform', label: 'Platform', width: 85, align: 'center' },
+  { key: 'campaign_name', label: 'Campaign name', width: 220, align: 'left' },
+  { key: 'objective', label: 'Objective', width: 120, align: 'left' },
   { key: 'status', label: 'Status', width: 95, align: 'center' },
+  { key: 'budget_set', label: 'Budget set', width: 100, align: 'right' },
+  { key: 'ad_spend', label: 'Ad spend', width: 105, align: 'right' },
+  { key: 'reach', label: 'Reach', width: 90, align: 'right' },
+  { key: 'impressions', label: 'Impressions', width: 105, align: 'right' },
+  { key: 'clicks', label: 'Clicks', width: 85, align: 'right' },
+  { key: 'avg_frequency', label: 'Avg freq', width: 80, align: 'right' },
+  { key: 'leads_conversions', label: 'Leads / conv.', width: 95, align: 'right' },
+  { key: 'cpl_cpa', label: 'CPL / CPA', width: 95, align: 'right' },
+  { key: 'remarks', label: 'Remarks', width: 150, align: 'left' },
 ];
 
-const PLATFORM_COLORS: Record<string, string> = {
-  Meta: 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/30',
-  Google: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
-  TikTok: 'bg-pink-500/15 text-pink-700 dark:text-pink-300 border-pink-500/30',
-  WhatsApp: 'bg-green-500/15 text-green-700 dark:text-green-300 border-green-500/30',
-  Other: 'bg-slate-500/15 text-slate-700 dark:text-slate-300 border-slate-500/30',
-};
-
-const DEFAULT_ROW_HEIGHT = 32;
-const DEFAULT_ZOOM = 80;
-const MIN_ZOOM = 50;
+const DEFAULT_ROW_HEIGHT = 40;
+const DEFAULT_ZOOM = 100;
+const MIN_ZOOM = 60;
 const MAX_ZOOM = 130;
 
 const formatCellValue = (value: any, type?: string): string => {
@@ -103,7 +100,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const { role } = useAuth();
   const { addToast } = useToast();
 
-  // Use adAccounts if provided, otherwise fallback to workspaces
   const accountsList = useMemo(() => {
     if (adAccounts && adAccounts.length > 0) return adAccounts;
     return workspaces;
@@ -111,7 +107,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
   const {
     rows,
-    hiddenCount,
     showInactive,
     toggleShowInactive,
     isLoading,
@@ -126,38 +121,25 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
+  // Filters State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedPlatform, setSelectedPlatform] = useState<string>('all');
+  const [selectedObjective, setSelectedObjective] = useState<string>('all');
+
   // Ad Account Dropdown State
   const [isAccountMenuOpen, setIsAccountMenuOpen] = useState(false);
   const [dropdownSearch, setDropdownSearch] = useState('');
   const accountMenuRef = useRef<HTMLDivElement>(null);
 
-  // Custom Calendar Popover State
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
-  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date(selectedDate || Date.now()));
-  const calendarDropdownRef = useRef<HTMLDivElement>(null);
-
   // View Options Popover State
   const [isViewOptionsMenuOpen, setIsViewOptionsMenuOpen] = useState(false);
   const viewOptionsMenuRef = useRef<HTMLDivElement>(null);
 
-  // Synchronize calendar view date with selectedDate
-  useEffect(() => {
-    if (selectedDate) {
-      const parts = selectedDate.split('-');
-      if (parts.length === 3) {
-        setCalendarViewDate(new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2])));
-      }
-    }
-  }, [selectedDate]);
-
-  // Click outside listener for dropdowns
+  // Close menus on click outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (accountMenuRef.current && !accountMenuRef.current.contains(event.target as Node)) {
         setIsAccountMenuOpen(false);
-      }
-      if (calendarDropdownRef.current && !calendarDropdownRef.current.contains(event.target as Node)) {
-        setIsCalendarOpen(false);
       }
       if (viewOptionsMenuRef.current && !viewOptionsMenuRef.current.contains(event.target as Node)) {
         setIsViewOptionsMenuOpen(false);
@@ -167,7 +149,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Filter Ad Accounts strictly in alphabetical order (A-Z)
+  // Filter Ad Accounts in dropdown
   const filteredDropdownAccounts = useMemo(() => {
     const sorted = [...accountsList].sort((a, b) =>
       (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' })
@@ -182,20 +164,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     );
   }, [accountsList, dropdownSearch]);
 
-  // Shift Date by +/- N Days
-  const shiftDate = (days: number) => {
-    if (!selectedDate) return;
-    const parts = selectedDate.split('-');
-    if (parts.length !== 3) return;
-    const current = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-    current.setDate(current.getDate() + days);
-    const yyyy = current.getFullYear();
-    const mm = String(current.getMonth() + 1).padStart(2, '0');
-    const dd = String(current.getDate()).padStart(2, '0');
-    changeDate(`${yyyy}-${mm}-${dd}`);
-  };
-
-  // ── Zoom & Matrix Layout State — exact DailyLog pattern ──────────────────
+  // Layout Zoom & Resizing State
   const [zoomLevel, setZoomLevel] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_perf_zoom');
@@ -216,14 +185,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return initial;
   });
 
-  const [rowHeights, setRowHeights] = useState<Record<string, number>>(() => {
-    try {
-      const saved = localStorage.getItem('reamarc_perf_row_heights');
-      if (saved) return JSON.parse(saved);
-    } catch (e) {}
-    return {};
-  });
-
   const [defaultRowHeight, setDefaultRowHeight] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_perf_def_row_height');
@@ -232,17 +193,12 @@ export const PerformanceMarketing: React.FC<Props> = ({
     return DEFAULT_ROW_HEIGHT;
   });
 
-  // ── DOM Refs for Resizing & Virtualization ───────────────────────────────
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const tableInnerRef = useRef<HTMLDivElement>(null);
   const resizeGuideRef = useRef<HTMLDivElement>(null);
   const resizeTooltipRef = useRef<HTMLDivElement>(null);
   const currentResizingWidthRef = useRef<number>(100);
-  const rowResizeGuideRef = useRef<HTMLDivElement>(null);
-  const rowResizeTooltipRef = useRef<HTMLDivElement>(null);
-  const currentResizingHeightRef = useRef<number>(DEFAULT_ROW_HEIGHT);
 
-  // ── Column & Row Resizing Handlers — optimized with guide refs & deferred commit ──
   const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -268,7 +224,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
 
     const onMouseMove = (moveEvent: MouseEvent) => {
       const delta = (moveEvent.clientX - startX) * (100 / zoomLevel);
-      const newWidth = Math.max(35, Math.min(800, startWidth + delta));
+      const newWidth = Math.max(50, Math.min(600, startWidth + delta));
       const roundedWidth = Math.round(newWidth);
       currentResizingWidthRef.current = roundedWidth;
 
@@ -305,100 +261,60 @@ export const PerformanceMarketing: React.FC<Props> = ({
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  const handleRowResizeStart = (e: React.MouseEvent, rowId: string, currentH: number) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startY = e.clientY;
-    currentResizingHeightRef.current = currentH;
-
-    const handleElement = e.currentTarget as HTMLElement;
-    const innerRect = tableInnerRef.current?.getBoundingClientRect();
-    const initialHandleTop = innerRect
-      ? (handleElement.getBoundingClientRect().bottom - innerRect.top) * (100 / zoomLevel)
-      : 0;
-
-    if (rowResizeGuideRef.current) {
-      rowResizeGuideRef.current.style.display = 'block';
-      rowResizeGuideRef.current.style.transform = `translateY(${initialHandleTop}px)`;
-      if (rowResizeTooltipRef.current) {
-        rowResizeTooltipRef.current.textContent = `${currentH}px`;
-      }
-    }
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const delta = (moveEvent.clientY - startY) * (100 / zoomLevel);
-      const newHeight = Math.max(24, Math.min(180, currentH + delta));
-      const roundedHeight = Math.round(newHeight);
-      currentResizingHeightRef.current = roundedHeight;
-
-      if (rowResizeGuideRef.current) {
-        const currentTop = initialHandleTop + (roundedHeight - currentH);
-        rowResizeGuideRef.current.style.transform = `translateY(${currentTop}px)`;
-        if (rowResizeTooltipRef.current) {
-          rowResizeTooltipRef.current.textContent = `${roundedHeight}px`;
-        }
-      }
-    };
-
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-
-      if (rowResizeGuideRef.current) {
-        rowResizeGuideRef.current.style.display = 'none';
-      }
-
-      const finalHeight = currentResizingHeightRef.current;
-      setRowHeights((prev) => {
-        const next = { ...prev, [rowId]: finalHeight };
-        try {
-          localStorage.setItem('reamarc_perf_row_heights', JSON.stringify(next));
-        } catch (err) {}
-        return next;
-      });
-    };
-
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  };
-
-  // Reset Layout — exact DailyLog pattern
   const handleResetLayout = () => {
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
       initial[col.key] = col.width;
     });
     setColumnWidths(initial);
-    setRowHeights({});
     setDefaultRowHeight(DEFAULT_ROW_HEIGHT);
     setZoomLevel(DEFAULT_ZOOM);
     try {
       localStorage.removeItem('reamarc_perf_col_widths');
-      localStorage.removeItem('reamarc_perf_row_heights');
       localStorage.removeItem('reamarc_perf_def_row_height');
       localStorage.setItem('reamarc_perf_zoom', String(DEFAULT_ZOOM));
     } catch (e) {}
-    addToast('Layout Reset', 'Grid column widths, row heights (32px), and zoom (80%) reset to default.', 'info');
+    addToast('Layout reset', 'Column widths, row heights, and zoom reset to default.', 'info');
   };
 
-  // Status Counts
-  const statusCounts = useMemo(() => {
-    const counts = { Active: 0, Paused: 0, Error: 0, Stopped: 0, Total: rows.length };
+  // Distinct objectives from data
+  const objectiveOptions = useMemo(() => {
+    const set = new Set<string>();
     rows.forEach((r) => {
-      const st = (r.status || '').trim();
-      if (st === 'Active') counts.Active++;
-      else if (st === 'Paused') counts.Paused++;
-      else if (st === 'Error') counts.Error++;
-      else if (st === 'Stopped') counts.Stopped++;
+      if (r.objective?.trim()) set.add(r.objective.trim());
     });
-    return counts;
+    const opts = [{ value: 'all', label: 'All objectives' }];
+    Array.from(set).sort().forEach((obj) => {
+      opts.push({ value: obj, label: obj });
+    });
+    return opts;
   }, [rows]);
 
-  const sortedRows = useMemo(() => {
+  // Filtered & Grouped Rows
+  const sortedAndFilteredRows = useMemo(() => {
+    let list = [...rows];
+
+    if (selectedPlatform !== 'all') {
+      const p = selectedPlatform.toLowerCase();
+      list = list.filter((r) => (r.platform || '').toLowerCase().includes(p));
+    }
+
+    if (selectedObjective !== 'all') {
+      const obj = selectedObjective.toLowerCase();
+      list = list.filter((r) => (r.objective || '').toLowerCase().trim() === obj);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter(
+        (r) =>
+          (r.workspace_name || '').toLowerCase().includes(q) ||
+          (r.campaign_name || '').toLowerCase().includes(q) ||
+          (r.industry || '').toLowerCase().includes(q) ||
+          (r.remarks || '').toLowerCase().includes(q)
+      );
+    }
+
     const statusPriority: Record<string, number> = {
       Active: 1,
       Paused: 2,
@@ -406,22 +322,61 @@ export const PerformanceMarketing: React.FC<Props> = ({
       Stopped: 4,
     };
 
-    return [...rows].sort((a, b) => {
+    return list.sort((a, b) => {
+      const clientA = a.workspace_name || '';
+      const clientB = b.workspace_name || '';
+      const cmpClient = clientA.localeCompare(clientB, undefined, { sensitivity: 'base' });
+      if (cmpClient !== 0) return cmpClient;
+
       const priorityA = statusPriority[a.status] || 99;
       const priorityB = statusPriority[b.status] || 99;
       if (priorityA !== priorityB) return priorityA - priorityB;
+
       return (Number(b.ad_spend) || 0) - (Number(a.ad_spend) || 0);
     });
-  }, [rows]);
+  }, [rows, selectedPlatform, selectedObjective, searchQuery]);
 
-  // ── Row Virtualization via @tanstack/react-virtual (Zoom-Compensated) ────────
+  // Aggregate Totals for KPI cards & footer (computed across current data rows)
+  const totals = useMemo(() => {
+    let ad_spend = 0;
+    let impressions = 0;
+    let clicks = 0;
+    let leads_conversions = 0;
+    let budget_set = 0;
+    let reach = 0;
+
+    sortedAndFilteredRows.forEach((r) => {
+      ad_spend += Number(r.ad_spend) || 0;
+      impressions += Number(r.impressions) || 0;
+      clicks += Number(r.clicks) || 0;
+      leads_conversions += Number(r.leads_conversions) || 0;
+      budget_set += Number(r.budget_set) || 0;
+      reach += Number(r.reach) || 0;
+    });
+
+    const cpl_cpa = leads_conversions > 0 ? ad_spend / leads_conversions : 0;
+    const avg_freq = reach > 0 ? impressions / reach : 0;
+
+    return {
+      ad_spend,
+      impressions,
+      clicks,
+      leads_conversions,
+      cpl_cpa,
+      budget_set,
+      reach,
+      avg_freq,
+    };
+  }, [sortedAndFilteredRows]);
+
+  // Row Virtualization
   const zoomLevelRef = useRef(zoomLevel);
   zoomLevelRef.current = zoomLevel;
 
   const rowVirtualizer = useVirtualizer({
-    count: sortedRows.length,
+    count: sortedAndFilteredRows.length,
     getScrollElement: () => tableContainerRef.current,
-    estimateSize: (index) => rowHeights[sortedRows[index]?.campaign_id] || defaultRowHeight,
+    estimateSize: () => defaultRowHeight,
     overscan: 10,
     observeElementOffset: (instance, cb) => {
       return observeElementOffset(instance, (offset, isScrolling) => {
@@ -456,6 +411,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     rowVirtualizer.measure();
   }, [defaultRowHeight, zoomLevel, rowVirtualizer]);
 
+  // Sync Handling
   const syncPollIntervalRef = useRef<any>(null);
   useEffect(() => {
     return () => {
@@ -489,7 +445,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             }
             setIsSyncing(false);
             refetch();
-            addToast('Sync Complete ✅', `Updated ${statusRes.synced_campaigns_count} campaigns!`, 'success');
+            addToast('Sync complete', `Updated ${statusRes.synced_campaigns_count} campaigns.`, 'success');
           } else if (statusRes.status === 'error' || attempts >= 20) {
             if (syncPollIntervalRef.current) {
               clearInterval(syncPollIntervalRef.current);
@@ -497,7 +453,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             }
             setIsSyncing(false);
             refetch();
-            addToast('Sync Warning', statusRes.message || 'Sync finished with warnings.', 'warning');
+            addToast('Sync warning', statusRes.message || 'Sync finished with warnings.', 'warning');
           }
         } catch (e) {
           if (syncPollIntervalRef.current) {
@@ -510,953 +466,739 @@ export const PerformanceMarketing: React.FC<Props> = ({
       }, 3000);
     } catch (err: any) {
       setIsSyncing(false);
-      addToast('Sync Failed', err.message || 'Could not initiate ad sync.', 'warning');
+      addToast('Sync failed', err.message || 'Could not initiate ad sync.', 'error');
     }
   };
 
-  // Compute Total Table Width for reliable horizontal scrolling — exact DailyLog pattern
+  // CSV Export
+  const handleExport = () => {
+    const headers = DEFAULT_COLUMNS.map((col) => col.label);
+    const csvRows = [
+      headers.join(','),
+      ...sortedAndFilteredRows.map((row) =>
+        DEFAULT_COLUMNS.map((col) => {
+          const val = (row as any)[col.key];
+          const str = val !== undefined && val !== null ? String(val) : '';
+          return `"${str.replace(/"/g, '""')}"`;
+        }).join(',')
+      ),
+    ];
+    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `performance_marketing_${selectedDate || 'today'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    addToast('Export complete', 'Performance marketing matrix downloaded as CSV.', 'success');
+  };
+
   const totalTableWidth = useMemo(() => {
-    return 44 + DEFAULT_COLUMNS.reduce((sum, col) => sum + (columnWidths[col.key] || col.width), 0);
+    return DEFAULT_COLUMNS.reduce((sum, col) => sum + (columnWidths[col.key] || col.width), 0);
   }, [columnWidths]);
 
-  // Formatted Date string for navbar button
-  const formattedDateLabel = useMemo(() => {
-    if (!selectedDate) return 'Today';
-    try {
-      const parts = selectedDate.split('-');
-      if (parts.length === 3) {
-        const d = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-        const today = new Date();
-        if (d.toDateString() === today.toDateString()) {
-          return `Today, ${d.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`;
-        }
-        return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' });
-      }
-    } catch (e) {}
-    return selectedDate;
-  }, [selectedDate]);
-
-  // Calendar calculations for Popover
-  const calendarDaysInMonth = useMemo(() => {
-    const year = calendarViewDate.getFullYear();
-    const month = calendarViewDate.getMonth();
-    const firstDay = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-    return { firstDay, daysInMonth, year, month };
-  }, [calendarViewDate]);
+  const renderPlatformIcon = (platform: string) => {
+    const p = (platform || '').toLowerCase();
+    if (p.includes('meta') || p.includes('facebook') || p.includes('instagram')) {
+      return <MetaIcon size={14} className="text-fg-muted" />;
+    }
+    if (p.includes('google')) {
+      return <GoogleAdsIcon size={14} className="text-fg-muted" />;
+    }
+    if (p.includes('tiktok')) {
+      return <TikTokIcon size={14} className="text-fg-muted" />;
+    }
+    if (p.includes('whatsapp')) {
+      return <WhatsAppIcon size={14} className="text-fg-muted" />;
+    }
+    return <span className="text-small text-fg-muted">{platform || '—'}</span>;
+  };
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden performance-marketing-view">
-      {/* Top Toolbar Bar */}
-      <div className="px-6 py-3 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-col gap-2.5 shadow-xs shrink-0">
-        {/* Row 1: Global Context & Actions */}
-        <div className="flex items-center justify-between gap-4 flex-wrap">
-          {/* Left: Ad Account Switcher & Live KPI Counters */}
-          <div className="flex items-center gap-3 flex-wrap">
-          {/* Ad Account Dropdown Trigger */}
-          <div className="relative" ref={accountMenuRef}>
-            <button
-              type="button"
-              onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
-              className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 rounded-xl px-3 py-1.5 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all shadow-2xs cursor-pointer select-none"
-            >
-              <div
-                className={`w-6 h-6 rounded-lg text-white font-extrabold text-[10px] flex items-center justify-center shadow-2xs shrink-0 ${
-                  (selectedWorkspace as any)?.brandColor || 'bg-indigo-600'
-                }`}
+    <div className="flex flex-col h-full bg-canvas text-fg select-none overflow-hidden p-6 lg:px-8 lg:py-6">
+      {/* ─── Page Header (§13.16) ─── */}
+      <PageHeader
+        title="Performance marketing"
+        description="Spend and results across every connected ad account."
+        actions={
+          <>
+            <CustomDatePicker
+              value={selectedDate}
+              onChange={changeDate}
+              className="w-40"
+              clearable={false}
+            />
+
+            <CustomSelect
+              value={selectedPlatform}
+              onChange={setSelectedPlatform}
+              options={[
+                { value: 'all', label: 'All platforms' },
+                { value: 'Meta', label: 'Meta', icon: MetaIcon },
+                { value: 'Google', label: 'Google', icon: GoogleAdsIcon },
+                { value: 'TikTok', label: 'TikTok', icon: TikTokIcon },
+                { value: 'WhatsApp', label: 'WhatsApp', icon: WhatsAppIcon },
+              ]}
+              className="w-36"
+              size="sm"
+            />
+
+            {role === 'admin' && (
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={KeyRound}
+                onClick={() => setIsCredsModalOpen(true)}
               >
-                {(selectedWorkspace as any)?.initials || (selectedWorkspace ? selectedWorkspace.name.slice(0, 2).toUpperCase() : 'ALL')}
-              </div>
-              <div className="text-left min-w-[100px]">
-                <div className="flex items-center gap-1.5 leading-tight">
-                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-[150px]">
-                    {selectedWorkspace ? selectedWorkspace.name : 'All Ad Accounts'}
-                  </span>
-                  {selectedWorkspace &&
-                    (() => {
-                      const nameLower = selectedWorkspace.name.toLowerCase();
-                      const pLower = ((selectedWorkspace as any).platform || '').toLowerCase();
-                      const isMulti =
-                        (pLower.includes('google') && pLower.includes('meta')) ||
-                        nameLower.includes('ed&c') ||
-                        nameLower.includes('ednc') ||
-                        nameLower.includes('elegant design');
-                      const isGoogle = !isMulti && pLower.includes('google');
-
-                      if (isMulti) {
-                        return (
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                            Meta+Google
-                          </span>
-                        );
-                      }
-                      if (isGoogle) {
-                        return (
-                          <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                            Google
-                          </span>
-                        );
-                      }
-                      return (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20">
-                          Meta
-                        </span>
-                      );
-                    })()}
-                </div>
-                <span className="text-[10px] text-zinc-400 font-medium block leading-tight">
-                  {selectedWorkspace ? (selectedWorkspace as any).industry || 'Ad Account' : 'Consolidated Agency Matrix'}
-                </span>
-              </div>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 ${
-                  isAccountMenuOpen ? 'rotate-180 text-indigo-500' : ''
-                }`}
-              />
-            </button>
-
-            {/* Dropdown Menu Popover with Search & Scrollbar */}
-            {isAccountMenuOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 w-80 max-w-[90vw] bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-2 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-                {/* Search Input Box */}
-                <div className="relative">
-                  <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Search 28+ ad accounts..."
-                    value={dropdownSearch}
-                    onChange={(e) => setDropdownSearch(e.target.value)}
-                    className="w-full pl-8 pr-7 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-lg text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 focus:outline-none focus:border-indigo-500"
-                    autoFocus
-                  />
-                  {dropdownSearch && (
-                    <button
-                      type="button"
-                      onClick={() => setDropdownSearch('')}
-                      className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  )}
-                </div>
-
-                {/* Scrollable Accounts List */}
-                <div className="max-h-[300px] overflow-y-auto space-y-0.5 pr-1 custom-scrollbar">
-                  {/* All Accounts Option */}
-                  {!dropdownSearch && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onSelectWorkspace?.(null);
-                        setIsAccountMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                        !selectedWorkspace
-                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <div className="w-5 h-5 rounded bg-indigo-600 text-white text-[9px] font-bold flex items-center justify-center">
-                          ALL
-                        </div>
-                        <div className="text-left">
-                          <p className="font-bold text-xs">All Ad Accounts (Aggregated)</p>
-                          <p className="text-[10px] text-zinc-400">Total blended portfolio metrics</p>
-                        </div>
-                      </div>
-                      {!selectedWorkspace && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" />}
-                    </button>
-                  )}
-
-                  {filteredDropdownAccounts.length === 0 ? (
-                    <div className="p-4 text-center text-xs text-zinc-400">
-                      No ad accounts found for "{dropdownSearch}".
-                    </div>
-                  ) : (
-                    filteredDropdownAccounts.map((ws) => {
-                      const isSelected = selectedWorkspace?.id === ws.id;
-                      const nameLower = ws.name.toLowerCase();
-                      const pLower = ((ws as any).platform || '').toLowerCase();
-                      const isMulti =
-                        (pLower.includes('google') && pLower.includes('meta')) ||
-                        nameLower.includes('ed&c') ||
-                        nameLower.includes('ednc') ||
-                        nameLower.includes('elegant design');
-                      const isGoogle = !isMulti && pLower.includes('google');
-
-                      return (
-                        <button
-                          key={ws.id}
-                          type="button"
-                          onClick={() => {
-                            onSelectWorkspace?.(ws);
-                            setIsAccountMenuOpen(false);
-                          }}
-                          className={`w-full flex items-center justify-between p-2 rounded-lg text-xs transition-colors cursor-pointer ${
-                            isSelected
-                              ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                              : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2 min-w-0 text-left">
-                            <div
-                              className={`w-5 h-5 rounded text-[9px] font-bold flex items-center justify-center text-white shrink-0 ${
-                                (ws as any).brandColor || (isGoogle ? 'bg-emerald-600' : 'bg-indigo-600')
-                              }`}
-                            >
-                              {(ws as any).initials || ws.name.slice(0, 2).toUpperCase()}
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-xs truncate">{ws.name}</p>
-                              <div className="flex items-center gap-1 mt-0.5">
-                                {isMulti ? (
-                                  <div className="flex items-center gap-1">
-                                    <span className="px-1 py-0.2 rounded text-[8px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                      Meta
-                                    </span>
-                                    <span className="px-1 py-0.2 rounded text-[8px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                      Google
-                                    </span>
-                                  </div>
-                                ) : isGoogle ? (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                    Google Ads
-                                  </span>
-                                ) : (
-                                  <span className="px-1 py-0.2 rounded text-[8px] font-extrabold bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                    Meta Ads
-                                  </span>
-                                )}
-                                <span className="text-[10px] text-zinc-400 truncate">• {(ws as any).industry || 'Ad Account'}</span>
-                              </div>
-                            </div>
-                          </div>
-                          {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 ml-1.5" />}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
+                Credentials
+              </Button>
             )}
-          </div>
 
-          {/* Status Counts Pill Group */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 text-xs font-bold shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Active: {statusCounts.Active}</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20 text-xs font-bold shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              <span>Paused: {statusCounts.Paused}</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-rose-500/10 text-rose-700 dark:text-rose-400 border border-rose-500/20 text-xs font-bold shadow-2xs">
-              <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-              <span>Errors: {statusCounts.Error + statusCounts.Stopped}</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Global Actions (Credentials & Sync Ads API) */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {/* Ad Credentials Trigger (Admin Only) */}
-          {role === 'admin' && (
-            <button
-              type="button"
-              onClick={() => setIsCredsModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-              title="Configure API credentials & Pixel IDs"
-            >
-              <KeyRound className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Credentials</span>
-            </button>
-          )}
-
-          {/* Sync Ads API Button */}
-          {(role === 'admin' || role === 'member') && (
-            <button
-              type="button"
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={RefreshCw}
+              loading={isSyncing}
               onClick={handleManualSync}
-              disabled={isSyncing}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 dark:disabled:text-zinc-500 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer disabled:cursor-not-allowed select-none"
             >
-              {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCcw className="w-3.5 h-3.5" />}
-              <span>{isSyncing ? 'Syncing...' : 'Sync Ads API'}</span>
-            </button>
-          )}
-        </div>
+              Sync
+            </Button>
+
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={Download}
+              onClick={handleExport}
+            >
+              Export
+            </Button>
+          </>
+        }
+      />
+
+      {/* ─── KPI Row (5 KpiCards with aggregate totals) ─── */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4 mb-4 shrink-0">
+        <KpiCard
+          label="Ad spend"
+          value={formatCellValue(totals.ad_spend, 'currency')}
+        />
+        <KpiCard
+          label="Impressions"
+          value={formatCellValue(totals.impressions, 'number')}
+        />
+        <KpiCard
+          label="Clicks"
+          value={formatCellValue(totals.clicks, 'number')}
+        />
+        <KpiCard
+          label="Leads / conv."
+          value={formatCellValue(totals.leads_conversions, 'number')}
+        />
+        <KpiCard
+          label="CPL / CPA"
+          value={formatCellValue(totals.cpl_cpa, 'currency')}
+        />
       </div>
 
-      {/* Row 2: Table Controls (Date Navigator, Show Paused Toggle, View Options) */}
-      <div className="flex items-center justify-between gap-4 flex-wrap pt-2 border-t border-zinc-100 dark:border-zinc-800/60">
-        {/* Left: Date Navigator & Clean Show Paused Toggle */}
-        <div className="flex items-center gap-2.5 flex-wrap">
-          {/* Custom Calendar Date Navigator */}
-          <div
-            className="relative flex items-center gap-1 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl p-1 shadow-2xs"
-            ref={calendarDropdownRef}
-          >
-            <button
-              type="button"
-              onClick={() => shiftDate(-1)}
-              className="p-1 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 transition-colors cursor-pointer"
-              title="Previous Day"
-            >
-              <ChevronLeft className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsCalendarOpen(!isCalendarOpen)}
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-              title="Open Calendar Picker"
-            >
-              <CalendarIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{formattedDateLabel}</span>
-              <ChevronDown
-                className={`w-3 h-3 text-zinc-400 transition-transform duration-150 ${
-                  isCalendarOpen ? 'rotate-180 text-indigo-500' : ''
-                }`}
-              />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => shiftDate(1)}
-              className="p-1 rounded-lg hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-500 transition-colors cursor-pointer"
-              title="Next Day"
-            >
-              <ChevronRight className="w-3.5 h-3.5" />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => changeDate(new Date().toISOString().split('T')[0])}
-              className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
-            >
-              Today
-            </button>
-
-            {/* Custom Interactive Calendar Popover */}
-            {isCalendarOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
-                {/* Month and Year Header */}
-                <div className="flex items-center justify-between pb-2 border-b border-zinc-100 dark:border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prev = new Date(calendarViewDate);
-                      prev.setMonth(prev.getMonth() - 1);
-                      setCalendarViewDate(prev);
-                    }}
-                    className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    {calendarViewDate.toLocaleString('default', { month: 'long', year: 'numeric' })}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const next = new Date(calendarViewDate);
-                      next.setMonth(next.getMonth() + 1);
-                      setCalendarViewDate(next);
-                    }}
-                    className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
+      {/* ─── Table Card Shell ("All ad accounts") ─── */}
+      <div className="flex-1 min-h-0 flex flex-col bg-surface border border-border rounded-xl shadow-xs overflow-hidden">
+        {/* Table Toolbar */}
+        <div className="p-3 border-b border-border flex items-center justify-between gap-3 flex-wrap shrink-0 bg-surface">
+          <div className="flex items-center gap-2.5 flex-wrap">
+            {/* Ad Account Dropdown Trigger */}
+            <div className="relative" ref={accountMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsAccountMenuOpen(!isAccountMenuOpen)}
+                className="inline-flex items-center gap-2 h-8 px-2.5 rounded-md border border-border-strong bg-surface text-small font-medium text-fg hover:bg-hover transition-colors shadow-xs cursor-pointer select-none"
+              >
+                <div
+                  className={`w-4 h-4 rounded text-white text-[9px] font-semibold flex items-center justify-center shrink-0 ${
+                    (selectedWorkspace as any)?.brandColor || 'bg-accent'
+                  }`}
+                >
+                  {(selectedWorkspace as any)?.initials ||
+                    (selectedWorkspace ? selectedWorkspace.name.slice(0, 2).toUpperCase() : 'ALL')}
                 </div>
+                <span className="truncate max-w-[160px] text-fg font-medium">
+                  {selectedWorkspace ? selectedWorkspace.name : 'All ad accounts (aggregated)'}
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-fg-muted transition-transform duration-150 ${
+                    isAccountMenuOpen ? 'rotate-180 text-accent' : ''
+                  }`}
+                />
+              </button>
 
-                {/* Day of Week Labels */}
-                <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-bold text-zinc-400">
-                  {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((d) => (
-                    <div key={d} className="py-0.5">
-                      {d}
-                    </div>
-                  ))}
-                </div>
-
-                {/* Month Days Grid */}
-                <div className="grid grid-cols-7 gap-1 text-center">
-                  {Array.from({ length: calendarDaysInMonth.firstDay }).map((_, i) => (
-                    <div key={`empty-${i}`} className="h-7" />
-                  ))}
-                  {Array.from({ length: calendarDaysInMonth.daysInMonth }).map((_, i) => {
-                    const day = i + 1;
-                    const dateStr = `${calendarDaysInMonth.year}-${String(calendarDaysInMonth.month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const isSelected = selectedDate === dateStr;
-                    const isToday = new Date().toISOString().split('T')[0] === dateStr;
-
-                    return (
+              {/* Account Dropdown Popover */}
+              {isAccountMenuOpen && (
+                <div className="absolute left-0 top-full mt-1.5 z-50 w-72 bg-surface border border-border rounded-lg shadow-md p-2 space-y-2">
+                  <div className="relative">
+                    <Search className="w-3.5 h-3.5 text-fg-muted absolute left-2.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder={`Search ${accountsList.length} ad accounts…`}
+                      value={dropdownSearch}
+                      onChange={(e) => setDropdownSearch(e.target.value)}
+                      className="w-full pl-8 pr-7 py-1 text-small bg-subtle border border-border rounded-md text-fg placeholder:text-fg-faint focus-visible:focus-ring"
+                      autoFocus
+                    />
+                    {dropdownSearch && (
                       <button
-                        key={day}
+                        type="button"
+                        onClick={() => setDropdownSearch('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg p-0.5 cursor-pointer"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="max-h-60 overflow-y-auto space-y-0.5 pr-0.5">
+                    {!dropdownSearch && (
+                      <button
                         type="button"
                         onClick={() => {
-                          changeDate(dateStr);
-                          setIsCalendarOpen(false);
+                          onSelectWorkspace?.(null);
+                          setIsAccountMenuOpen(false);
                         }}
-                        className={`h-7 w-7 mx-auto rounded-lg text-xs font-semibold flex items-center justify-center transition-colors cursor-pointer ${
-                          isSelected
-                            ? 'bg-indigo-600 text-white font-bold shadow-2xs'
-                            : isToday
-                            ? 'border border-indigo-500/40 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 font-bold'
-                            : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
+                        className={`w-full flex items-center justify-between p-2 rounded-md text-small transition-colors cursor-pointer ${
+                          !selectedWorkspace
+                            ? 'bg-accent-soft text-accent-text font-semibold'
+                            : 'text-fg-2 hover:bg-hover'
                         }`}
                       >
-                        {day}
+                        <div className="flex items-center gap-2">
+                          <div className="w-5 h-5 rounded bg-accent text-accent-fg text-[9px] font-semibold flex items-center justify-center">
+                            ALL
+                          </div>
+                          <div className="text-left">
+                            <p className="font-medium text-small">All ad accounts (aggregated)</p>
+                            <p className="text-caption text-fg-muted">Portfolio metrics</p>
+                          </div>
+                        </div>
+                        {!selectedWorkspace && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
                       </button>
-                    );
-                  })}
-                </div>
+                    )}
 
-                {/* Quick Selection Presets */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800 flex items-center justify-between gap-1 text-[11px]">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      changeDate(new Date().toISOString().split('T')[0]);
-                      setIsCalendarOpen(false);
-                    }}
-                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer font-medium"
-                  >
-                    Today
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const y = new Date();
-                      y.setDate(y.getDate() - 1);
-                      changeDate(y.toISOString().split('T')[0]);
-                      setIsCalendarOpen(false);
-                    }}
-                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer font-medium"
-                  >
-                    Yesterday
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const w = new Date();
-                      w.setDate(w.getDate() - 7);
-                      changeDate(w.toISOString().split('T')[0]);
-                      setIsCalendarOpen(false);
-                    }}
-                    className="px-2 py-1 rounded-md text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer font-medium"
-                  >
-                    7 Days Ago
-                  </button>
+                    {filteredDropdownAccounts.length === 0 ? (
+                      <div className="p-3 text-center text-caption text-fg-muted">
+                        No ad accounts found for "{dropdownSearch}".
+                      </div>
+                    ) : (
+                      filteredDropdownAccounts.map((ws) => {
+                        const isSelected = selectedWorkspace?.id === ws.id;
+                        return (
+                          <button
+                            key={ws.id}
+                            type="button"
+                            onClick={() => {
+                              onSelectWorkspace?.(ws);
+                              setIsAccountMenuOpen(false);
+                            }}
+                            className={`w-full flex items-center justify-between p-2 rounded-md text-small transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-accent-soft text-accent-text font-semibold'
+                                : 'text-fg-2 hover:bg-hover'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0 text-left">
+                              <div
+                                className={`w-5 h-5 rounded text-[9px] font-semibold flex items-center justify-center text-white shrink-0 ${
+                                  (ws as any).brandColor || 'bg-accent'
+                                }`}
+                              >
+                                {(ws as any).initials || ws.name.slice(0, 2).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-medium text-small truncate">{ws.name}</p>
+                                <p className="text-caption text-fg-muted truncate">
+                                  {(ws as any).industry || 'Ad account'}
+                                </p>
+                              </div>
+                            </div>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-1.5" />}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
+            </div>
+
+            {/* In-table Search Input */}
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-fg-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                type="text"
+                placeholder={`Search ${sortedAndFilteredRows.length} ad accounts…`}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-8 pl-8 pr-7 text-small bg-surface border border-border-strong rounded-md text-fg placeholder:text-fg-faint focus-visible:focus-ring w-48 sm:w-56"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg cursor-pointer p-0.5"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+
+            {/* Objective Filter */}
+            {objectiveOptions.length > 2 && (
+              <CustomSelect
+                value={selectedObjective}
+                onChange={setSelectedObjective}
+                options={objectiveOptions}
+                size="sm"
+                className="w-36"
+              />
             )}
           </div>
 
-          {/* Clean Show Paused Toggle */}
-          <button
-            type="button"
-            onClick={toggleShowInactive}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-colors cursor-pointer select-none shadow-2xs ${
-              showInactive
-                ? 'bg-amber-500/10 border-amber-500/30 text-amber-800 dark:text-amber-300'
-                : 'bg-zinc-50 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-700/80 text-zinc-700 dark:text-zinc-300 hover:border-zinc-300 dark:hover:border-zinc-600'
-            }`}
-          >
-            <span
-              className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full p-0.5 transition-colors ${
-                showInactive ? 'bg-amber-500' : 'bg-zinc-300 dark:bg-zinc-700'
-              }`}
-            >
-              <span
-                className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transform transition-transform ${
-                  showInactive ? 'translate-x-3' : 'translate-x-0'
+          {/* Right Toolbar: View Options & Show Paused Toggle */}
+          <div className="flex items-center gap-3">
+            {/* View Options Menu */}
+            <div className="relative" ref={viewOptionsMenuRef}>
+              <button
+                type="button"
+                onClick={() => setIsViewOptionsMenuOpen(!isViewOptionsMenuOpen)}
+                className={`inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-small font-medium transition-colors shadow-xs cursor-pointer select-none ${
+                  isViewOptionsMenuOpen
+                    ? 'bg-hover border-border-strong text-fg'
+                    : 'bg-surface border-border-strong text-fg-2 hover:bg-hover hover:text-fg'
                 }`}
-              />
-            </span>
-            <span className="text-xs font-bold">Show Paused</span>
-          </button>
-        </div>
+                title="View options"
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5 text-fg-muted" />
+                <span>View options</span>
+                <ChevronDown className="w-3 h-3 text-fg-muted" />
+              </button>
 
-        {/* Right: View Options Dropdown */}
-        <div className="flex items-center gap-2">
-          <div className="relative" ref={viewOptionsMenuRef}>
-            <button
-              type="button"
-              onClick={() => setIsViewOptionsMenuOpen(!isViewOptionsMenuOpen)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none ${
-                isViewOptionsMenuOpen
-                  ? 'bg-zinc-100 dark:bg-zinc-800 border-zinc-300 dark:border-zinc-600 text-zinc-900 dark:text-zinc-100'
-                  : 'bg-zinc-50 dark:bg-zinc-900/90 border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300'
-              }`}
-              title="View Options"
-            >
-              <SlidersHorizontal className="w-3.5 h-3.5 text-indigo-500" />
-              <span>View Options</span>
-              <ChevronDown
-                className={`w-3 h-3 text-zinc-400 transition-transform duration-150 ${
-                  isViewOptionsMenuOpen ? 'rotate-180 text-indigo-500' : ''
-                }`}
-              />
-            </button>
-
-            {/* View Options Popover Menu */}
-            {isViewOptionsMenuOpen && (
-              <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-3 space-y-3 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 select-none">
-                <div className="text-[11px] font-bold text-zinc-400 uppercase tracking-wider">
-                  Display Settings
-                </div>
-
-                {/* Row Height Control */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    <MoveVertical className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Row Height</span>
+              {isViewOptionsMenuOpen && (
+                <div className="absolute right-0 top-full mt-1.5 z-50 w-64 bg-surface border border-border rounded-lg shadow-md p-3 space-y-3">
+                  <div className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                    Display settings
                   </div>
-                  <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 rounded-lg p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = Math.max(24, defaultRowHeight - 4);
-                        setDefaultRowHeight(next);
-                        try {
-                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                        } catch (e) {}
-                      }}
-                      className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors cursor-pointer"
-                      title="Decrease row height"
-                    >
-                      -
-                    </button>
-                    <span className="text-xs font-numeric font-bold px-1.5 min-w-[34px] text-center text-zinc-900 dark:text-zinc-100">
-                      {defaultRowHeight}px
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = Math.min(100, defaultRowHeight + 4);
-                        setDefaultRowHeight(next);
-                        try {
-                          localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                        } catch (e) {}
-                      }}
-                      className="w-6 h-6 flex items-center justify-center text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 rounded transition-colors cursor-pointer"
-                      title="Increase row height"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
 
-                {/* Zoom Level Control */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-medium text-zinc-700 dark:text-zinc-300">
-                    <ZoomIn className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Zoom</span>
+                  {/* Row Height Control */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-small font-medium text-fg-2">
+                      <MoveVertical className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Row height</span>
+                    </div>
+                    <div className="flex items-center bg-subtle border border-border rounded-md p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(28, defaultRowHeight - 4);
+                          setDefaultRowHeight(next);
+                          try {
+                            localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                          } catch (e) {}
+                        }}
+                        className="w-6 h-6 flex items-center justify-center text-small font-semibold text-fg-2 hover:bg-hover rounded transition-colors cursor-pointer"
+                        title="Decrease row height"
+                      >
+                        -
+                      </button>
+                      <span className="text-small font-numeric font-semibold px-1.5 min-w-[34px] text-center text-fg">
+                        {defaultRowHeight}px
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(80, defaultRowHeight + 4);
+                          setDefaultRowHeight(next);
+                          try {
+                            localStorage.setItem('reamarc_perf_def_row_height', String(next));
+                          } catch (e) {}
+                        }}
+                        className="w-6 h-6 flex items-center justify-center text-small font-semibold text-fg-2 hover:bg-hover rounded transition-colors cursor-pointer"
+                        title="Increase row height"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
-                  <div className="flex items-center bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700/80 rounded-lg p-0.5">
+
+                  {/* Zoom Level Control */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-small font-medium text-fg-2">
+                      <ZoomIn className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Zoom</span>
+                    </div>
+                    <div className="flex items-center bg-subtle border border-border rounded-md p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.max(MIN_ZOOM, zoomLevel - 5);
+                          setZoomLevel(next);
+                          try {
+                            localStorage.setItem('reamarc_perf_zoom', String(next));
+                          } catch (e) {}
+                        }}
+                        disabled={zoomLevel <= MIN_ZOOM}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-hover text-fg-2 disabled:opacity-40 transition-colors cursor-pointer"
+                        title="Zoom out"
+                      >
+                        <ZoomOut className="w-3.5 h-3.5" />
+                      </button>
+                      <span className="text-small font-numeric font-semibold px-1.5 min-w-[42px] text-center text-fg">
+                        {zoomLevel}%
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = Math.min(MAX_ZOOM, zoomLevel + 5);
+                          setZoomLevel(next);
+                          try {
+                            localStorage.setItem('reamarc_perf_zoom', String(next));
+                          } catch (e) {}
+                        }}
+                        disabled={zoomLevel >= MAX_ZOOM}
+                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-hover text-fg-2 disabled:opacity-40 transition-colors cursor-pointer"
+                        title="Zoom in"
+                      >
+                        <ZoomIn className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Reset Layout to Default Button */}
+                  <div className="pt-2 border-t border-border">
                     <button
                       type="button"
-                      onClick={() => {
-                        const next = Math.max(MIN_ZOOM, zoomLevel - 5);
-                        setZoomLevel(next);
-                        try {
-                          localStorage.setItem('reamarc_perf_zoom', String(next));
-                        } catch (e) {}
-                      }}
-                      disabled={zoomLevel <= MIN_ZOOM}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-                      title="Zoom Out"
+                      onClick={handleResetLayout}
+                      className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-md bg-subtle hover:bg-hover text-fg-2 hover:text-fg text-small font-medium transition-colors cursor-pointer"
+                      title="Reset column widths, row heights, and zoom"
                     >
-                      <ZoomOut className="w-3.5 h-3.5" />
-                    </button>
-                    <span className="text-xs font-numeric font-bold px-1.5 min-w-[42px] text-center text-zinc-900 dark:text-zinc-100">
-                      {zoomLevel}%
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const next = Math.min(MAX_ZOOM, zoomLevel + 5);
-                        setZoomLevel(next);
-                        try {
-                          localStorage.setItem('reamarc_perf_zoom', String(next));
-                        } catch (e) {}
-                      }}
-                      disabled={zoomLevel >= MAX_ZOOM}
-                      className="w-6 h-6 flex items-center justify-center rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 disabled:opacity-40 transition-colors cursor-pointer"
-                      title="Zoom In"
-                    >
-                      <ZoomIn className="w-3.5 h-3.5" />
+                      <RotateCcw className="w-3.5 h-3.5 text-fg-muted" />
+                      <span>Reset layout to default</span>
                     </button>
                   </div>
                 </div>
+              )}
+            </div>
 
-                {/* Reset Layout to Default Button */}
-                <div className="pt-2 border-t border-zinc-100 dark:border-zinc-800">
-                  <button
-                    type="button"
-                    onClick={handleResetLayout}
-                    className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-100 dark:bg-zinc-800/60 hover:bg-zinc-200 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:text-indigo-600 dark:hover:text-indigo-400 text-xs font-semibold transition-colors cursor-pointer"
-                    title="Reset column widths, row heights (32px), and zoom (80%)"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-                    <span>Reset Layout to Default</span>
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Show Paused Switch */}
+            <label className="flex items-center gap-2 text-small text-fg-2 cursor-pointer select-none">
+              <Switch checked={showInactive} onCheckedChange={toggleShowInactive} />
+              <span>Show paused</span>
+            </label>
           </div>
         </div>
-      </div>
-    </div>
 
-      {/* Grid Canvas Wrapper with Scaled Zoom & Virtualized Rendering */}
-      <div
-        ref={tableContainerRef}
-        className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col"
-      >
+        {/* ─── Virtualized Grid Canvas ─── */}
         <div
-          ref={tableInnerRef}
-          style={{
-            zoom: `${zoomLevel}%`,
-            width: `${totalTableWidth}px`,
-            minWidth: `${totalTableWidth}px`,
-            '--pm-row-height': `${defaultRowHeight}px`,
-          } as React.CSSProperties}
-          className="min-w-full flex flex-col flex-1 relative"
+          ref={tableContainerRef}
+          className="flex-1 min-h-0 overflow-auto bg-surface relative w-full flex flex-col"
         >
-          {/* Column Resize Visual Guide */}
           <div
-            ref={resizeGuideRef}
-            style={{ display: 'none', left: 0 }}
-            className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-40 pointer-events-none"
-          >
-            <div
-              ref={resizeTooltipRef}
-              className="absolute top-2 -left-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
-            />
-          </div>
-
-          {/* Row Resize Visual Guide */}
-          <div
-            ref={rowResizeGuideRef}
-            style={{ display: 'none', top: 0 }}
-            className="absolute left-0 right-0 h-0.5 bg-indigo-500 z-40 pointer-events-none"
-          >
-            <div
-              ref={rowResizeTooltipRef}
-              className="absolute left-2 -top-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
-            />
-          </div>
-
-          <table
-            className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
+            ref={tableInnerRef}
             style={{
+              zoom: `${zoomLevel}%`,
               width: `${totalTableWidth}px`,
               minWidth: `${totalTableWidth}px`,
               '--pm-row-height': `${defaultRowHeight}px`,
             } as React.CSSProperties}
+            className="min-w-full flex flex-col flex-1 relative"
           >
-            <thead className="sticky top-0 z-30 shadow-2xs">
-              <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
-                <th
-                  style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                  className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
-                >
-                  #
-                </th>
-                {DEFAULT_COLUMNS.map((col) => {
-                  const colW = columnWidths[col.key] || col.width;
-                  const alignClass =
-                    col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
-                  const justifyClass =
-                    col.align === 'right' ? 'justify-end' : col.align === 'center' ? 'justify-center' : 'justify-start';
+            {/* Column Resize Visual Guide */}
+            <div
+              ref={resizeGuideRef}
+              style={{ display: 'none', left: 0 }}
+              className="absolute top-0 bottom-0 w-0.5 bg-accent z-40 pointer-events-none"
+            >
+              <div
+                ref={resizeTooltipRef}
+                className="absolute top-2 -left-6 px-1.5 py-0.5 bg-accent text-accent-fg text-caption font-semibold rounded shadow-md pointer-events-none select-none font-numeric"
+              />
+            </div>
 
-                  return (
-                    <th
-                      key={col.key}
-                      style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                      className={`sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors ${alignClass}`}
-                    >
-                      <div className={`flex items-center gap-1 ${justifyClass}`}>
-                        <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
-                          {col.label}
-                        </span>
-                      </div>
-
-                      {/* Column Resize Handle — exact match with DailyLogView */}
-                      <div
-                        onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
-                        title="Drag to resize column"
-                      />
-                    </th>
-                  );
-                })}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/80">
-              {isLoading ? (
-                Array.from({ length: 20 }).map((_, idx) => (
-                  <tr key={`pm-skeleton-${idx}`} className="animate-pulse h-[var(--pm-row-height)]">
-                    <td
-                      style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                      className="p-2 text-center border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40"
-                    >
-                      <div className="h-3.5 w-4 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
-                    </td>
-                    {DEFAULT_COLUMNS.map((col) => {
-                      const colW = columnWidths[col.key] || col.width;
-                      const alignClass =
-                        col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
-                      return (
-                        <td
-                          key={col.key}
-                          style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                          className={`p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle ${alignClass}`}
-                        >
-                          {col.align === 'right' ? (
-                            <div className="h-3.5 w-14 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
-                          ) : col.align === 'center' ? (
-                            <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded-full mx-auto" />
-                          ) : col.key === 'campaign_name' ? (
-                            <div className="h-3.5 w-40 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                          ) : (
-                            <div className="h-3.5 w-20 bg-zinc-200 dark:bg-zinc-800 rounded" />
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))
-              ) : error ? (
-                <tr>
-                  <td colSpan={DEFAULT_COLUMNS.length + 1} className="py-20 text-center">
-                    <div className="flex flex-col items-center justify-center p-8 text-center">
-                      <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center text-rose-600 mb-3">
-                        <AlertTriangle className="w-6 h-6" />
-                      </div>
-                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Failed to load performance metrics</h3>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">{error}</p>
-                      <button
-                        type="button"
-                        onClick={refetch}
-                        className="mt-4 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-                      >
-                        Retry
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ) : sortedRows.length === 0 ? (
-                <tr>
-                  <td colSpan={DEFAULT_COLUMNS.length + 1} className="py-20 text-center">
-                    <div className="flex flex-col items-center justify-center p-8 text-center">
-                      <div className="w-12 h-12 rounded-2xl bg-zinc-100 dark:bg-zinc-800 flex items-center justify-center text-zinc-400 mb-3">
-                        <TrendingUp className="w-6 h-6" />
-                      </div>
-                      <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">No campaigns found</h3>
-                      <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 max-w-sm">
-                        {showInactive
-                          ? `No recorded marketing metrics found for ${selectedDate}. Click 'Sync Ads API' to fetch latest data.`
-                          : `All campaigns on ${selectedDate} might be paused. Try enabling 'Show Paused' toggle above.`}
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <>
-                  {paddingTop > 0 && (
-                    <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
-                      <td colSpan={DEFAULT_COLUMNS.length + 1} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
-                    </tr>
-                  )}
-                  {virtualRows.map((virtualRow) => {
-                    const row = sortedRows[virtualRow.index];
-                    if (!row) return null;
-                    const isWarning = row.status === 'Stopped' || row.status === 'Error';
-                    const customH = rowHeights[row.campaign_id];
-                    const spendVal = Number(row.ad_spend) || 0;
-                    const leadsVal = Number(row.leads_conversions) || 0;
-                    const rowNumber = virtualRow.index + 1;
+            <table
+              className="border-collapse text-small text-left table-fixed w-full"
+              style={{
+                width: `${totalTableWidth}px`,
+                minWidth: `${totalTableWidth}px`,
+                '--pm-row-height': `${defaultRowHeight}px`,
+              } as React.CSSProperties}
+            >
+              {/* Table Header ("All ad accounts") */}
+              <thead className="sticky top-0 z-20 shadow-2xs">
+                <tr className="bg-canvas text-fg-muted font-medium text-caption border-b border-border">
+                  {DEFAULT_COLUMNS.map((col, idx) => {
+                    const colW = columnWidths[col.key] || col.width;
+                    const isFirst = idx === 0;
+                    const alignClass =
+                      col.align === 'right'
+                        ? 'text-right'
+                        : col.align === 'center'
+                        ? 'text-center'
+                        : 'text-left';
 
                     return (
-                      <tr
-                        key={row.campaign_id}
-                        ref={rowVirtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        style={customH ? ({ '--pm-row-height': `${customH}px` } as React.CSSProperties) : undefined}
-                        className={`h-[var(--pm-row-height)] hover:bg-zinc-50/80 dark:hover:bg-zinc-900/50 transition-colors group relative cursor-pointer ${
-                          isWarning ? 'bg-rose-500/5 dark:bg-rose-900/10' : ''
-                        }`}
+                      <th
+                        key={col.key}
+                        style={{
+                          width: `${colW}px`,
+                          minWidth: `${colW}px`,
+                          ...(isFirst ? { left: 0, position: 'sticky', zIndex: 30 } : {}),
+                        }}
+                        className={`h-9 px-3 font-medium bg-canvas border-b border-border text-fg-muted select-none relative group ${alignClass}`}
                       >
-                        {/* Serial Number */}
-                        <td
-                          style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                          className="h-[var(--pm-row-height)] p-2 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-950/40 select-none group-hover:bg-zinc-100 dark:group-hover:bg-zinc-900 overflow-hidden py-0 align-middle relative"
+                        <div
+                          className={`flex items-center gap-1 ${
+                            col.align === 'right'
+                              ? 'justify-end'
+                              : col.align === 'center'
+                              ? 'justify-center'
+                              : 'justify-start'
+                          }`}
                         >
-                          <span>{rowNumber}</span>
-                          {/* Row Height Resize Handle */}
-                          <div
-                            onMouseDown={(e) => handleRowResizeStart(e, row.campaign_id, customH || defaultRowHeight)}
-                            className="absolute bottom-0 left-0 right-0 h-1.5 cursor-row-resize hover:bg-indigo-500/80 z-20"
-                            title="Drag to adjust row height"
-                          />
-                        </td>
+                          <span className="truncate" title={col.label}>
+                            {col.label}
+                          </span>
+                        </div>
 
-                        {/* Columns */}
-                        {DEFAULT_COLUMNS.map((col) => {
-                          const colW = columnWidths[col.key] || col.width;
-                          const alignClass =
-                            col.align === 'right' ? 'text-right' : col.align === 'center' ? 'text-center' : 'text-left';
-
-                          return (
-                            <td
-                              key={col.key}
-                              style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                              className={`h-[var(--pm-row-height)] p-2.5 border-b border-r border-zinc-200 dark:border-zinc-800/80 align-middle text-xs select-text overflow-hidden ${alignClass}`}
-                            >
-                              {col.key === 'workspace_name' ? (
-                                <span className="font-bold text-zinc-900 dark:text-zinc-100 truncate block">
-                                  {row.workspace_name || '—'}
-                                </span>
-                              ) : col.key === 'industry' ? (
-                                <span className="text-zinc-600 dark:text-zinc-400 truncate block">
-                                  {row.industry || '—'}
-                                </span>
-                              ) : col.key === 'objective' ? (
-                                <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate block">
-                                  {row.objective || '—'}
-                                </span>
-                              ) : col.key === 'platform' ? (
-                                <span
-                                  className={`inline-block px-2 py-0.2 rounded-md text-[10px] font-bold border ${
-                                    PLATFORM_COLORS[row.platform] || PLATFORM_COLORS.Other
-                                  }`}
-                                >
-                                  {row.platform}
-                                </span>
-                              ) : col.key === 'campaign_name' ? (
-                                <span
-                                  className="font-bold text-zinc-900 dark:text-zinc-100 truncate block"
-                                  title={row.campaign_name}
-                                >
-                                  {row.campaign_name}
-                                </span>
-                              ) : col.key === 'budget_set' ? (
-                                <span className="font-numeric text-zinc-600 dark:text-zinc-300">
-                                  {formatCellValue(row.budget_set, 'currency')}
-                                </span>
-                              ) : col.key === 'ad_spend' ? (
-                                spendVal > 0 ? (
-                                  <span className="font-numeric font-extrabold text-indigo-600 dark:text-indigo-400">
-                                    {formatCellValue(row.ad_spend, 'currency')}
-                                  </span>
-                                ) : (
-                                  <span className="font-numeric text-zinc-400 dark:text-zinc-600">0.00</span>
-                                )
-                              ) : col.key === 'cpl_cpa' ? (
-                                <span className="font-numeric text-zinc-700 dark:text-zinc-300">
-                                  {formatCellValue(row.cpl_cpa, 'currency')}
-                                </span>
-                              ) : col.key === 'leads_conversions' ? (
-                                leadsVal > 0 ? (
-                                  <span className="font-numeric font-extrabold text-emerald-600 dark:text-emerald-400">
-                                    {formatCellValue(row.leads_conversions, 'number')}
-                                  </span>
-                                ) : (
-                                  <span className="font-numeric text-zinc-400 dark:text-zinc-600">0</span>
-                                )
-                              ) : col.key === 'avg_frequency' ? (
-                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
-                                  {formatCellValue(row.avg_frequency, 'number')}
-                                </span>
-                              ) : col.key === 'impressions' ? (
-                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
-                                  {formatCellValue(row.impressions, 'number')}
-                                </span>
-                              ) : col.key === 'clicks' ? (
-                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
-                                  {formatCellValue(row.clicks, 'number')}
-                                </span>
-                              ) : col.key === 'reach' ? (
-                                <span className="font-numeric text-zinc-600 dark:text-zinc-400">
-                                  {formatCellValue(row.reach, 'number')}
-                                </span>
-                              ) : col.key === 'remarks' ? (
-                                <span className="text-zinc-600 dark:text-zinc-400 truncate block" title={row.remarks || ''}>
-                                  {row.remarks || '—'}
-                                </span>
-                              ) : col.key === 'status' ? (
-                                <div className="flex items-center justify-center">
-                                  <span
-                                    className={`inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-[10px] font-extrabold border ${
-                                      row.status === 'Active'
-                                        ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
-                                        : row.status === 'Paused'
-                                        ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/20'
-                                        : 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
-                                    }`}
-                                  >
-                                    <span
-                                      className={`w-1.5 h-1.5 rounded-full ${
-                                        row.status === 'Active'
-                                          ? 'bg-emerald-500 animate-pulse'
-                                          : row.status === 'Paused'
-                                          ? 'bg-amber-500'
-                                          : 'bg-rose-500'
-                                      }`}
-                                    />
-                                    <span>{row.status}</span>
-                                  </span>
-                                </div>
-                              ) : (
-                                <span>{formatCellValue((row as any)[col.key])}</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
+                        {/* Column Resize Handle */}
+                        <div
+                          onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
+                          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent/80 z-20"
+                          title="Drag to resize column"
+                        />
+                      </th>
                     );
                   })}
-                  {paddingBottom > 0 && (
-                    <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
-                      <td colSpan={DEFAULT_COLUMNS.length + 1} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+                </tr>
+              </thead>
+
+              {/* Table Body */}
+              <tbody className="divide-y divide-border">
+                {isLoading ? (
+                  Array.from({ length: 12 }).map((_, idx) => (
+                    <tr key={`pm-skel-${idx}`} className="animate-pulse h-[var(--pm-row-height)]">
+                      {DEFAULT_COLUMNS.map((col, cIdx) => (
+                        <td
+                          key={col.key}
+                          style={cIdx === 0 ? { left: 0, position: 'sticky', zIndex: 10 } : undefined}
+                          className="px-3 border-b border-border bg-surface align-middle"
+                        >
+                          <div className="h-3.5 bg-subtle rounded w-3/4" />
+                        </td>
+                      ))}
                     </tr>
-                  )}
-                </>
-              )}
-            </tbody>
-          </table>
+                  ))
+                ) : error ? (
+                  <tr>
+                    <td colSpan={DEFAULT_COLUMNS.length} className="py-16 text-center">
+                      <ErrorState
+                        title="Failed to load performance metrics"
+                        message={error}
+                        onRetry={refetch}
+                      />
+                    </td>
+                  </tr>
+                ) : sortedAndFilteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={DEFAULT_COLUMNS.length} className="py-16 text-center">
+                      <EmptyState
+                        isFiltered={Boolean(searchQuery || selectedPlatform !== 'all' || selectedObjective !== 'all')}
+                        title="No campaigns found"
+                        description={
+                          showInactive
+                            ? `No recorded marketing metrics found for ${selectedDate}. Click 'Sync' to fetch latest data.`
+                            : `All campaigns on ${selectedDate} may be paused. Try enabling 'Show paused'.`
+                        }
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  <>
+                    {paddingTop > 0 && (
+                      <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
+                        <td
+                          colSpan={DEFAULT_COLUMNS.length}
+                          style={{ height: `${paddingTop}px`, padding: 0, border: 0 }}
+                        />
+                      </tr>
+                    )}
+                    {virtualRows.map((virtualRow) => {
+                      const row = sortedAndFilteredRows[virtualRow.index];
+                      if (!row) return null;
+                      const leadsVal = Number(row.leads_conversions) || 0;
 
-          {/* Table Footer with Virtualization Metrics */}
-          {!isLoading && !error && sortedRows.length > 0 && (
-            <div
-              style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-              className="px-5 py-3 bg-zinc-50 dark:bg-[#12141c] border-t border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-4 text-xs select-none sticky bottom-0 z-20 shadow-xs"
-            >
-              <div className="flex items-center gap-3 text-zinc-500 dark:text-zinc-400 font-medium">
-                <span>
-                  Showing <strong className="text-zinc-900 dark:text-zinc-100 font-bold">{sortedRows.length}</strong> campaigns
-                </span>
-                {hiddenCount > 0 && !showInactive && (
-                  <span className="text-zinc-400 dark:text-zinc-500 text-[11px]">
-                    ({hiddenCount} paused hidden)
-                  </span>
+                      return (
+                        <tr
+                          key={row.campaign_id}
+                          ref={rowVirtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          className="h-[var(--pm-row-height)] hover:bg-hover transition-colors group cursor-default"
+                        >
+                          {DEFAULT_COLUMNS.map((col, colIdx) => {
+                            const colW = columnWidths[col.key] || col.width;
+                            const isFirst = colIdx === 0;
+                            const alignClass =
+                              col.align === 'right'
+                                ? 'text-right'
+                                : col.align === 'center'
+                                ? 'text-center'
+                                : 'text-left';
+
+                            return (
+                              <td
+                                key={col.key}
+                                style={{
+                                  width: `${colW}px`,
+                                  minWidth: `${colW}px`,
+                                  ...(isFirst
+                                    ? {
+                                        position: 'sticky',
+                                        left: 0,
+                                        zIndex: 10,
+                                      }
+                                    : {}),
+                                }}
+                                className={`h-[var(--pm-row-height)] px-3 border-b border-border align-middle text-small text-fg-2 overflow-hidden ${
+                                  isFirst ? 'bg-surface group-hover:bg-hover' : ''
+                                } ${alignClass}`}
+                              >
+                                {col.key === 'workspace_name' ? (
+                                  <span className="font-medium text-fg truncate block">
+                                    {row.workspace_name || '—'}
+                                  </span>
+                                ) : col.key === 'industry' ? (
+                                  <span className="text-fg-muted truncate block">
+                                    {row.industry || '—'}
+                                  </span>
+                                ) : col.key === 'platform' ? (
+                                  <div className="flex items-center justify-center">
+                                    {renderPlatformIcon(row.platform)}
+                                  </div>
+                                ) : col.key === 'campaign_name' ? (
+                                  <span
+                                    className="font-medium text-fg truncate block"
+                                    title={row.campaign_name}
+                                  >
+                                    {row.campaign_name}
+                                  </span>
+                                ) : col.key === 'objective' ? (
+                                  <span className="text-fg-muted truncate block">
+                                    {row.objective || '—'}
+                                  </span>
+                                ) : col.key === 'status' ? (
+                                  <div className="flex items-center justify-center">
+                                    <StatusPill
+                                      status={row.status?.toLowerCase()}
+                                      label={row.status}
+                                    />
+                                  </div>
+                                ) : col.key === 'budget_set' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.budget_set, 'currency')}
+                                  </span>
+                                ) : col.key === 'ad_spend' ? (
+                                  <span className="font-numeric tabular-nums font-medium text-fg">
+                                    {formatCellValue(row.ad_spend, 'currency')}
+                                  </span>
+                                ) : col.key === 'reach' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.reach, 'number')}
+                                  </span>
+                                ) : col.key === 'impressions' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.impressions, 'number')}
+                                  </span>
+                                ) : col.key === 'clicks' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.clicks, 'number')}
+                                  </span>
+                                ) : col.key === 'avg_frequency' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.avg_frequency, 'number')}
+                                  </span>
+                                ) : col.key === 'leads_conversions' ? (
+                                  <span className="font-numeric tabular-nums font-medium text-fg">
+                                    {leadsVal > 0 ? formatCellValue(row.leads_conversions, 'number') : '0'}
+                                  </span>
+                                ) : col.key === 'cpl_cpa' ? (
+                                  <span className="font-numeric tabular-nums text-fg-2">
+                                    {formatCellValue(row.cpl_cpa, 'currency')}
+                                  </span>
+                                ) : col.key === 'remarks' ? (
+                                  <span className="text-fg-muted truncate block" title={row.remarks || ''}>
+                                    {row.remarks || '—'}
+                                  </span>
+                                ) : (
+                                  <span>{formatCellValue((row as any)[col.key])}</span>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      );
+                    })}
+                    {paddingBottom > 0 && (
+                      <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
+                        <td
+                          colSpan={DEFAULT_COLUMNS.length}
+                          style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }}
+                        />
+                      </tr>
+                    )}
+                  </>
                 )}
-              </div>
+              </tbody>
 
-              <div className="flex items-center gap-2 text-[11px] text-zinc-400 dark:text-zinc-500 font-medium">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-zinc-200/60 dark:bg-zinc-800/60 font-medium">
-                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                  Virtualized ({virtualRows.length} rendered)
-                </span>
-              </div>
-            </div>
-          )}
+              {/* Total Row (§13.16 footer reference) */}
+              {!isLoading && !error && sortedAndFilteredRows.length > 0 && (
+                <tfoot className="sticky bottom-0 z-20">
+                  <tr className="bg-canvas border-t-2 border-border text-small font-medium">
+                    <td
+                      colSpan={6}
+                      style={{ position: 'sticky', left: 0, zIndex: 30 }}
+                      className="h-10 px-3 text-fg font-semibold bg-canvas border-t border-border select-none"
+                    >
+                      Total · {sortedAndFilteredRows.length} campaigns
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {formatCellValue(totals.budget_set, 'currency')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums font-semibold text-fg bg-canvas border-t border-border">
+                      {formatCellValue(totals.ad_spend, 'currency')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {formatCellValue(totals.reach, 'number')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {formatCellValue(totals.impressions, 'number')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {formatCellValue(totals.clicks, 'number')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {totals.avg_freq > 0 ? totals.avg_freq.toFixed(2) : '—'}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums font-semibold text-fg bg-canvas border-t border-border">
+                      {formatCellValue(totals.leads_conversions, 'number')}
+                    </td>
+                    <td className="h-10 px-3 text-right font-numeric tabular-nums text-fg-2 bg-canvas border-t border-border">
+                      {formatCellValue(totals.cpl_cpa, 'currency')}
+                    </td>
+                    <td className="h-10 px-3 bg-canvas border-t border-border" />
+                  </tr>
+                </tfoot>
+              )}
+            </table>
           </div>
         </div>
+      </div>
 
       {/* Ad Account Credentials Modal */}
       <AdAccountCredentialsModal
@@ -1468,4 +1210,3 @@ export const PerformanceMarketing: React.FC<Props> = ({
     </div>
   );
 };
-

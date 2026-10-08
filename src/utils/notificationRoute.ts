@@ -12,7 +12,11 @@ const ATTENDANCE_KINDS = new Set([
   'attendance_check_out',
 ]);
 
-export function viewForNotificationKind(kind: string | undefined): ViewType {
+export function viewForNotificationKind(kind: string | undefined, userRole?: string): ViewType {
+  const role = (userRole || '').toLowerCase();
+  if (role === 'client') {
+    return 'portal';
+  }
   const name = (kind || '').toLowerCase();
   if (name === 'crm_lead' || name.startsWith('crm')) return 'crm';
   if (ATTENDANCE_KINDS.has(name) || name.startsWith('leave_') || name.startsWith('attendance_')) {
@@ -20,6 +24,9 @@ export function viewForNotificationKind(kind: string | undefined): ViewType {
   }
   if (name.startsWith('content_calendar') || name.startsWith('campaign_')) {
     return 'content-calendar';
+  }
+  if (name.startsWith('website_') || name === 'website_project') {
+    return 'website-pipeline';
   }
   return 'dashboard';
 }
@@ -30,6 +37,7 @@ export function viewFromNotificationPath(path: string): ViewType | null {
   if (segment === 'crm') return 'crm';
   if (segment === 'attendance') return 'attendance';
   if (segment === 'content-calendar' || segment === 'content_calendar' || segment === 'calendar') return 'content-calendar';
+  if (segment === 'website-pipeline' || segment === 'website_pipeline' || segment === 'website') return 'website-pipeline';
   if (segment === 'portal' || segment === 'client-portal') return 'portal';
   if (segment === 'dashboard') return 'dashboard';
   return null;

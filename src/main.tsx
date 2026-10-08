@@ -1,17 +1,13 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import '@fontsource/inter/400.css'
-import '@fontsource/inter/500.css'
-import '@fontsource/inter/600.css'
-import '@fontsource/inter/700.css'
-import '@fontsource/plus-jakarta-sans/400.css'
-import '@fontsource/plus-jakarta-sans/500.css'
-import '@fontsource/plus-jakarta-sans/600.css'
-import '@fontsource/plus-jakarta-sans/700.css'
-import '@fontsource/jetbrains-mono/400.css'
-import '@fontsource/jetbrains-mono/500.css'
+import '@fontsource-variable/geist';
+import '@fontsource-variable/geist-mono';
 import './index.css'
 import App from './App.tsx'
+import { LucideProvider } from 'lucide-react'
+import { TooltipProvider } from './components/ui/tooltip'
+import { ConfirmProvider } from './components/ui/ConfirmProvider'
+import { PrimitivesGallery } from './components/ui/PrimitivesGallery'
 
 const globalProcess = typeof globalThis !== 'undefined' ? (globalThis as any).process : undefined;
 const envApiUrl =
@@ -25,9 +21,20 @@ if (!envApiUrl && !(import.meta as any).env?.DEV) {
   );
 }
 
+const isGallery =
+  Boolean((import.meta as any).env?.DEV) &&
+  typeof window !== 'undefined' &&
+  new URLSearchParams(window.location.search).has('ui-gallery');
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <App />
+    <LucideProvider strokeWidth={1.5} size={16} absoluteStrokeWidth={false}>
+      <TooltipProvider>
+        <ConfirmProvider>
+          {isGallery ? <PrimitivesGallery /> : <App />}
+        </ConfirmProvider>
+      </TooltipProvider>
+    </LucideProvider>
   </StrictMode>,
 )
 

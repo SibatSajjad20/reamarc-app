@@ -102,9 +102,11 @@ class Settings(BaseSettings):
     GOOGLE_DRIVE_REFRESH_TOKEN: str = ""
     GOOGLE_DRIVE_FOLDER_ID: str = ""
     GOOGLE_DRIVE_OAUTH_CLIENT_FILE: str = ""
+    GOOGLE_DRIVE_API_KEY: str = ""
+    GOOGLE_DRIVE_WEB_CLIENT_ID: str = ""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", "backend/.env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

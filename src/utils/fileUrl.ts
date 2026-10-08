@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../services/apiClient';
+import { notifyFileUrl } from '../lib/notify';
 
 /**
  * Returns the backend URL for an authenticated /uploads path only.
@@ -136,7 +137,7 @@ export const openFileAttachment = async (url: string, filename?: string) => {
             <div style="min-height:100vh;background:#f1f5f9;font-family:system-ui,-apple-system,sans-serif;margin:0;display:flex;flex-direction:column;">
               <header style="position:sticky;top:0;z-index:50;height:52px;background:#1e293b;color:white;display:flex;align-items:center;justify-content:space-between;padding:0 24px;box-shadow:0 2px 8px rgba(0,0,0,0.12);">
                 <div style="display:flex;align-items:center;gap:10px;min-width:0;">
-                  <span style="font-size:18px;">📄</span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
                   <span style="font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:500px;">${safeTitle}</span>
                   <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:12px;background:#334155;color:#94a3b8;">Word Document</span>
                 </div>
@@ -201,7 +202,7 @@ export const openFileAttachment = async (url: string, filename?: string) => {
               if (container) {
                 container.innerHTML = `
                   <div style="text-align:center;padding:60px 20px;color:#475569;">
-                    <div style="font-size:36px;margin-bottom:12px;">📄</div>
+                    <div style="margin-bottom:12px;display:flex;justify-content:center;"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
                     <h3 style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px 0;">Document Ready to View</h3>
                     <p style="font-size:13px;color:#64748b;max-width:440px;margin:0 auto 20px auto;">
                       This document contains specialized formatting. You can view or save the file using the download button above.
@@ -216,7 +217,7 @@ export const openFileAttachment = async (url: string, filename?: string) => {
             if (container) {
               container.innerHTML = `
                 <div style="text-align:center;padding:60px 20px;color:#475569;">
-                  <div style="font-size:36px;margin-bottom:12px;">📄</div>
+                  <div style="margin-bottom:12px;display:flex;justify-content:center;"><svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#64748b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg></div>
                   <h3 style="font-size:16px;font-weight:700;color:#0f172a;margin:0 0 8px 0;">Legacy Word Document (.doc)</h3>
                   <p style="font-size:13px;color:#64748b;max-width:440px;margin:0 auto 20px auto;">
                     This file is in legacy binary Word format. Modern in-browser rendering supports .docx files. Use the Download button to open in Microsoft Word.
@@ -280,12 +281,17 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
   if (is404) {
     console.error(`Requested attachment not found on server: ${url}`);
-    alert(
-      'This proposal document is not on the server anymore — only the link remains in the database.\n\n' +
-        'Please re-upload the proposal document in Edit Workspace.'
+    notifyFileUrl(
+      'Document not found',
+      'This proposal document is not on the server anymore. Please re-upload the proposal document in Edit Workspace.',
+      'error'
     );
   } else {
-    alert('Unable to open the document. Please try downloading it or contact an administrator.');
+    notifyFileUrl(
+      'Unable to open document',
+      'Please try downloading it or contact an administrator.',
+      'error'
+    );
   }
 };
 
@@ -377,13 +383,35 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
   if (!downloaded) {
     if (is404) {
       console.error(`Requested attachment not found on server: ${url}`);
-      alert(
-        'This proposal PDF is not on the server anymore — only the link remains in the database (common after a cloud redeploy wiped ephemeral disk).\n\n' +
-          'Fix once: Admin → Edit Workspace → attach the same PDF again. Do not remove the client or clear the proposal first.\n\n' +
-          'After the latest backend is running, that re-attach is stored in MongoDB and will survive future redeploys.'
+      notifyFileUrl(
+        'Proposal PDF not found',
+        'This proposal PDF is not on the server anymore. Re-attach it in Admin → Edit Workspace to restore.',
+        'error'
       );
       return;
     }
-    alert('Unable to download the file. Please try again or contact an administrator.');
+    notifyFileUrl(
+      'Unable to download file',
+      'Please try again or contact an administrator.',
+      'error'
+    );
   }
+};
+
+/**
+ * Checks if a URL is a real media content thumbnail rather than a 16px generic file-type icon.
+ */
+export const isRealThumbnailUrl = (url?: string | null): boolean => {
+  if (!url || typeof url !== 'string') return false;
+  const trimmed = url.trim().toLowerCase();
+  if (!trimmed) return false;
+  if (
+    trimmed.includes('gstatic.com/docs/doclist/images') ||
+    trimmed.includes('drive-thirdparty.googleusercontent.com') ||
+    trimmed.includes('/icon_10_') ||
+    trimmed.includes('/icon_11_')
+  ) {
+    return false;
+  }
+  return true;
 };

@@ -3,16 +3,14 @@ import {
   X,
   Clock,
   Calendar,
-  AlertTriangle,
-  CheckCircle2,
-  Loader2,
-  FileText,
   UserCheck,
 } from 'lucide-react';
 import type { MissedPunchInquiry } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
+import { Button } from '../ui/button';
+import { Callout } from '../ui/Callout';
 
 interface MissedCheckoutResponseModalProps {
   isOpen: boolean;
@@ -72,7 +70,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
         reason: reason.trim(),
       });
       addToast(
-        'Checkout Recorded',
+        'Checkout recorded',
         res.message || 'Your attendance has been successfully regularized.',
         'success'
       );
@@ -87,22 +85,22 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay animate-in fade-in duration-150">
       <div
-        className="w-full max-w-lg bg-white dark:bg-[#11131a] rounded-2xl shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden flex flex-col max-h-[90vh]"
+        className="w-full max-w-[560px] bg-surface rounded-lg shadow-lg border border-border overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/40 shrink-0">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/40">
-              <AlertTriangle className="w-5 h-5" />
+            <div className="p-2 rounded-md bg-warning-bg text-warning-fg border border-warning-bd">
+              <Clock className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                Missed Checkout Inquiry
+              <h3 className="text-h2 font-semibold text-fg">
+                Missed checkout inquiry
               </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              <p className="text-small text-fg-muted">
                 Provide your check-out time to regularize this shift
               </p>
             </div>
@@ -111,57 +109,57 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+            className="p-1 rounded-md text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
+            aria-label="Close dialog"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
+        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4">
           {errorMessage && (
-            <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-xl text-xs text-rose-700 dark:text-rose-300 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-500" />
-              <span>{errorMessage}</span>
-            </div>
+            <Callout variant="danger">
+              {errorMessage}
+            </Callout>
           )}
 
           {/* Shift Details Banner */}
-          <div className="p-4 bg-zinc-50 dark:bg-zinc-900/60 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 flex items-center gap-1.5">
-                <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+          <div className="p-3.5 bg-subtle rounded-md border border-border space-y-2 text-xs">
+            <div className="flex items-center justify-between">
+              <span className="text-fg-muted flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-fg-muted" />
                 Date:
               </span>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100 font-numeric">
+              <span className="font-semibold text-fg font-numeric">
                 {inquiry.date}
               </span>
             </div>
 
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-500" />
-                Assigned Shift:
+            <div className="flex items-center justify-between">
+              <span className="text-fg-muted flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5 text-fg-muted" />
+                Assigned shift:
               </span>
-              <span className="font-semibold text-zinc-900 dark:text-zinc-100">
-                {inquiry.shift_name || 'Standard Shift'}
+              <span className="font-medium text-fg">
+                {inquiry.shift_name || 'Standard shift'}
               </span>
             </div>
 
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-zinc-500 flex items-center gap-1.5">
-                <UserCheck className="w-3.5 h-3.5 text-emerald-500" />
-                Punch In Recorded:
+            <div className="flex items-center justify-between">
+              <span className="text-fg-muted flex items-center gap-1.5">
+                <UserCheck className="w-3.5 h-3.5 text-success-fg" />
+                Punch in recorded:
               </span>
-              <span className="font-semibold text-emerald-600 dark:text-emerald-400 font-numeric">
+              <span className="font-semibold text-success-fg font-numeric">
                 {inquiry.punch_in || 'Recorded'}
               </span>
             </div>
 
             {inquiry.requested_by_name && (
-              <div className="pt-2 border-t border-zinc-200/80 dark:border-zinc-800/80 text-[11px] text-zinc-500 flex items-center justify-between">
+              <div className="pt-2 border-t border-border text-micro text-fg-muted flex items-center justify-between">
                 <span>Requested by:</span>
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">
+                <span className="font-medium text-fg">
                   {inquiry.requested_by_name}
                 </span>
               </div>
@@ -170,9 +168,9 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
 
           {/* Input: Checkout Time */}
           <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center justify-between">
+            <label className="block text-label font-medium text-fg mb-1.5 flex items-center justify-between">
               <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-indigo-500" />
+                <Clock className="w-3.5 h-3.5 text-fg-muted" />
                 <span>What time did you finish / check out? *</span>
               </span>
             </label>
@@ -183,70 +181,59 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
             />
           </div>
 
-          {/* Input: Reason */}
+          {/* Quick reasons */}
           <div>
-            <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1.5 flex items-center justify-between">
-              <span className="flex items-center gap-1.5">
-                <FileText className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Reason for Missed Checkout *</span>
-              </span>
-            </label>
-            <textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Briefly explain why you forgot to punch out..."
-              rows={3}
-              className="w-full px-3 py-2 bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
-            />
-
-            {/* Quick Reason Pills */}
-            <div className="flex flex-wrap gap-1.5 mt-2">
-              {QUICK_REASONS.map((r) => (
+            <span className="block text-small font-medium text-fg-muted mb-1.5">
+              Quick suggestions:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {QUICK_REASONS.map((qr) => (
                 <button
-                  key={r}
+                  key={qr}
                   type="button"
-                  onClick={() => setReason(r)}
-                  className="px-2 py-0.5 rounded-md text-[10px] font-medium bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-600 dark:text-zinc-300 transition-colors cursor-pointer"
+                  onClick={() => setReason(qr)}
+                  className="text-micro px-2 py-1 rounded-md border border-border bg-surface hover:bg-hover text-fg-2 transition-colors cursor-pointer"
                 >
-                  {r}
+                  {qr}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Input: Reason */}
+          <div>
+            <label className="block text-label font-medium text-fg mb-1.5 flex items-center justify-between">
+              <span>Reason for missed checkout *</span>
+            </label>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Briefly explain why you missed punching out..."
+              rows={3}
+              className="w-full px-3 py-2 bg-surface border border-border-strong rounded-md text-xs text-fg placeholder:text-fg-faint focus-visible:focus-ring"
+            />
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isSubmitting}
+            >
+              Submit checkout
+            </Button>
+          </div>
         </form>
-
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/40 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="px-4 py-2 rounded-xl text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer disabled:opacity-50"
-          >
-            Cancel
-          </button>
-
-          <button
-            type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="flex items-center gap-2 px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer disabled:cursor-not-allowed select-none"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                <span>Submitting Checkout...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                <span>Submit Checkout & Regularize</span>
-              </>
-            )}
-          </button>
-        </div>
       </div>
     </div>
   );
 };
-

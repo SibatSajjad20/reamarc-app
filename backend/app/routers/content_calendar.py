@@ -3,7 +3,7 @@ API Router for Content Calendar module.
 Provides endpoints for viewing, managing, creating, updating, and transitioning content items.
 """
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, Form, UploadFile
 from app.core.limiter import limiter
 from app.services.content_calendar_access import (
@@ -24,6 +24,8 @@ from app.schemas.content_calendar import (
     BulkImportResponse,
     AssetReorderRequest,
     LinkAssetCreate,
+    DriveAssetAttachRequest,
+    DrivePickerConfigResponse,
 )
 from app.services import content_calendar_service
 from app.services.content_calendar_workflow import (
@@ -96,6 +98,11 @@ async def update_content_constants(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Performance Marketing cannot edit field constants.",
+        )
+    if not (is_admin(current_user) or is_content_lead(current_user) or is_creative_lead(current_user)):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only administrators and team leads can edit field constants.",
         )
     db = get_database()
     return await content_calendar_service.update_constants(
@@ -211,6 +218,7 @@ async def bulk_import_content_items(
         default_client_name=payload.default_client_name,
         user_id=user_id,
         user_name=user_name,
+        viewer=current_user,
     )
 
 
@@ -337,6 +345,43 @@ async def add_content_link(
     )
 
 
+@router.get("/{item_id}/picker-config", response_model=DrivePickerConfigResponse)
+@limiter.limit("60/minute")
+async def get_drive_picker_config(
+    request: Request,
+    item_id: str,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Returns credentials, active OAuth access token, and campaign folder ID for Google Picker."""
+    db = get_database()
+    from app.services import google_drive_service as gdrive
+    if not gdrive.configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google Drive integration is not configured on this server.",
+        )
+    return await gdrive.get_picker_config(db, item_id=item_id, category="Content")
+
+
+@router.post("/{item_id}/assets/from-drive", response_model=ContentCalendarItemResponse)
+@limiter.limit("60/minute")
+async def attach_drive_assets_endpoint(
+    request: Request,
+    item_id: str,
+    payload: DriveAssetAttachRequest,
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Attaches files picked or uploaded via Google Drive Picker to a content item."""
+    db = get_database()
+    return await content_calendar_service.attach_drive_assets(
+        db,
+        item_id=item_id,
+        files=payload.files,
+        default_role=payload.role or "primary",
+        viewer=current_user,
+    )
+
+
 @router.delete("/{item_id}/assets/{asset_id}", response_model=ContentCalendarItemResponse)
 @limiter.limit("60/minute")
 async def delete_content_asset(
@@ -375,8 +420,8 @@ async def reorder_content_assets(
 
 class PublicReviewActionPayload(BaseModel):
     action: str  # "approve" | "request_revision"
-    reviewer_name: Optional[str] = None
-    note: Optional[str] = None
+    reviewer_name: Optional[str] = Field(None, max_length=120)
+    note: Optional[str] = Field(None, max_length=2000)
 
 
 @router.get("/public/review/{token}")

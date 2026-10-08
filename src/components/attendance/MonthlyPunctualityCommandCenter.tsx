@@ -132,10 +132,10 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
   return (
     <div className="space-y-4">
       {/* Control Bar: Month Picker, Department Filter, Search & Export */}
-      <div className="p-4 bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-xs flex flex-wrap items-end justify-between gap-4">
+      <div className="p-4 bg-surface rounded-xl border border-border shadow-xs flex flex-wrap items-end justify-between gap-4">
         {/* Month Selector */}
         <div>
-          <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
             Month
           </span>
           <div className="flex items-center gap-2">
@@ -143,14 +143,14 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
               type="button"
               onClick={handlePrevMonth}
               disabled={!canGoPrev}
-              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-lg bg-subtle hover:bg-hover text-fg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title={canGoPrev ? 'Previous Month' : 'Attendance starts August 2026'}
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="h-10 px-4 rounded-xl bg-zinc-100 dark:bg-zinc-800/80 border border-zinc-200 dark:border-zinc-700 text-xs font-bold text-zinc-800 dark:text-zinc-200 inline-flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-indigo-500" />
+            <div className="h-10 px-4 rounded-lg bg-subtle border border-border text-xs font-semibold text-fg inline-flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-accent-fg" />
               <span>{MONTH_NAMES[selectedMonth - 1]}</span>
               <span>{selectedYear}</span>
             </div>
@@ -159,7 +159,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
               type="button"
               onClick={handleNextMonth}
               disabled={!canGoNext}
-              className="h-10 w-10 inline-flex items-center justify-center rounded-xl bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+              className="h-10 w-10 inline-flex items-center justify-center rounded-lg bg-subtle hover:bg-hover text-fg transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
               title={canGoNext ? 'Next Month' : 'Cannot view future months'}
             >
               <ChevronRight className="w-4 h-4" />
@@ -182,30 +182,30 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
           </div>
 
           <div>
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
               Search
             </span>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-zinc-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search staff..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10 pl-8 pr-3 rounded-xl bg-zinc-100 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-800 dark:text-zinc-200 placeholder-zinc-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 w-44"
+                className="h-10 pl-8 pr-3 rounded-lg bg-subtle border border-border text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:border-border-strong w-44"
               />
             </div>
           </div>
 
           <div>
-            <span className="block text-[10px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500 mb-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
               Export
             </span>
             <button
               type="button"
               onClick={onExportExcel}
               disabled={isExporting || isLoading}
-              className="h-10 inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 shadow-sm shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-50"
+              className="h-10 inline-flex items-center gap-1.5 px-3.5 rounded-lg text-xs font-semibold text-white bg-success-fg hover:opacity-90 shadow-xs transition-all cursor-pointer disabled:opacity-50"
             >
               <Download className="w-3.5 h-3.5" />
               <span>{isExporting ? 'Generating .XLSX...' : 'Export Excel (.xlsx)'}</span>
@@ -215,14 +215,14 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
       </div>
 
       {/* Monthly Summary Data Table */}
-      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800/90 shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+      <div className="bg-surface rounded-xl border border-border shadow-xs overflow-hidden">
+        <div className="p-4 border-b border-border flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-accent-fg" />
             Company-Wide Monthly Summary ({MONTH_NAMES[selectedMonth - 1]} {selectedYear})
-            {isDataLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-500" />}
+            {isDataLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-fg" />}
           </h3>
-          <span className="text-xs font-semibold text-zinc-500">
+          <span className="text-xs font-semibold text-fg-muted">
             {isDataLoading
               ? 'Loading summary...'
               : `${filteredRows.length} employees listed${onSelectEmployee ? ' · click a name to open timesheet' : ''}`}
@@ -232,7 +232,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
-              <tr className="bg-zinc-50 dark:bg-[#161822] text-zinc-600 dark:text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 font-bold">
+              <tr className="bg-subtle text-fg-muted border-b border-border font-semibold">
                 <th className="py-3 px-4 w-10">#</th>
                 <th className="py-3 px-4">Employee</th>
                 <th className="py-3 px-4">Department & Shift</th>
@@ -247,69 +247,69 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-medium">
+            <tbody className="divide-y divide-border font-medium">
               {isDataLoading ? (
                 Array.from({ length: 8 }).map((_, idx) => (
-                  <tr key={`punctuality-skeleton-${idx}`} className="animate-pulse">
+                  <tr key={`punctuality-skeleton-${idx}`}>
                     {/* Index */}
-                    <td className="py-3.5 px-4 text-zinc-400">
-                      <div className="h-4 w-4 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                    <td className="py-3.5 px-4 text-fg-subtle">
+                      <div className="h-4 w-4 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Employee */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <div className="flex items-center gap-2.5">
-                        <div className="w-7 h-7 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
-                        <div className="h-4 w-28 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                        <div className="w-7 h-7 rounded-lg bg-skel animate-pulse shrink-0" />
+                        <div className="h-4 w-28 bg-skel animate-pulse rounded" />
                       </div>
                     </td>
                     {/* Department & Shift */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <div className="space-y-1">
-                        <div className="h-4 w-20 bg-zinc-200 dark:bg-zinc-800 rounded-lg" />
-                        <div className="h-3 w-16 bg-zinc-100 dark:bg-zinc-800/60 rounded" />
+                        <div className="h-4 w-20 bg-skel animate-pulse rounded-lg" />
+                        <div className="h-3 w-16 bg-skel animate-pulse rounded" />
                       </div>
                     </td>
                     {/* Days Pres / Work */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      <div className="h-4 w-12 bg-skel animate-pulse rounded mx-auto" />
                     </td>
                     {/* Leaves */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="h-4 w-8 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      <div className="h-4 w-8 bg-skel animate-pulse rounded mx-auto" />
                     </td>
                     {/* Late Strikes */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="h-4 w-8 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      <div className="h-4 w-8 bg-skel animate-pulse rounded mx-auto" />
                     </td>
                     {/* Short Leaves */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="h-4 w-6 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      <div className="h-4 w-6 bg-skel animate-pulse rounded mx-auto" />
                     </td>
                     {/* Missed */}
                     <td className="py-3.5 px-4 text-center whitespace-nowrap">
-                      <div className="h-4 w-6 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
+                      <div className="h-4 w-6 bg-skel animate-pulse rounded mx-auto" />
                     </td>
                     {/* Overtime */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      <div className="h-4 w-12 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Undertime */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="h-4 w-12 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      <div className="h-4 w-12 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Net Variance */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="h-4 w-14 bg-zinc-200 dark:bg-zinc-800 rounded" />
+                      <div className="h-4 w-14 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Actions */}
                     <td className="py-3.5 px-4 text-right whitespace-nowrap">
-                      <div className="h-4 w-4 bg-zinc-200 dark:bg-zinc-800 rounded ml-auto" />
+                      <div className="h-4 w-4 bg-skel animate-pulse rounded ml-auto" />
                     </td>
                   </tr>
                 ))
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-zinc-400">
+                  <td colSpan={12} className="py-12 text-center text-fg-subtle">
                     No punctuality summary records match current filters.
                   </td>
                 </tr>
@@ -332,28 +332,28 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                     const hasUndertime = row.undertime_formatted && row.undertime_formatted !== '-00:00' && row.undertime_formatted !== '00:00';
                     const hasActivity = row.days_present > 0 || (row.total_work_hours ?? 0) > 0 || hasOvertime || hasUndertime;
                     const mutedDash = (
-                      <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                      <span className="text-fg-subtle font-normal">&mdash;</span>
                     );
 
                     return (
                       <tr
                         key={row.user_id}
-                        className={`hover:bg-zinc-50/80 dark:hover:bg-zinc-800/40 transition-colors ${
+                        className={`hover:bg-hover transition-colors ${
                           onSelectEmployee ? 'cursor-pointer' : ''
                         }`}
                         onClick={() => onSelectEmployee?.(row.user_id)}
                         title={onSelectEmployee ? 'Open this employee monthly timesheet' : undefined}
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-zinc-400 font-numeric">{idx + 1}</td>
+                        <td className="py-3 px-4 text-fg-subtle font-numeric">{idx + 1}</td>
 
                         {/* Employee Name */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold text-[11px] flex items-center justify-center">
+                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-fg font-semibold text-xs flex items-center justify-center">
                               {initials}
                             </div>
-                            <span className="font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
+                            <span className="font-semibold text-fg leading-tight">
                               {row.employee_name}
                             </span>
                           </div>
@@ -365,7 +365,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                             <span className={getDeptBadgeClass(row.department)}>
                               {row.department || 'General'}
                             </span>
-                            <span className="text-[10px] text-zinc-400 font-medium">
+                            <span className="text-[10px] text-fg-subtle font-medium">
                               {row.shift_name}
                             </span>
                           </div>
@@ -373,16 +373,16 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
                         {/* Days Present / Working */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
-                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                          <span className="font-semibold text-success-fg">
                             {row.days_present}
                           </span>
-                          <span className="text-zinc-400"> / {workingDays}</span>
+                          <span className="text-fg-subtle"> / {workingDays}</span>
                         </td>
 
                         {/* Leaves Taken */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {leavesTaken > 0 ? (
-                            <span className="px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold text-[11px]">
+                            <span className="px-2 py-0.5 rounded bg-warning-subtle text-warning-fg font-semibold text-xs">
                               {leavesTaken}d
                             </span>
                           ) : (
@@ -393,7 +393,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Late Strikes */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {lateStrikes > 0 ? (
-                            <span className="px-2 py-0.5 rounded bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 font-bold text-[11px]">
+                            <span className="px-2 py-0.5 rounded bg-danger-subtle text-danger-fg font-semibold text-xs">
                               {lateStrikes}
                             </span>
                           ) : (
@@ -402,41 +402,41 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         </td>
 
                         {/* Short Leaves */}
-                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric text-zinc-600 dark:text-zinc-400">
+                        <td className="py-3 px-4 text-center whitespace-nowrap font-numeric text-fg-muted">
                           {shortLeaves > 0 ? shortLeaves : mutedDash}
                         </td>
 
                         {/* Missed Punches */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {missedPunches > 0 ? (
-                            <span className="text-rose-600 font-bold">{missedPunches}</span>
+                            <span className="text-danger-fg font-semibold">{missedPunches}</span>
                           ) : (
                             mutedDash
                           )}
                         </td>
 
                         {/* Overtime */}
-                        <td className="py-3 px-4 font-numeric font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-semibold text-success-fg whitespace-nowrap">
                           {hasOvertime ? row.overtime_formatted : mutedDash}
                         </td>
 
                         {/* Undertime */}
-                        <td className="py-3 px-4 font-numeric font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-semibold text-danger-fg whitespace-nowrap">
                           {hasUndertime ? row.undertime_formatted : mutedDash}
                         </td>
 
                         {/* Net Variance */}
-                        <td className="py-3 px-4 font-numeric font-bold whitespace-nowrap">
+                        <td className="py-3 px-4 font-numeric font-semibold whitespace-nowrap">
                           {!hasActivity ? (
-                            <span className="text-zinc-300 dark:text-zinc-600 font-normal">&mdash;</span>
+                            <span className="text-fg-subtle font-normal">&mdash;</span>
                           ) : (
                             <span
                               className={
                                 row.net_variance_formatted.startsWith('+') && row.net_variance_formatted !== '+00:00'
-                                  ? 'text-emerald-600 dark:text-emerald-400'
+                                   ? 'text-success-fg'
                                   : row.net_variance_formatted.startsWith('-') && row.net_variance_formatted !== '-00:00'
-                                  ? 'text-rose-600 dark:text-rose-400'
-                                  : 'text-zinc-500'
+                                  ? 'text-danger-fg'
+                                  : 'text-fg-subtle'
                               }
                             >
                               {row.net_variance_formatted}
@@ -446,7 +446,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           {onSelectEmployee && (
-                            <ChevronRight className="w-4 h-4 text-zinc-300 dark:text-zinc-600 ml-auto" />
+                            <ChevronRight className="w-4 h-4 text-fg-subtle ml-auto" />
                           )}
                         </td>
                       </tr>

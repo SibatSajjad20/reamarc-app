@@ -1,33 +1,27 @@
 import React, { useEffect, useState } from 'react';
 import {
-  ArrowRight,
-  Briefcase,
   Calendar,
   Check,
   CheckCircle2,
   Copy,
-  ExternalLink,
   FileText,
-  Flag,
   History,
   Loader2,
   MessageCircle,
+  Pencil,
   Phone,
   Plus,
   RotateCcw,
-  Sparkles,
   Trash2,
   Clock,
-  Download,
   User,
   UserCheck,
   Video,
   X,
+  Briefcase,
 } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CrmDeleteConfirmModal } from './CrmDeleteConfirmModal';
-import { NEUTRAL_METADATA_BADGE_CLASS } from '../../utils/badgeStyles';
-import { openFileAttachment, downloadFileAttachment } from '../../utils/fileUrl';
 import type {
   CrmActivity,
   CrmAssignee,
@@ -40,6 +34,9 @@ import type { CrmLeadCreatePayload } from '../../types/crm';
 import { crmService } from '../../services/crmService';
 import { formatDealMoney, formatOpenDealTotals } from '../../utils/money';
 import { CrmCreateLeadModal } from './CrmCreateLeadModal';
+import { DrawerSkeleton } from '../ui/Skeletons';
+import { Button } from '../ui/button';
+import { StatusPill } from '../ui/StatusPill';
 
 const AVAILABLE_SERVICES = [
   'Website Dev',
@@ -79,18 +76,18 @@ function activityLabel(type: string): string {
 function ActivityIcon({ type }: { type: string }) {
   const tone =
     type === 'converted' || type === 'won_approved' || type === 'meeting_scheduled'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-success-fg'
       : type === 'outcome_set' || type === 'meeting_canceled'
-        ? 'text-rose-600 dark:text-rose-400'
+        ? 'text-danger-fg'
         : type === 'follow_up_set' || type === 'follow_up_cleared' || type === 'meeting_rescheduled'
-          ? 'text-amber-600 dark:text-amber-400'
-          : 'text-zinc-500 dark:text-zinc-400';
+          ? 'text-warning-fg'
+          : 'text-fg-muted';
 
   if (type === 'meeting_scheduled' || type === 'meeting_rescheduled') {
     return <Video className={`w-3.5 h-3.5 ${tone}`} />;
   }
   if (type === 'meeting_canceled') {
-    return <Calendar className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />;
+    return <Calendar className="w-3.5 h-3.5 text-danger-fg" />;
   }
   if (type === 'whatsapp_opened') {
     return <MessageCircle className={`w-3.5 h-3.5 ${tone}`} />;
@@ -98,32 +95,21 @@ function ActivityIcon({ type }: { type: string }) {
   if (type === 'contacted') {
     return <CheckCircle2 className={`w-3.5 h-3.5 ${tone}`} />;
   }
-  if (type === 'claimed') {
-    return <UserCheck className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  if (type === 'stage_changed' || type === 'lead_reopened') {
-    return <ArrowRight className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  if (type === 'follow_up_set' || type === 'follow_up_cleared') {
-    return <Calendar className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  if (type === 'converted' || type === 'won_approved') {
-    return <Sparkles className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  if (type === 'deal_added' || type === 'deal_updated' || type === 'deal_removed') {
-    return <Briefcase className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  if (type === 'outcome_set') {
-    return <Flag className={`w-3.5 h-3.5 ${tone}`} />;
-  }
-  return <FileText className={`w-3.5 h-3.5 ${tone}`} />;
+  return <History className={`w-3.5 h-3.5 ${tone}`} />;
 }
 
 function formatWhen(iso?: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const diff = Date.now() - d.getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const days = Math.floor(h / 24);
+  if (days < 7) return `${days}d ago`;
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
 function toLocalInputValue(iso?: string | null): string {
@@ -135,23 +121,23 @@ function toLocalInputValue(iso?: string | null): string {
 }
 
 export const CrmLeadDrawerSkeleton: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <aside className="w-full sm:max-w-lg h-full border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#11131a] flex flex-col min-w-0 shadow-2xl z-20 animate-pulse">
-    <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800/80 flex items-start justify-between gap-3">
-      <div className="space-y-2 flex-1">
-        <div className="h-5 w-44 bg-zinc-200 dark:bg-zinc-800 rounded-md" />
-        <div className="h-3.5 w-32 bg-zinc-100 dark:bg-zinc-800/60 rounded-md" />
+  <aside className="w-full sm:max-w-[640px] xl:w-[640px] shrink-0 h-full border-l border-border bg-surface flex flex-col min-w-0 shadow-lg z-20">
+    <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+      <div className="space-y-1">
+        <div className="h-5 w-44 bg-subtle rounded animate-pulse" />
+        <div className="h-3.5 w-32 bg-subtle rounded animate-pulse" />
       </div>
-      <button type="button" onClick={onClose} className="p-1.5 text-zinc-400 cursor-pointer">
+      <button
+        type="button"
+        onClick={onClose}
+        className="p-1.5 text-fg-muted hover:text-fg rounded cursor-pointer"
+        aria-label="Close drawer"
+      >
         <X className="w-4 h-4" />
       </button>
     </div>
-    {/* Tab bar skeleton */}
-    <div className="px-5 py-2.5 border-b border-zinc-200 dark:border-zinc-800/80">
-      <div className="h-9 bg-zinc-100 dark:bg-zinc-800/60 rounded-xl" />
-    </div>
-    <div className="flex-1 p-5 space-y-4 overflow-hidden">
-      <div className="h-36 bg-zinc-100 dark:bg-zinc-900/40 rounded-xl border border-zinc-200/60 dark:border-zinc-800" />
-      <div className="h-28 bg-zinc-100 dark:bg-zinc-900/40 rounded-xl border border-zinc-200/60 dark:border-zinc-800" />
+    <div className="flex-1 overflow-y-auto">
+      <DrawerSkeleton />
     </div>
   </aside>
 );
@@ -191,13 +177,13 @@ function BriefGroup({ title, rows }: { title: string; rows: Array<[string, strin
   const visible = rows.filter(([, value]) => value);
   if (!visible.length) return null;
   return (
-    <section>
-      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-zinc-400 mb-2">{title}</h3>
-      <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+    <section className="mb-6 last:mb-0">
+      <h3 className="text-[13px] font-semibold text-fg mb-2.5">{title}</h3>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
         {visible.map(([label, value]) => (
           <div key={label} className={String(value).length > 42 ? 'col-span-2' : undefined}>
-            <dt className="text-[11px] text-zinc-400">{label}</dt>
-            <dd className="text-xs text-zinc-900 dark:text-zinc-100 mt-0.5 break-words">{value}</dd>
+            <dt className="text-micro text-fg-muted">{label}</dt>
+            <dd className="text-small text-fg mt-0.5 break-words font-medium">{value}</dd>
           </div>
         ))}
       </dl>
@@ -252,17 +238,27 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   const [newDealTitle, setNewDealTitle] = useState('');
   const [newDealService, setNewDealService] = useState('Website Dev');
   const [newDealValue, setNewDealValue] = useState('');
-  const [newDealBilling, setNewDealBilling] = useState('one_time');
+  const [newDealBilling] = useState('one_time');
   const [newDealNotes, setNewDealNotes] = useState('');
   const [savingDeal, setSavingDeal] = useState(false);
+
+  // Reopen State
+  const [reopenTargetStage, setReopenTargetStage] = useState('contacted');
+  const [reopening, setReopening] = useState(false);
 
   useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab, lead?.id]);
 
-  // Admin Reopen State
-  const [reopenTargetStage, setReopenTargetStage] = useState('contacted');
-  const [reopening, setReopening] = useState(false);
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !formOpen && !trashOpen && !stagePrompt && !confirmDelete) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, formOpen, trashOpen, stagePrompt, confirmDelete]);
 
   useEffect(() => {
     setNote('');
@@ -356,7 +352,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       setNewDealValue('');
       setNewDealNotes('');
       if (onReloadLead) void onReloadLead();
-    } catch (err) {
+    } catch {
       // non-blocking
     } finally {
       setSavingDeal(false);
@@ -368,60 +364,795 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       await crmService.deleteDeal(dealId);
       setDeals((prev) => prev.filter((d) => d.id !== dealId));
       if (onReloadLead) void onReloadLead();
-    } catch (err) {
+    } catch {
       // non-blocking
     }
   };
 
   return (
-    <aside className="w-full sm:max-w-lg h-full border-l border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#11131a] flex flex-col min-w-0 shadow-2xl z-20">
-      {/* Drawer Header */}
-      <div className="px-5 py-3.5 border-b border-zinc-200 dark:border-zinc-800/80 flex items-start justify-between gap-3 bg-white dark:bg-[#11131a]">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="text-base font-bold text-zinc-950 dark:text-zinc-50 truncate">{lead.name}</h2>
-            {lead.outcome === 'won' ? (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                <Sparkles className="w-3 h-3 text-emerald-500" />
-                Won
-              </span>
-            ) : lead.outcome === 'lost' ? (
-              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-50 dark:bg-rose-950/50 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                Lost
-              </span>
-            ) : (
-              <span className={NEUTRAL_METADATA_BADGE_CLASS}>{lead.stage.replace(/_/g, ' ')}</span>
-            )}
+    <aside className="w-full sm:max-w-[640px] xl:w-[640px] shrink-0 h-full border-l border-border bg-surface flex flex-col min-w-0 shadow-lg z-20">
+      {/* Header */}
+      <div className="px-5 py-3.5 border-b border-border bg-surface flex flex-col gap-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-[18px] font-semibold text-fg tracking-tight truncate">
+                {lead.name}
+              </h2>
+              {lead.outcome ? (
+                <StatusPill
+                  variant={lead.outcome === 'won' ? 'success' : 'danger'}
+                  dot
+                >
+                  {lead.outcome === 'won' ? 'Won' : lead.outcome}
+                </StatusPill>
+              ) : (
+                <span className="text-micro font-medium px-2 py-0.5 rounded bg-subtle text-fg-muted uppercase">
+                  {lead.stage.replace(/_/g, ' ')}
+                </span>
+              )}
+            </div>
+            <p className="text-small text-fg-muted truncate mt-0.5">
+              {lead.company || 'No company specified'} · <span className="capitalize">{lead.source}</span>
+            </p>
           </div>
-          <p className="text-xs text-zinc-500 dark:text-zinc-400 truncate mt-0.5">
-            {lead.company || lead.email || 'No company specified'}
-          </p>
-        </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          {onDelete && canAssign && (
+          <div className="flex items-center gap-1 shrink-0">
             <button
               type="button"
-              onClick={() => setConfirmDelete(true)}
-              className="p-1.5 rounded-lg text-zinc-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-              title="Delete lead"
+              onClick={() => setFormOpen(true)}
+              className="p-1.5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+              title="Edit lead brief & info"
+              aria-label="Edit lead brief"
             >
-              <Trash2 className="w-4 h-4" />
+              <Pencil className="w-4 h-4" />
             </button>
+
+            {onDelete && canAssign && (
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(true)}
+                className="p-1.5 rounded hover:bg-danger-bg text-fg-muted hover:text-danger-fg transition cursor-pointer"
+                title="Delete lead"
+                aria-label="Delete lead"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+              title="Close drawer"
+              aria-label="Close drawer"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Stage selection in header */}
+        {!closed && (
+          <div className="flex items-center gap-2 pt-1 border-t border-border/50">
+            <span className="text-micro font-medium text-fg-muted uppercase shrink-0">Stage</span>
+            <div className="flex-1 max-w-[240px]">
+              <CustomSelect
+                value={lead.stage}
+                onChange={(v) => {
+                  if (!v || v === lead.stage) return;
+                  const label = stages.find((s) => s.id === v)?.name || v;
+                  setStagePrompt(label + '\n' + v);
+                }}
+                options={stages.map((s) => ({ value: s.id, label: s.name }))}
+                size="sm"
+                disabled={busy}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Hero Contact Action Bar (Persistent for open leads) */}
+      {!closed && (
+        <div className="px-5 py-2.5 bg-subtle/50 border-b border-border flex flex-wrap items-center gap-2">
+          {lead.phone_valid ? (
+            <div className="relative">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  if (!templates.length) {
+                    void onWhatsApp(undefined);
+                    return;
+                  }
+                  setTemplateMenuOpen((open) => !open);
+                }}
+              >
+                <MessageCircle className="w-3.5 h-3.5 mr-1 text-success-fg" />
+                WhatsApp
+              </Button>
+              {templateMenuOpen && (
+                <div className="absolute z-30 top-9 left-0 w-56 rounded-md border border-border bg-surface shadow-lg py-1">
+                  {templates.map((template) => (
+                    <button
+                      key={template.id}
+                      type="button"
+                      className="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-hover cursor-pointer"
+                      onClick={() => {
+                        setTemplateMenuOpen(false);
+                        void onWhatsApp(template.id);
+                      }}
+                    >
+                      {template.is_default ? `${template.name} (default)` : template.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className="w-full text-left px-3 py-1.5 text-xs text-fg-muted hover:bg-hover cursor-pointer border-t border-border"
+                    onClick={() => {
+                      setTemplateMenuOpen(false);
+                      void onWhatsApp(undefined);
+                    }}
+                  >
+                    Open chat only
+                  </button>
+                </div>
+              )}
+            </div>
+          ) : (
+            <span className="h-8 px-2.5 inline-flex items-center text-micro text-fg-muted italic">
+              WhatsApp unavailable
+            </span>
           )}
 
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
-            title="Close drawer"
-          >
-            <X className="w-4 h-4" />
-          </button>
+          {lead.phone_e164 && (
+            <a
+              href={`tel:+${lead.phone_e164}`}
+              className="h-8 px-2.5 inline-flex items-center gap-1.5 rounded-md border border-border bg-surface text-xs font-medium text-fg hover:bg-hover transition"
+            >
+              <Phone className="w-3.5 h-3.5 text-fg-muted" />
+              Call
+            </a>
+          )}
+
+          {!lead.contacted && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void onContacted()}
+            >
+              <Check className="w-3.5 h-3.5 mr-1 text-warning-fg" />
+              Mark contacted
+            </Button>
+          )}
+
+          {!lead.assigned_to && onClaim && (
+            <Button
+              type="button"
+              variant="primary"
+              size="sm"
+              disabled={busy}
+              onClick={() => void onClaim()}
+            >
+              <UserCheck className="w-3.5 h-3.5 mr-1" />
+              Claim
+            </Button>
+          )}
+
+          {!lead.assigned_to && onApplyRules && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => void onApplyRules()}
+            >
+              Run rules
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Underline Tabs */}
+      <div className="px-5 border-b border-border bg-surface">
+        <div className="flex items-center gap-6">
+          {(
+            [
+              { id: 'overview' as const, label: 'Overview', icon: User, count: undefined as string | number | undefined },
+              { id: 'brief' as const, label: 'Brief', icon: FileText, count: undefined as string | number | undefined },
+              { id: 'activity' as const, label: 'Activity', icon: History, count: activities.length as string | number | undefined },
+              { id: 'deals' as const, label: 'Deals', icon: Briefcase, count: (dealsLoading ? '·' : deals.length) as string | number | undefined },
+            ]
+          ).map((tab) => {
+            const Icon = tab.icon;
+            const active = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`py-3 text-xs flex items-center gap-1.5 border-b-2 transition-colors cursor-pointer ${
+                  active
+                    ? 'border-accent text-fg font-medium'
+                    : 'border-transparent text-fg-muted hover:text-fg font-normal'
+                }`}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                <span>{tab.label}</span>
+                {tab.count !== undefined && (
+                  <span className="text-micro font-numeric tabular-nums text-fg-muted bg-subtle px-1.5 py-0.2 rounded-full">
+                    {tab.count}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Dedicated Confirm Delete Modal */}
+      {/* Tab 1: Overview */}
+      {activeTab === 'overview' && (
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 custom-scrollbar">
+          {/* Operations Approval / Client Form status */}
+          {lead.outcome === 'won' && (
+            <div className="p-3.5 rounded-lg bg-success-bg/40 border border-success/30 space-y-2">
+              <div className="flex items-start gap-2.5">
+                {lead.converted_workspace_id ? (
+                  <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0 mt-0.5" />
+                ) : (
+                  <Clock className="w-4 h-4 text-warning-fg shrink-0 mt-0.5" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-xs font-semibold text-fg">
+                    {lead.converted_workspace_id ? 'Active client workspace' : 'Client form still needed'}
+                  </h4>
+                  <p className="text-micro text-fg-muted mt-0.5 leading-normal">
+                    {lead.converted_workspace_id
+                      ? `Workspace ID: ${lead.converted_workspace_id}`
+                      : 'Save the client workspace form to finish registering this lead.'}
+                  </p>
+                </div>
+              </div>
+
+              {!lead.converted_workspace_id && (
+                <div className="pt-2 border-t border-success/20">
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={() => void onWon()}
+                    className="w-full"
+                  >
+                    Complete client workspace
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Admin Reopen Controls */}
+          {closed && canAssign && (
+            <div className="p-3.5 rounded-lg bg-subtle/50 border border-border space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-fg">
+                  Admin controls
+                </span>
+                <span className="text-micro text-fg-muted capitalize">
+                  Status: {lead.outcome}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <CustomSelect
+                    value={reopenTargetStage}
+                    onChange={setReopenTargetStage}
+                    options={stages.map((s) => ({ value: s.id, label: s.name }))}
+                    size="sm"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={reopening}
+                  onClick={async () => {
+                    setReopening(true);
+                    try {
+                      if (onReopen) {
+                        await onReopen(lead.id, reopenTargetStage);
+                      } else {
+                        await onStage(reopenTargetStage);
+                      }
+                    } finally {
+                      setReopening(false);
+                    }
+                  }}
+                >
+                  {reopening ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
+                  Reopen
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Key-Value Details Grid */}
+          <div className="rounded-lg border border-border bg-subtle/30 p-3.5 space-y-3">
+            <h3 className="text-[13px] font-semibold text-fg">Contact details</h3>
+            <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+              <div>
+                <dt className="text-micro text-fg-muted">Phone</dt>
+                <dd className="font-numeric text-fg font-medium flex items-center gap-1.5 mt-0.5">
+                  <span>{lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '—'}</span>
+                  {(lead.phone_e164 || lead.phone_raw) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCopyPhone(lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '')}
+                      className="text-fg-muted hover:text-fg p-0.5 cursor-pointer"
+                      title={copiedPhone ? 'Copied!' : 'Copy phone'}
+                    >
+                      {copiedPhone ? <Check className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-micro text-fg-muted">Email</dt>
+                <dd className="text-fg break-all mt-0.5 font-medium">
+                  {lead.email ? (
+                    <a href={`mailto:${lead.email}`} className="hover:underline text-accent">
+                      {lead.email}
+                    </a>
+                  ) : (
+                    '—'
+                  )}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-micro text-fg-muted">Owner</dt>
+                <dd className="text-fg font-medium mt-0.5">
+                  {lead.assigned_to_name || <span className="text-warning-fg">Unassigned</span>}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-micro text-fg-muted">City</dt>
+                <dd className="text-fg font-medium mt-0.5">
+                  {lead.city || '—'}
+                </dd>
+              </div>
+            </dl>
+          </div>
+
+          {/* Need snippet */}
+          {lead.brief && (
+            <div
+              onClick={() => setActiveTab('brief')}
+              className="rounded-lg border border-border p-3.5 cursor-pointer hover:bg-hover transition-colors"
+            >
+              <p className="text-micro font-medium text-fg-muted">Client need</p>
+              <p className="mt-1 text-xs text-fg line-clamp-3 leading-normal">{lead.brief}</p>
+            </div>
+          )}
+
+          {/* Follow-up scheduler */}
+          {!closed && (
+            <div className="space-y-2 rounded-lg border border-border bg-subtle/30 p-3.5">
+              <div className="flex items-center justify-between">
+                <p className="text-[13px] font-semibold text-fg">Next follow-up</p>
+                {lead.next_follow_up_at && (
+                  <span className={`text-micro font-numeric ${followUpOverdue ? 'text-danger-fg font-semibold' : 'text-fg-muted'}`}>
+                    Due {formatWhen(lead.next_follow_up_at)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="datetime-local"
+                  value={followUpLocal}
+                  onChange={(e) => setFollowUpLocal(e.target.value)}
+                  className="flex-1 h-8 px-2.5 rounded-md border border-border bg-surface text-xs font-numeric text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy}
+                  onClick={() => {
+                    if (!followUpLocal) {
+                      void onFollowUp(null);
+                      return;
+                    }
+                    const d = new Date(followUpLocal);
+                    void onFollowUp(Number.isNaN(d.getTime()) ? null : d.toISOString());
+                  }}
+                >
+                  Save
+                </Button>
+                {lead.next_follow_up_at && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => {
+                      setFollowUpLocal('');
+                      void onFollowUp(null);
+                    }}
+                  >
+                    Clear
+                  </Button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Assign Owner */}
+          {!closed && canAssign && (
+            <div className="space-y-1.5 rounded-lg border border-border bg-subtle/30 p-3.5">
+              <p className="text-[13px] font-semibold text-fg">Assign owner</p>
+              <CustomSelect
+                value={lead.assigned_to || ''}
+                onChange={(v) => {
+                  if (v) void onAssign(v);
+                }}
+                options={assignees.map((a) => ({ value: a.id, label: a.full_name }))}
+                placeholder="Unassigned"
+                size="sm"
+                disabled={busy}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Tab 2: Brief */}
+      {activeTab === 'brief' && (
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6 custom-scrollbar">
+          <div className="space-y-1">
+            <h3 className="text-[13px] font-semibold text-fg">What they need</h3>
+            <p className="text-small text-fg leading-normal whitespace-pre-wrap">
+              {lead.brief || 'No description yet.'}
+            </p>
+          </div>
+
+          <BriefGroup
+            title="Business details"
+            rows={[
+              ['Company', lead.company],
+              ['Website', lead.no_website ? 'No website' : lead.website],
+              ['Role', lead.role],
+              ['Industry', lead.industry],
+              ['Business stage', lead.business_stage],
+              ['Employees', lead.employee_count],
+              ['Sales team', lead.sales_team],
+              ['City', lead.city],
+            ]}
+          />
+
+          <BriefGroup
+            title="Project scope"
+            rows={[
+              ['Help with', (lead.help_with || []).map((item) => (item === 'Other' && lead.help_other ? `Other: ${lead.help_other}` : item)).join(', ') || lead.service],
+              ['Main objective', lead.objective],
+              ['Start timeline', lead.start_timeline],
+              ['Budget', lead.budget],
+            ]}
+          />
+
+          <BriefGroup
+            title="Form answers"
+            rows={(lead.form_answers || []).map((answer) => [answer.label, answer.value])}
+          />
+
+          <BriefGroup
+            title="Attribution source"
+            rows={[
+              ['Source', lead.source],
+              ['Campaign', lead.attribution?.campaign_name || lead.campaign],
+              ['Ad set', lead.attribution?.adset_name],
+              ['Ad', lead.attribution?.ad_name],
+              ['Form', lead.attribution?.form_name],
+              ['UTM', [lead.attribution?.utm_source, lead.attribution?.utm_medium].filter(Boolean).join(' / ') || null],
+            ]}
+          />
+
+          <div className="pt-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setFormOpen(true)}
+              className="w-full"
+            >
+              <Pencil className="w-3.5 h-3.5 mr-1" />
+              Edit brief and qualification
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Tab 3: Activity History */}
+      {activeTab === 'activity' && (
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
+          {!closed && (
+            <form
+              className="flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!note.trim()) return;
+                void onNote(note.trim()).then(() => setNote(''));
+              }}
+            >
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                placeholder="Write a timeline note or call summary…"
+                className="flex-1 h-8 px-2.5 rounded-md border border-border bg-surface text-xs text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+              />
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={busy || !note.trim()}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add
+              </Button>
+            </form>
+          )}
+
+          <div className="space-y-2.5 pt-2">
+            {activities.map((act) => (
+              <div
+                key={act.id}
+                className="p-3 rounded-md border border-border bg-subtle/30 flex items-start gap-2.5"
+              >
+                <div className="mt-0.5 shrink-0">
+                  <ActivityIcon type={act.type} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-medium text-fg capitalize">
+                      {activityLabel(act.type)}
+                    </p>
+                    <span className="text-micro font-numeric text-fg-muted shrink-0">
+                      {formatWhen(act.created_at)}
+                    </span>
+                  </div>
+                  {act.body && (
+                    <p className="text-small text-fg-muted mt-1 whitespace-pre-wrap leading-normal">
+                      {act.body}
+                    </p>
+                  )}
+                  {act.actor_name && (
+                    <p className="text-micro text-fg-muted mt-1">
+                      By {act.actor_name}
+                    </p>
+                  )}
+                </div>
+              </div>
+            ))}
+            {activities.length === 0 && (
+              <div className="py-10 text-center text-xs text-fg-muted border border-dashed border-border rounded-lg">
+                No activity logged yet.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Tab 4: Deals */}
+      {activeTab === 'deals' && (
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4 custom-scrollbar">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-[13px] font-semibold text-fg">Commercial deals</h3>
+              <p className="text-micro text-fg-muted mt-0.5">
+                {deals.length > 0 ? (
+                  <span>
+                    Open pipeline: <strong className="font-numeric font-medium text-fg">{openDealLabel || '—'}</strong>
+                  </span>
+                ) : canCreateDeal ? (
+                  'Create a deal to enter the commercial pipeline'
+                ) : (
+                  'Mark this lead as won before a deal can be created'
+                )}
+              </p>
+            </div>
+            {canCreateDeal && !isAddingDeal && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  if (onCreateDeal) {
+                    onCreateDeal();
+                  } else if (onEditProposal) {
+                    onEditProposal();
+                  } else {
+                    setIsAddingDeal(true);
+                  }
+                }}
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add deal
+              </Button>
+            )}
+          </div>
+
+          {/* Add deal inline fallback form */}
+          {canCreateDeal && isAddingDeal && !onCreateDeal && (
+            <div className="p-3.5 rounded-lg border border-border bg-subtle/50 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-semibold text-fg">Add new deal</h4>
+                <button
+                  type="button"
+                  onClick={() => setIsAddingDeal(false)}
+                  className="text-fg-muted hover:text-fg p-0.5 cursor-pointer"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <input
+                type="text"
+                value={newDealTitle}
+                onChange={(e) => setNewDealTitle(e.target.value)}
+                placeholder="Deal title"
+                className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg"
+              />
+              <div className="grid grid-cols-2 gap-2">
+                <CustomSelect
+                  value={newDealService}
+                  onChange={setNewDealService}
+                  options={AVAILABLE_SERVICES.map((s) => ({ value: s, label: s }))}
+                  size="sm"
+                />
+                <input
+                  type="number"
+                  value={newDealValue}
+                  onChange={(e) => setNewDealValue(e.target.value)}
+                  placeholder="Value"
+                  className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg font-numeric"
+                />
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  disabled={savingDeal || !newDealTitle.trim()}
+                  onClick={handleCreateDeal}
+                >
+                  {savingDeal ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
+                  Save deal
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setIsAddingDeal(false)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* Deals List */}
+          <div className="space-y-2">
+            {dealsLoading ? (
+              <div className="space-y-2 animate-pulse">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-16 rounded-lg bg-subtle" />
+                ))}
+              </div>
+            ) : (
+              <>
+                {deals.map((deal) => (
+                  <div
+                    key={deal.id}
+                    className="p-3.5 rounded-lg border border-border bg-surface flex items-center justify-between gap-3 shadow-xs hover:border-border-strong transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-semibold text-fg truncate">{deal.title}</p>
+                        <span className="text-[10px] px-1.5 py-0.2 rounded font-medium bg-subtle text-fg-muted uppercase">
+                          {deal.status === 'open' ? (deal.stage || 'proposal').replace(/_/g, ' ') : deal.status}
+                        </span>
+                      </div>
+                      <p className="text-micro text-fg-muted mt-1">
+                        {deal.service} · <span className="font-numeric font-medium text-fg">{formatDealMoney(deal.value, deal.currency)}</span>
+                        {deal.probability != null && <span> · {deal.probability}%</span>}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {onEditDeal && (
+                        <button
+                          type="button"
+                          onClick={() => onEditDeal(deal)}
+                          className="p-1.5 text-fg-muted hover:text-fg rounded hover:bg-hover transition cursor-pointer"
+                          title="Edit deal"
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteDeal(deal.id)}
+                        className="p-1.5 text-fg-muted hover:text-danger-fg rounded hover:bg-danger-bg transition cursor-pointer"
+                        title="Remove deal"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {deals.length === 0 && !isAddingDeal && (
+                  <div className="py-10 text-center border border-dashed border-border rounded-lg text-xs text-fg-muted">
+                    No deals attached yet.
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Sticky Footer */}
+      {!closed ? (
+        <div className="sticky bottom-0 bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 z-10 shrink-0">
+          <Button
+            type="button"
+            variant="primary"
+            disabled={busy}
+            onClick={() => void onWon()}
+            className="flex-1"
+          >
+            <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+            Register as client
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={busy}
+            onClick={() => void onLost()}
+          >
+            Mark lost
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => setTrashOpen(true)}
+          >
+            Trash
+          </Button>
+        </div>
+      ) : (
+        <div className="sticky bottom-0 bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 z-10 shrink-0">
+          <span className="text-xs text-fg-muted">
+            This lead is <strong className="capitalize text-fg">{lead.outcome}</strong>.
+          </span>
+          {canAssign && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                if (onReopen) void onReopen(lead.id, 'contacted');
+              }}
+            >
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              Reopen
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* Modals & Confirmation */}
       <CrmDeleteConfirmModal
         isOpen={confirmDelete}
         leadName={lead.name}
@@ -439,1034 +1170,39 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
         }}
       />
 
-      {/* Hero Contact Action Bar (Persistent for open leads) */}
-      {!closed && (
-        <div className="px-5 py-2.5 bg-zinc-50/80 dark:bg-zinc-900/40 border-b border-zinc-200/80 dark:border-zinc-800/80 flex flex-wrap items-center gap-2">
-          {lead.phone_valid ? (
-            <div className="relative">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => {
-                  if (!templates.length) {
-                    void onWhatsApp(undefined);
-                    return;
-                  }
-                  setTemplateMenuOpen((open) => !open);
-                }}
-                className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 text-xs font-semibold cursor-pointer transition shadow-2xs"
-              >
-                <MessageCircle className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                WhatsApp
-              </button>
-              {templateMenuOpen && (
-                <div className="absolute z-30 top-9 left-0 w-56 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-lg py-1">
-                  {templates.map((template) => (
-                    <button
-                      key={template.id}
-                      type="button"
-                      className="w-full text-left px-3 py-2 text-xs text-zinc-800 dark:text-zinc-100 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer"
-                      onClick={() => {
-                        setTemplateMenuOpen(false);
-                        void onWhatsApp(template.id);
-                      }}
-                    >
-                      {template.is_default ? `${template.name} (default)` : template.name}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className="w-full text-left px-3 py-2 text-xs text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-800 cursor-pointer"
-                    onClick={() => {
-                      setTemplateMenuOpen(false);
-                      void onWhatsApp(undefined);
-                    }}
-                  >
-                    Open chat only
-                  </button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <span className="h-8 px-2.5 inline-flex items-center text-[11px] text-zinc-400 italic">
-              WhatsApp unavailable
-            </span>
-          )}
-
-          {lead.phone_e164 && (
-            <a
-              href={`tel:+${lead.phone_e164}`}
-              className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700/80 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-800 dark:text-zinc-200 hover:bg-zinc-50 dark:hover:bg-zinc-800 transition shadow-2xs"
-            >
-              <Phone className="w-3.5 h-3.5 text-zinc-500" />
-              Call
-            </a>
-          )}
-
-          {!lead.contacted && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onContacted()}
-              className="h-8 px-3 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 dark:border-amber-800/80 bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 hover:bg-amber-100 text-xs font-semibold cursor-pointer transition shadow-2xs"
-            >
-              <Check className="w-3.5 h-3.5 text-amber-600" />
-              Mark contacted
-            </button>
-          )}
-
-          {!lead.assigned_to && onClaim && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onClaim()}
-              className="h-8 px-3.5 inline-flex items-center gap-1 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer transition shadow-xs"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              Claim
-            </button>
-          )}
-
-          {!lead.assigned_to && onApplyRules && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onApplyRules()}
-              className="h-8 px-2.5 inline-flex items-center rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-50 transition cursor-pointer shadow-2xs"
-            >
-              Run rules
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Segmented Tabs Bar */}
-      <div className="px-5 py-2.5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#11131a]">
-        <div className="flex items-center p-1 bg-zinc-100 dark:bg-zinc-800/70 rounded-xl border border-zinc-200/80 dark:border-zinc-700/60">
-          <button
-            type="button"
-            onClick={() => setActiveTab('overview')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === 'overview'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-            }`}
-          >
-            <User className="w-3.5 h-3.5" />
-            <span>Overview</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('brief')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === 'brief'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Brief</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('activity')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === 'activity'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>Activity</span>
-            {activities.length > 0 && (
-              <span
-              className={`px-1.5 py-0.5 rounded-full text-[10px] font-numeric font-semibold leading-none ${
-                activeTab === 'activity'
-                  ? 'bg-zinc-200 text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200'
-                  : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300'
-              }`}
-            >
-              {activities.length}
-            </span>
-          )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab('deals')}
-            className={`flex-1 py-1.5 px-3 text-xs font-semibold rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-              activeTab === 'deals'
-                ? 'bg-white dark:bg-zinc-900 text-zinc-950 dark:text-zinc-50 shadow-xs'
-                : 'text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-            }`}
-          >
-            <Briefcase className="w-3.5 h-3.5" />
-            <span>Deals</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] font-numeric font-semibold leading-none bg-zinc-200 dark:bg-zinc-700 text-zinc-600 dark:text-zinc-300">
-              {dealsLoading ? '·' : deals.length}
-            </span>
-          </button>
-        </div>
-      </div>
-
-      {/* Tab 1: Overview */}
-      {activeTab === 'overview' && (
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Status & Metadata Badges */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className={NEUTRAL_METADATA_BADGE_CLASS}>{lead.source}</span>
-
-            {!lead.contacted && !lead.outcome && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                Uncontacted
-              </span>
-            )}
-
-            {followUpOverdue && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 motion-safe:animate-pulse">
-                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                Follow-up overdue
-              </span>
-            )}
-
-            {lead.outcome === 'won' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                <Sparkles className="w-3 h-3 text-emerald-500" />
-                Won
-              </span>
-            )}
-
-            {lead.outcome === 'lost' && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800">
-                Lost
-              </span>
-            )}
-
-            {(lead.outcome === 'trashed' || lead.outcome === 'disqualified') && (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
-                {lead.outcome === 'trashed' ? 'Trashed' : 'Disqualified'}
-              </span>
-            )}
-          </div>
-
-          {/* Operations Approval & Payment Clearance Panel (Won Leads) */}
-          {lead.outcome === 'won' && (
-            <div className="p-3.5 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/30 border border-emerald-500/30 space-y-2.5">
-              <div className="flex items-start gap-2.5">
-                {lead.converted_workspace_id ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
-                ) : (
-                  <Clock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5 animate-pulse" />
-                )}
-                <div className="min-w-0 flex-1">
-                  <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
-                    {lead.converted_workspace_id ? 'Active client' : 'Client form still needed'}
-                  </h4>
-                  <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                    {lead.converted_workspace_id
-                      ? `Workspace ID: ${lead.converted_workspace_id}`
-                      : 'Save the client workspace form to finish registering this lead. The client proposal is attached on that form.'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Proposal link if present */}
-              {lead.proposal_config?.proposal_url && (
-                <div className="pt-1 flex items-center gap-3 flex-wrap">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      openFileAttachment(
-                        lead.proposal_config!.proposal_url!,
-                        lead.proposal_config!.proposal_name || 'Proposal'
-                      )
-                    }
-                    className="inline-flex items-center gap-1.5 text-xs text-indigo-600 dark:text-indigo-400 font-semibold hover:underline cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>View Attached Proposal ({lead.proposal_config.proposal_name || 'Document'})</span>
-                    <ExternalLink className="w-3 h-3" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      downloadFileAttachment(
-                        lead.proposal_config!.proposal_url!,
-                        lead.proposal_config!.proposal_name || 'Proposal'
-                      )
-                    }
-                    className="inline-flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-300 transition cursor-pointer"
-                    title="Download Proposal"
-                  >
-                    <Download className="w-3 h-3" />
-                    <span>Download</span>
-                  </button>
-                </div>
-              )}
-
-              {!lead.converted_workspace_id && (
-                <div className="pt-2 border-t border-emerald-500/20">
-                  <button
-                    type="button"
-                    onClick={() => void onWon()}
-                    className="w-full py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition cursor-pointer"
-                  >
-                    Complete client workspace
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Admin Reopen Controls for Closed Leads */}
-          {closed && canAssign && (
-            <div className="p-3.5 rounded-2xl bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-800 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
-                  Admin Controls (Fix Closed Lead)
-                </span>
-                <span className="text-[10px] text-zinc-400 capitalize">
-                  Status: {lead.outcome}
-                </span>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <div className="flex-1">
-                  <CustomSelect
-                    value={reopenTargetStage}
-                    onChange={setReopenTargetStage}
-                    options={stages.map((s) => ({ value: s.id, label: s.name }))}
-                    size="sm"
-                  />
-                </div>
-
-                <button
-                  type="button"
-                  disabled={reopening}
-                  onClick={async () => {
-                    setReopening(true);
-                    try {
-                      if (onReopen) {
-                        await onReopen(lead.id, reopenTargetStage);
-                      } else {
-                        await onStage(reopenTargetStage);
-                      }
-                    } finally {
-                      setReopening(false);
-                    }
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer shadow-xs shrink-0"
-                >
-                  {reopening ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
-                  <span>Reopen Deal</span>
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Scheduled Meeting Card (Calendly / Video Consultation) */}
-          {lead.meeting && (
-            <div className={`rounded-2xl border p-4 space-y-3 ${
-              lead.meeting.status === 'canceled'
-                ? 'border-rose-500/30 bg-rose-50/50 dark:bg-rose-950/20'
-                : 'border-emerald-500/30 bg-emerald-50/50 dark:bg-emerald-950/20'
-            }`}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide uppercase border ${
-                      lead.meeting.status === 'canceled'
-                        ? 'bg-rose-500/10 text-rose-700 dark:text-rose-400 border-rose-500/20'
-                        : 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/20'
-                    }`}>
-                      <Video className="w-3 h-3" />
-                      {lead.meeting.status === 'canceled' ? 'Meeting Canceled' : 'Upcoming Meeting'}
-                    </span>
-                    {lead.meeting.timezone && (
-                      <span className="text-[10px] text-zinc-400">({lead.meeting.timezone})</span>
-                    )}
-                  </div>
-                  <h4 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1.5 truncate">
-                    {lead.meeting.event_name || 'Consultancy Session'}
-                  </h4>
-                  {lead.meeting.host_name && (
-                    <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
-                      Host: <span className="font-medium text-zinc-700 dark:text-zinc-300">{lead.meeting.host_name}</span>
-                    </p>
-                  )}
-                </div>
-
-                {lead.meeting.join_url && lead.meeting.status !== 'canceled' && /^https:\/\//i.test(lead.meeting.join_url) && (
-                  <a
-                    href={lead.meeting.join_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="shrink-0 px-3 py-1.5 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white transition flex items-center gap-1.5 shadow-xs cursor-pointer"
-                  >
-                    <Video className="w-3.5 h-3.5" />
-                    <span>Join Call</span>
-                    <ExternalLink className="w-3 h-3 opacity-70" />
-                  </a>
-                )}
-              </div>
-
-              {/* Time Display */}
-              {lead.meeting.start_time && (
-                <div className={`flex items-center gap-2 text-xs font-medium px-3 py-2 rounded-xl ${
-                  lead.meeting.status === 'canceled'
-                    ? 'text-rose-950 dark:text-rose-200 bg-rose-100/60 dark:bg-rose-900/30'
-                    : 'text-emerald-950 dark:text-emerald-200 bg-emerald-100/60 dark:bg-emerald-900/30'
-                }`}>
-                  <Clock className={`w-4 h-4 shrink-0 ${
-                    lead.meeting.status === 'canceled' ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-                  }`} />
-                  <span>
-                    {new Date(lead.meeting.start_time).toLocaleDateString(undefined, {
-                      weekday: 'short',
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}{' '}
-                    at{' '}
-                    {new Date(lead.meeting.start_time).toLocaleTimeString(undefined, {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                    {lead.meeting.end_time && (
-                      <>
-                        {' – '}
-                        {new Date(lead.meeting.end_time).toLocaleTimeString(undefined, {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </>
-                    )}
-                  </span>
-                </div>
-              )}
-
-              {/* Cancellation details */}
-              {lead.meeting.status === 'canceled' && lead.meeting.cancellation_reason && (
-                <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-xs text-rose-700 dark:text-rose-300">
-                  <span className="font-semibold">Reason: </span>
-                  {lead.meeting.cancellation_reason}
-                </div>
-              )}
-
-              {/* Form Responses / Questions */}
-              {lead.meeting.questions_and_answers && lead.meeting.questions_and_answers.length > 0 && (
-                <div className="pt-2 border-t border-emerald-500/15 dark:border-emerald-500/10 space-y-2">
-                  <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400">
-                    Booking Form Responses
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {lead.meeting.questions_and_answers.map((qa, idx) => (
-                      <div key={idx} className="p-2.5 rounded-xl bg-white/70 dark:bg-zinc-900/60 border border-emerald-500/15">
-                        <p className="text-[10px] font-medium text-zinc-400 truncate">{qa.question}</p>
-                        <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 mt-0.5 break-words">
-                          {qa.answer}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Proposal Document Card (Visible across all stages whenever attached or during proposal/negotiation) */}
-          {(lead.proposal_config?.proposal_url ||
-            (lead.deals && lead.deals.length > 0) ||
-            canCreateDeal) && (
-            <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-3.5 space-y-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                    <Briefcase className="w-3.5 h-3.5 text-indigo-500" />
-                    {lead.deals_count
-                      ? `Deals (${lead.deals_count})`
-                      : lead.proposal_config?.proposal_url
-                        ? 'Attached Proposal'
-                        : 'Commercial Deal'}
-                  </p>
-                  <p className="text-[11px] text-zinc-400 mt-0.5">
-                    {formatOpenDealTotals(lead.deals || [])
-                      ? `Open value ${formatOpenDealTotals(lead.deals || [])}`
-                      : lead.total_deal_value
-                        ? `Open value ${formatDealMoney(lead.total_deal_value, 'PKR')}`
-                      : lead.proposal_config?.proposal_url
-                        ? canCreateDeal
-                          ? 'Document ready — create a deal to track it commercially'
-                          : 'Mark this lead as won before creating a deal'
-                        : canCreateDeal
-                          ? 'Create a deal to enter the proposal pipeline'
-                          : 'Mark this lead as won before creating a deal'}
-                  </p>
-                </div>
-                {canCreateDeal && (onCreateDeal || onEditProposal) && (
-                  <button
-                    type="button"
-                    onClick={() => (onCreateDeal ? onCreateDeal() : onEditProposal?.())}
-                    className="shrink-0 px-2.5 py-1.5 rounded-xl text-[11px] font-semibold bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 cursor-pointer"
-                  >
-                    Create Deal
-                  </button>
-                )}
-              </div>
-              {lead.proposal_config?.proposal_url && (
-                <div className="flex items-center gap-2 text-[11px] text-zinc-600 dark:text-zinc-400">
-                  <FileText className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="truncate">{lead.proposal_config.proposal_name || 'Proposal Document'}</span>
-                </div>
-              )}
-              {lead.proposal_config?.proposal_notes && (
-                <div className="text-[11px] text-zinc-500 dark:text-zinc-400 bg-zinc-50 dark:bg-zinc-900/50 p-2 rounded-lg border border-zinc-100 dark:border-zinc-800">
-                  <p className="whitespace-pre-wrap">{lead.proposal_config.proposal_notes}</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          <div className="rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20 p-3.5">
-            <dl className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-              <div>
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Phone</dt>
-                <dd className="font-numeric text-zinc-900 dark:text-zinc-100 font-semibold flex items-center gap-1.5 mt-0.5">
-                  <span>{lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '—'}</span>
-                  {(lead.phone_e164 || lead.phone_raw) && (
-                    <button
-                      type="button"
-                      onClick={() => handleCopyPhone(lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '')}
-                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-0.5 cursor-pointer"
-                      title={copiedPhone ? 'Copied!' : 'Copy phone'}
-                    >
-                      {copiedPhone ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                    </button>
-                  )}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Email</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100 break-all mt-0.5">
-                  {lead.email ? (
-                    <a href={`mailto:${lead.email}`} className="hover:underline text-indigo-600 dark:text-indigo-400">
-                      {lead.email}
-                    </a>
-                  ) : (
-                    '—'
-                  )}
-                </dd>
-              </div>
-              <div className="col-span-2 flex items-center justify-between pt-1.5 border-t border-zinc-200/60 dark:border-zinc-800/60">
-                <dt className="text-zinc-400 dark:text-zinc-500 text-[11px] font-medium">Owner</dt>
-                <dd className="text-zinc-900 dark:text-zinc-100 font-medium">
-                  {lead.assigned_to_name || <span className="text-amber-600 dark:text-amber-400">Unassigned</span>}
-                </dd>
-              </div>
-            </dl>
-          </div>
-
-          {lead.brief && (
-            <button
-              type="button"
-              onClick={() => setActiveTab('brief')}
-              className="w-full text-left rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 px-3.5 py-3 cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
-            >
-              <p className="text-[11px] font-medium text-zinc-400">Need</p>
-              <p className="mt-1 text-xs text-zinc-800 dark:text-zinc-200 line-clamp-3">{lead.brief}</p>
-            </button>
-          )}
-
-          {/* Pipeline Stage & Assignment Dropdowns */}
-          {!closed && (
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="space-y-1">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Stage</p>
-                <CustomSelect
-                  value={lead.stage}
-                  onChange={(v) => {
-                    if (!v || v === lead.stage) return;
-                    const label = stages.find((s) => s.id === v)?.name || v;
-                    setStagePrompt(label + '\n' + v);
-                  }}
-                  options={stages.map((s) => ({ value: s.id, label: s.name }))}
-                  size="sm"
-                  disabled={busy}
-                />
-              </div>
-              {canAssign && (
-                <div className="space-y-1">
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Assign Owner</p>
-                  <CustomSelect
-                    value={lead.assigned_to || ''}
-                    onChange={(v) => {
-                      if (v) void onAssign(v);
-                    }}
-                    options={assignees.map((a) => ({ value: a.id, label: a.full_name }))}
-                    placeholder="Unassigned"
-                    size="sm"
-                    disabled={busy}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Next Follow-up Section */}
-          {!closed && (
-            <div className="space-y-2 rounded-xl border border-zinc-200/80 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20 p-3.5">
-              <div className="flex items-center justify-between">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Next follow-up</p>
-                {lead.next_follow_up_at && (
-                  <span className={`text-[11px] font-numeric font-medium ${followUpOverdue ? 'text-rose-600 animate-pulse' : 'text-zinc-500'}`}>
-                    Due {formatWhen(lead.next_follow_up_at)}
-                  </span>
-                )}
-              </div>
-
-              <div className="flex items-center gap-2">
-                <input
-                  type="datetime-local"
-                  value={followUpLocal}
-                  onChange={(e) => setFollowUpLocal(e.target.value)}
-                  className="flex-1 h-8.5 px-2.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs font-numeric focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
-                />
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    if (!followUpLocal) {
-                      void onFollowUp(null);
-                      return;
-                    }
-                    const d = new Date(followUpLocal);
-                    void onFollowUp(Number.isNaN(d.getTime()) ? null : d.toISOString());
-                  }}
-                  className="h-8.5 px-3 rounded-xl text-xs font-semibold border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-200 cursor-pointer transition shadow-2xs"
-                >
-                  Save
-                </button>
-                {lead.next_follow_up_at && (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => {
-                      setFollowUpLocal('');
-                      void onFollowUp(null);
-                    }}
-                    className="h-8.5 px-2.5 rounded-xl text-xs font-semibold text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 cursor-pointer"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {!closed && (
-            <button
-              type="button"
-              onClick={() => setFormOpen(true)}
-              className="w-full h-9 rounded-xl text-xs font-semibold border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 cursor-pointer"
-            >
-              {lead.form_completed_at ? 'Edit form' : 'Fill form'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'brief' && (
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div>
-            <p className="text-[11px] font-medium text-zinc-400">What they need</p>
-            <p className="mt-1 text-sm text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap">
-              {lead.brief || 'No description yet.'}
-            </p>
-          </div>
-          <BriefGroup
-            title="Business"
-            rows={[
-              ['Company', lead.company],
-              ['Website', lead.no_website ? 'No website' : lead.website],
-              ['Role', lead.role],
-              ['Business', lead.industry],
-              ['Stage', lead.business_stage],
-              ['Employees', lead.employee_count],
-              ['Sales team', lead.sales_team],
-              ['City', lead.city],
-            ]}
-          />
-          <BriefGroup
-            title="Need"
-            rows={[
-              ['Help with', (lead.help_with || []).map((item) => (item === 'Other' && lead.help_other ? `Other: ${lead.help_other}` : item)).join(', ') || lead.service],
-              ['Objective', lead.objective],
-              ['Start', lead.start_timeline],
-              ['Budget', lead.budget],
-            ]}
-          />
-          <BriefGroup
-            title="Form answers"
-            rows={(lead.form_answers || []).map((answer) => [answer.label, answer.value])}
-          />
-          <BriefGroup
-            title="Source"
-            rows={[
-              ['Source', lead.source],
-              ['Campaign', lead.attribution?.campaign_name || lead.campaign],
-              ['Ad set', lead.attribution?.adset_name],
-              ['Ad', lead.attribution?.ad_name],
-              ['Form', lead.attribution?.form_name],
-              ['UTM', [lead.attribution?.utm_source, lead.attribution?.utm_medium].filter(Boolean).join(' / ') || null],
-            ]}
-          />
-        </div>
-      )}
-
-      {/* Tab 2: Activity History */}
-      {activeTab === 'activity' && (
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Inline Note Composer at TOP of feed */}
-          {!closed && (
-            <form
-              className="flex gap-2 p-2.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/60 dark:bg-zinc-900/30"
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (!note.trim()) return;
-                void onNote(note.trim()).then(() => setNote(''));
-              }}
-            >
-              <input
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder="Write a timeline note or call summary..."
-                className="flex-1 h-8.5 px-3 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 focus:outline-hidden"
-              />
-              <button
-                type="submit"
-                disabled={busy || !note.trim()}
-                className="h-8.5 px-3.5 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white cursor-pointer disabled:opacity-40 transition shadow-2xs flex items-center gap-1 shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Note</span>
-              </button>
-            </form>
-          )}
-
-          {/* Timeline Feed */}
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">Timeline</p>
-              <span className="text-[10px] text-zinc-400 font-numeric">{activities.length} events</span>
-            </div>
-
-            <ol className="relative border-l border-zinc-200 dark:border-zinc-800 ml-2 space-y-3.5">
-              {activities.map((act) => (
-                <li key={act.id} className="ml-4">
-                  <span className="absolute -left-2 mt-1 w-4 h-4 rounded-full bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 flex items-center justify-center">
-                    <ActivityIcon type={act.type} />
-                  </span>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
-                      {activityLabel(act.type)}
-                    </span>
-                    <span className="text-[10px] font-numeric text-zinc-400 shrink-0">
-                      {formatWhen(act.created_at)}
-                    </span>
-                  </div>
-                  {act.body && (
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 leading-relaxed bg-zinc-50 dark:bg-zinc-900/50 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800/60">
-                      {act.body}
-                    </p>
-                  )}
-                  {act.actor_name && (
-                    <p className="text-[10px] text-zinc-400 mt-0.5">by {act.actor_name}</p>
-                  )}
-                </li>
-              ))}
-              {activities.length === 0 && (
-                <li className="ml-4 py-8 text-center text-xs text-zinc-400 italic">
-                  No activity recorded yet.
-                </li>
-              )}
-            </ol>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 3: Multi-Deals Management */}
-      {activeTab === 'deals' && (
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Commercial Deals Header & Value Summary */}
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Commercial Deals</h3>
-              <p className="text-[11px] text-zinc-400">
-                {deals.length > 0 ? (
-                  <span>
-                    Open pipeline:{' '}
-                    <strong className="text-emerald-600 dark:text-emerald-400 font-numeric font-semibold">
-                      {openDealLabel}
-                    </strong>
-                  </span>
-                ) : canCreateDeal ? (
-                  'Create a deal to enter the commercial pipeline'
-                ) : (
-                  'Mark this lead as won before a deal can be created'
-                )}
-              </p>
-            </div>
-            {canCreateDeal && !isAddingDeal && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (onCreateDeal) {
-                    onCreateDeal();
-                  } else {
-                    setIsAddingDeal(true);
-                  }
-                }}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold cursor-pointer transition shadow-2xs"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Create Deal</span>
-              </button>
-            )}
-          </div>
-
-          {!canCreateDeal && deals.length > 0 && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-300">
-              Existing deals stay on this lead. A new deal can be added after it is marked won.
-            </p>
-          )}
-
-          {/* Add Deal Form (fallback if no modal handler) */}
-          {canCreateDeal && isAddingDeal && !onCreateDeal && (
-            <div className="p-3.5 rounded-2xl border border-indigo-500/30 bg-indigo-50/20 dark:bg-indigo-950/20 space-y-2.5 animate-in fade-in duration-150">
-              <div className="flex items-center justify-between">
-                <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100">Add New Commercial Deal</h4>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingDeal(false)}
-                  className="text-zinc-400 hover:text-zinc-600 p-0.5 cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
-              <input
-                type="text"
-                value={newDealTitle}
-                onChange={(e) => setNewDealTitle(e.target.value)}
-                placeholder="Deal Title (e.g. Website Redesign & SEO)"
-                className="w-full text-xs px-3 py-2 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900"
-              />
-              <div className="grid grid-cols-2 gap-2">
-                <CustomSelect
-                  value={newDealService}
-                  onChange={setNewDealService}
-                  options={AVAILABLE_SERVICES.map((s) => ({ value: s, label: s }))}
-                  size="sm"
-                />
-                <input
-                  type="number"
-                  value={newDealValue}
-                  onChange={(e) => setNewDealValue(e.target.value)}
-                  placeholder="Value ($)"
-                  className="w-full text-xs px-3 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 font-numeric"
-                />
-              </div>
-              <div className="flex gap-2">
-                <select
-                  value={newDealBilling}
-                  onChange={(e) => setNewDealBilling(e.target.value)}
-                  className="text-xs px-2.5 py-1.5 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 flex-1"
-                >
-                  <option value="one_time">One-Time Project</option>
-                  <option value="retainer">Monthly Retainer</option>
-                </select>
-                <button
-                  type="button"
-                  disabled={savingDeal || !newDealTitle.trim()}
-                  onClick={handleCreateDeal}
-                  className="px-3.5 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition cursor-pointer disabled:opacity-50"
-                >
-                  {savingDeal ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save Deal'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingDeal(false)}
-                  className="px-2.5 py-1.5 rounded-xl text-xs text-zinc-500 hover:text-zinc-700 cursor-pointer"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Deals List */}
-          <div className="space-y-2">
-            {dealsLoading ? (
-              <div className="space-y-2.5 animate-pulse">
-                {[1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="h-16 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-100/80 dark:bg-zinc-900/40"
-                  />
-                ))}
-              </div>
-            ) : (
-              <>
-            {deals.map((deal) => (
-              <div
-                key={deal.id}
-                className="p-3.5 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 flex items-center justify-between gap-3 shadow-2xs hover:border-zinc-300 dark:hover:border-zinc-700 transition"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate">{deal.title}</p>
-                    <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded font-semibold capitalize shrink-0 ${
-                        deal.status === 'won'
-                          ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
-                          : deal.status === 'lost'
-                            ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/50 dark:text-rose-400'
-                            : 'bg-indigo-50 text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300'
-                      }`}
-                    >
-                      {deal.status === 'open' ? (deal.stage || 'proposal').replace(/_/g, ' ') : deal.status}
-                    </span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 capitalize shrink-0">
-                      {deal.billing_type?.replace('_', ' ')}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-zinc-400 mt-1">
-                    {deal.service} •{' '}
-                    <span className="font-numeric font-semibold text-emerald-600 dark:text-emerald-400">
-                      {formatDealMoney(deal.value, deal.currency)}
-                    </span>
-                    {deal.probability != null && (
-                      <span className="ml-1 text-zinc-400">· {deal.probability}%</span>
-                    )}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {onEditDeal && (
-                    <button
-                      type="button"
-                      onClick={() => onEditDeal(deal)}
-                      className="p-1.5 text-zinc-400 hover:text-indigo-600 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition cursor-pointer"
-                      title="Edit Deal"
-                    >
-                      <FileText className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => void handleDeleteDeal(deal.id)}
-                    className="p-1.5 text-zinc-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
-                    title="Remove Deal"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-            ))}
-            {deals.length === 0 && !isAddingDeal && canCreateDeal && (
-              <div className="py-12 px-4 text-center rounded-2xl border border-dashed border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/20">
-                <Briefcase className="w-8 h-8 text-zinc-300 dark:text-zinc-600 mx-auto mb-2" />
-                <p className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">No deals attached yet</p>
-                <p className="text-[11px] text-zinc-400 mt-0.5 max-w-xs mx-auto">
-                  Track project scope, contract pricing, and retainer agreements for this lead.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (onCreateDeal) onCreateDeal();
-                    else setIsAddingDeal(true);
-                  }}
-                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 text-xs font-semibold hover:bg-indigo-100 dark:hover:bg-indigo-900/60 cursor-pointer transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Create First Deal</span>
-                </button>
-              </div>
-            )}
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Outcome Footer Actions (Persistent across tabs for open leads) */}
-      {!closed && (
-        <div className="px-5 py-3.5 border-t border-zinc-200 dark:border-zinc-800/80 bg-zinc-50/60 dark:bg-zinc-900/30 space-y-2.5 shrink-0">
-          <div className="flex gap-2.5">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onWon()}
-              className="flex-1 h-9 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer disabled:opacity-50 transition-all shadow-xs inline-flex items-center justify-center gap-1.5"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              Register as client
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void onLost()}
-              className="flex-1 h-9 rounded-xl text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300 dark:hover:bg-rose-900/50 border border-rose-200 dark:border-rose-800/80 cursor-pointer disabled:opacity-50 transition-all inline-flex items-center justify-center gap-1.5"
-            >
-              Lost Lead
-            </button>
-          </div>
-
-          <div className="flex justify-end">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => {
-                setTrashReason('');
-                setTrashOpen(true);
-              }}
-              className="h-8 w-8 inline-flex items-center justify-center rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 cursor-pointer"
-              title="Move to trash"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      )}
-
       {stagePrompt && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-4 shadow-xl">
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+        <div className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center p-4 bg-overlay animate-in fade-in-0 duration-150">
+          <div className="w-full max-w-[400px] rounded-lg bg-surface border border-border p-5 shadow-lg space-y-4">
+            <h3 className="text-h2 font-semibold text-fg">
               Move {lead.name} to {stagePrompt.split('\n')[0]}?
+            </h3>
+            <p className="text-body text-fg-muted">
+              Update pipeline stage for this lead.
             </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setStagePrompt(null)} className="h-8 px-3 rounded-lg text-xs font-semibold text-zinc-600 cursor-pointer">
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setStagePrompt(null)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="primary"
                 onClick={() => {
                   const next = stagePrompt.split('\n')[1];
                   setStagePrompt(null);
                   if (next) void onStage(next);
                 }}
-                className="h-8 px-3 rounded-lg text-xs font-semibold bg-indigo-600 text-white cursor-pointer"
               >
                 Move
-              </button>
+              </Button>
             </div>
           </div>
         </div>
       )}
 
       {trashOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+        <div className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center p-4 bg-overlay animate-in fade-in-0 duration-150">
           <form
-            className="w-full max-w-md rounded-2xl bg-white dark:bg-[#11131a] border border-zinc-200 dark:border-zinc-800 p-4 shadow-xl"
+            className="w-full max-w-[400px] rounded-lg bg-surface border border-border p-5 shadow-lg space-y-3"
             onSubmit={(e) => {
               e.preventDefault();
               const reason = trashReason.trim();
@@ -1475,26 +1211,26 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               void onTrash(reason);
             }}
           >
-            <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Move {lead.name} to trash</p>
-            <p className="mt-1 text-xs text-zinc-500">Trash is not the same as lost. Write the reason.</p>
+            <h3 className="text-h2 font-semibold text-fg">Move {lead.name} to trash</h3>
+            <p className="text-body text-fg-muted">Trash is distinct from lost. Please write a reason (minimum 10 characters).</p>
             <textarea
               value={trashReason}
               onChange={(e) => setTrashReason(e.target.value)}
-              rows={4}
-              className="mt-3 w-full rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
+              rows={3}
+              className="w-full text-xs p-2.5 rounded-md border border-border bg-subtle/50 text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent"
               placeholder="Why is this lead being trashed?"
             />
-            <div className="mt-3 flex justify-end gap-2">
-              <button type="button" onClick={() => setTrashOpen(false)} className="h-8 px-3 rounded-lg text-xs font-semibold text-zinc-600 cursor-pointer">
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setTrashOpen(false)}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
+                variant="danger"
                 disabled={trashReason.trim().length < 10 || busy}
-                className="h-8 px-3 rounded-lg text-xs font-semibold bg-rose-600 text-white disabled:opacity-50 cursor-pointer"
               >
                 Trash lead
-              </button>
+              </Button>
             </div>
           </form>
         </div>

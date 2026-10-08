@@ -1,5 +1,13 @@
 import { apiClient } from './apiClient';
 import { attendanceService } from './attendanceService';
+import { crmService } from './crmService';
+import { contentCalendarService } from './contentCalendarService';
+import { websiteProjectService } from './websiteProjectService';
+import { dailyLogService } from './dailyLogService';
+import { adminService } from './adminService';
+import { logExceptionService } from './logExceptionService';
+import { workspaceService } from './workspaceService';
+import { marketingService } from './marketingService';
 import type { AuthUser, LoginPayload, AuthResponse } from '../types/auth';
 
 export const authService = {
@@ -25,6 +33,14 @@ export const authService = {
     try {
       // Clear all in-memory session caches
       attendanceService.clearAllCaches();
+      crmService.clearAllCaches();
+      contentCalendarService.clearAllCaches();
+      websiteProjectService.clearAllCaches();
+      dailyLogService.clearAllCaches();
+      adminService.clearAllCaches();
+      logExceptionService.clearAllCaches();
+      workspaceService.clearAllCaches();
+      marketingService.clearAllCaches();
       await apiClient.post('/auth/logout');
     } catch {
       // ignore

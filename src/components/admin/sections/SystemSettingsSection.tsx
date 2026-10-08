@@ -12,9 +12,11 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useSystemConfig } from '../../../hooks/useSystemConfig';
+import { useConfirm } from '../../ui/ConfirmProvider';
 import type { SystemRole } from '../../../services/systemConfigService';
 
 export const SystemSettingsSection: React.FC = () => {
+  const confirm = useConfirm();
   const { departments, roles, saveConfig } = useSystemConfig();
 
   // Department State
@@ -95,9 +97,12 @@ export const SystemSettingsSection: React.FC = () => {
       setErrorMsg('At least one department must remain.');
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete the "${name}" department?`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Delete the ${name} department?`,
+      confirmLabel: 'Delete department',
+      tone: 'danger',
+    });
+    if (!ok) return;
     const updated = departments.filter((_, i) => i !== index);
     try {
       setIsSaving(true);
@@ -176,9 +181,12 @@ export const SystemSettingsSection: React.FC = () => {
       setErrorMsg('The Admin role cannot be deleted.');
       return;
     }
-    if (!window.confirm(`Are you sure you want to delete the "${role.label}" role?`)) {
-      return;
-    }
+    const ok = await confirm({
+      title: `Delete the ${role.label} role?`,
+      confirmLabel: 'Delete role',
+      tone: 'danger',
+    });
+    if (!ok) return;
     const updated = roles.filter((_, i) => i !== index);
     try {
       setIsSaving(true);
@@ -193,37 +201,37 @@ export const SystemSettingsSection: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-zinc-50/50 dark:bg-[#0c0d12]">
+    <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-canvas">
       {/* Header */}
-      <div className="p-5 border-b border-zinc-200 dark:border-zinc-800/80 bg-white dark:bg-[#10121a]">
+      <div className="p-5 border-b border-border bg-surface">
         <div className="flex items-center gap-2.5">
-          <h1 className="text-base font-bold text-zinc-950 dark:text-zinc-50">System & Schema Settings</h1>
-          <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+          <h1 className="text-base font-semibold text-fg">System & Schema Settings</h1>
+          <span className="px-2 py-0.5 text-xs font-medium rounded-full bg-subtle text-fg-2 border border-border">
             Dynamic Schema
           </span>
         </div>
-        <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">
+        <p className="text-xs text-fg-muted mt-0.5">
           Manage agency departments and organizational role scopes
         </p>
       </div>
 
       {/* Notifications */}
       {saveSuccessMsg && (
-        <div className="mx-5 mt-4 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-300">
-          <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+        <div className="mx-5 mt-4 p-3 rounded-lg bg-success-bg border border-success-bd flex items-center gap-2 text-xs text-success-fg">
+          <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0" />
           <span>{saveSuccessMsg}</span>
         </div>
       )}
       {errorMsg && (
-        <div className="mx-5 mt-4 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-2 text-xs text-rose-700 dark:text-rose-300">
+        <div className="mx-5 mt-4 p-3 rounded-lg bg-danger-bg border border-danger-bd flex items-center justify-between gap-2 text-xs text-danger-fg">
           <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+            <AlertCircle className="w-4 h-4 text-danger-fg shrink-0" />
             <span>{errorMsg}</span>
           </div>
           <button
             type="button"
             onClick={() => setErrorMsg(null)}
-            className="text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 cursor-pointer"
+            className="text-danger-fg hover:opacity-80 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" />
           </button>
@@ -233,14 +241,14 @@ export const SystemSettingsSection: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-5 space-y-6 max-w-4xl">
         {/* 1. Departments Manager */}
-        <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="bg-surface border border-border rounded-xl p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Layers className="w-4 h-4 text-indigo-500" />
+              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                <Layers className="w-4 h-4 text-accent" />
                 <span>Agency Departments ({departments.length})</span>
               </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-fg-muted mt-0.5">
                 Functional units used across daily logs, team lead filtering, and member directories
               </p>
             </div>
@@ -253,7 +261,7 @@ export const SystemSettingsSection: React.FC = () => {
                   setNewDeptName('');
                   setErrorMsg(null);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer select-none"
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-md text-xs font-medium transition cursor-pointer select-none"
               >
                 <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                 <span>Add Department</span>
@@ -263,7 +271,7 @@ export const SystemSettingsSection: React.FC = () => {
 
           {/* Inline Add Department Input */}
           {isAddingDept && (
-            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/60 border border-indigo-500/30 rounded-xl flex items-center gap-2 animate-in fade-in duration-150">
+            <div className="p-3 bg-subtle border border-accent/40 rounded-lg flex items-center gap-2 animate-in fade-in duration-150">
               <input
                 type="text"
                 autoFocus
@@ -274,13 +282,13 @@ export const SystemSettingsSection: React.FC = () => {
                   if (e.key === 'Enter') handleAddDepartment();
                   if (e.key === 'Escape') setIsAddingDept(false);
                 }}
-                className="flex-1 px-3 py-1.5 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="flex-1 px-3 py-1.5 bg-surface border border-border-strong rounded-md text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
               />
               <button
                 type="button"
                 onClick={handleAddDepartment}
                 disabled={isSaving || !newDeptName.trim()}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-md text-xs font-medium transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
               >
                 {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                 <span>Save</span>
@@ -288,7 +296,7 @@ export const SystemSettingsSection: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setIsAddingDept(false)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 rounded-lg transition cursor-pointer"
+                className="p-1.5 text-fg-muted hover:text-fg rounded-md transition cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -304,7 +312,7 @@ export const SystemSettingsSection: React.FC = () => {
                 return (
                   <div
                     key={dept}
-                    className="p-2.5 rounded-xl bg-indigo-50/50 dark:bg-indigo-950/20 border border-indigo-500/40 flex items-center gap-1.5"
+                    className="p-2.5 rounded-lg bg-accent-soft border border-accent/40 flex items-center gap-1.5"
                   >
                     <input
                       type="text"
@@ -315,13 +323,13 @@ export const SystemSettingsSection: React.FC = () => {
                         if (e.key === 'Enter') handleSaveEditDept(idx);
                         if (e.key === 'Escape') setEditingDeptIdx(null);
                       }}
-                      className="flex-1 px-2.5 py-1 bg-white dark:bg-zinc-800 border border-zinc-300 dark:border-zinc-600 rounded-lg text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none"
+                      className="flex-1 px-2.5 py-1 bg-surface border border-border-strong rounded-md text-xs text-fg focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => handleSaveEditDept(idx)}
                       disabled={isSaving}
-                      className="p-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition cursor-pointer"
+                      className="p-1.5 bg-accent text-white rounded-md text-xs font-medium hover:bg-accent-hover transition cursor-pointer"
                       title="Save"
                     >
                       <Check className="w-3.5 h-3.5" />
@@ -329,7 +337,7 @@ export const SystemSettingsSection: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setEditingDeptIdx(null)}
-                      className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-fg-muted hover:text-fg rounded-md transition cursor-pointer"
                       title="Cancel"
                     >
                       <X className="w-3.5 h-3.5" />
@@ -341,11 +349,11 @@ export const SystemSettingsSection: React.FC = () => {
               return (
                 <div
                   key={dept}
-                  className="group p-3 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs"
+                  className="group p-3 rounded-lg bg-subtle border border-border flex items-center justify-between hover:border-border-strong transition-all"
                 >
                   <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="w-2 h-2 rounded-full bg-indigo-500 shrink-0" />
-                    <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{dept}</span>
+                    <div className="w-2 h-2 rounded-full bg-accent shrink-0" />
+                    <span className="text-xs font-medium text-fg truncate">{dept}</span>
                   </div>
 
                   <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity">
@@ -356,7 +364,7 @@ export const SystemSettingsSection: React.FC = () => {
                         setEditDeptName(dept);
                         setErrorMsg(null);
                       }}
-                      className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-fg-muted hover:text-accent hover:bg-hover rounded-md transition cursor-pointer"
                       title="Rename department"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
@@ -364,7 +372,7 @@ export const SystemSettingsSection: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleDeleteDepartment(idx)}
-                      className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-fg-muted hover:text-danger-fg hover:bg-danger-bg rounded-md transition cursor-pointer"
                       title="Delete department"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -377,14 +385,14 @@ export const SystemSettingsSection: React.FC = () => {
         </div>
 
         {/* 2. Roles Manager */}
-        <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl p-5 shadow-xs space-y-4">
+        <div className="bg-surface border border-border rounded-xl p-5 shadow-xs space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
-              <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-                <Shield className="w-4 h-4 text-indigo-500" />
+              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
+                <Shield className="w-4 h-4 text-accent" />
                 <span>Organizational Roles & Scopes ({roles.length})</span>
               </h3>
-              <p className="text-xs text-zinc-400 mt-0.5">
+              <p className="text-xs text-fg-muted mt-0.5">
                 Access tier roles defining security boundaries and log view capabilities
               </p>
             </div>
@@ -392,7 +400,7 @@ export const SystemSettingsSection: React.FC = () => {
             <button
               type="button"
               onClick={handleOpenAddRole}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition shadow-2xs cursor-pointer select-none"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-md text-xs font-medium transition cursor-pointer select-none"
             >
               <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
               <span>Add Role</span>
@@ -404,23 +412,23 @@ export const SystemSettingsSection: React.FC = () => {
             {roles.map((r, idx) => (
               <div
                 key={r.id}
-                className="group p-3.5 rounded-xl bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-300 dark:hover:border-zinc-700 transition-all shadow-2xs"
+                className="group p-3.5 rounded-lg bg-subtle border border-border flex items-center justify-between gap-3 hover:border-border-strong transition-all"
               >
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100">{r.label}</span>
-                    <span className="text-[10px] font-numeric px-1.5 py-0.5 rounded bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                    <span className="text-xs font-medium text-fg">{r.label}</span>
+                    <span className="text-[10px] font-numeric px-1.5 py-0.5 rounded bg-surface border border-border text-fg-muted">
                       {r.id}
                     </span>
                   </div>
-                  <p className="text-xs text-zinc-400 mt-0.5 leading-snug">{r.description || 'No description provided.'}</p>
+                  <p className="text-xs text-fg-muted mt-0.5 leading-snug">{r.description || 'No description provided.'}</p>
                 </div>
 
                 <div className="flex items-center gap-1 opacity-80 group-hover:opacity-100 transition-opacity shrink-0">
                   <button
                     type="button"
                     onClick={() => handleOpenEditRole(r, idx)}
-                    className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-200/60 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                    className="p-1.5 text-fg-muted hover:text-accent hover:bg-hover rounded-md transition cursor-pointer"
                     title="Edit role"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
@@ -429,7 +437,7 @@ export const SystemSettingsSection: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => handleDeleteRole(idx)}
-                      className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
+                      className="p-1.5 text-fg-muted hover:text-danger-fg hover:bg-danger-bg rounded-md transition cursor-pointer"
                       title="Delete role"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -444,21 +452,21 @@ export const SystemSettingsSection: React.FC = () => {
 
       {/* Role Create / Edit Modal */}
       {isRoleModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-5 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3">
+        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-xl max-w-md w-full p-5 shadow-lg space-y-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                <div className="w-7 h-7 rounded-lg bg-accent-soft border border-accent/20 text-accent flex items-center justify-center">
                   <Shield className="w-4 h-4" />
                 </div>
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
+                <h3 className="text-sm font-semibold text-fg">
                   {roleModalMode === 'create' ? 'Add New Role' : 'Edit Role'}
                 </h3>
               </div>
               <button
                 type="button"
                 onClick={() => setIsRoleModalOpen(false)}
-                className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-lg cursor-pointer"
+                className="p-1 text-fg-muted hover:text-fg rounded-md cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -466,8 +474,8 @@ export const SystemSettingsSection: React.FC = () => {
 
             <form onSubmit={handleSaveRole} className="space-y-3.5">
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
-                  Role Title <span className="text-rose-500">*</span>
+                <label className="block text-xs font-medium text-fg mb-1">
+                  Role Title <span className="text-danger-solid">*</span>
                 </label>
                 <input
                   type="text"
@@ -480,13 +488,13 @@ export const SystemSettingsSection: React.FC = () => {
                       setRoleId(e.target.value.toLowerCase().replace(/\s+/g, '_'));
                     }
                   }}
-                  className="w-full px-3 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                  className="w-full px-3 py-2 text-xs bg-surface border border-border-strong rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                 />
               </div>
 
               {roleModalMode === 'create' && (
                 <div>
-                  <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                  <label className="block text-xs font-medium text-fg mb-1">
                     Role Key (Identifier)
                   </label>
                   <input
@@ -494,13 +502,13 @@ export const SystemSettingsSection: React.FC = () => {
                     placeholder="e.g. project_manager"
                     value={roleId}
                     onChange={(e) => setRoleId(e.target.value.toLowerCase().replace(/\s+/g, '_'))}
-                    className="w-full px-3 py-2 text-xs font-numeric bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    className="w-full px-3 py-2 text-xs font-numeric bg-surface border border-border-strong rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
                   />
                 </div>
               )}
 
               <div>
-                <label className="block text-xs font-bold text-zinc-700 dark:text-zinc-300 mb-1">
+                <label className="block text-xs font-medium text-fg mb-1">
                   Description / Access Scope
                 </label>
                 <textarea
@@ -508,22 +516,22 @@ export const SystemSettingsSection: React.FC = () => {
                   placeholder="Brief description of this role's purpose..."
                   value={roleDescription}
                   onChange={(e) => setRoleDescription(e.target.value)}
-                  className="w-full px-3 py-2 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-xl text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 resize-none"
+                  className="w-full px-3 py-2 text-xs bg-surface border border-border-strong rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent resize-none"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
                 <button
                   type="button"
                   onClick={() => setIsRoleModalOpen(false)}
-                  className="px-3.5 py-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-xl transition cursor-pointer"
+                  className="px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isSaving || !roleLabel.trim()}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
                 >
                   {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                   <span>Save Role</span>

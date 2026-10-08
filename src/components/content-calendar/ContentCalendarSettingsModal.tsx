@@ -14,8 +14,9 @@ import {
   ArrowDown,
   Lock,
   Rows,
-  Sparkles,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Button } from '../ui/button';
 import type { ContentCalendarConstants } from '../../types/contentCalendar';
 import { useToast } from '../../context/ToastContext';
 
@@ -239,46 +240,34 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
   const selectedField = FIELD_CONFIGS.find((f) => f.key === selectedFieldKey) || FIELD_CONFIGS[0];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in select-none"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="bg-white dark:bg-[#12131a] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-150">
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent maxWidth="md" className="p-0 overflow-hidden max-h-[90vh] flex flex-col">
         {/* Modal Header */}
-        <div className="px-5 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/50 dark:bg-zinc-900/30">
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between bg-surface">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+            <div className="w-8 h-8 rounded-md bg-accent-soft text-accent flex items-center justify-center">
               <Sliders className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 leading-tight">
-                Content Calendar Settings
-              </h2>
-              <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+              <DialogTitle className="text-ui font-semibold text-fg leading-tight">
+                Content calendar settings
+              </DialogTitle>
+              <DialogDescription className="text-caption text-fg-muted">
                 Configure zoom, row height, and manage field dropdown options
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex items-center gap-1 px-5 pt-3 border-b border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#12131a]">
+        <div className="flex items-center gap-1 px-5 pt-3 border-b border-border bg-surface">
           <button
             type="button"
             onClick={() => setActiveTab('display')}
-            className={`flex items-center gap-2 px-3.5 py-2 border-b-2 text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 border-b-2 text-xs font-semibold transition cursor-pointer ${
               activeTab === 'display'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-fg-muted hover:text-fg'
             }`}
           >
             <Rows className="w-3.5 h-3.5" />
@@ -288,15 +277,15 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => setActiveTab('fields')}
-            className={`flex items-center gap-2 px-3.5 py-2 border-b-2 text-xs font-bold transition cursor-pointer ${
+            className={`flex items-center gap-2 px-3.5 py-2 border-b-2 text-xs font-semibold transition cursor-pointer ${
               activeTab === 'fields'
-                ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200'
+                ? 'border-accent text-accent'
+                : 'border-transparent text-fg-muted hover:text-fg'
             }`}
           >
             <Tag className="w-3.5 h-3.5" />
             <span>Field Values</span>
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800">
+            <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-accent-soft text-accent border border-accent/20">
               Creative Type
             </span>
           </button>
@@ -308,20 +297,20 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
           {activeTab === 'display' && (
             <div className="space-y-6">
               {/* Zoom Setting Section */}
-              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-850/60 border border-zinc-200 dark:border-zinc-800 space-y-3.5">
+              <div className="p-4 rounded-xl bg-subtle border border-border space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <ZoomIn className="w-4 h-4 text-indigo-500" />
+                    <ZoomIn className="w-4 h-4 text-accent" />
                     <div>
-                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                      <div className="text-xs font-semibold text-fg">
                         Table Zoom Scale
                       </div>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <div className="text-xs text-fg-muted">
                         Adjust magnification of the entire spreadsheet view
                       </div>
                     </div>
                   </div>
-                  <span className="font-numeric text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  <span className="font-numeric text-xs font-medium px-2 py-0.5 rounded-md bg-accent-soft text-accent border border-accent/20">
                     {zoomLevel}%
                   </span>
                 </div>
@@ -333,10 +322,10 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                       key={preset}
                       type="button"
                       onClick={() => onZoomChange(preset)}
-                      className={`px-2.5 py-1 text-xs rounded-lg font-numeric font-semibold transition cursor-pointer border ${
+                      className={`px-2.5 py-1 text-xs rounded-md font-numeric font-medium transition cursor-pointer border ${
                         zoomLevel === preset
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
-                          : 'bg-white dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                          ? 'bg-accent text-white border-accent shadow-xs'
+                          : 'bg-surface text-fg-2 border-border hover:bg-hover'
                       }`}
                     >
                       {preset}%{preset === 100 ? ' (Default)' : ''}
@@ -350,7 +339,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                     type="button"
                     onClick={() => onZoomChange(Math.max(50, zoomLevel - 5))}
                     disabled={zoomLevel <= 50}
-                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-40 transition cursor-pointer"
+                    className="p-1.5 rounded-md border border-border bg-surface text-fg-2 hover:bg-hover disabled:opacity-40 transition cursor-pointer"
                     title="Zoom out 5%"
                   >
                     <ZoomOut className="w-3.5 h-3.5" />
@@ -362,13 +351,13 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                     step="5"
                     value={zoomLevel}
                     onChange={(e) => onZoomChange(Number(e.target.value))}
-                    className="flex-1 accent-indigo-600 h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg cursor-pointer"
+                    className="flex-1 accent-accent h-1.5 bg-border rounded-lg cursor-pointer"
                   />
                   <button
                     type="button"
                     onClick={() => onZoomChange(Math.min(150, zoomLevel + 5))}
                     disabled={zoomLevel >= 150}
-                    className="p-1.5 rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700 disabled:opacity-40 transition cursor-pointer"
+                    className="p-1.5 rounded-md border border-border bg-surface text-fg-2 hover:bg-hover disabled:opacity-40 transition cursor-pointer"
                     title="Zoom in 5%"
                   >
                     <ZoomIn className="w-3.5 h-3.5" />
@@ -377,20 +366,20 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
               </div>
 
               {/* Row Height Setting Section */}
-              <div className="p-4 rounded-xl bg-zinc-50 dark:bg-zinc-850/60 border border-zinc-200 dark:border-zinc-800 space-y-3.5">
+              <div className="p-4 rounded-xl bg-subtle border border-border space-y-3.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Rows className="w-4 h-4 text-indigo-500" />
+                    <Rows className="w-4 h-4 text-accent" />
                     <div>
-                      <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100">
+                      <div className="text-xs font-semibold text-fg">
                         Default Row Height
                       </div>
-                      <div className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                      <div className="text-xs text-fg-muted">
                         Controls baseline height of spreadsheet table rows
                       </div>
                     </div>
                   </div>
-                  <span className="font-numeric text-xs font-bold px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  <span className="font-numeric text-xs font-medium px-2 py-0.5 rounded-md bg-accent-soft text-accent border border-accent/20">
                     {defaultRowHeight} px
                   </span>
                 </div>
@@ -407,24 +396,24 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                       key={preset.px}
                       type="button"
                       onClick={() => onRowHeightChange(preset.px)}
-                      className={`p-2 rounded-xl text-left border transition cursor-pointer ${
+                      className={`p-2 rounded-lg text-left border transition cursor-pointer ${
                         defaultRowHeight === preset.px
-                          ? 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-500 text-indigo-900 dark:text-indigo-200 shadow-xs'
-                          : 'bg-white dark:bg-zinc-800 border-zinc-200 dark:border-zinc-700 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-700'
+                          ? 'bg-accent-soft border-accent text-accent shadow-xs'
+                          : 'bg-surface border-border text-fg-2 hover:bg-hover'
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold">{preset.label}</span>
+                        <span className="text-xs font-medium">{preset.label}</span>
                         <span className="text-[10px] font-numeric opacity-80">{preset.px}px</span>
                       </div>
-                      <div className="text-[10px] text-zinc-400 mt-0.5">{preset.desc}</div>
+                      <div className="text-[10px] text-fg-muted mt-0.5">{preset.desc}</div>
                     </button>
                   ))}
                 </div>
 
                 {/* Fine Height Slider */}
                 <div className="flex items-center gap-3 pt-1">
-                  <span className="text-[11px] font-numeric text-zinc-400 w-10 text-right">28px</span>
+                  <span className="text-xs font-numeric text-fg-muted w-10 text-right">28px</span>
                   <input
                     type="range"
                     min="28"
@@ -432,20 +421,20 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                     step="2"
                     value={defaultRowHeight}
                     onChange={(e) => onRowHeightChange(Number(e.target.value))}
-                    className="flex-1 accent-indigo-600 h-1.5 bg-zinc-200 dark:bg-zinc-700 rounded-lg cursor-pointer"
+                    className="flex-1 accent-accent h-1.5 bg-border rounded-lg cursor-pointer"
                   />
-                  <span className="text-[11px] font-numeric text-zinc-400 w-10">80px</span>
+                  <span className="text-xs font-numeric text-fg-muted w-10">80px</span>
                 </div>
 
                 {/* Reset custom dragged rows */}
-                <div className="pt-2 flex items-center justify-between border-t border-zinc-200/60 dark:border-zinc-800">
-                  <span className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                <div className="pt-2 flex items-center justify-between border-t border-border">
+                  <span className="text-xs text-fg-muted">
                     Manually dragged row heights override this default.
                   </span>
                   <button
                     type="button"
                     onClick={handleClearCustomRowHeights}
-                    className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                    className="text-xs font-medium text-accent hover:underline cursor-pointer"
                   >
                     Reset manual row heights
                   </button>
@@ -457,7 +446,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={handleResetDisplayDefaults}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition cursor-pointer"
                 >
                   <RotateCcw className="w-3.5 h-3.5" />
                   <span>Reset Display to Defaults</span>
@@ -471,7 +460,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
             <div className="space-y-4">
               {/* Field Selector Bar */}
               <div>
-                <label className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider block mb-1.5">
+                <label className="text-caption font-medium text-fg-muted block mb-1.5">
                   Select Field to Configure
                 </label>
                 <div className="flex flex-wrap gap-1.5">
@@ -480,17 +469,17 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                       key={field.key}
                       type="button"
                       onClick={() => setSelectedFieldKey(field.key)}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition cursor-pointer ${
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium border transition cursor-pointer ${
                         selectedFieldKey === field.key
-                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          ? 'bg-accent text-white border-accent shadow-xs'
                           : field.isEditable
-                          ? 'bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700'
-                          : 'bg-zinc-100 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-500 border-zinc-200 dark:border-zinc-800 hover:bg-zinc-200/60 dark:hover:bg-zinc-800'
+                          ? 'bg-surface text-fg border-border hover:bg-hover'
+                          : 'bg-subtle text-fg-muted border-border hover:bg-hover'
                       }`}
                     >
                       <span>{field.label}</span>
                       {field.isEditable ? (
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                        <span className="w-1.5 h-1.5 rounded-full bg-success-dot" />
                       ) : (
                         <Lock className="w-2.5 h-2.5 opacity-60" />
                       )}
@@ -500,21 +489,21 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
               </div>
 
               {/* Field Description Card */}
-              <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-850/60 border border-zinc-200 dark:border-zinc-800 flex items-start justify-between gap-3">
+              <div className="p-3 rounded-xl bg-subtle border border-border flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                  <div className="text-xs font-semibold text-fg flex items-center gap-1.5">
                     <span>{selectedField.label}</span>
                     {selectedField.isEditable ? (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-md bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                      <span className="text-[10px] font-medium px-1.5 py-0.2 rounded-md bg-success-bg text-success-fg border border-success-bd">
                         Editable
                       </span>
                     ) : (
-                      <span className="text-[10px] font-semibold px-1.5 py-0.2 rounded-md bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400">
+                      <span className="text-[10px] font-medium px-1.5 py-0.2 rounded-md bg-surface border border-border text-fg-muted">
                         Locked (Coming soon)
                       </span>
                     )}
                   </div>
-                  <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                  <div className="text-xs text-fg-muted mt-0.5">
                     {selectedField.description}
                   </div>
                 </div>
@@ -523,7 +512,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={handleResetCreativeTypes}
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200 transition shrink-0 cursor-pointer"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-fg-muted hover:text-fg transition shrink-0 cursor-pointer"
                     title="Restore original creative types"
                   >
                     <RotateCcw className="w-3 h-3" />
@@ -546,32 +535,32 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                           setNewOptionInput(e.target.value);
                           if (optionInputError) setOptionInputError(null);
                         }}
-                        className="flex-1 px-3 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100 placeholder-zinc-400 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                        className="flex-1 px-3 py-1.5 rounded-md bg-surface border border-border-strong text-xs text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent"
                       />
                       <button
                         type="submit"
-                        className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition shrink-0 cursor-pointer"
+                        className="inline-flex items-center gap-1 px-3.5 py-1.5 rounded-md text-xs font-medium bg-accent hover:bg-accent-hover text-white shadow-xs transition shrink-0 cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>Add Option</span>
                       </button>
                     </div>
                     {optionInputError && (
-                      <p className="text-[11px] text-rose-500 font-semibold px-1">
+                      <p className="text-xs text-danger-fg font-medium px-1">
                         {optionInputError}
                       </p>
                     )}
                   </form>
 
                   {/* Options List */}
-                  <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 divide-y divide-zinc-200 dark:divide-zinc-800 max-h-72 overflow-y-auto bg-white dark:bg-[#151720]">
+                  <div className="rounded-xl border border-border divide-y divide-border max-h-72 overflow-y-auto bg-surface">
                     {creativeTypes.map((item, index) => {
                       const isEditing = editingIndex === index;
 
                       return (
                         <div
                           key={item}
-                          className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-zinc-50/60 dark:hover:bg-zinc-800/40 transition group"
+                          className="px-3 py-2 flex items-center justify-between gap-2 hover:bg-hover transition group"
                         >
                           {/* Left: Reorder & Name */}
                           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -581,7 +570,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                                 type="button"
                                 disabled={index === 0}
                                 onClick={() => handleMoveOption(index, 'up')}
-                                className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-20 transition cursor-pointer"
+                                className="p-1 text-fg-muted hover:text-fg disabled:opacity-20 transition cursor-pointer"
                                 title="Move up"
                               >
                                 <ArrowUp className="w-3 h-3" />
@@ -590,7 +579,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                                 type="button"
                                 disabled={index === creativeTypes.length - 1}
                                 onClick={() => handleMoveOption(index, 'down')}
-                                className="p-1 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 disabled:opacity-20 transition cursor-pointer"
+                                className="p-1 text-fg-muted hover:text-fg disabled:opacity-20 transition cursor-pointer"
                                 title="Move down"
                               >
                                 <ArrowDown className="w-3 h-3" />
@@ -609,12 +598,12 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                                     if (e.key === 'Escape') setEditingIndex(null);
                                   }}
                                   autoFocus
-                                  className="flex-1 px-2 py-0.5 rounded-md bg-white dark:bg-zinc-800 border border-indigo-500 text-xs text-zinc-900 dark:text-zinc-100 focus:outline-hidden"
+                                  className="flex-1 px-2 py-0.5 rounded-md bg-surface border border-accent text-xs text-fg focus:outline-hidden"
                                 />
                                 <button
                                   type="button"
                                   onClick={() => handleSaveEdit(index)}
-                                  className="p-1 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 rounded-md transition cursor-pointer"
+                                  className="p-1 text-success-fg hover:bg-success-bg rounded-md transition cursor-pointer"
                                   title="Save"
                                 >
                                   <Check className="w-3.5 h-3.5" />
@@ -622,14 +611,14 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                                 <button
                                   type="button"
                                   onClick={() => setEditingIndex(null)}
-                                  className="p-1 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition cursor-pointer"
+                                  className="p-1 text-fg-muted hover:bg-hover rounded-md transition cursor-pointer"
                                   title="Cancel"
                                 >
                                   <X className="w-3.5 h-3.5" />
                                 </button>
                               </div>
                             ) : (
-                              <span className="text-xs font-semibold text-zinc-800 dark:text-zinc-200 truncate">
+                              <span className="text-xs font-medium text-fg truncate">
                                 {item}
                               </span>
                             )}
@@ -641,7 +630,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                               <button
                                 type="button"
                                 onClick={() => handleStartEdit(index)}
-                                className="p-1.5 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                                className="p-1.5 text-fg-muted hover:text-accent hover:bg-hover rounded-md transition cursor-pointer"
                                 title="Rename option"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
@@ -649,7 +638,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                               <button
                                 type="button"
                                 onClick={() => handleDeleteOption(index)}
-                                className="p-1.5 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
+                                className="p-1.5 text-fg-muted hover:text-danger-fg hover:bg-hover rounded-md transition cursor-pointer"
                                 title="Remove option"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -660,7 +649,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                       );
                     })}
                   </div>
-                  <div className="flex items-center justify-between text-[11px] text-zinc-400 px-1">
+                  <div className="flex items-center justify-between text-xs text-fg-muted px-1">
                     <span>{creativeTypes.length} options defined</span>
                     <span>Reorder or edit to update dropdown options across the module</span>
                   </div>
@@ -668,7 +657,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
               ) : (
                 /* READ-ONLY / LOCKED FIELDS */
                 <div className="space-y-3">
-                  <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300">
+                  <div className="p-3 rounded-xl bg-warning-bg border border-warning-bd flex items-center gap-2 text-xs text-warning-fg">
                     <Lock className="w-3.5 h-3.5 shrink-0" />
                     <span>
                       Editing predefined values for <strong>{selectedField.label}</strong> is locked. For now, only Creative Type is editable.
@@ -676,8 +665,8 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                   </div>
 
                   {/* Read-only values pill preview */}
-                  <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-[#151720]">
-                    <div className="text-[11px] font-bold text-zinc-500 uppercase tracking-wider mb-2">
+                  <div className="p-3 rounded-xl border border-border bg-surface">
+                    <div className="text-caption font-medium text-fg-muted mb-2">
                       Current Predefined Values:
                     </div>
                     <div className="flex flex-wrap gap-1.5 max-h-60 overflow-y-auto">
@@ -687,7 +676,7 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
                       ).map((val: string) => (
                         <span
                           key={val}
-                          className="px-2.5 py-1 rounded-lg text-xs font-medium bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700"
+                          className="px-2.5 py-1 rounded-md text-xs font-medium bg-subtle text-fg-2 border border-border"
                         >
                           {val}
                         </span>
@@ -701,20 +690,20 @@ export const ContentCalendarSettingsModal: React.FC<Props> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 py-3.5 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/40 flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
-            <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+        <div className="px-5 py-3.5 border-t border-border bg-subtle flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-caption text-fg-muted">
+            <Check className="w-3.5 h-3.5 text-accent" />
             <span>Changes take effect immediately across all calendar views</span>
           </div>
-          <button
+          <Button
             type="button"
+            variant="primary"
             onClick={onClose}
-            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs transition cursor-pointer"
           >
             Done
-          </button>
+          </Button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

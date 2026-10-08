@@ -5,24 +5,20 @@ import {
   Filter,
   Search,
   Settings2,
-  Sparkles,
+  ListChecks,
   Trash2,
   Pencil,
-  ChevronDown,
-  Loader2,
-  Grid,
   RotateCcw,
-  Calendar as CalendarIcon,
+  RotateCw,
+  Table as TableIcon,
+  LayoutDashboard,
   X,
-  Check,
   ExternalLink,
   AlertTriangle,
-  RefreshCw,
-  Layers,
-  CalendarRange,
-  Paperclip,
   Download,
   ClipboardList,
+  Paperclip,
+  Layers,
 } from 'lucide-react';
 import { dailyLogService } from '../../services/dailyLogService';
 import { logExceptionService } from '../../services/logExceptionService';
@@ -37,7 +33,10 @@ import type {
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
+import { useConfirm, useAlert } from '../ui/ConfirmProvider';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
+import { DailyLogForm } from '../daily-log/DailyLogForm';
+import { ShiftTasksTracker } from '../daily-log/ShiftTasksTracker';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
 import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
@@ -45,9 +44,28 @@ import { toSafeHttpsUrl } from '../../utils/safeUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
 import { useOffDays } from '../../hooks/useOffDays';
-import { getDeptBadgeClass, getRoleBadgeClass, getRoleLabel, getTaskTypeBadgeClass } from '../../utils/badgeStyles';
-import { formatHours, formatSignedHours, isLogDateExpired } from '../../utils/logTimeChecks';
+import { getRoleLabel } from '../../utils/badgeStyles';
+import { formatHours, isLogDateExpired } from '../../utils/logTimeChecks';
 import { exportDailyLogWorkbook } from '../../utils/dailyLogExcelExport';
+import { PageHeader } from '../ui/PageHeader';
+import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
+import { StatusPill } from '../ui/StatusPill';
+import { Callout } from '../ui/Callout';
+import { EmptyState } from '../ui/EmptyState';
+import { Button, IconButton } from '../ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '../ui/dialog';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '../ui/popover';
+import { cn } from '../../lib/utils';
 
 const DEFAULT_COLUMNS: DailyLogColumn[] = [
   { key: 'date', label: 'Date', type: 'date', editable: true, width: '130' },
@@ -117,7 +135,7 @@ const formatChipDate = (iso: string): string => {
 
 const getThisWeekBounds = () => {
   const now = new Date();
-  const day = now.getDay(); // 0: Sun, 1: Mon ... 6: Sat
+  const day = now.getDay();
   const diffToMonday = (day === 0 ? -6 : 1) - day;
   const monday = new Date(now);
   monday.setDate(now.getDate() + diffToMonday);
@@ -137,78 +155,11 @@ const getThisWeekBounds = () => {
   };
 };
 
-interface FieldTypeSelectProps {
-  value: 'text' | 'select' | 'date' | 'number';
-  onChange: (val: 'text' | 'select' | 'date' | 'number') => void;
-}
-
-const FieldTypeSelect: React.FC<FieldTypeSelectProps> = ({ value, onChange }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const handleOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutside);
-    return () => document.removeEventListener('mousedown', handleOutside);
-  }, [isOpen]);
-
-  const currentLabel =
-    FIELD_TYPE_OPTIONS.find((t) => t.id === value)?.label || 'Text Input';
-
-  return (
-    <div className="relative w-full" ref={dropdownRef}>
-      <button
-        type="button"
-        onClick={() => setIsOpen((prev) => !prev)}
-        className="w-full flex items-center justify-between gap-2 px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs font-semibold text-zinc-900 dark:text-zinc-100 hover:border-zinc-300 dark:hover:border-zinc-600 transition-all cursor-pointer select-none shadow-2xs"
-      >
-        <span className="truncate">{currentLabel}</span>
-        <ChevronDown
-          className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 shrink-0 ${
-            isOpen ? 'rotate-180' : ''
-          }`}
-        />
-      </button>
-
-      {isOpen && (
-        <div className="absolute left-0 right-0 top-full mt-1.5 z-50 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-xl p-1.5 space-y-0.5 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-          {FIELD_TYPE_OPTIONS.map((opt) => {
-            const isSelected = value === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                onClick={() => {
-                  onChange(opt.id);
-                  setIsOpen(false);
-                }}
-                className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
-                  isSelected
-                    ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                    : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                }`}
-              >
-                <span>{opt.label}</span>
-                {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0 ml-1.5" />}
-              </button>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
 const getCurrentMonthSheet = (): string => {
   const d = new Date();
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
+    'July', 'August', 'September', 'October', 'November', 'December',
   ];
   return `${monthNames[d.getMonth()]} - ${d.getFullYear()}`;
 };
@@ -216,6 +167,8 @@ const getCurrentMonthSheet = (): string => {
 export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const confirm = useConfirm();
+  const alert = useAlert();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
@@ -225,28 +178,48 @@ export const DailyLogView: React.FC = () => {
   const userDept = user?.department || '';
   const { departments } = useSystemConfig();
 
-  const [columns, setColumns] = useState<DailyLogColumn[]>(DEFAULT_COLUMNS);
+  // Dual presentation: 'log' (mock 06 card & timeline) vs 'sheet' (configurable table)
+  // Default to sheet view for admin/HR/operations who oversee the whole team; log view for everyone else
+  const [viewMode, setViewMode] = useState<'log' | 'sheet'>(() => {
+    if (isAdmin || isHR || isOperations) return 'sheet';
+    return 'log';
+  });
+
+  const userDepts = useMemo(() => {
+    if (userDept) {
+      return userDept.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean);
+    }
+    return [];
+  }, [userDept]);
+
+  const initialSheets = dailyLogService.getCachedSheets()?.data;
+  const initialColumns = dailyLogService.getCachedColumns()?.data;
+  const initialActivity = dailyLogService.getCachedActivity()?.data;
+  const hasCached = dailyLogService.hasInitialCache();
+
+  const [columns, setColumns] = useState<DailyLogColumn[]>(() => initialColumns || DEFAULT_COLUMNS);
   const [entries, setEntries] = useState<DailyLogEntry[]>([]);
-  const [availableSheets, setAvailableSheets] = useState<string[]>([]);
+  const [availableSheets, setAvailableSheets] = useState<string[]>(() => initialSheets || []);
   const [activeSheet, setActiveSheet] = useState<string>(() => getCurrentMonthSheet());
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [isLoading, setIsLoading] = useState<boolean>(!hasCached);
   useModuleLoadGate(isLoading);
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Department & Team Lead Filter State
+  // Department Filter State
   const [selectedDept, setSelectedDept] = useState<string>(() => {
-    if (isLead && userDept) return userDept;
+    if (isLead && userDept) {
+      const depts = userDept.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean);
+      return depts.length === 1 ? depts[0] : 'All';
+    }
     if (!isAdmin && !isHR && userDept) return userDept;
     return 'All';
   });
 
-  // Enhanced Date Filter State (Today, Week Mon-Sat, Month, Custom Range)
+  // Date Filter State
   const [datePreset, setDatePreset] = useState<'today' | 'week' | 'month' | 'custom'>('month');
   const [customStartDate, setCustomStartDate] = useState<string>(getTodayIso());
   const [customEndDate, setCustomEndDate] = useState<string>(getTodayIso());
-  const [isDateDropdownOpen, setIsDateDropdownOpen] = useState<boolean>(false);
-  const [dateDropdownView, setDateDropdownView] = useState<'presets' | 'calendar'>('presets');
-  const dateDropdownRef = useRef<HTMLDivElement>(null);
+  const [isCustomRangeOpen, setIsCustomRangeOpen] = useState<boolean>(false);
 
   // Controlled Create / Edit Modal State
   const [isEntryModalOpen, setIsEntryModalOpen] = useState<boolean>(false);
@@ -255,7 +228,7 @@ export const DailyLogView: React.FC = () => {
   const [prefilledDate, setPrefilledDate] = useState<string | undefined>(undefined);
 
   // User Activity & Missing Days State
-  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(null);
+  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(() => initialActivity || null);
   const [dayTarget, setDayTarget] = useState<DayTarget | null>(null);
   const [reasonDrafts, setReasonDrafts] = useState<Record<string, string>>({});
   const [sendingReasonDate, setSendingReasonDate] = useState<string | null>(null);
@@ -284,18 +257,6 @@ export const DailyLogView: React.FC = () => {
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
 
-  // Close dropdown on outside click
-  useEffect(() => {
-    if (!isDateDropdownOpen) return;
-    const handleOutsideClick = (e: MouseEvent) => {
-      if (dateDropdownRef.current && !dateDropdownRef.current.contains(e.target as Node)) {
-        setIsDateDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [isDateDropdownOpen]);
-
   const [isColumnModalOpen, setIsColumnModalOpen] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -305,7 +266,6 @@ export const DailyLogView: React.FC = () => {
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
   const [openFilterColKey, setOpenFilterColKey] = useState<string | null>(null);
 
-  // Close column filter popover on outside click
   useEffect(() => {
     if (!openFilterColKey) return;
     const handleOutsideClick = (e: MouseEvent) => {
@@ -322,7 +282,7 @@ export const DailyLogView: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [openFilterColKey]);
 
-  // New Field State inside Modal
+  // New Field State inside Customize Fields Modal
   const [newFieldLabel, setNewFieldLabel] = useState('');
   const [newFieldType, setNewFieldType] = useState<'text' | 'select' | 'date' | 'number'>('text');
   const [newFieldOptions, setNewFieldOptions] = useState('');
@@ -383,18 +343,25 @@ export const DailyLogView: React.FC = () => {
   const fetchAbortRef = useRef<AbortController | null>(null);
   const fetchReqIdRef = useRef(0);
 
-  // Fetch Sheets, Columns & Query Entries
   const fetchEntries = useCallback(async () => {
     fetchAbortRef.current?.abort();
     const controller = new AbortController();
     fetchAbortRef.current = controller;
     const reqId = ++fetchReqIdRef.current;
 
-    setIsLoading(true);
+    const params = buildFilterParams();
+    const paramKey = JSON.stringify(params);
+    const cachedEntries = dailyLogService.getCachedEntries(paramKey);
+    const hasSoftCache = Boolean(cachedEntries && dailyLogService.hasInitialCache());
+
+    if (hasSoftCache) {
+      if (cachedEntries) setEntries(cachedEntries.data);
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     setOccConflictMessage(null);
     try {
-      const params = buildFilterParams();
-
       const [sheets, cols, logs, activity] = await Promise.all([
         dailyLogService.getSheets({ signal: controller.signal }),
         dailyLogService.getColumns({ signal: controller.signal }),
@@ -406,6 +373,14 @@ export const DailyLogView: React.FC = () => {
 
       if (activity) {
         setMyActivity(activity);
+        dailyLogService.setCachedActivity(activity);
+      }
+
+      if (sheets) {
+        dailyLogService.setCachedSheets(sheets);
+      }
+      if (logs) {
+        dailyLogService.setCachedEntries(paramKey, logs);
       }
 
       const allSheetSet = new Set<string>(sheets || []);
@@ -438,6 +413,7 @@ export const DailyLogView: React.FC = () => {
             finalCols.push(deptCol);
           }
         }
+        dailyLogService.setCachedColumns(finalCols);
         setColumns(finalCols);
         setColumnWidths((prev) => {
           const next = { ...prev };
@@ -622,19 +598,17 @@ export const DailyLogView: React.FC = () => {
       setReasonDrafts((prev) => ({ ...prev, [date]: '' }));
       setShowReasonInput(false);
     } catch (err: any) {
-      addToast('Could not send reason', err.message || 'Try again.', 'warning');
+      addToast('Could not send reason', err.message || 'Try again.', 'error');
     } finally {
       setSendingReasonDate(null);
     }
   };
 
-  // Switch Month Sheet Tab
   const handleSheetChange = async (sheetName: string) => {
     setActiveSheet(sheetName);
     setDatePreset('month');
   };
 
-  // Open Create Modal
   const handleOpenCreateModal = () => {
     if (hideLogCreate) return;
     setPrefilledDate(undefined);
@@ -643,8 +617,6 @@ export const DailyLogView: React.FC = () => {
     setIsEntryModalOpen(true);
   };
 
-  // Permission check: only the author who logged the entry can edit or delete their own entry
-  // AND the entry must not have exceeded the 48 working-hours submission window
   const canEditEntry = useCallback((entry: DailyLogEntry) => {
     const currentUserId = user?.id;
     const currentUserName = (user?.full_name || user?.name || '').trim().toLowerCase();
@@ -655,7 +627,6 @@ export const DailyLogView: React.FC = () => {
     );
     if (!isAuthor) return false;
 
-    // 48 Working-Hours Expiration Check: hide edit/delete and double-click if expired
     if (entry.date && isLogDateExpired(entry.date, holidays, workingSaturdays)) {
       return false;
     }
@@ -663,7 +634,6 @@ export const DailyLogView: React.FC = () => {
     return true;
   }, [user, holidays, workingSaturdays]);
 
-  // Open Edit Modal
   const handleOpenEditModal = (entry: DailyLogEntry) => {
     if (!canEditEntry(entry)) return;
     setPrefilledDate(undefined);
@@ -672,7 +642,6 @@ export const DailyLogView: React.FC = () => {
     setIsEntryModalOpen(true);
   };
 
-  // Handle entry saved
   const handleEntrySaved = (savedEntry: DailyLogEntry) => {
     const entrySheet = savedEntry.month_sheet;
     if (entrySheet) {
@@ -680,18 +649,23 @@ export const DailyLogView: React.FC = () => {
     }
 
     if (datePreset === 'month' && entrySheet && entrySheet !== activeSheet) {
-      // If the user added/updated an entry for another month sheet, switch to that sheet
       setActiveSheet(entrySheet);
     } else {
-      // Refresh current view entries to ensure proper sort order and filters
       fetchEntries();
     }
     dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
   };
 
-  // Delete Log Row
   const handleDeleteRow = async (entryId: string) => {
-    if (!window.confirm('Are you sure you want to delete this log entry?')) return;
+    const entry = entries.find((e) => e.id === entryId);
+    const dateStr = entry?.date || 'this date';
+    const ok = await confirm({
+      title: 'Delete this log entry?',
+      description: `This removes the entry from ${dateStr}. This can't be undone.`,
+      confirmLabel: 'Delete entry',
+      tone: 'danger',
+    });
+    if (!ok) return;
     setEntries((prev) => prev.filter((entry) => entry.id !== entryId));
     try {
       await dailyLogService.deleteEntry(entryId);
@@ -701,12 +675,14 @@ export const DailyLogView: React.FC = () => {
     }
   };
 
-  // Add Custom Column
-  const handleAddNewColumn = () => {
+  const handleAddNewColumn = async () => {
     if (!newFieldLabel.trim()) return;
     const newKey = newFieldLabel.trim().toLowerCase().replace(/\s+/g, '_');
     if (columns.some((col) => col.key === newKey)) {
-      alert('A field with this name already exists.');
+      await alert({
+        title: 'Field name already used',
+        description: 'A field with this name already exists.',
+      });
       return;
     }
 
@@ -746,12 +722,13 @@ export const DailyLogView: React.FC = () => {
     try {
       await dailyLogService.updateColumns(columns);
       setIsColumnModalOpen(false);
+      addToast('Columns updated', 'Field schema saved successfully.', 'success');
     } catch (err) {
       console.error('Failed to save columns schema:', err);
+      addToast('Save failed', 'Could not save field schema.', 'error');
     }
   };
 
-  // Column Resizing Handlers
   const handleColumnResizeStart = (e: React.MouseEvent, colKey: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -812,7 +789,6 @@ export const DailyLogView: React.FC = () => {
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  // Reset Layout
   const handleResetLayout = () => {
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
@@ -824,9 +800,10 @@ export const DailyLogView: React.FC = () => {
       localStorage.removeItem('reamarc_daily_log_col_widths');
       localStorage.removeItem('reamarc_daily_log_row_heights');
     } catch (e) {}
+    addToast('Layout reset', 'Column widths restored to defaults.', 'info');
   };
 
-  // AI Summarization (Strictly Restricted to Admin)
+  // Summarize (uses ListChecks, restricted to Admin)
   const handleAiSummarize = () => {
     if (!isAdmin) return;
     setIsSummarizing(true);
@@ -840,13 +817,12 @@ export const DailyLogView: React.FC = () => {
       const uniquePeople = new Set(entries.map((e) => e.resource_name)).size;
 
       setAiSummary(
-        `Department Summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${formatHours(totalHours)} • ${completed} completed, ${blockers} blockers flagged.`
+        `Department summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${formatHours(totalHours)} · ${completed} completed, ${blockers} blockers flagged.`
       );
       setIsSummarizing(false);
     }, 800);
   };
 
-  // Column unique values
   const getUniqueValuesForColumn = (colKey: string): string[] => {
     const set = new Set<string>();
     entries.forEach((e) => {
@@ -858,7 +834,6 @@ export const DailyLogView: React.FC = () => {
     return Array.from(set).sort();
   };
 
-  // Filtered entries in UI
   const filteredEntries = useMemo(() => {
     let result = entries;
 
@@ -886,6 +861,27 @@ export const DailyLogView: React.FC = () => {
     return result;
   }, [entries, searchQuery, columnFilters, columns]);
 
+  // Grouped entries for the log view timeline
+  const groupedEntries = useMemo(() => {
+    const groups: { date: string; entries: DailyLogEntry[]; totalHours: number }[] = [];
+    const map = new Map<string, DailyLogEntry[]>();
+
+    filteredEntries.forEach((entry) => {
+      const d = entry.date || 'Unknown';
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(entry);
+    });
+
+    const sortedDates = Array.from(map.keys()).sort((a, b) => b.localeCompare(a));
+    sortedDates.forEach((date) => {
+      const dayEntries = map.get(date)!;
+      const totalHours = dayEntries.reduce((acc, curr) => acc + (Number(curr.hours_utilized) || 0), 0);
+      groups.push({ date, entries: dayEntries, totalHours });
+    });
+
+    return groups;
+  }, [filteredEntries]);
+
   const rowVirtualizer = useVirtualizer({
     count: filteredEntries.length,
     getScrollElement: () => tableContainerRef.current,
@@ -906,16 +902,20 @@ export const DailyLogView: React.FC = () => {
   }, [columns, columnWidths]);
 
   const departmentOptions = useMemo(() => {
-    const visible = departments.filter((dept) => {
-      if (isAdmin || isHR || isOperations) return true;
-      return userDept.toLowerCase() === dept.toLowerCase();
-    });
-    const opts = visible.map((dept) => ({ value: dept, label: dept }));
-    if (isAdmin || isHR) {
+    if (isAdmin || isHR || isOperations) {
+      const opts = departments.map((dept) => ({ value: dept, label: dept }));
       return [{ value: 'All', label: 'All Departments' }, ...opts];
     }
-    return opts;
-  }, [departments, isAdmin, isHR, isOperations, userDept]);
+    if (isLead) {
+      const leadDepts = userDepts.length > 0 ? userDepts : (userDept ? [userDept] : []);
+      const opts = leadDepts.map((dept) => ({ value: dept, label: dept }));
+      if (leadDepts.length > 1) {
+        return [{ value: 'All', label: 'All Assigned Departments' }, ...opts];
+      }
+      return opts;
+    }
+    return [];
+  }, [departments, isAdmin, isHR, isOperations, isLead, userDepts, userDept]);
 
   const modalCurrentUser = useMemo(
     () =>
@@ -927,7 +927,7 @@ export const DailyLogView: React.FC = () => {
             department: user.department,
           }
         : null,
-    [user?.name, user?.full_name, user?.role, user?.department],
+    [user?.name, user?.full_name, user?.role, user?.department]
   );
 
   const modalExistingEntries = useMemo(() => {
@@ -940,1098 +940,1190 @@ export const DailyLogView: React.FC = () => {
     });
   }, [entries, user?.id, user?.full_name, user?.name]);
 
-  const getDatePresetLabel = () => {
-    if (datePreset === 'today') return "Today's Data";
-    if (datePreset === 'week') return 'This Week (Mon - Sat)';
-    if (datePreset === 'month') return `This Month (${activeSheet})`;
-    if (datePreset === 'custom') return `${customStartDate} to ${customEndDate}`;
-    return 'All Dates';
+  const rangeOptions: SegmentedOption[] = [
+    { value: 'today', label: 'Today' },
+    { value: 'week', label: 'This week' },
+    { value: 'month', label: 'This month' },
+    {
+      value: 'custom',
+      label:
+        datePreset === 'custom'
+          ? `${formatChipDate(customStartDate)} – ${formatChipDate(customEndDate)}`
+          : 'Custom range',
+    },
+  ];
+
+  const handleRangeChange = (val: string) => {
+    if (val === 'custom') {
+      setIsCustomRangeOpen(true);
+      return;
+    }
+    setDatePreset(val as 'today' | 'week' | 'month');
+  };
+
+  const formatTimelineDayHeader = (isoDate: string): string => {
+    const today = getTodayIso();
+    if (isoDate === today) return 'Today';
+    const parts = isoDate.split('-').map(Number);
+    if (parts.length !== 3) return isoDate;
+    const [y, m, d] = parts;
+    const dt = new Date(y, m - 1, d);
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return `${days[dt.getDay()]}, ${d} ${MONTH_SHORT[m - 1]}`;
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-100 dark:bg-[#09090b] text-slate-900 dark:text-zinc-100 font-sans select-none overflow-hidden">
-      {/* ─── Top Toolbar: Search, Date Filter & Add Log Button ─── */}
-      <div className="sticky top-0 z-40 px-6 py-3 bg-white dark:bg-[#0f1117] border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center gap-2.5 shadow-xs shrink-0">
-        <div className="flex items-center gap-2.5 flex-1 min-w-0">
-          {/* Search */}
-          <div className="relative flex-1 min-w-[160px] max-w-[380px]">
-            <Search className="w-4 h-4 text-zinc-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search logs..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-9 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-                title="Clear search"
+    <div className="flex flex-col h-full bg-canvas text-fg select-none overflow-hidden p-6 lg:px-8 lg:py-6">
+      {/* ─── Page Header ─── */}
+      <PageHeader
+        title="Daily log"
+        description="Record what you worked on. Logged hours are compared with your time at work."
+        actions={
+          <>
+            {isAdmin && (
+              <Button
+                variant="secondary"
+                size="md"
+                icon={Settings2}
+                onClick={() => setIsColumnModalOpen(true)}
               >
-                <X className="w-3.5 h-3.5" />
-              </button>
+                Customize fields
+              </Button>
             )}
-          </div>
-
-          {/* Enhanced 4-Preset Date Filter Popover */}
-          <div className="relative" ref={dateDropdownRef}>
-            <button
-              type="button"
-              onClick={() => setIsDateDropdownOpen((prev) => !prev)}
-              className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 rounded-xl px-3.5 py-2 text-xs font-semibold text-zinc-800 dark:text-zinc-200 transition-all shadow-2xs cursor-pointer select-none"
+            <Button
+              variant="secondary"
+              size="md"
+              icon={viewMode === 'log' ? TableIcon : LayoutDashboard}
+              onClick={() => setViewMode((v) => (v === 'log' ? 'sheet' : 'log'))}
             >
-              <CalendarIcon className="w-3.5 h-3.5 text-indigo-500 shrink-0" />
-              <span className="truncate max-w-[160px]">{getDatePresetLabel()}</span>
-              <ChevronDown
-                className={`w-3.5 h-3.5 text-zinc-400 dark:text-zinc-500 transition-transform duration-150 shrink-0 ${
-                  isDateDropdownOpen ? 'rotate-180' : ''
-                }`}
-              />
-            </button>
+              {viewMode === 'log' ? 'Open sheet view' : 'Back to log view'}
+            </Button>
+          </>
+        }
+      />
 
-            {isDateDropdownOpen && (
-              <div className="absolute left-0 top-full mt-1.5 z-50 shadow-2xl backdrop-blur-md animate-in fade-in zoom-in-95 duration-100">
-                {dateDropdownView === 'calendar' ? (
-                  <div className="flex flex-col">
-                    <div className="flex items-center justify-between px-3 py-2 bg-zinc-50 dark:bg-zinc-900/90 border border-b-0 border-zinc-200 dark:border-zinc-800 rounded-t-2xl">
-                      <button
-                        type="button"
-                        onClick={() => setDateDropdownView('presets')}
-                        className="text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-                      >
-                        ← Back to Presets
-                      </button>
-                      <span className="text-[11px] font-bold text-zinc-400">Custom Date Range</span>
-                    </div>
-                    <DateRangeCalendarPicker
-                      initialStartDate={customStartDate}
-                      initialEndDate={customEndDate}
-                      onCancel={() => setIsDateDropdownOpen(false)}
-                      onApply={({ startDate, endDate }) => {
-                        setCustomStartDate(startDate);
-                        setCustomEndDate(endDate);
-                        setDatePreset('custom');
-                        setIsDateDropdownOpen(false);
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <div className="w-72 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-2xl p-2.5 space-y-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400 px-2">
-                      Date Range Presets
-                    </span>
+      {/* ─── Shift Summary Strip (Mock 06 Reference) ─── */}
+      <ShiftTasksTracker
+        dayTarget={dayTarget}
+        loading={isLoading && !dayTarget}
+        variant="strip"
+      />
 
-                    {/* 1. Today */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDatePreset('today');
-                        setIsDateDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
-                        datePreset === 'today'
-                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="font-bold text-zinc-900 dark:text-zinc-100">1. Today's Data</div>
-                        <div className="text-[10px] text-zinc-400">Show entries for {getTodayIso()}</div>
-                      </div>
-                      {datePreset === 'today' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    </button>
-
-                    {/* 2. This Week (Mon-Sat) */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDatePreset('week');
-                        setIsDateDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
-                        datePreset === 'week'
-                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="font-bold text-zinc-900 dark:text-zinc-100">2. This Week (Mon – Sat)</div>
-                        <div className="text-[10px] text-zinc-400">Current work week bounds</div>
-                      </div>
-                      {datePreset === 'week' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    </button>
-
-                    {/* 3. This Month */}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDatePreset('month');
-                        setIsDateDropdownOpen(false);
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none ${
-                        datePreset === 'month'
-                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="font-bold text-zinc-900 dark:text-zinc-100">3. This Month</div>
-                        <div className="text-[10px] text-zinc-400">All logs in {activeSheet}</div>
-                      </div>
-                      {datePreset === 'month' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    </button>
-
-                    {/* 4. Custom Range Trigger */}
-                    <button
-                      type="button"
-                      onClick={() => setDateDropdownView('calendar')}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold transition-colors cursor-pointer text-left select-none pt-2 border-t border-zinc-200 dark:border-zinc-800 ${
-                        datePreset === 'custom'
-                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                      }`}
-                    >
-                      <div>
-                        <div className="font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                          <CalendarRange className="w-3.5 h-3.5 text-indigo-500" />
-                          <span>4. Custom Date Range</span>
-                        </div>
-                        <div className="text-[10px] text-zinc-400">
-                          {datePreset === 'custom' ? `${customStartDate} → ${customEndDate}` : 'Open interactive calendar'}
-                        </div>
-                      </div>
-                      {datePreset === 'custom' && <Check className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />}
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {departmentOptions.length > 0 && (
-            <div className="w-[200px] shrink-0">
-              <CustomSelect
-                value={selectedDept}
-                onChange={setSelectedDept}
-                options={departmentOptions}
-                placeholder="Department"
-                icon={Layers}
-              />
-            </div>
-          )}
-
-          {/* Add Entry Button (Hidden for Admin & Operations, and when viewing a rest day) */}
-          {!isAdmin && !isOperations && !hideLogCreate && (
-            <button
-              type="button"
-              onClick={handleOpenCreateModal}
-              disabled={isLoading || isEntryModalOpen}
-              title={
-                isLoading
-                  ? 'Wait for the sheet to finish loading'
-                  : isEntryModalOpen
-                    ? 'Finish or close the open entry form first'
-                    : 'Add a daily log entry'
-              }
-              className="flex items-center gap-2 px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-indigo-400 disabled:hover:bg-indigo-400 disabled:hover:translate-y-0 disabled:shadow-none disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 hover:-translate-y-0.5 active:translate-y-0 transition-all cursor-pointer select-none shrink-0"
-            >
-              {isLoading ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Plus className="w-4 h-4 stroke-[2.5]" />
-              )}
-              <span>{isLoading ? 'Updating sheet…' : 'Add Entry'}</span>
-            </button>
-          )}
-        </div>
-
-        {/* Right Tools: Export, Customize, Summarize, Reset columns */}
-        <div className="flex items-center gap-2 flex-wrap ml-auto">
-          {canExportLogs && (
-            <button
-              type="button"
-              onClick={handleExportExcel}
-              disabled={isExporting || isLoading}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-indigo-300 dark:hover:border-indigo-500/50 text-zinc-700 dark:text-zinc-200 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Download the current date and department filters as an Excel sheet"
-            >
-              {isExporting ? (
-                <Loader2 className="w-3.5 h-3.5 text-indigo-500 animate-spin" />
-              ) : (
-                <Download className="w-3.5 h-3.5 text-indigo-500" />
-              )}
-              <span>{isExporting ? 'Exporting…' : 'Export Excel'}</span>
-            </button>
-          )}
-
-          {/* Manage Columns (Admin Only) */}
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={() => setIsColumnModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-700 dark:text-zinc-300 text-xs font-semibold transition-all shadow-2xs cursor-pointer select-none"
-            >
-              <Settings2 className="w-3.5 h-3.5 text-indigo-500" />
-              <span>Customize Fields</span>
-            </button>
-          )}
-
-          {/* Reset column widths */}
-          <button
-            type="button"
-            onClick={handleResetLayout}
-            className="w-9 h-9 flex items-center justify-center rounded-xl bg-zinc-50 dark:bg-zinc-900/90 border border-zinc-200 dark:border-zinc-700/80 hover:border-zinc-300 dark:hover:border-zinc-600 text-zinc-600 dark:text-zinc-300 transition-all shadow-2xs cursor-pointer"
-            title="Reset column widths"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-indigo-500" />
-          </button>
-
-          {/* AI Summarize (Admin Only) */}
-          {isAdmin && (
-            <button
-              type="button"
-              onClick={handleAiSummarize}
-              disabled={isSummarizing || entries.length === 0}
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:bg-zinc-200 dark:disabled:bg-zinc-800 disabled:text-zinc-400 text-white text-xs font-bold shadow-2xs transition-all cursor-pointer select-none"
-            >
-              {isSummarizing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Sparkles className="w-4 h-4 text-indigo-200" />
-              )}
-              <span>Summarize</span>
-            </button>
-          )}
-        </div>
-      </div>
-
+      {/* ─── Off-Day Warning Banner ─── */}
       {hideLogCreate && (
-        <div className="px-6 py-3 shrink-0">
+        <div className="mb-4 shrink-0">
           <OffDayBanner info={viewingOff} date={bannerDate} />
         </div>
       )}
 
-      {canSubmitLogs && followUps.length > 0 && (
-        <div className="px-5 py-2 border-b bg-amber-500/10 border-amber-500/30 text-amber-950 dark:text-amber-100 shrink-0">
-          <div className="flex flex-wrap items-center gap-2 text-xs">
-            <ClipboardList className="w-3.5 h-3.5 shrink-0 opacity-80" />
-            <span className="font-semibold">
-              {followUps.length} {followUps.length === 1 ? 'request' : 'requests'}
-              {followUpActorLabel}
+      {/* ─── Follow-Up / Clarification Callout ─── */}
+      {canSubmitLogs && followUps.length > 0 && openFollowUpItem && (
+        <div className="mb-4 shrink-0">
+          <Callout
+            variant="warning"
+            icon={ClipboardList}
+            title={
+              openFollowUpItem.action_by_name
+                ? `${openFollowUpItem.action_by_name} asked for a reason:`
+                : `Reason requested${followUpActorLabel}:`
+            }
+            action={
+              openFollowUpItem.can_send_reason ? (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => openAddTimeForDate(openFollowUpItem.date)}
+                  >
+                    Add time
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => setShowReasonInput((p) => !p)}
+                  >
+                    {showReasonInput ? 'Cancel' : 'Send reason'}
+                  </Button>
+                </div>
+              ) : null
+            }
+          >
+            <span>
+              {formatChipDate(openFollowUpItem.date)} · logged{' '}
+              {formatHours(Number(openFollowUpItem.logged_hours) || 0)}, at work{' '}
+              {formatHours(Number(openFollowUpItem.worked_hours) || 0)}.
             </span>
-            <div className="flex items-center gap-1 flex-wrap">
-              {visibleFollowUpChips.map((item) => {
-                const isOpen = item.date === openFollowUpDate;
-                const waiting = item.action_status === 'waiting_on_reviewer';
-                return (
+
+            {/* Multiple Follow-up chips if available */}
+            {followUps.length > 1 && (
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                <span className="text-micro text-fg-muted font-medium">Other dates:</span>
+                {visibleFollowUpChips.map((item) => (
                   <button
-                    key={`${item.date}-${item.action_status}`}
+                    key={item.date}
                     type="button"
                     onClick={() => openFollowUp(item.date)}
-                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold cursor-pointer border transition-colors ${
-                      isOpen
-                        ? 'bg-amber-600 text-white border-amber-600'
-                        : waiting
-                          ? 'bg-white/50 dark:bg-zinc-900/40 text-amber-800/80 dark:text-amber-100/80 border-amber-500/20'
-                          : 'bg-white/80 dark:bg-zinc-900/50 text-amber-900 dark:text-amber-100 border-amber-500/30 hover:border-amber-500/60'
-                    }`}
-                    title={waiting ? 'Waiting on review' : 'Needs a reply'}
+                    className={cn(
+                      'px-2 py-0.5 rounded-sm text-micro font-medium cursor-pointer border transition-colors',
+                      item.date === openFollowUpDate
+                        ? 'bg-warning-fg text-surface border-warning-fg font-semibold'
+                        : 'bg-surface border-border text-fg-2 hover:bg-hover'
+                    )}
                   >
                     {formatChipDate(item.date)}
                   </button>
-                );
-              })}
-              {hiddenFollowUpCount > 0 ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const hidden = followUps[FOLLOW_UP_CHIP_LIMIT];
-                    if (hidden?.date) openFollowUp(hidden.date);
-                  }}
-                  className="text-[11px] font-semibold opacity-70 hover:opacity-100 cursor-pointer"
+                ))}
+                {hiddenFollowUpCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleNextFollowUp}
+                    className="text-micro font-medium text-warning-fg hover:underline cursor-pointer"
+                  >
+                    +{hiddenFollowUpCount} more
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Inline Send Reason Input */}
+            {openFollowUpItem.can_send_reason && showReasonInput && (
+              <div className="flex items-center gap-2 mt-2 pt-2 border-t border-warning-bd/40">
+                <input
+                  type="text"
+                  value={reasonDrafts[openFollowUpItem.date] || ''}
+                  onChange={(e) =>
+                    setReasonDrafts((prev) => ({ ...prev, [openFollowUpItem.date]: e.target.value }))
+                  }
+                  placeholder="e.g. Client meeting 2h..."
+                  className="flex-1 px-3 py-1.5 h-8 rounded-md bg-surface border border-warning-bd text-small text-fg focus-visible:focus-ring"
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={
+                    sendingReasonDate === openFollowUpItem.date ||
+                    !(reasonDrafts[openFollowUpItem.date] || '').trim()
+                  }
+                  loading={sendingReasonDate === openFollowUpItem.date}
+                  onClick={() => submitFollowUpReason(openFollowUpItem.date)}
                 >
-                  +{hiddenFollowUpCount}
-                </button>
-              ) : null}
-            </div>
-            <button
-              type="button"
-              onClick={handleNextFollowUp}
-              className="ml-auto shrink-0 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
-            >
-              {openFollowUpItem ? 'Next' : 'Handle next'}
-            </button>
-          </div>
-
-          {openFollowUpItem ? (
-            <div className="mt-2 pt-2 border-t border-amber-500/20 space-y-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="font-semibold inline-flex items-center flex-wrap gap-x-1.5 gap-y-1">
-                  <span>{formatChipDate(openFollowUpItem.date)}</span>
-                  <span className="font-normal opacity-80">
-                    {formatHours(Number(openFollowUpItem.logged_hours) || 0)} logged /{' '}
-                    {formatHours(Number(openFollowUpItem.worked_hours) || 0)} at work
-                  </span>
-                  {openFollowUpItem.is_missing_log ? (
-                    <span className="text-amber-800 dark:text-amber-200">Didn't log</span>
-                  ) : (openFollowUpItem.signed_gap_hours || 0) > 0.01 ? (
-                    <span className="text-emerald-700 dark:text-emerald-400">
-                      {formatSignedHours(Number(openFollowUpItem.signed_gap_hours))}
-                    </span>
-                  ) : (openFollowUpItem.signed_gap_hours || 0) < -0.01 ? (
-                    <span className="text-rose-700 dark:text-rose-400">
-                      {formatSignedHours(Number(openFollowUpItem.signed_gap_hours))}
-                    </span>
-                  ) : null}
-                  {openFollowUpItem.action_status === 'waiting_on_reviewer' ? (
-                    <span className="font-normal opacity-80">
-                      — waiting on {openFollowUpItem.action_by_name || 'your lead'}
-                    </span>
-                  ) : openFollowUpItem.action_by_name ? (
-                    <span className="font-normal opacity-80">
-                      — {openFollowUpItem.action_by_name} asked you to{' '}
-                      {openFollowUpItem.action_type === 'explain' ? 'send a reason' : 'add time'}
-                    </span>
-                  ) : null}
-                </span>
-                <div className="flex items-center gap-1.5 shrink-0">
-                  {openFollowUpItem.can_send_reason ? (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => openAddTimeForDate(openFollowUpItem.date)}
-                        className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-bold cursor-pointer"
-                      >
-                        Add missing time
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setShowReasonInput((prev) => !prev)}
-                        className="px-2.5 py-1 rounded-lg border border-amber-600 text-amber-900 dark:text-amber-100 text-[11px] font-bold cursor-pointer"
-                      >
-                        Send a reason
-                      </button>
-                    </>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenFollowUpDate(null);
-                      setShowReasonInput(false);
-                    }}
-                    className="px-2 py-1 text-[11px] font-semibold opacity-70 hover:opacity-100 cursor-pointer"
-                  >
-                    Later
-                  </button>
-                </div>
+                  Send reason
+                </Button>
               </div>
-              {openFollowUpItem.action_status === 'waiting_on_reviewer' && openFollowUpItem.member_reason ? (
-                <p className="text-[11px] opacity-80">Pending review: “{openFollowUpItem.member_reason}”</p>
-              ) : null}
-              {openFollowUpItem.can_send_reason && showReasonInput ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={reasonDrafts[openFollowUpItem.date] || ''}
-                    onChange={(e) =>
-                      setReasonDrafts((prev) => ({ ...prev, [openFollowUpItem.date]: e.target.value }))
-                    }
-                    placeholder="e.g. client meeting 2h — this is not a log row"
-                    className="flex-1 px-3 py-1.5 rounded-lg bg-white/80 dark:bg-zinc-900/60 border border-amber-500/30 text-[11px] text-zinc-900 dark:text-zinc-100"
-                  />
-                  <button
-                    type="button"
-                    disabled={
-                      sendingReasonDate === openFollowUpItem.date ||
-                      !(reasonDrafts[openFollowUpItem.date] || '').trim()
-                    }
-                    onClick={() => submitFollowUpReason(openFollowUpItem.date)}
-                    className="shrink-0 px-2.5 py-1 rounded-lg border border-amber-600 text-amber-900 dark:text-amber-100 text-[11px] font-bold cursor-pointer disabled:opacity-40"
-                  >
-                    {sendingReasonDate === openFollowUpItem.date ? 'Sending…' : 'Send reason'}
-                  </button>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
+            )}
+          </Callout>
         </div>
       )}
 
-      {/* Smart Missing Work Log Banner */}
-      {(() => {
-        if (isAdmin || isOperations || extraMissingDates.length === 0) return null;
-        return (
-          <div className="px-5 py-2 bg-amber-500/10 dark:bg-amber-950/30 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs text-amber-900 dark:text-amber-200 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-              <div>
-                <span className="font-bold">Pending Log Submission: </span>
-                <span>
-                  You haven't recorded entries for{' '}
-                  <strong className="underline font-numeric font-bold">
-                    {extraMissingDates.slice(0, 3).join(', ')}
-                    {extraMissingDates.length > 3 ? ` (+${extraMissingDates.length - 3} more)` : ''}
-                  </strong>
-                  .
-                </span>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setPrefilledDate(extraMissingDates[0]);
-                setSelectedEntry(null);
-                setEntryModalMode('create');
-                setIsEntryModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer select-none"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>+ Log for {extraMissingDates[0]}</span>
-            </button>
-          </div>
-        );
-      })()}
+      {/* ─── Missing Work Log Banner ─── */}
+      {!isAdmin && !isOperations && extraMissingDates.length > 0 && (
+        <div className="mb-4 shrink-0">
+          <Callout
+            variant="warning"
+            icon={AlertTriangle}
+            title="Pending log submission:"
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={Plus}
+                onClick={() => {
+                  setPrefilledDate(extraMissingDates[0]);
+                  setSelectedEntry(null);
+                  setEntryModalMode('create');
+                  setIsEntryModalOpen(true);
+                }}
+              >
+                Log for {extraMissingDates[0]}
+              </Button>
+            }
+          >
+            <span>
+              You haven't recorded entries for{' '}
+              <strong className="font-numeric">
+                {extraMissingDates.slice(0, 3).join(', ')}
+                {extraMissingDates.length > 3 ? ` (+${extraMissingDates.length - 3} more)` : ''}
+              </strong>
+              .
+            </span>
+          </Callout>
+        </div>
+      )}
 
-      {/* OCC Conflict Warning Banner */}
+      {/* ─── OCC Conflict Warning ─── */}
       {occConflictMessage && (
-        <div className="px-5 py-2.5 bg-amber-500/10 border-b border-amber-500/30 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300 shrink-0">
-          <div className="flex items-center gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
-            <span>{occConflictMessage}</span>
-          </div>
-          <button
-            type="button"
-            onClick={fetchEntries}
-            className="flex items-center gap-1 bg-amber-600 text-white px-2.5 py-1 rounded-lg text-xs font-bold hover:bg-amber-700 transition-colors cursor-pointer"
+        <div className="mb-4 shrink-0">
+          <Callout
+            variant="warning"
+            icon={AlertTriangle}
+            title="Version conflict:"
+            action={
+              <Button variant="secondary" size="sm" icon={RotateCw} onClick={fetchEntries}>
+                Refresh view
+              </Button>
+            }
           >
-            <RefreshCw className="w-3 h-3" />
-            <span>Refresh View</span>
-          </button>
+            {occConflictMessage}
+          </Callout>
         </div>
       )}
 
-      {/* AI Summary Banner */}
-      {isAdmin && aiSummary && (
-        <div className="px-5 py-2.5 bg-indigo-50/90 dark:bg-indigo-950/40 border-b border-indigo-200 dark:border-indigo-800/40 flex items-center justify-between text-xs text-indigo-900 dark:text-indigo-200 shrink-0">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-indigo-500 shrink-0" />
-            <span>{aiSummary}</span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setAiSummary(null)}
-            className="text-indigo-400 hover:text-indigo-600 dark:hover:text-indigo-100 text-xs font-bold px-2 cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      {/* ─── Grid Canvas Table ─── */}
-      <div
-        ref={tableContainerRef}
-        className="flex-1 min-h-0 overflow-x-auto overflow-y-auto custom-scrollbar bg-white dark:bg-[#0b0b0e] relative w-full flex flex-col"
-      >
-        <div
-          ref={tableInnerRef}
-          style={{
-            width: `${totalTableWidth}px`,
-            minWidth: `${totalTableWidth}px`,
-          }}
-          className="min-w-full flex flex-col relative"
-        >
-          {/* Column Resize Visual Guide */}
-          <div
-            ref={resizeGuideRef}
-            style={{ display: 'none', left: 0 }}
-            className="absolute top-0 bottom-0 w-0.5 bg-indigo-500 z-40 pointer-events-none"
-          >
-            <div
-              ref={resizeTooltipRef}
-              className="absolute top-2 -left-6 px-1.5 py-0.5 bg-indigo-600 text-white text-[10px] font-bold rounded shadow-md pointer-events-none select-none"
-            />
+      {/* ─────────────────────────────────────────────────────────────
+          PRESENTATION 1: LOG VIEW (DEFAULT FOR MEMBERS & LEADS, MOCK 06)
+         ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'log' && (
+        <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 overflow-hidden">
+          {/* Left Card: Add Entry Form (Inline) */}
+          <div className="w-full lg:w-[440px] shrink-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface shrink-0">
+              <h3 className="text-h3 font-semibold text-fg">Add entry</h3>
+              <span className="text-small text-fg-muted font-numeric">{activeSheet}</span>
+            </div>
+            <div className="p-4 flex-1 overflow-y-auto">
+              <DailyLogForm
+                mode="create"
+                prefilledDate={prefilledDate}
+                columns={columns}
+                activeSheet={activeSheet}
+                currentUser={modalCurrentUser}
+                existingEntries={modalExistingEntries}
+                onSaved={handleEntrySaved}
+                onRefreshRequired={fetchEntries}
+                layout="card"
+              />
+            </div>
           </div>
 
-          <table
-              className="border-separate border-spacing-0 text-xs text-left table-fixed w-full"
-              style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
-            >
-              <thead className="sticky top-0 z-30 shadow-2xs">
-                <tr className="bg-zinc-100 dark:bg-[#12141c] text-zinc-800 dark:text-zinc-200 font-semibold text-xs border-b border-zinc-200 dark:border-zinc-800">
-                  <th
-                    style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
-                    className="p-2.5 text-center font-numeric text-xs font-bold text-zinc-500 dark:text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 select-none bg-zinc-100 dark:bg-[#12141c]"
+          {/* Right Card: Timeline of Entries */}
+          <div className="flex-1 min-w-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
+            {/* Toolbar: Range SegmentedControl, Summarize, Export */}
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap shrink-0">
+              <div className="flex items-center gap-2">
+                <SegmentedControl
+                  value={datePreset}
+                  onValueChange={handleRangeChange}
+                  options={rangeOptions}
+                />
+
+                {/* Popover for Custom Range */}
+                <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      className="sr-only"
+                      aria-label="Open custom calendar"
+                    >
+                      Calendar
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    className="p-0 border-0 shadow-none w-auto"
+                    align="start"
                   >
-                    #
-                  </th>
-                  {columns.map((col) => {
-                    const colW = columnWidths[col.key] || 150;
-                    const isFilterable = !NON_FILTERABLE_KEYS.has(col.key);
-                    const hasActiveFilter = isFilterable && Boolean(columnFilters[col.key]);
-                    const isFilterOpen = isFilterable && openFilterColKey === col.key;
-                    const existingUniqueValues = isFilterable ? getUniqueValuesForColumn(col.key) : [];
+                    <DateRangeCalendarPicker
+                      initialStartDate={customStartDate}
+                      initialEndDate={customEndDate}
+                      onCancel={() => setIsCustomRangeOpen(false)}
+                      onApply={({ startDate, endDate }) => {
+                        setCustomStartDate(startDate);
+                        setCustomEndDate(endDate);
+                        setDatePreset('custom');
+                        setIsCustomRangeOpen(false);
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-                    return (
-                      <th
-                        key={col.key}
-                        style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                        className="sticky top-0 z-20 p-2.5 font-semibold tracking-tight border-b border-r border-zinc-200 dark:border-zinc-800 bg-zinc-100/95 dark:bg-[#12141c]/95 backdrop-blur-md text-zinc-800 dark:text-zinc-200 relative group overflow-visible select-none hover:bg-zinc-200/50 dark:hover:bg-zinc-800/40 transition-colors"
+              {/* Action Buttons: Summarize (Admin) & Export */}
+              <div className="flex items-center gap-2 ml-auto">
+                {isAdmin && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    icon={ListChecks}
+                    loading={isSummarizing}
+                    disabled={entries.length === 0}
+                    onClick={handleAiSummarize}
+                  >
+                    Summarize
+                  </Button>
+                )}
+
+                {canExportLogs && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={Download}
+                    loading={isExporting}
+                    onClick={handleExportExcel}
+                  >
+                    Export
+                  </Button>
+                )}
+              </div>
+            </div>
+
+            {/* Timeline Entries Content */}
+            <div className="p-4 overflow-y-auto flex-1">
+              {/* Neutral Callout for AI Summary */}
+              {isAdmin && aiSummary && (
+                <Callout
+                  variant="neutral"
+                  icon={ListChecks}
+                  title="Department summary"
+                  action={
+                    <Button variant="ghost" size="sm" onClick={() => setAiSummary(null)}>
+                      Dismiss
+                    </Button>
+                  }
+                  className="mb-4"
+                >
+                  {aiSummary}
+                </Callout>
+              )}
+
+              {isLoading ? (
+                /* Skeleton loader for timeline: 3 day groups */
+                <div className="space-y-6 animate-pulse p-2">
+                  {[1, 2].map((g) => (
+                    <div key={g} className="space-y-3">
+                      <div className="flex justify-between">
+                        <div className="h-4 w-28 bg-skel rounded" />
+                        <div className="h-4 w-32 bg-skel rounded" />
+                      </div>
+                      {[1, 2, 3].map((r) => (
+                        <div key={r} className="flex gap-3">
+                          <div className="w-16 h-4 bg-skel rounded shrink-0 mt-1" />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex justify-between">
+                              <div className="h-4 w-3/5 bg-skel rounded" />
+                              <div className="h-4 w-12 bg-skel rounded" />
+                            </div>
+                            <div className="h-3 w-1/3 bg-skel rounded" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : filteredEntries.length === 0 ? (
+                <EmptyState
+                  title="Nothing logged today"
+                  description="Add what you worked on so your day is accounted for."
+                  action={
+                    !isAdmin && !isOperations && !hideLogCreate ? (
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={handleOpenCreateModal}
                       >
-                        <div className="flex items-center justify-between gap-1.5">
-                          <span className="truncate text-xs font-bold text-zinc-900 dark:text-zinc-100" title={col.label}>
-                            {col.label}
+                        Add entry
+                      </Button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <div className="space-y-6">
+                  {groupedEntries.map((group) => {
+                    return (
+                      <div key={group.date} className="space-y-3">
+                        {/* Day Group Heading */}
+                        <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                          <span className="text-ui font-semibold text-fg">
+                            {formatTimelineDayHeader(group.date)}
                           </span>
-                          {isFilterable && (
-                            <button
-                              type="button"
-                              data-filter-btn={col.key}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenFilterColKey(isFilterOpen ? null : col.key);
-                              }}
-                              className={`p-1.5 rounded-lg transition-colors cursor-pointer shrink-0 ${
-                                hasActiveFilter
-                                  ? 'bg-indigo-600 text-white font-bold shadow-2xs'
-                                  : 'text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-200/80 dark:hover:bg-zinc-800'
-                              }`}
-                              title={`Filter by ${col.label}`}
-                            >
-                              <Filter className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                          <span className="text-small text-fg-muted font-numeric tabular-nums">
+                            {group.entries.length}{' '}
+                            {group.entries.length === 1 ? 'entry' : 'entries'} ·{' '}
+                            {formatHours(group.totalHours)} logged
+                          </span>
                         </div>
 
-                        {/* Column Resize Handle */}
-                        <div
-                          onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
-                          className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-indigo-500/80 z-20"
-                        />
+                        {/* Day Timeline Rows */}
+                        <div className="space-y-1">
+                          {group.entries.map((entry) => {
+                            const isEditable = canEditEntry(entry);
+                            const hoursNum = Number(entry.hours_utilized) || 0;
 
-                        {/* Popover Filter Menu */}
-                        {isFilterOpen && (
+                            return (
+                              <div
+                                key={entry.id}
+                                onClick={() => isEditable && handleOpenEditModal(entry)}
+                                className={cn(
+                                  'flex gap-3.5 group rounded-md p-2 -mx-2 transition-colors select-none',
+                                  isEditable && 'hover:bg-hover cursor-pointer'
+                                )}
+                              >
+                                {/* Hours duration label */}
+                                <div className="w-16 shrink-0 text-small text-fg-muted font-numeric tabular-nums pt-0.5">
+                                  {formatHours(hoursNum)}
+                                </div>
+
+                                {/* Timeline Line & Dot */}
+                                <div className="flex flex-col items-center shrink-0">
+                                  <span className="w-2.5 h-2.5 rounded-full border-2 border-accent bg-surface mt-1 shrink-0" />
+                                  <span className="w-px flex-1 bg-border my-1" />
+                                </div>
+
+                                {/* Content Details */}
+                                <div className="flex-1 min-w-0 pb-2">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <h4 className="text-ui font-medium text-fg line-clamp-2 leading-snug group-hover:text-accent-text transition-colors">
+                                      {entry.task_description}
+                                    </h4>
+                                    <span className="text-ui font-semibold font-numeric tabular-nums text-fg shrink-0">
+                                      {formatHours(hoursNum)}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    <span className="text-small text-fg-muted font-medium">
+                                      {entry.client_project || 'Internal agency work'}
+                                    </span>
+                                    <span className="text-fg-faint">·</span>
+                                    <StatusPill status={entry.task_status} />
+                                    <span className="text-small px-1.5 py-0.5 rounded-sm border border-border bg-subtle text-fg-2 font-medium">
+                                      {entry.task_type === 'Scheduled Task'
+                                        ? 'Scheduled'
+                                        : entry.task_type === 'Runtime Task'
+                                        ? 'Runtime'
+                                        : entry.task_type}
+                                    </span>
+                                    {entry.deliverables && (
+                                      <span className="inline-flex items-center gap-1 text-micro text-accent-text font-medium">
+                                        <Paperclip size={11} /> Deliverables
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─────────────────────────────────────────────────────────────
+          PRESENTATION 2: SHEET VIEW (FULL CONFIGURABLE TABLE, MOCK 06)
+         ───────────────────────────────────────────────────────────── */}
+      {viewMode === 'sheet' && (
+        <div className="flex-1 min-h-0 flex flex-col bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+          {/* Table Toolbar */}
+          <div className="p-3 border-b border-border flex items-center justify-between gap-2.5 flex-wrap shrink-0 bg-surface">
+            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
+              {/* Search */}
+              <div className="relative min-w-[180px] max-w-[320px] flex-1">
+                <Search size={14} className="text-fg-muted absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search logs..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-8 pr-8 py-1.5 h-8 bg-canvas border border-border-strong rounded-md text-ui text-fg placeholder:text-fg-faint focus-visible:focus-ring"
+                />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted hover:text-fg p-0.5 cursor-pointer"
+                    title="Clear search"
+                  >
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+
+              {/* Range SegmentedControl */}
+              <SegmentedControl
+                value={datePreset}
+                onValueChange={handleRangeChange}
+                options={rangeOptions}
+              />
+
+              {/* Popover for Custom Range in Sheet View */}
+              <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className="sr-only"
+                    aria-label="Open custom calendar"
+                  >
+                    Calendar
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="p-0 border-0 shadow-none w-auto" align="start">
+                  <DateRangeCalendarPicker
+                    initialStartDate={customStartDate}
+                    initialEndDate={customEndDate}
+                    onCancel={() => setIsCustomRangeOpen(false)}
+                    onApply={({ startDate, endDate }) => {
+                      setCustomStartDate(startDate);
+                      setCustomEndDate(endDate);
+                      setDatePreset('custom');
+                      setIsCustomRangeOpen(false);
+                    }}
+                  />
+                </PopoverContent>
+              </Popover>
+
+              {/* Department Selector */}
+              {departmentOptions.length > 0 && (
+                <div className="w-[180px] shrink-0">
+                  <CustomSelect
+                    value={selectedDept}
+                    onChange={setSelectedDept}
+                    options={departmentOptions}
+                    placeholder="Department"
+                    icon={Layers}
+                  />
+                </div>
+              )}
+
+              {/* Primary Add Entry Button in Sheet View */}
+              {!isAdmin && !isOperations && !hideLogCreate && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={Plus}
+                  onClick={handleOpenCreateModal}
+                  disabled={isLoading || isEntryModalOpen}
+                >
+                  Add entry
+                </Button>
+              )}
+            </div>
+
+            {/* Right Tools in Sheet View */}
+            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
+              {canExportLogs && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={Download}
+                  loading={isExporting}
+                  disabled={isExporting || isLoading}
+                  onClick={handleExportExcel}
+                >
+                  Export
+                </Button>
+              )}
+
+              {isAdmin && (
+                <Button
+                  variant="ghost"
+                  size="md"
+                  icon={ListChecks}
+                  loading={isSummarizing}
+                  disabled={entries.length === 0}
+                  onClick={handleAiSummarize}
+                >
+                  Summarize
+                </Button>
+              )}
+
+              <IconButton
+                variant="ghost"
+                size="md"
+                icon={RotateCcw}
+                label="Reset column widths"
+                onClick={handleResetLayout}
+              />
+
+              <IconButton
+                variant="ghost"
+                size="md"
+                icon={RotateCw}
+                label="Refresh table"
+                onClick={fetchEntries}
+              />
+            </div>
+          </div>
+
+          {/* AI Summary Banner in Sheet View */}
+          {isAdmin && aiSummary && (
+            <div className="px-4 py-2 border-b border-border bg-subtle/40">
+              <Callout
+                variant="neutral"
+                icon={ListChecks}
+                title="Department summary"
+                action={
+                  <Button variant="ghost" size="sm" onClick={() => setAiSummary(null)}>
+                    Dismiss
+                  </Button>
+                }
+              >
+                {aiSummary}
+              </Callout>
+            </div>
+          )}
+
+          {/* Virtualized Table Container */}
+          <div
+            ref={tableContainerRef}
+            className="flex-1 min-h-0 overflow-x-auto overflow-y-auto bg-surface relative w-full flex flex-col"
+          >
+            <div
+              ref={tableInnerRef}
+              style={{
+                width: `${totalTableWidth}px`,
+                minWidth: `${totalTableWidth}px`,
+              }}
+              className="min-w-full flex flex-col relative"
+            >
+              {/* Column Resize Visual Guide */}
+              <div
+                ref={resizeGuideRef}
+                style={{ display: 'none', left: 0 }}
+                className="absolute top-0 bottom-0 w-0.5 bg-accent z-40 pointer-events-none"
+              >
+                <div
+                  ref={resizeTooltipRef}
+                  className="absolute top-2 -left-6 px-1.5 py-0.5 bg-accent text-accent-fg text-micro font-medium rounded shadow-md pointer-events-none select-none"
+                />
+              </div>
+
+              <table
+                className="border-separate border-spacing-0 text-small text-left table-fixed w-full"
+                style={{ width: `${totalTableWidth}px`, minWidth: `${totalTableWidth}px` }}
+              >
+                <thead className="sticky top-0 z-30 shadow-xs">
+                  <tr className="bg-canvas text-fg-muted font-medium text-small border-b border-border">
+                    <th
+                      style={{ width: '56px', minWidth: '56px', maxWidth: '56px' }}
+                      className="p-2 text-center font-numeric text-small font-medium text-fg-muted border-b border-r border-border sticky top-0 z-20 select-none bg-canvas"
+                    >
+                      #
+                    </th>
+                    {columns.map((col) => {
+                      const colW = columnWidths[col.key] || 150;
+                      const isFilterable = !NON_FILTERABLE_KEYS.has(col.key);
+                      const hasActiveFilter = isFilterable && Boolean(columnFilters[col.key]);
+                      const isFilterOpen = isFilterable && openFilterColKey === col.key;
+                      const existingUniqueValues = isFilterable ? getUniqueValuesForColumn(col.key) : [];
+
+                      return (
+                        <th
+                          key={col.key}
+                          style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                          className="sticky top-0 z-20 p-2 font-medium border-b border-r border-border bg-canvas text-fg-muted relative select-none hover:bg-hover transition-colors"
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <span className="truncate text-small font-medium text-fg" title={col.label}>
+                              {col.label}
+                            </span>
+                            {isFilterable && (
+                              <button
+                                type="button"
+                                data-filter-btn={col.key}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenFilterColKey(isFilterOpen ? null : col.key);
+                                }}
+                                className={cn(
+                                  'p-1 rounded transition-colors cursor-pointer shrink-0',
+                                  hasActiveFilter
+                                    ? 'bg-accent text-accent-fg font-semibold'
+                                    : 'text-fg-muted hover:text-fg hover:bg-hover'
+                                )}
+                                title={`Filter by ${col.label}`}
+                              >
+                                <Filter size={12} />
+                              </button>
+                            )}
+                          </div>
+
+                          {/* Column Resize Handle */}
                           <div
-                            data-filter-popover={col.key}
-                            onClick={(e) => e.stopPropagation()}
-                            className="absolute left-0 top-full mt-1 z-50 w-52 bg-white dark:bg-[#151722] border border-zinc-200 dark:border-zinc-700 rounded-xl shadow-2xl p-2.5 space-y-2 backdrop-blur-md animate-in fade-in zoom-in-95 duration-100 font-normal"
-                          >
-                            <div className="flex items-center justify-between pb-1 border-b border-zinc-100 dark:border-zinc-800">
-                              <span className="text-[11px] font-bold text-zinc-500">Filter {col.label}</span>
-                              {hasActiveFilter && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setColumnFilters((prev) => {
+                            onMouseDown={(e) => handleColumnResizeStart(e, col.key)}
+                            className="absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize hover:bg-accent/80 z-20"
+                          />
+
+                          {/* Popover Filter Menu */}
+                          {isFilterOpen && (
+                            <div
+                              data-filter-popover={col.key}
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute left-0 top-full mt-1 z-50 w-52 bg-surface border border-border rounded-lg shadow-md p-2.5 space-y-2 font-normal"
+                            >
+                              <div className="flex items-center justify-between pb-1 border-b border-border">
+                                <span className="text-micro font-medium text-fg-muted">Filter {col.label}</span>
+                                {hasActiveFilter && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setColumnFilters((prev) => {
+                                        const next = { ...prev };
+                                        delete next[col.key];
+                                        return next;
+                                      });
+                                      setOpenFilterColKey(null);
+                                    }}
+                                    className="text-micro text-danger-fg hover:underline font-medium cursor-pointer"
+                                  >
+                                    Clear
+                                  </button>
+                                )}
+                              </div>
+
+                              <input
+                                type="text"
+                                placeholder="Search value..."
+                                value={columnFilters[col.key] || ''}
+                                onChange={(e) => {
+                                  const v = e.target.value;
+                                  setColumnFilters((prev) => {
+                                    if (!v) {
                                       const next = { ...prev };
                                       delete next[col.key];
                                       return next;
-                                    });
-                                    setOpenFilterColKey(null);
-                                  }}
-                                  className="text-[10px] text-rose-500 hover:underline font-semibold cursor-pointer"
-                                >
-                                  Clear
-                                </button>
-                              )}
-                            </div>
-
-                            <input
-                              type="text"
-                              placeholder="Search value..."
-                              value={columnFilters[col.key] || ''}
-                              onChange={(e) => {
-                                const v = e.target.value;
-                                setColumnFilters((prev) => {
-                                  if (!v) {
-                                    const next = { ...prev };
-                                    delete next[col.key];
-                                    return next;
-                                  }
-                                  return { ...prev, [col.key]: v };
-                                });
-                              }}
-                              className="w-full px-2.5 py-1.5 text-xs bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                            />
-
-                            {existingUniqueValues.length > 0 && (
-                              <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1">
-                                {existingUniqueValues.map((val) => {
-                                  const isSelected = columnFilters[col.key] === val;
-                                  return (
-                                    <button
-                                      key={val}
-                                      type="button"
-                                      onClick={() => {
-                                        setColumnFilters((prev) => ({ ...prev, [col.key]: val }));
-                                        setOpenFilterColKey(null);
-                                      }}
-                                      className={`w-full text-left px-2 py-1 rounded text-xs truncate transition-colors cursor-pointer ${
-                                        isSelected
-                                          ? 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 font-bold'
-                                          : 'text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800'
-                                      }`}
-                                    >
-                                      {val}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </th>
-                    );
-                  })}
-                  <th
-                    style={{ width: '72px', minWidth: '72px' }}
-                    className="p-2.5 text-center font-bold text-zinc-400 border-b border-zinc-200 dark:border-zinc-800 sticky top-0 z-20 bg-zinc-100 dark:bg-[#12141c]"
-                  >
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800/60 font-normal">
-                {isLoading ? (
-                  Array.from({ length: 22 }).map((_, rIdx) => (
-                    <tr
-                      key={`skel-row-${rIdx}`}
-                      style={{ height: `${DEFAULT_ROW_HEIGHT}px` }}
-                      className="animate-pulse hover:bg-transparent"
-                    >
-                      <td className="p-2.5 text-center border-b border-r border-zinc-200/80 dark:border-zinc-800/80">
-                        <div className="w-5 h-3 bg-zinc-200 dark:bg-zinc-800 rounded mx-auto" />
-                      </td>
-                      {columns.map((col, cIdx) => {
-                        const colW = columnWidths[col.key] || 150;
-                        const widthPercent = ((rIdx * 19 + cIdx * 29) % 36) + 48;
-                        return (
-                          <td
-                            key={`skel-${rIdx}-${col.key}`}
-                            style={{ width: `${colW}px`, minWidth: `${colW}px` }}
-                            className="p-2.5 border-b border-r border-zinc-200/80 dark:border-zinc-800/80"
-                          >
-                            <div
-                              className="h-3.5 bg-zinc-200/80 dark:bg-zinc-800/70 rounded-md"
-                              style={{ width: `${widthPercent}%` }}
-                            />
-                          </td>
-                        );
-                      })}
-                      <td className="p-2.5 text-center border-b border-zinc-200/80 dark:border-zinc-800/80">
-                        <div className="w-8 h-3.5 bg-zinc-200 dark:bg-zinc-800/80 rounded mx-auto" />
-                      </td>
-                    </tr>
-                  ))
-                ) : filteredEntries.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length + 2} className="py-20 text-center text-zinc-400 dark:text-zinc-500">
-                      <div className="flex flex-col items-center justify-center gap-2">
-                        <Grid className="w-8 h-8 stroke-1 text-zinc-400" />
-                        <span className="text-sm font-semibold">No daily logs recorded for this scope.</span>
-                        {!isAdmin && !isOperations && !hideLogCreate && (
-                          <button
-                            type="button"
-                            onClick={handleOpenCreateModal}
-                            className="mt-2 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
-                          >
-                            + Add Log Entry
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    {paddingTop > 0 && (
-                      <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
-                        <td colSpan={columns.length + 2} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
-                      </tr>
-                    )}
-                    {virtualRows.map((virtualRow) => {
-                      const row = filteredEntries[virtualRow.index];
-                      if (!row) return null;
-                      const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
-                      const rowFollowUp = canEditEntry(row) ? followUpByDate.get(row.date) : undefined;
-
-                      return (
-                        <tr
-                          key={row.id}
-                          ref={rowVirtualizer.measureElement}
-                          data-index={virtualRow.index}
-                          style={{ height: `${rowH}px` }}
-                          onDoubleClick={(e) => {
-                            const target = e.target as HTMLElement;
-                            if (target && target.closest('button, a, input, select')) return;
-                            if (canEditEntry(row)) {
-                              handleOpenEditModal(row);
-                            }
-                          }}
-                          className={`hover:bg-indigo-50/30 dark:hover:bg-indigo-950/20 transition-colors group ${
-                            canEditEntry(row) ? 'cursor-pointer' : ''
-                          } ${rowFollowUp ? 'bg-amber-50/50 dark:bg-amber-950/15' : ''}`}
-                          title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
-                        >
-                          {/* Row Index */}
-                          <td className="p-2 text-center font-numeric text-xs font-semibold text-zinc-400 border-b border-r border-zinc-200 dark:border-zinc-800/60 bg-zinc-50/40 dark:bg-zinc-900/30 select-none">
-                            {virtualRow.index + 1}
-                          </td>
-
-                        {/* Column Cells */}
-                        {columns.map((col) => {
-                          const val = (row as any)[col.key] || row.custom_fields?.[col.key];
-
-                          if (col.key === 'date') {
-                            const dateStr = String(val || row.date || '');
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-800 dark:text-zinc-200"
-                                title={dateStr}
-                              >
-                                {dateStr ? (
-                                  <span className="inline-flex items-center gap-1.5 min-w-0">
-                                    {rowFollowUp ? (
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          openFollowUp(row.date);
-                                        }}
-                                        className="inline-flex items-center gap-1.5 min-w-0 cursor-pointer"
-                                        title={
-                                          rowFollowUp.can_send_reason
-                                            ? 'Needs a reply — open request'
-                                            : 'Waiting on review'
-                                        }
-                                      >
-                                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-                                        <span className="truncate">{dateStr}</span>
-                                        <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300 shrink-0">
-                                          {rowFollowUp.can_send_reason ? 'Needs reply' : 'Waiting'}
-                                        </span>
-                                      </button>
-                                    ) : (
-                                      <span className="truncate">{dateStr}</span>
-                                    )}
-                                  </span>
-                                ) : (
-                                  <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
-                                )}
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'task_status') {
-                            const statusStr = String(val || 'Incomplete');
-                            const isCompleted = statusStr === 'Completed';
-                            const isBlocker = statusStr === 'Blocker';
-
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                              >
-                                <span
-                                  className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-bold ${
-                                    isCompleted
-                                      ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border border-emerald-500/20'
-                                      : isBlocker
-                                      ? 'bg-rose-500/10 text-rose-700 dark:text-rose-300 border border-rose-500/20'
-                                      : 'bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20'
-                                  }`}
-                                >
-                                  {statusStr}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'task_type') {
-                            const typeStr = String(val || 'Scheduled Task');
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                              >
-                                <span className={getTaskTypeBadgeClass(typeStr)}>
-                                  {typeStr}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'task_description') {
-                            const desc = String(val || '');
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60"
-                                title={desc}
-                              >
-                                {desc ? (
-                                  <span className="line-clamp-2 text-zinc-800 dark:text-zinc-200 leading-snug">{desc}</span>
-                                ) : (
-                                  <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
-                                )}
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'deliverables') {
-                            if (!val || String(val).trim() === '') {
-                              return (
-                                <td
-                                  key={col.key}
-                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-300 dark:text-zinc-700 italic"
-                                >
-                                  —
-                                </td>
-                              );
-                            }
-
-                            const valStr = String(val);
-                            const rawParts = valStr.split(/\s*\|\s*|\n/).map((s) => s.trim()).filter(Boolean);
-
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden"
-                              >
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  {rawParts.map((item, itemIdx) => {
-                                    // Markdown link format: [File: report.pdf](/uploads/...) or [Label](url)
-                                    const mdMatch = item.match(/^\[(.*?)\]\((.*?)\)$/);
-                                    if (mdMatch) {
-                                      const label = mdMatch[1];
-                                      const url = mdMatch[2];
-                                      const isFile = url.startsWith('/uploads') || url.includes('/uploads/');
-                                      const fileName = label.replace(/^File:\s*/i, '') || 'Attachment';
-
-                                      return (
-                                        <button
-                                          key={itemIdx}
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            downloadFileAttachment(url, fileName);
-                                          }}
-                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
-                                          title={`Download / Open: ${fileName}`}
-                                        >
-                                          {isFile ? (
-                                            <Download className="w-3 h-3 text-indigo-500 shrink-0" />
-                                          ) : (
-                                            <Paperclip className="w-3 h-3 text-indigo-500 shrink-0" />
-                                          )}
-                                          <span className="truncate">{fileName}</span>
-                                        </button>
-                                      );
                                     }
+                                    return { ...prev, [col.key]: v };
+                                  });
+                                }}
+                                className="w-full px-2 py-1 text-small bg-canvas border border-border-strong rounded-md text-fg focus-visible:focus-ring"
+                              />
 
-                                    // Direct upload URL
-                                    if (item.startsWith('/uploads') || item.includes('/uploads/')) {
-                                      const fileName = item.split('/').pop() || 'Attachment';
-                                      return (
-                                        <button
-                                          key={itemIdx}
-                                          type="button"
-                                          onClick={(e) => {
-                                            e.stopPropagation();
-                                            downloadFileAttachment(item, fileName);
-                                          }}
-                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
-                                          title={`Download: ${fileName}`}
-                                        >
-                                          <Download className="w-3 h-3 text-indigo-500 shrink-0" />
-                                          <span className="truncate">{fileName}</span>
-                                        </button>
-                                      );
-                                    }
-
-                                    // External web link — https only
-                                    const safeHref = toSafeHttpsUrl(item);
-                                    if (safeHref) {
-                                      return (
-                                        <a
-                                          key={itemIdx}
-                                          href={safeHref}
-                                          target="_blank"
-                                          rel="noopener noreferrer"
-                                          onClick={(e) => e.stopPropagation()}
-                                          className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/50 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/80 dark:border-blue-800/80 text-[11px] font-semibold transition cursor-pointer truncate max-w-[180px]"
-                                          title={item}
-                                        >
-                                          <ExternalLink className="w-3 h-3 text-blue-500 shrink-0" />
-                                          <span className="truncate">{item.replace(/^https?:\/\/(www\.)?/, '')}</span>
-                                        </a>
-                                      );
-                                    }
-
-                                    // Plain text deliverable name
+                              {existingUniqueValues.length > 0 && (
+                                <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1">
+                                  {existingUniqueValues.map((val) => {
+                                    const isSelected = columnFilters[col.key] === val;
                                     return (
-                                      <span key={itemIdx} className="text-zinc-700 dark:text-zinc-300 text-xs truncate">
-                                        {item}
-                                      </span>
+                                      <button
+                                        key={val}
+                                        type="button"
+                                        onClick={() => {
+                                          setColumnFilters((prev) => ({ ...prev, [col.key]: val }));
+                                          setOpenFilterColKey(null);
+                                        }}
+                                        className={cn(
+                                          'w-full text-left px-2 py-1 rounded text-small truncate transition-colors cursor-pointer',
+                                          isSelected
+                                            ? 'bg-accent-soft text-accent-text font-medium'
+                                            : 'text-fg-2 hover:bg-hover'
+                                        )}
+                                      >
+                                        {val}
+                                      </button>
                                     );
                                   })}
                                 </div>
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'role') {
-                            const roleStr = String(val || row.role || 'Team Member');
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                              >
-                                <span className={getRoleBadgeClass(roleStr)}>
-                                  {roleStr}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'department') {
-                            const deptStr = String(val || row.department || '');
-                            if (!deptStr) {
-                              return (
-                                <td
-                                  key={col.key}
-                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-400 italic text-[11px]"
-                                >
-                                  —
-                                </td>
-                              );
-                            }
-
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                              >
-                                <span className={getDeptBadgeClass(deptStr)}>
-                                  {deptStr}
-                                </span>
-                              </td>
-                            );
-                          }
-
-                          if (col.key === 'hours_utilized') {
-                            const hours = Number(val) || 0;
-                            if (!hours) {
-                              return (
-                                <td
-                                  key={col.key}
-                                  className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-300 dark:text-zinc-700 italic"
-                                >
-                                  —
-                                </td>
-                              );
-                            }
-
-                            return (
-                              <td
-                                key={col.key}
-                                className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap"
-                                title={formatHours(hours)}
-                              >
-                                <span className="font-numeric text-xs font-semibold tabular-nums text-zinc-800 dark:text-zinc-200">
-                                  {formatHours(hours)}
-                                </span>
-                              </td>
-                            );
-                          }
-
+                              )}
+                            </div>
+                          )}
+                        </th>
+                      );
+                    })}
+                    <th
+                      style={{ width: '72px', minWidth: '72px' }}
+                      className="p-2 text-center font-medium text-fg-muted border-b border-border sticky top-0 z-20 bg-canvas"
+                    >
+                      Actions
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border font-normal">
+                  {isLoading ? (
+                    Array.from({ length: 12 }).map((_, rIdx) => (
+                      <tr
+                        key={`skel-row-${rIdx}`}
+                        style={{ height: `${DEFAULT_ROW_HEIGHT}px` }}
+                        className="animate-pulse"
+                      >
+                        <td className="p-2 text-center border-b border-r border-border">
+                          <div className="w-4 h-3 bg-skel rounded mx-auto" />
+                        </td>
+                        {columns.map((col, cIdx) => {
+                          const colW = columnWidths[col.key] || 150;
+                          const widthPercent = ((rIdx * 19 + cIdx * 29) % 36) + 48;
                           return (
                             <td
-                              key={col.key}
-                              className="p-2 border-b border-r border-zinc-200 dark:border-zinc-800/60 overflow-hidden text-ellipsis whitespace-nowrap text-zinc-800 dark:text-zinc-200"
-                              title={String(val || '')}
+                              key={`skel-${rIdx}-${col.key}`}
+                              style={{ width: `${colW}px`, minWidth: `${colW}px` }}
+                              className="p-2 border-b border-r border-border"
                             >
-                              {val !== undefined && val !== null && String(val) !== '' ? (
-                                String(val)
-                              ) : (
-                                <span className="text-zinc-300 dark:text-zinc-700 italic">—</span>
-                              )}
+                              <div
+                                className="h-3.5 bg-skel rounded"
+                                style={{ width: `${widthPercent}%` }}
+                              />
                             </td>
                           );
                         })}
-
-                        {/* Actions */}
-                        <td className="p-2 text-center border-b border-zinc-200 dark:border-zinc-800/60">
-                          {canEditEntry(row) ? (
-                            <div className="flex items-center justify-center gap-1">
-                              <button
-                                type="button"
-                                onClick={() => handleOpenEditModal(row)}
-                                className="p-1 text-zinc-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition cursor-pointer"
-                                title="Edit log entry"
-                              >
-                                <Pencil className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleDeleteRow(row.id)}
-                                className="p-1 text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg transition cursor-pointer"
-                                title="Delete log entry"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <span className="text-zinc-300 dark:text-zinc-700 italic text-[11px]">—</span>
-                          )}
+                        <td className="p-2 text-center border-b border-border">
+                          <div className="w-8 h-3.5 bg-skel rounded mx-auto" />
                         </td>
                       </tr>
-                    );
-                  })}
-                  {paddingBottom > 0 && (
-                    <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
-                      <td colSpan={columns.length + 2} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+                    ))
+                  ) : filteredEntries.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length + 2} className="py-16 text-center">
+                        <EmptyState
+                          title="No entries found"
+                          description="No daily logs match the current date and department filter."
+                          action={
+                            !isAdmin && !isOperations && !hideLogCreate ? (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                onClick={handleOpenCreateModal}
+                              >
+                                Add entry
+                              </Button>
+                            ) : undefined
+                          }
+                        />
+                      </td>
                     </tr>
+                  ) : (
+                    <>
+                      {paddingTop > 0 && (
+                        <tr style={{ height: `${paddingTop}px` }} aria-hidden="true">
+                          <td colSpan={columns.length + 2} style={{ height: `${paddingTop}px`, padding: 0, border: 0 }} />
+                        </tr>
+                      )}
+                      {virtualRows.map((virtualRow) => {
+                        const row = filteredEntries[virtualRow.index];
+                        if (!row) return null;
+                        const rowH = rowHeights[row.id] || DEFAULT_ROW_HEIGHT;
+                        const rowFollowUp = canEditEntry(row) ? followUpByDate.get(row.date) : undefined;
+
+                        return (
+                          <tr
+                            key={row.id}
+                            ref={rowVirtualizer.measureElement}
+                            data-index={virtualRow.index}
+                            style={{ height: `${rowH}px` }}
+                            onDoubleClick={(e) => {
+                              const target = e.target as HTMLElement;
+                              if (target && target.closest('button, a, input, select')) return;
+                              if (canEditEntry(row)) {
+                                handleOpenEditModal(row);
+                              }
+                            }}
+                            className={cn(
+                              'hover:bg-hover transition-colors group',
+                              canEditEntry(row) && 'cursor-pointer',
+                              rowFollowUp && 'bg-warning-bg/40'
+                            )}
+                            title={canEditEntry(row) ? 'Double-click to edit your log entry' : undefined}
+                          >
+                            {/* Row Index */}
+                            <td className="p-2 text-center font-numeric text-small font-medium text-fg-muted border-b border-r border-border bg-subtle/30 select-none">
+                              {virtualRow.index + 1}
+                            </td>
+
+                            {/* Column Cells */}
+                            {columns.map((col) => {
+                              const val = (row as any)[col.key] || row.custom_fields?.[col.key];
+
+                              if (col.key === 'date') {
+                                const dateStr = String(val || row.date || '');
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap text-fg font-medium font-numeric"
+                                    title={dateStr}
+                                  >
+                                    {dateStr ? (
+                                      <span className="inline-flex items-center gap-1.5 min-w-0">
+                                        {rowFollowUp ? (
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              openFollowUp(row.date);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 min-w-0 cursor-pointer text-warning-fg"
+                                            title="Follow-up pending"
+                                          >
+                                            <span className="w-1.5 h-1.5 rounded-full bg-warning-dot shrink-0" />
+                                            <span className="truncate">{dateStr}</span>
+                                          </button>
+                                        ) : (
+                                          <span className="truncate">{dateStr}</span>
+                                        )}
+                                      </span>
+                                    ) : (
+                                      <span className="text-fg-faint italic">—</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'task_status') {
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap"
+                                  >
+                                    <StatusPill status={String(val || 'Incomplete')} />
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'task_type') {
+                                const typeStr = String(val || 'Scheduled Task');
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap"
+                                  >
+                                    <span className="inline-flex items-center text-small px-2 py-0.5 rounded-sm border border-border bg-subtle text-fg-2 font-medium">
+                                      {typeStr === 'Scheduled Task' ? 'Scheduled' : typeStr === 'Runtime Task' ? 'Runtime' : typeStr}
+                                    </span>
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'task_description') {
+                                const desc = String(val || '');
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border"
+                                    title={desc}
+                                  >
+                                    {desc ? (
+                                      <span className="line-clamp-2 text-fg leading-snug">{desc}</span>
+                                    ) : (
+                                      <span className="text-fg-faint italic">—</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'deliverables') {
+                                if (!val || String(val).trim() === '') {
+                                  return (
+                                    <td
+                                      key={col.key}
+                                      className="p-2 border-b border-r border-border text-fg-faint italic"
+                                    >
+                                      —
+                                    </td>
+                                  );
+                                }
+
+                                const valStr = String(val);
+                                const rawParts = valStr.split(/\s*\|\s*|\n/).map((s) => s.trim()).filter(Boolean);
+
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden"
+                                  >
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      {rawParts.map((item, itemIdx) => {
+                                        const mdMatch = item.match(/^\[(.*?)\]\((.*?)\)$/);
+                                        if (mdMatch) {
+                                          const label = mdMatch[1];
+                                          const url = mdMatch[2];
+                                          const isFile = url.startsWith('/uploads') || url.includes('/uploads/');
+                                          const fileName = label.replace(/^File:\s*/i, '') || 'Attachment';
+
+                                          return (
+                                            <button
+                                              key={itemIdx}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                downloadFileAttachment(url, fileName);
+                                              }}
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-subtle hover:bg-hover text-accent-text border border-border text-small font-medium transition cursor-pointer truncate max-w-[160px]"
+                                              title={`Download: ${fileName}`}
+                                            >
+                                              {isFile ? <Download size={12} /> : <Paperclip size={12} />}
+                                              <span className="truncate">{fileName}</span>
+                                            </button>
+                                          );
+                                        }
+
+                                        if (item.startsWith('/uploads') || item.includes('/uploads/')) {
+                                          const fileName = item.split('/').pop() || 'Attachment';
+                                          return (
+                                            <button
+                                              key={itemIdx}
+                                              type="button"
+                                              onClick={(e) => {
+                                                e.stopPropagation();
+                                                downloadFileAttachment(item, fileName);
+                                              }}
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-subtle hover:bg-hover text-accent-text border border-border text-small font-medium transition cursor-pointer truncate max-w-[160px]"
+                                              title={`Download: ${fileName}`}
+                                            >
+                                              <Download size={12} />
+                                              <span className="truncate">{fileName}</span>
+                                            </button>
+                                          );
+                                        }
+
+                                        const safeHref = toSafeHttpsUrl(item);
+                                        if (safeHref) {
+                                          return (
+                                            <a
+                                              key={itemIdx}
+                                              href={safeHref}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm bg-subtle hover:bg-hover text-accent-text border border-border text-small font-medium transition cursor-pointer truncate max-w-[160px]"
+                                              title={item}
+                                            >
+                                              <ExternalLink size={12} />
+                                              <span className="truncate">{item.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                            </a>
+                                          );
+                                        }
+
+                                        return (
+                                          <span key={itemIdx} className="text-fg-2 text-small truncate">
+                                            {item}
+                                          </span>
+                                        );
+                                      })}
+                                    </div>
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'role') {
+                                const roleStr = String(val || row.role || 'Team Member');
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap text-fg-2"
+                                  >
+                                    <span className="text-small font-medium">{roleStr}</span>
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'department') {
+                                const deptStr = String(val || row.department || '');
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap text-fg-2"
+                                  >
+                                    {deptStr || <span className="text-fg-faint italic">—</span>}
+                                  </td>
+                                );
+                              }
+
+                              if (col.key === 'hours_utilized') {
+                                const hours = Number(val) || 0;
+                                return (
+                                  <td
+                                    key={col.key}
+                                    className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap"
+                                  >
+                                    {hours ? (
+                                      <span className="font-numeric text-small font-semibold tabular-nums text-fg">
+                                        {formatHours(hours)}
+                                      </span>
+                                    ) : (
+                                      <span className="text-fg-faint italic">—</span>
+                                    )}
+                                  </td>
+                                );
+                              }
+
+                              return (
+                                <td
+                                  key={col.key}
+                                  className="p-2 border-b border-r border-border overflow-hidden text-ellipsis whitespace-nowrap text-fg-2"
+                                  title={String(val || '')}
+                                >
+                                  {val !== undefined && val !== null && String(val) !== '' ? (
+                                    String(val)
+                                  ) : (
+                                    <span className="text-fg-faint italic">—</span>
+                                  )}
+                                </td>
+                              );
+                            })}
+
+                            {/* Actions Column */}
+                            <td className="p-2 text-center border-b border-border">
+                              {canEditEntry(row) ? (
+                                <div className="flex items-center justify-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditModal(row)}
+                                    className="p-1 text-fg-muted hover:text-fg hover:bg-hover rounded transition cursor-pointer"
+                                    title="Edit log entry"
+                                  >
+                                    <Pencil size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteRow(row.id)}
+                                    className="p-1 text-fg-muted hover:text-danger-fg hover:bg-danger-bg rounded transition cursor-pointer"
+                                    title="Delete log entry"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-fg-faint italic text-small">—</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {paddingBottom > 0 && (
+                        <tr style={{ height: `${paddingBottom}px` }} aria-hidden="true">
+                          <td colSpan={columns.length + 2} style={{ height: `${paddingBottom}px`, padding: 0, border: 0 }} />
+                        </tr>
+                      )}
+                    </>
                   )}
-                </>
-              )}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            </div>
           </div>
-      </div>
 
-      {/* ─── Bottom Sheet Tabs (Month Selector) ─── */}
-      <div className="px-6 py-2 bg-white dark:bg-[#0f1117] border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-3 text-xs shrink-0 overflow-x-auto">
-        <div className="flex items-center gap-1 overflow-x-auto">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 px-2 shrink-0">
-            Sheets:
-          </span>
-          {availableSheets.map((sheet) => {
-            const isTabActive = activeSheet === sheet && datePreset === 'month';
-            return (
-              <button
-                key={sheet}
-                type="button"
-                onClick={() => handleSheetChange(sheet)}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer select-none shrink-0 ${
-                  isTabActive
-                    ? 'bg-indigo-600 text-white shadow-xs shadow-indigo-600/30'
-                    : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-200'
-                }`}
-              >
-                {sheet}
-              </button>
-            );
-          })}
+          {/* Bottom Sheet Tabs (Month Selector) */}
+          <div className="px-4 py-2 border-t border-border flex items-center justify-between gap-3 text-small shrink-0 bg-surface overflow-x-auto">
+            <div className="flex items-center gap-1.5 overflow-x-auto">
+              <span className="text-micro font-medium text-fg-muted px-1 shrink-0">
+                Sheets:
+              </span>
+              {availableSheets.map((sheet) => {
+                const isTabActive = activeSheet === sheet && datePreset === 'month';
+                return (
+                  <button
+                    key={sheet}
+                    type="button"
+                    onClick={() => handleSheetChange(sheet)}
+                    className={cn(
+                      'px-2.5 py-1 rounded-md text-small font-medium transition-colors cursor-pointer select-none shrink-0',
+                      isTabActive
+                        ? 'bg-accent text-accent-fg shadow-xs font-semibold'
+                        : 'bg-subtle text-fg-2 hover:bg-hover hover:text-fg'
+                    )}
+                  >
+                    {sheet}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="text-micro text-fg-muted font-numeric tabular-nums shrink-0">
+              Showing {filteredEntries.length} entries
+            </div>
+          </div>
         </div>
+      )}
 
-        <div className="text-[11px] text-zinc-400 font-medium shrink-0">
-          Showing {filteredEntries.length} entries
-        </div>
-      </div>
-
-      {/* Create / Edit Daily Log Modal with Locked Fields */}
+      {/* ─── Create / Edit Daily Log Modal ─── */}
       <DailyLogModal
         isOpen={isEntryModalOpen}
         mode={entryModalMode}
@@ -2049,138 +2141,121 @@ export const DailyLogView: React.FC = () => {
         onRefreshRequired={fetchEntries}
       />
 
-      {/* Column Customization Modal (Admin Only) */}
-      {isAdmin && isColumnModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-[#12141c] border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between border-b border-zinc-200 dark:border-zinc-800 pb-3.5">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                  <Settings2 className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                    Manage & Add Matrix Fields
-                  </h3>
-                  <p className="text-[11px] text-zinc-400">
-                    Configure columns and custom fields for this workspace
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsColumnModalOpen(false)}
-                className="p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* ─── Column Customization Dialog (Admin Only, max-w-[560px]) ─── */}
+      {isAdmin && (
+        <Dialog open={isColumnModalOpen} onOpenChange={setIsColumnModalOpen}>
+          <DialogContent maxWidth="md" className="p-0 overflow-hidden">
+            <DialogHeader className="px-6 py-4 border-b border-border bg-subtle/40">
+              <DialogTitle>Customize fields</DialogTitle>
+              <DialogDescription>
+                Configure columns and custom fields for this workspace
+              </DialogDescription>
+            </DialogHeader>
 
-            {/* Form to Add New Column */}
-            <div className="p-3.5 bg-zinc-50 dark:bg-zinc-900/60 border border-zinc-200 dark:border-zinc-800 rounded-xl space-y-3">
-              <span className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
-                <Plus className="w-3.5 h-3.5 text-indigo-500" />
-                <span>Add New Field Header</span>
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-[1fr_150px_auto] gap-2.5 items-center">
-                <input
-                  type="text"
-                  placeholder="Field Name (e.g. Priority)"
-                  value={newFieldLabel}
-                  onChange={(e) => setNewFieldLabel(e.target.value)}
-                  className="px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:bg-white dark:focus:bg-zinc-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
-                />
-                <FieldTypeSelect
-                  value={newFieldType}
-                  onChange={(val) => setNewFieldType(val)}
-                />
-                <button
-                  type="button"
-                  onClick={handleAddNewColumn}
-                  disabled={!newFieldLabel.trim()}
-                  className={`flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold transition-all select-none ${
-                    newFieldLabel.trim()
-                      ? 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white shadow-xs cursor-pointer'
-                      : 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 border border-zinc-200 dark:border-zinc-700/60 cursor-not-allowed'
-                  }`}
-                >
-                  <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
-                  <span>Add Field</span>
-                </button>
-              </div>
-              {newFieldType === 'select' && (
-                <input
-                  type="text"
-                  placeholder="Dropdown options separated by commas (e.g. High, Medium, Low)"
-                  value={newFieldOptions}
-                  onChange={(e) => setNewFieldOptions(e.target.value)}
-                  className="w-full px-3 py-2 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700/80 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all shadow-2xs"
-                />
-              )}
-            </div>
-
-            {/* List of Existing Columns */}
-            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-                Active Columns ({columns.length})
-              </span>
-              {columns.map((col, idx) => (
-                <div
-                  key={col.key}
-                  className="flex items-center gap-2.5 bg-zinc-50 dark:bg-zinc-900/70 p-2.5 rounded-xl border border-zinc-200 dark:border-zinc-800"
-                >
+            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+              {/* Add New Field Box */}
+              <div className="p-3.5 bg-subtle/50 border border-border rounded-lg space-y-3">
+                <span className="text-small font-semibold text-fg flex items-center gap-1.5">
+                  <Plus size={14} className="text-accent" />
+                  <span>Add new field</span>
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-center">
                   <input
                     type="text"
-                    value={col.label}
-                    onChange={(e) => {
-                      const newCols = [...columns];
-                      newCols[idx].label = e.target.value;
-                      setColumns(newCols);
-                    }}
-                    className="flex-1 px-3 py-2 bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700 rounded-xl text-xs text-zinc-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-2xs"
+                    placeholder="Field name (e.g. Priority)"
+                    value={newFieldLabel}
+                    onChange={(e) => setNewFieldLabel(e.target.value)}
+                    className="px-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
                   />
-                  <div className="w-40 shrink-0">
-                    <FieldTypeSelect
-                      value={col.type as any}
-                      onChange={(val) => {
-                        const newCols = [...columns];
-                        newCols[idx].type = val;
-                        setColumns(newCols);
-                      }}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteColumn(col.key)}
-                    className="p-2 text-zinc-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-colors cursor-pointer shrink-0"
-                    title="Remove Column"
+                  <select
+                    value={newFieldType}
+                    onChange={(e) => setNewFieldType(e.target.value as any)}
+                    className="px-2.5 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                    {FIELD_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.id} value={opt.id}>
+                        {opt.label}
+                      </option>
+                    ))}
+                  </select>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    size="sm"
+                    onClick={handleAddNewColumn}
+                    disabled={!newFieldLabel.trim()}
+                  >
+                    Add field
+                  </Button>
                 </div>
-              ))}
+                {newFieldType === 'select' && (
+                  <input
+                    type="text"
+                    placeholder="Options separated by commas (e.g. High, Medium, Low)"
+                    value={newFieldOptions}
+                    onChange={(e) => setNewFieldOptions(e.target.value)}
+                    className="w-full px-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
+                  />
+                )}
+              </div>
+
+              {/* Active Columns List */}
+              <div className="space-y-2">
+                <span className="text-micro font-medium text-fg-muted block mb-1">
+                  Active columns ({columns.length})
+                </span>
+                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+                  {columns.map((col, idx) => (
+                    <div
+                      key={col.key}
+                      className="flex items-center gap-2 bg-surface p-2 rounded-md border border-border"
+                    >
+                      <input
+                        type="text"
+                        value={col.label}
+                        onChange={(e) => {
+                          const newCols = [...columns];
+                          newCols[idx].label = e.target.value;
+                          setColumns(newCols);
+                        }}
+                        className="flex-1 px-2.5 py-1 h-7 bg-surface border border-border rounded text-small text-fg focus-visible:focus-ring"
+                      />
+                      <span className="text-micro font-medium text-fg-muted px-2 py-0.5 rounded bg-subtle border border-border shrink-0">
+                        {col.type}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteColumn(col.key)}
+                        className="p-1 text-fg-muted hover:text-danger-fg rounded cursor-pointer shrink-0"
+                        title="Remove column"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-3.5 border-t border-zinc-200 dark:border-zinc-800">
-              <button
-                type="button"
+            <div className="px-6 py-3 border-t border-border flex items-center justify-end gap-2 bg-subtle/30">
+              <Button
+                variant="secondary"
+                size="md"
                 onClick={() => setIsColumnModalOpen(false)}
-                className="px-4 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-xs font-semibold text-zinc-700 dark:text-zinc-300 transition-colors cursor-pointer"
               >
                 Cancel
-              </button>
-              <button
-                type="button"
+              </Button>
+              <Button
+                variant="primary"
+                size="md"
                 onClick={handleSaveColumns}
-                className="px-5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-xs font-bold text-white shadow-sm shadow-indigo-600/20 hover:shadow-md hover:shadow-indigo-600/30 transition-all cursor-pointer"
               >
-                Save Column Schema
-              </button>
+                Save schema
+              </Button>
             </div>
-          </div>
-        </div>
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   );
 };
-

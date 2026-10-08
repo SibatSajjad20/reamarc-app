@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  X,
   Share2,
   Copy,
   Check,
@@ -9,6 +8,8 @@ import {
   Link2,
   ExternalLink,
 } from 'lucide-react';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
+import { Button } from '../ui/button';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import {
   canAccessClientReviewLink,
@@ -183,68 +184,62 @@ export const ContentCalendarShareModal: React.FC<Props> = ({ item, isOpen, onClo
   };
 
   return (
-    <div className="fixed inset-0 z-60 overflow-hidden flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-in fade-in duration-150">
-      <div className="relative w-full max-w-xl bg-white dark:bg-[#12141c] rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col max-h-[90vh] overflow-hidden">
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent maxWidth="md" className="p-0 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/70 dark:bg-[#0d0f15]/80">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface">
           <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-950/50 text-blue-600 dark:text-blue-400 border border-blue-200/60 dark:border-blue-800/60">
+            <div className="p-2 rounded-md bg-accent-soft text-accent">
               <Share2 className="w-4 h-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-numeric font-bold text-xs px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
+                <span className="font-numeric font-medium text-caption px-2 py-0.5 rounded bg-subtle text-fg border border-border">
                   {item.serial}
                 </span>
-                <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-xs">
-                  Share Campaign Content
-                </h3>
+                <DialogTitle className="text-ui font-semibold text-fg truncate max-w-xs">
+                  Share campaign content
+                </DialogTitle>
               </div>
-              <p className="text-[11px] text-zinc-500 mt-0.5 truncate">
+              <DialogDescription className="text-caption text-fg-muted mt-0.5 truncate">
                 {item.content_concept}
-              </p>
+              </DialogDescription>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition cursor-pointer"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Public Client Review Link Bar (Visible when criteria met) */}
         {showReviewLink && (
-          <div className="mx-6 mt-4 p-3.5 rounded-xl bg-blue-50/60 dark:bg-blue-950/30 border border-blue-200/70 dark:border-blue-800/60 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="p-2 rounded-lg bg-blue-600 text-white shrink-0 shadow-xs">
+          <div className="mx-6 mt-4 p-3 rounded-md bg-subtle border border-border flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5 min-w-0 flex-1">
+              <div className="p-1.5 rounded-md bg-accent-soft text-accent shrink-0">
                 <Link2 className="w-3.5 h-3.5" />
               </div>
-              <div className="min-w-0">
-                <span className="text-[11px] font-bold text-zinc-900 dark:text-zinc-100 block truncate">
-                  Client Review Link
+              <div className="min-w-0 flex-1">
+                <span className="text-caption font-medium text-fg block truncate">
+                  Client review link
                 </span>
-                <span className="text-[10px] text-zinc-500 dark:text-zinc-400 block truncate font-mono">
+                <span className="text-caption text-fg-muted block truncate font-mono">
                   {clientReviewUrl}
                 </span>
               </div>
             </div>
             <div className="flex items-center gap-1.5 shrink-0">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={handleCopyReviewLink}
-                className="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-white dark:bg-[#141620] text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-50 dark:hover:bg-blue-900/40 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
               >
-                {copiedReview ? <Check className="w-3.5 h-3.5 text-blue-600" /> : <Copy className="w-3.5 h-3.5" />}
-                <span>{copiedReview ? 'Copied' : 'Copy Link'}</span>
-              </button>
+                {copiedReview ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedReview ? 'Copied' : 'Copy link'}</span>
+              </Button>
               <a
                 href={clientReviewUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="p-1.5 rounded-lg bg-white dark:bg-[#141620] text-zinc-600 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700 hover:bg-zinc-50 transition"
-                title="Open Review Page in New Tab"
+                className="p-1.5 rounded-md border border-border hover:bg-hover text-fg-muted transition inline-flex items-center justify-center"
+                title="Open review page in new tab"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
               </a>
@@ -253,89 +248,89 @@ export const ContentCalendarShareModal: React.FC<Props> = ({ item, isOpen, onClo
         )}
 
         {/* Format Selector Tabs */}
-        <div className="px-6 pt-4 pb-2 border-b border-zinc-100 dark:border-zinc-800/80 bg-zinc-50/40 dark:bg-zinc-900/20 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-zinc-200/60 dark:bg-zinc-800/70 text-xs">
+        <div className="px-6 pt-4 pb-2 border-b border-border bg-subtle flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1 p-0.5 rounded-md bg-surface border border-border text-xs">
             <button
               type="button"
               onClick={() => setFormatMode('whatsapp')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-sm font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 formatMode === 'whatsapp'
-                  ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  ? 'bg-subtle text-fg font-semibold shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
-              <MessageCircle className="w-3.5 h-3.5 text-blue-600" />
-              <span>WhatsApp / Chat</span>
+              <MessageCircle className="w-3.5 h-3.5" />
+              <span>WhatsApp</span>
             </button>
             <button
               type="button"
               onClick={() => setFormatMode('full')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-sm font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 formatMode === 'full'
-                  ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  ? 'bg-subtle text-fg font-semibold shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
-              <FileText className="w-3.5 h-3.5 text-zinc-600" />
-              <span>Full Brief</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Full brief</span>
             </button>
             <button
               type="button"
               onClick={() => setFormatMode('social')}
-              className={`px-3 py-1.5 rounded-lg font-medium transition cursor-pointer flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-sm font-medium transition cursor-pointer flex items-center gap-1.5 ${
                 formatMode === 'social'
-                  ? 'bg-white dark:bg-zinc-900 text-blue-600 dark:text-blue-400 shadow-xs font-semibold'
-                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200'
+                  ? 'bg-subtle text-fg font-semibold shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
               }`}
             >
-              <Copy className="w-3.5 h-3.5 text-zinc-600" />
-              <span>Post Copy Only</span>
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy only</span>
             </button>
           </div>
         </div>
 
         {/* Content Preview Box */}
         <div className="flex-1 p-6 overflow-y-auto min-h-[220px] max-h-[360px]">
-          <pre className="text-xs font-sans leading-relaxed whitespace-pre-wrap text-zinc-800 dark:text-zinc-200 bg-zinc-50 dark:bg-zinc-900/60 p-4 rounded-xl border border-zinc-200/80 dark:border-zinc-800 selection:bg-blue-100">
+          <pre className="text-small font-sans leading-relaxed whitespace-pre-wrap text-fg bg-subtle p-4 rounded-md border border-border">
             {activeContent}
           </pre>
         </div>
 
         {/* Action Buttons Footer */}
-        <div className="px-6 py-4 border-t border-zinc-200 dark:border-zinc-800 flex items-center justify-between bg-zinc-50/70 dark:bg-[#0d0f15]/80 gap-3">
+        <div className="px-6 py-4 border-t border-border flex items-center justify-between bg-surface gap-3">
           <div className="flex items-center gap-2">
             {formatMode === 'whatsapp' && (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={handleWhatsAppShare}
-                className="px-3.5 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
               >
-                <MessageCircle className="w-3.5 h-3.5" />
+                <MessageCircle className="w-3.5 h-3.5 mr-1.5" />
                 <span>Open in WhatsApp</span>
-              </button>
+              </Button>
             )}
-            <button
+            <Button
               type="button"
+              variant="secondary"
               onClick={handleNativeShare}
-              className="px-3.5 py-2 rounded-xl bg-white dark:bg-zinc-800 hover:bg-zinc-100 dark:hover:bg-zinc-700/80 text-zinc-700 dark:text-zinc-200 border border-zinc-200 dark:border-zinc-700 font-semibold text-xs transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
             >
-              <Share2 className="w-3.5 h-3.5 text-zinc-500" />
-              <span>Share...</span>
-            </button>
+              <Share2 className="w-3.5 h-3.5 mr-1.5" />
+              <span>Share…</span>
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
-            <button
+            <Button
               type="button"
+              variant="primary"
               onClick={handleCopy}
-              className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs shadow-xs transition flex items-center gap-1.5 cursor-pointer"
             >
-              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copied ? 'Copied to Clipboard' : 'Copy All Text'}</span>
-            </button>
+              {copied ? <Check className="w-3.5 h-3.5 mr-1.5" /> : <Copy className="w-3.5 h-3.5 mr-1.5" />}
+              <span>{copied ? 'Copied' : 'Copy all text'}</span>
+            </Button>
           </div>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

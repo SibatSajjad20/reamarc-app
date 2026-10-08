@@ -14,7 +14,7 @@ from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
 from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public, web_push, content_calendar
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_public, web_push, content_calendar, website_projects
 
 class JSONFormatter(logging.Formatter):
     """Format log entries as structured JSON lines for production log aggregators."""
@@ -111,6 +111,9 @@ async def lifespan(app: FastAPI):
     from app.services.crm_meeting_reminder_scheduler import start_crm_meeting_reminder_scheduler
     meeting_reminder_task = asyncio.create_task(start_crm_meeting_reminder_scheduler())
 
+    from app.services.website_due_scheduler import start_website_due_scheduler
+    website_scheduler_task = asyncio.create_task(start_website_due_scheduler())
+
     sync_task = asyncio.create_task(periodic_marketing_sync())
 
     yield
@@ -121,6 +124,7 @@ async def lifespan(app: FastAPI):
     lead_queue_task.cancel()
     meta_poll_task.cancel()
     meeting_reminder_task.cancel()
+    website_scheduler_task.cancel()
     sync_task.cancel()
     shutdown_attendance_scheduler()
     await close_mongo_connection()
@@ -142,7 +146,9 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS â€” production uses explicit allowlist only (no *.vercel.app regex)
+# CORS — production uses explicit allowlist only (no *.vercel.app regex)
+_DEV_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|testserver|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?"
+
 _cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
@@ -151,7 +157,7 @@ _cors_kwargs = dict(
     expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
 )
 if not settings.IS_PRODUCTION:
-    _cors_kwargs["allow_origin_regex"] = r"https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?"
+    _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
 
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
@@ -176,7 +182,7 @@ async def csrf_protection_middleware(request: Request, call_next):
             allowed = set(settings.CORS_ORIGINS)
             is_valid_origin = origin in allowed
             if not is_valid_origin and not settings.IS_PRODUCTION:
-                is_valid_origin = bool(re.match(r"^https?://(localhost|127\.0\.0\.1|testserver)(:\d+)?$", origin))
+                is_valid_origin = bool(re.fullmatch(_DEV_ORIGIN_REGEX, origin))
             if not is_valid_origin:
                 return JSONResponse(
                     status_code=403,
@@ -257,6 +263,7 @@ app.include_router(crm.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router, prefix=settings.API_V1_STR)
 app.include_router(crm_public.router)
 app.include_router(content_calendar.router, prefix=settings.API_V1_STR)
+app.include_router(website_projects.router, prefix=settings.API_V1_STR)
 
 
 
