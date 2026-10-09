@@ -250,7 +250,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 onClick={() => setActiveTab('approvals')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
                   activeTab === 'approvals'
-                    ? 'bg-surface text-accent-fg shadow-xs'
+                    ? 'bg-surface text-accent-text shadow-xs'
                     : 'text-fg-muted hover:text-fg'
                 }`}
               >
@@ -272,7 +272,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 onClick={() => setActiveTab('pipeline')}
                 className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium transition-all cursor-pointer ${
                   activeTab === 'pipeline'
-                    ? 'bg-surface text-accent-fg shadow-xs'
+                    ? 'bg-surface text-accent-text shadow-xs'
                     : 'text-fg-muted hover:text-fg'
                 }`}
               >
@@ -325,7 +325,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
               title="Refresh projects"
               className="h-8 w-8 flex items-center justify-center rounded-lg text-fg-muted hover:text-fg hover:bg-hover border border-border transition cursor-pointer shrink-0"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-accent-fg' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin text-accent-text' : ''}`} />
             </button>
           </div>
         </div>
@@ -362,7 +362,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 <div className="rounded-xl p-5 bg-surface border border-border space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium uppercase tracking-wider px-2.5 py-1 rounded-md bg-subtle text-fg border border-border">
+                      <span className="text-xs font-medium px-2.5 py-1 rounded-md bg-subtle text-fg border border-border">
                         {cleanLabel(activeProject.website_type)}
                       </span>
                       <span className="text-xs text-fg-muted font-normal">
@@ -447,7 +447,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
                               <div className="flex items-center gap-2">
-                                <span className="px-2 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-warning-solid text-white">
+                                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-warning-solid text-white">
                                   Action Required
                                 </span>
                                 <span className="text-xs font-mono text-fg-muted">
@@ -653,7 +653,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                   onClick={() => setPipelineSubMode('websites')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                     pipelineSubMode === 'websites'
-                      ? 'bg-hover text-accent-fg shadow-2xs'
+                      ? 'bg-hover text-accent-text shadow-2xs'
                       : 'text-fg-muted hover:text-fg'
                   }`}
                 >
@@ -665,7 +665,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                   onClick={() => setPipelineSubMode('tasks')}
                   className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer ${
                     pipelineSubMode === 'tasks'
-                      ? 'bg-hover text-accent-fg shadow-2xs'
+                      ? 'bg-hover text-accent-text shadow-2xs'
                       : 'text-fg-muted hover:text-fg'
                   }`}
                 >

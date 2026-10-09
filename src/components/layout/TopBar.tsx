@@ -2,7 +2,7 @@ import React from 'react';
 import type { ViewType } from '@/types';
 import type { CrmSubSection } from '@/types/crm';
 import type { AttendanceSubSection } from '@/types/attendance';
-import type { AdminSectionType } from '@/components/admin/AdminSidebarNav';
+import type { AdminSectionType } from '@/types/admin';
 import { useBreadcrumb, type BreadcrumbItem } from './BreadcrumbContext';
 import { NotificationBell } from '@/components/NotificationBell';
 import {
@@ -20,6 +20,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
+import type { SettingsSectionSlug } from '@/types/settings';
+import { getSettingsSection } from '@/utils/settingsAccess';
 
 export interface TopBarProps {
   currentView: ViewType;
@@ -34,6 +36,8 @@ export interface TopBarProps {
   onSelectWebsiteSection?: (section: 'board' | 'tasks' | 'table') => void;
   activePortalTab?: 'content' | 'website';
   onSelectPortalTab?: (tab: 'content' | 'website') => void;
+  activeSettingsSection?: SettingsSectionSlug;
+  onSelectSettingsSection?: (section: SettingsSectionSlug) => void;
   onOpenCommandPalette: () => void;
   onOpenShortcuts: () => void;
   onOpenMobileMenu?: () => void;
@@ -52,6 +56,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   onSelectWebsiteSection,
   activePortalTab = 'content',
   onSelectPortalTab,
+  activeSettingsSection = 'profile',
+  onSelectSettingsSection,
   onOpenCommandPalette,
   onOpenShortcuts,
   onOpenMobileMenu,
@@ -82,10 +88,6 @@ export const TopBar: React.FC<TopBarProps> = ({
           deals: 'Deals',
           list: 'All leads',
           followup: 'Follow-ups',
-          settings: 'Pipeline settings',
-          templates: 'Pipeline settings',
-          ingest: 'Pipeline settings',
-          rules: 'Pipeline settings',
         };
         const activeLabel = crmLabels[activeCrmSection] || 'Leads board';
         return [
@@ -151,10 +153,7 @@ export const TopBar: React.FC<TopBarProps> = ({
         const adminLabels: Record<string, string> = {
           directory: 'Team directory',
           compliance: 'Log compliance',
-          attendance_policies: 'Attendance policies',
-          mobile_ops: 'Mobile & alerts',
           workspaces: 'Client workspaces',
-          ad_accounts: 'Ad accounts',
         };
         const activeLabel = adminLabels[activeAdminSection] || 'Team directory';
         return [
@@ -169,11 +168,30 @@ export const TopBar: React.FC<TopBarProps> = ({
           },
         ];
       }
-      case 'profile':
+      case 'settings': {
+        const section = activeSettingsSection ? getSettingsSection(activeSettingsSection) : undefined;
         return [
-          { label: 'Settings' },
-          { label: 'Profile', onClick: () => onSelectView('profile') },
+          {
+            label: 'Settings',
+            onClick: () => {
+              onSelectView('settings');
+              if (onSelectSettingsSection) onSelectSettingsSection('profile');
+            },
+          },
+          ...(section
+            ? [
+                { label: section.groupLabel },
+                {
+                  label: section.label,
+                  onClick: () => {
+                    onSelectView('settings');
+                    if (onSelectSettingsSection) onSelectSettingsSection(section.slug);
+                  },
+                },
+              ]
+            : []),
         ];
+      }
       case 'portal': {
         const portalLabels: Record<string, string> = {
           content: 'Content calendar',
@@ -193,11 +211,11 @@ export const TopBar: React.FC<TopBarProps> = ({
       }
       case 'website-pipeline': {
         const websiteLabels: Record<string, string> = {
-          board: 'Websites pipeline',
+          board: 'Website pipeline',
           tasks: 'Tasks pipeline',
           table: 'Table view',
         };
-        const activeLabel = websiteLabels[activeWebsiteSection] || 'Websites pipeline';
+        const activeLabel = websiteLabels[activeWebsiteSection] || 'Website pipeline';
         return [
           { label: 'Clients' },
           { label: 'Website pipeline', onClick: () => onSelectView('website-pipeline') },

@@ -1,21 +1,15 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { adminService } from '../../services/adminService';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
-import { AdminSidebarNav } from './AdminSidebarNav';
-import type { AdminSectionType } from './AdminSidebarNav';
+import type { AdminSectionType } from '../../types/admin';
 import { UserManagementSection } from './sections/UserManagementSection';
 import { ComplianceRemindersSection } from './sections/ComplianceRemindersSection';
-import { AttendancePoliciesSection } from './sections/AttendancePoliciesSection';
-import { MobileOpsSection } from './sections/MobileOpsSection';
 import { WorkspacesSection } from './sections/WorkspacesSection';
-import { AdAccountsSection } from './sections/AdAccountsSection';
 import { AddMemberModal } from './AddMemberModal';
 import { EditMemberModal } from './EditMemberModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
-import { AdAccountModal } from '../modals/AdAccountModal';
-import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 import type { UserRole } from '../../types/auth';
 import type {
   AdminMember,
@@ -23,8 +17,6 @@ import type {
   UpdateMemberPayload,
   MemberActivity,
   AdAccount,
-  CreateAdAccountPayload,
-  UpdateAdAccountPayload,
 } from '../../types/admin';
 import type { Workspace } from '../../types';
 
@@ -44,28 +36,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const canManageMembers = isAdmin || isHR;
   const canManageWorkspaces = isAdmin || isOperations;
-  const canManageAdAccounts = isAdmin;
 
   const [activeSection, setActiveSection] = useState<AdminSectionType>(() => {
     return propActiveSection || 'directory';
   });
-  const [policiesVisited, setPoliciesVisited] = useState(
-    () => propActiveSection === 'attendance_policies'
-  );
 
   useEffect(() => {
-    if (propActiveSection === 'attendance_policies') {
-      setPoliciesVisited(true);
-    }
     if (propActiveSection && propActiveSection !== activeSection) {
       setActiveSection(propActiveSection);
     }
-  }, [propActiveSection]);
+  }, [propActiveSection, activeSection]);
 
   useEffect(() => {
-    if (isHR && (activeSection === 'compliance' || activeSection === 'workspaces' || activeSection === 'ad_accounts')) {
+    if (isHR && activeSection !== 'directory') {
       setActiveSection('directory');
-    } else if (isOperations && (activeSection === 'compliance' || activeSection === 'attendance_policies' || activeSection === 'mobile_ops' || activeSection === 'ad_accounts')) {
+    } else if (isOperations && activeSection === 'compliance') {
       setActiveSection('directory');
     }
   }, [user?.role, activeSection, isHR, isOperations]);
@@ -88,7 +73,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // Workspaces (from hook)
   const { workspaces, saveWorkspace, refetch: refetchWorkspaces } = useWorkspaces();
 
-  // Ad Accounts (separate collection & state)
+  // Ad Accounts (read-only for KPI counts in directory)
   const [adAccounts, setAdAccounts] = useState<AdAccount[]>(() => initialAdAccounts);
 
   // Modals for Members
@@ -102,95 +87,93 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
   const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
 
-  // Modals for Ad Accounts
-  const [isAdAccountModalOpen, setIsAdAccountModalOpen] = useState(false);
-  const [adAccountToEdit, setAdAccountToEdit] = useState<AdAccount | null>(null);
-  const [adAccountToDelete, setAdAccountToDelete] = useState<AdAccount | null>(null);
-
-  // Credentials Modal for Ad Account
-  const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
-  const [selectedAdAccountForCreds, setSelectedAdAccountForCreds] = useState<AdAccount | null>(null);
-
   const { addToast } = useToast();
 
   const handleSelectSection = (section: AdminSectionType) => {
-    if (section === 'attendance_policies') setPoliciesVisited(true);
     setActiveSection(section);
     onSectionChange?.(section);
   };
 
+  const fetchMembers = useCallback(async () => {
+    try {
+      const res = await adminService.getMembers();
+      setMembers(res || []);
+    } catch (err: any) {
+      addToast('Error', err.message || 'Failed to load members', 'error');
+    }
+  }, [addToast]);
+
   const fetchActivities = useCallback(async () => {
     try {
-      const list = await adminService.getMembersActivity(7);
-      const actMap: Record<string, MemberActivity> = {};
-      list.forEach((a) => {
-        actMap[a.user_id] = a;
+      const res = await adminService.getMembersActivity();
+      const map: Record<string, MemberActivity> = {};
+      (res || []).forEach((a: MemberActivity) => {
+        map[a.user_id] = a;
       });
-      setActivities(actMap);
-    } catch (err: any) {
-      console.warn('Failed to load member activity in background:', err);
+      setActivities(map);
+    } catch {
+      // Activity fetch failure non-fatal
     }
   }, []);
 
-  const fetchMembers = async (showSpinner = false) => {
-    try {
-      if ((showSpinner || members.length === 0) && !adminService.hasInitialCache()) {
-        setIsLoadingMembers(true);
-      }
-      const list = await adminService.getMembers();
-      adminService.setCachedMembers(list);
-      setMembers(list);
-    } catch (err: any) {
-      if (!adminService.hasInitialCache()) {
-        addToast('Error', err?.message || 'Failed to load team members directory', 'error');
-      }
-    } finally {
-      setIsLoadingMembers(false);
-    }
-    // Non-blocking background fetch for compliance activity
-    fetchActivities();
-  };
-
   const fetchAdAccounts = useCallback(async () => {
     try {
-      const accounts = await adminService.getAdAccounts();
-      adminService.setCachedAdAccounts(accounts || []);
-      setAdAccounts(accounts || []);
-    } catch (err: any) {
-      console.error('Failed to load ad accounts:', err);
+      const res = await adminService.getAdAccounts();
+      setAdAccounts(res || []);
+    } catch {
+      // Ad accounts fetch failure non-fatal
     }
   }, []);
 
   useEffect(() => {
-    fetchMembers(true);
-    fetchAdAccounts();
-  }, [fetchAdAccounts]);
+    let isMounted = true;
+    const loadAll = async () => {
+      if (!hasCached) setIsLoadingMembers(true);
+      await Promise.allSettled([fetchMembers(), fetchActivities(), fetchAdAccounts()]);
+      if (isMounted) setIsLoadingMembers(false);
+    };
+    void loadAll();
+    return () => {
+      isMounted = false;
+    };
+  }, [fetchMembers, fetchActivities, fetchAdAccounts, hasCached]);
 
   // --- Member Handlers ---
   const handleCreateMember = async (payload: CreateMemberPayload) => {
-    await adminService.createMember(payload);
-    addToast('Member Created', `${payload.full_name} has been added to directory.`, 'success');
-    await fetchMembers();
+    try {
+      await adminService.createMember(payload);
+      addToast('Member Added', `${payload.full_name} was invited successfully.`, 'success');
+      setIsAddModalOpen(false);
+      await fetchMembers();
+    } catch (err: any) {
+      addToast('Failed to Add Member', err.message || 'Please check the details.', 'error');
+    }
   };
 
   const handleUpdateMember = async (userId: string, payload: UpdateMemberPayload) => {
-    await adminService.updateMember(userId, payload);
-    addToast('Profile Updated', 'Team member details successfully saved.', 'success');
-    await fetchMembers();
+    try {
+      await adminService.updateMember(userId, payload);
+      addToast('Member Updated', 'Profile changes saved.', 'success');
+      setIsEditModalOpen(false);
+      setMemberToEdit(null);
+      await fetchMembers();
+    } catch (err: any) {
+      addToast('Update Failed', err.message || 'Could not save member.', 'error');
+    }
   };
 
   const handleToggleMemberStatus = async (member: AdminMember) => {
+    const nextState = !member.is_active;
     try {
-      const nextActive = !member.is_active;
-      await adminService.updateMember(member.id, { is_active: nextActive });
+      await adminService.updateMember(member.id, { is_active: nextState });
       addToast(
-        nextActive ? 'Member reactivated' : 'Member deactivated',
-        `${member.full_name} is now ${nextActive ? 'active' : 'deactivated'}.`,
-        'success'
+        nextState ? 'Member Activated' : 'Member Deactivated',
+        `${member.full_name} is now ${nextState ? 'active' : 'inactive'}.`,
+        nextState ? 'success' : 'warning'
       );
       await fetchMembers();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to update member status', 'error');
+      addToast('Status Change Failed', err.message, 'error');
     }
   };
 
@@ -198,31 +181,21 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     if (!memberToDelete) return;
     try {
       await adminService.deleteMember(memberToDelete.id);
-      addToast(
-        'Member Removed',
-        `${memberToDelete.full_name} and all of their daily logs, attendance, and leave records were deleted.`,
-        'info'
-      );
+      addToast('Member Removed', `${memberToDelete.full_name} has been removed.`, 'info');
       setMemberToDelete(null);
       await fetchMembers();
-      window.dispatchEvent(new Event('reamarc-member-deleted'));
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to delete member', 'error');
+      addToast('Deletion Failed', err.message, 'error');
     }
   };
 
-  const handleSendReminder = async (
-    userId: string,
-    channel: 'email' | 'in_app' | 'all' = 'email',
-    customMessage?: string
-  ) => {
+  const handleSendReminder = async (userId: string) => {
+    setIsSendingReminder((prev) => ({ ...prev, [userId]: true }));
     try {
-      setIsSendingReminder((prev) => ({ ...prev, [userId]: true }));
-      const res = await adminService.sendMemberReminder(userId, { channel, custom_message: customMessage });
-      addToast('Reminder Dispatched', res.message, 'success');
-      await fetchMembers();
+      await adminService.sendMemberReminder(userId);
+      addToast('Reminder Sent', 'Daily log compliance alert dispatched.', 'success');
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to dispatch reminder', 'error');
+      addToast('Reminder Failed', err.message || 'Could not send reminder.', 'error');
     } finally {
       setIsSendingReminder((prev) => ({ ...prev, [userId]: false }));
     }
@@ -248,135 +221,56 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     }
   };
 
-  // --- Ad Account Handlers ---
-  const handleSaveAdAccount = async (
-    payload: CreateAdAccountPayload | UpdateAdAccountPayload,
-    accountId?: string
-  ) => {
-    if (accountId) {
-      await adminService.updateAdAccount(accountId, payload as UpdateAdAccountPayload);
-      addToast('Ad Account Updated', 'Advertising account details saved.', 'success');
-    } else {
-      await adminService.createAdAccount(payload as CreateAdAccountPayload);
-      addToast('Ad Account Created', 'New advertising account created.', 'success');
-    }
-    setIsAdAccountModalOpen(false);
-    setAdAccountToEdit(null);
-    await fetchAdAccounts();
-  };
-
-  const handleDeleteAdAccount = async () => {
-    if (!adAccountToDelete) return;
-    try {
-      await adminService.deleteAdAccount(adAccountToDelete.id);
-      addToast('Ad Account Removed', `${adAccountToDelete.name} was removed.`, 'info');
-      setAdAccountToDelete(null);
-      await fetchAdAccounts();
-    } catch (err: any) {
-      addToast('Error', err.message || 'Failed to delete ad account', 'error');
-    }
-  };
-
-  const missingLogsCount = useMemo(() => {
-    return Object.values(activities).filter(
-      (a) =>
-        a.role !== 'admin' &&
-        a.role !== 'operations' &&
-        a.role !== 'client' &&
-        (a.missing_dates || []).length > 0,
-    ).length;
-  }, [activities]);
-
   return (
     <div className="flex h-full w-full bg-canvas text-fg overflow-hidden">
-      <AdminSidebarNav
-        activeSection={activeSection}
-        onSelectSection={handleSelectSection}
-        memberCount={members.length}
-        workspaceCount={workspaces.length}
-        adAccountCount={adAccounts.length}
-        missingLogsCount={missingLogsCount}
-        isAdmin={isAdmin}
-        userRole={user?.role}
-      />
-
       <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
-      {activeSection === 'directory' && (
-        <UserManagementSection
-          members={members}
-          workspaces={workspaces}
-          adAccounts={adAccounts}
-          isLoading={isLoadingMembers}
-          onAddMember={(role) => {
-            setAddMemberDefaultRole(role || 'team_member');
-            setIsAddModalOpen(true);
-          }}
-          onEditMember={(m) => {
-            setMemberToEdit(m);
-            setIsEditModalOpen(true);
-          }}
-          onDeleteMember={(m) => setMemberToDelete(m)}
-          onToggleStatus={handleToggleMemberStatus}
-          onNavigateSection={handleSelectSection}
-          canManageMembers={canManageMembers}
-        />
-      )}
+        {activeSection === 'directory' && (
+          <UserManagementSection
+            members={members}
+            workspaces={workspaces}
+            adAccounts={adAccounts}
+            isLoading={isLoadingMembers}
+            onAddMember={(role) => {
+              setAddMemberDefaultRole(role || 'team_member');
+              setIsAddModalOpen(true);
+            }}
+            onEditMember={(m) => {
+              setMemberToEdit(m);
+              setIsEditModalOpen(true);
+            }}
+            onDeleteMember={(m) => setMemberToDelete(m)}
+            onToggleStatus={handleToggleMemberStatus}
+            onNavigateSection={handleSelectSection}
+            canManageMembers={canManageMembers}
+          />
+        )}
 
-      {activeSection === 'compliance' && isAdmin && (
-        <ComplianceRemindersSection
-          activities={activities}
-          isLoading={isLoadingMembers}
-          onSendReminder={handleSendReminder}
-          isSendingReminder={isSendingReminder}
-        />
-      )}
+        {activeSection === 'compliance' && isAdmin && (
+          <ComplianceRemindersSection
+            activities={activities}
+            isLoading={isLoadingMembers}
+            onSendReminder={handleSendReminder}
+            isSendingReminder={isSendingReminder}
+          />
+        )}
 
-      {activeSection === 'workspaces' && (isAdmin || isOperations) && (
-        <WorkspacesSection
-          workspaces={workspaces}
-          adAccounts={adAccounts}
-          onAddWorkspace={() => {
-            setWorkspaceToEdit(null);
-            setIsWorkspaceModalOpen(true);
-          }}
-          onEditWorkspace={(ws) => {
-            setWorkspaceToEdit(ws);
-            setIsWorkspaceModalOpen(true);
-          }}
-          onToggleStatus={handleToggleWorkspaceStatus}
-          canManageWorkspaces={canManageWorkspaces}
-          members={members}
-        />
-      )}
-
-      {activeSection === 'ad_accounts' && isAdmin && (
-        <AdAccountsSection
-          adAccounts={adAccounts}
-          workspaces={workspaces}
-          onAddAccount={() => {
-            setAdAccountToEdit(null);
-            setIsAdAccountModalOpen(true);
-          }}
-          onEditAccount={(acc) => {
-            setAdAccountToEdit(acc);
-            setIsAdAccountModalOpen(true);
-          }}
-          onDeleteAccount={(acc) => setAdAccountToDelete(acc)}
-          onOpenCredentials={(acc) => {
-            setSelectedAdAccountForCreds(acc);
-            setIsCredsModalOpen(true);
-          }}
-          canManageAdAccounts={canManageAdAccounts}
-        />
-      )}
-
-      {activeSection === 'mobile_ops' && (isAdmin || isHR) && <MobileOpsSection />}
-
-      {policiesVisited && (isAdmin || isHR) && (
-        <div className={activeSection === 'attendance_policies' ? 'flex-1 min-h-0 overflow-hidden flex flex-col' : 'hidden'}>
-          <AttendancePoliciesSection />
-        </div>
-      )}
+        {activeSection === 'workspaces' && (isAdmin || isOperations) && (
+          <WorkspacesSection
+            workspaces={workspaces}
+            adAccounts={adAccounts}
+            onAddWorkspace={() => {
+              setWorkspaceToEdit(null);
+              setIsWorkspaceModalOpen(true);
+            }}
+            onEditWorkspace={(ws) => {
+              setWorkspaceToEdit(ws);
+              setIsWorkspaceModalOpen(true);
+            }}
+            onToggleStatus={handleToggleWorkspaceStatus}
+            canManageWorkspaces={canManageWorkspaces}
+            members={members}
+          />
+        )}
       </div>
 
       {/* ─── MODALS ─── */}
@@ -416,37 +310,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         />
       )}
 
-      {/* Ad Account Modal */}
-      {isAdAccountModalOpen && (
-        <AdAccountModal
-          isOpen={isAdAccountModalOpen}
-          adAccountToEdit={adAccountToEdit}
-          workspaces={workspaces}
-          onClose={() => {
-            setIsAdAccountModalOpen(false);
-            setAdAccountToEdit(null);
-          }}
-          onSave={handleSaveAdAccount}
-        />
-      )}
-
-      {/* API Credentials Modal */}
-      {isCredsModalOpen && selectedAdAccountForCreds && (
-        <AdAccountCredentialsModal
-          isOpen={isCredsModalOpen}
-          selectedWorkspace={
-            selectedAdAccountForCreds.workspace_id
-              ? workspaces.find((w) => w.id === selectedAdAccountForCreds.workspace_id) || null
-              : null
-          }
-          workspaces={workspaces}
-          onClose={() => {
-            setIsCredsModalOpen(false);
-            setSelectedAdAccountForCreds(null);
-          }}
-        />
-      )}
-
       {/* Delete Member Confirmation */}
       {memberToDelete && (
         <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
@@ -458,50 +321,20 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               This permanently deletes their account, Daily Log entries, Exception inbox items,
               attendance punches, and leave records. This cannot be undone.
             </p>
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex items-center justify-end gap-2 pt-2">
               <button
                 type="button"
                 onClick={() => setMemberToDelete(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition-colors"
+                className="px-3 py-1.5 rounded-md border border-border text-xs font-medium text-fg hover:bg-hover transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeleteMember}
-                className="px-3.5 py-1.5 bg-danger-solid hover:opacity-90 text-white rounded-md text-xs font-medium shadow-xs transition-opacity"
+                className="px-3 py-1.5 rounded-md bg-danger text-white text-xs font-medium hover:bg-danger/90 transition cursor-pointer shadow-xs"
               >
-                Delete Member
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Delete Ad Account Confirmation */}
-      {adAccountToDelete && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-xl p-6 max-w-sm w-full shadow-lg space-y-4 animate-in fade-in zoom-in-95">
-            <h3 className="text-sm font-semibold text-fg">
-              Delete Ad Account "{adAccountToDelete.name}"?
-            </h3>
-            <p className="text-xs text-fg-muted leading-relaxed">
-              This will remove this advertising account configuration and platform credentials.
-            </p>
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setAdAccountToDelete(null)}
-                className="px-3.5 py-1.5 text-xs font-medium text-fg-2 hover:bg-hover border border-border rounded-md transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteAdAccount}
-                className="px-3.5 py-1.5 bg-danger-solid hover:opacity-90 text-white rounded-md text-xs font-medium shadow-xs transition-opacity"
-              >
-                Delete Ad Account
+                Delete member
               </button>
             </div>
           </div>
@@ -510,4 +343,3 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     </div>
   );
 };
-

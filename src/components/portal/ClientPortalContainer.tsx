@@ -73,7 +73,7 @@ export const ClientPortalContainer: React.FC<ClientPortalContainerProps> = ({
               onClick={() => setActiveTab('content')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === 'content'
-                  ? 'bg-surface text-accent-fg shadow-xs'
+                  ? 'bg-surface text-accent-text font-semibold shadow-xs'
                   : 'text-fg-muted hover:text-fg'
               }`}
             >
@@ -81,7 +81,7 @@ export const ClientPortalContainer: React.FC<ClientPortalContainerProps> = ({
               <span>Content Calendar</span>
               {hasCheckedCounts ? (
                 contentCount > 0 ? (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-accent-fg font-mono border border-border">
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-accent-text font-mono border border-border">
                     {contentCount}
                   </span>
                 ) : null
@@ -94,7 +94,7 @@ export const ClientPortalContainer: React.FC<ClientPortalContainerProps> = ({
               onClick={() => setActiveTab('website')}
               className={`px-3 py-1.5 rounded-md text-xs font-medium flex items-center gap-2 transition-all cursor-pointer ${
                 activeTab === 'website'
-                  ? 'bg-surface text-accent-fg shadow-xs'
+                  ? 'bg-surface text-accent-text font-semibold shadow-xs'
                   : 'text-fg-muted hover:text-fg'
               }`}
             >
@@ -102,7 +102,7 @@ export const ClientPortalContainer: React.FC<ClientPortalContainerProps> = ({
               <span>Website Portal</span>
               {hasCheckedCounts ? (
                 websiteCount > 0 ? (
-                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-accent-fg font-mono border border-border">
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-accent-text font-mono border border-border">
                     {websiteCount}
                   </span>
                 ) : null

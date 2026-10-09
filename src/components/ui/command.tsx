@@ -115,7 +115,7 @@ export const CommandItem = React.forwardRef<
     className={cn(
       'relative flex cursor-pointer select-none items-center gap-2 rounded-sm px-2.5 py-2 text-sm outline-none transition-colors duration-120',
       'hover:bg-hover aria-selected:bg-hover aria-selected:text-fg text-fg',
-      'data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:shrink-0 [&_svg]:text-fg-muted',
+      'data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-50 [&_svg]:shrink-0 [&_svg]:text-fg-muted',
       className
     )}
     {...props}

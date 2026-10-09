@@ -4,11 +4,9 @@ import {
   Plus,
   Filter,
   Search,
-  Settings2,
   ListChecks,
   Trash2,
   Pencil,
-  RotateCcw,
   RotateCw,
   Table as TableIcon,
   LayoutDashboard,
@@ -19,7 +17,19 @@ import {
   ClipboardList,
   Paperclip,
   Layers,
+  Calendar as CalendarIcon,
+  MoreHorizontal,
+  Columns3,
+  Rows3,
+  User,
 } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '../ui/dropdown-menu';
 import { dailyLogService } from '../../services/dailyLogService';
 import { logExceptionService } from '../../services/logExceptionService';
 import type {
@@ -33,7 +43,7 @@ import type {
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
-import { useConfirm, useAlert } from '../ui/ConfirmProvider';
+import { useConfirm } from '../ui/ConfirmProvider';
 import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { DailyLogForm } from '../daily-log/DailyLogForm';
 import { ShiftTasksTracker } from '../daily-log/ShiftTasksTracker';
@@ -53,13 +63,6 @@ import { StatusPill } from '../ui/StatusPill';
 import { Callout } from '../ui/Callout';
 import { EmptyState } from '../ui/EmptyState';
 import { Button, IconButton } from '../ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '../ui/dialog';
 import {
   Popover,
   PopoverContent,
@@ -106,13 +109,6 @@ const NON_FILTERABLE_KEYS = new Set([
   'remarks',
 ]);
 
-const FIELD_TYPE_OPTIONS: { id: 'text' | 'select' | 'date' | 'number'; label: string }[] = [
-  { id: 'text', label: 'Text Input' },
-  { id: 'select', label: 'Dropdown Menu' },
-  { id: 'date', label: 'Date Picker' },
-  { id: 'number', label: 'Numeric' },
-];
-
 const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const FOLLOW_UP_CHIP_LIMIT = 4;
 
@@ -131,6 +127,16 @@ const formatChipDate = (iso: string): string => {
   const day = Number(parts[2]);
   if (!month || !day || month < 1 || month > 12) return iso;
   return `${MONTH_SHORT[month - 1]} ${day}`;
+};
+
+const formatMissingDatesList = (dates: string[]): string => {
+  if (dates.length === 0) return '';
+  const formatted = dates.map(formatChipDate);
+  if (formatted.length === 1) return formatted[0];
+  if (formatted.length === 2) return `${formatted[0]} and ${formatted[1]}`;
+  if (formatted.length === 3) return `${formatted[0]}, ${formatted[1]} and ${formatted[2]}`;
+  const extraCount = formatted.length - 3;
+  return `${formatted[0]}, ${formatted[1]}, ${formatted[2]} and ${extraCount} more`;
 };
 
 const getThisWeekBounds = () => {
@@ -168,7 +174,6 @@ export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
   const confirm = useConfirm();
-  const alert = useAlert();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
@@ -257,7 +262,6 @@ export const DailyLogView: React.FC = () => {
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
 
-  const [isColumnModalOpen, setIsColumnModalOpen] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
   const [aiSummary, setAiSummary] = useState<string | null>(null);
@@ -282,16 +286,11 @@ export const DailyLogView: React.FC = () => {
     return () => document.removeEventListener('mousedown', handleOutsideClick);
   }, [openFilterColKey]);
 
-  // New Field State inside Customize Fields Modal
-  const [newFieldLabel, setNewFieldLabel] = useState('');
-  const [newFieldType, setNewFieldType] = useState<'text' | 'select' | 'date' | 'number'>('text');
-  const [newFieldOptions, setNewFieldOptions] = useState('');
-
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
     try {
       const saved = localStorage.getItem('reamarc_daily_log_col_widths');
       if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    } catch (_e) {}
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
       initial[col.key] = parseInt(col.width || '150', 10);
@@ -303,7 +302,7 @@ export const DailyLogView: React.FC = () => {
     try {
       const saved = localStorage.getItem('reamarc_daily_log_row_heights');
       if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    } catch (_e) {}
     return {};
   });
 
@@ -465,13 +464,34 @@ export const DailyLogView: React.FC = () => {
   const viewingOff = getOffDay(bannerDate);
   const hideLogCreate = viewingSingleDay && viewingOff.isOff;
 
-  useEffect(() => {
+  const dayTargetAbortRef = useRef<AbortController | null>(null);
+  const dayTargetReqIdRef = useRef(0);
+
+  const refreshDayTarget = useCallback(async () => {
     if (!canSubmitLogs) {
       setDayTarget(null);
       return;
     }
-    dailyLogService.getDayTarget(bannerDate).then(setDayTarget).catch(() => setDayTarget(null));
-  }, [canSubmitLogs, bannerDate, entries]);
+    dayTargetAbortRef.current?.abort();
+    const controller = new AbortController();
+    dayTargetAbortRef.current = controller;
+    const reqId = ++dayTargetReqIdRef.current;
+
+    try {
+      const target = await dailyLogService.getDayTarget(bannerDate, { signal: controller.signal });
+      if (reqId === dayTargetReqIdRef.current) {
+        setDayTarget(target);
+      }
+    } catch (err: any) {
+      if (reqId === dayTargetReqIdRef.current && err?.name !== 'AbortError') {
+        setDayTarget(null);
+      }
+    }
+  }, [canSubmitLogs, bannerDate]);
+
+  useEffect(() => {
+    refreshDayTarget();
+  }, [refreshDayTarget]);
 
   const followUps = useMemo(() => {
     const list = [...(dayTarget?.follow_ups || [])] as DayTargetFollowUp[];
@@ -488,9 +508,9 @@ export const DailyLogView: React.FC = () => {
   }, [followUps]);
 
   const extraMissingDates = useMemo(() => {
-    return (myActivity?.missing_dates || []).filter(
-      (d) => d >= '2026-08-19' && !followUpByDate.has(d)
-    );
+    return (myActivity?.missing_dates || [])
+      .filter((d) => d >= '2026-08-19' && !followUpByDate.has(d))
+      .sort((a, b) => a.localeCompare(b));
   }, [myActivity?.missing_dates, followUpByDate]);
 
   const openFollowUp = useCallback((date: string) => {
@@ -593,8 +613,7 @@ export const DailyLogView: React.FC = () => {
     try {
       await logExceptionService.submitReason(date, text);
       addToast('Reason sent', 'Your lead can accept it. This is not a task log.', 'success');
-      const next = await dailyLogService.getDayTarget(bannerDate);
-      setDayTarget(next);
+      refreshDayTarget();
       setReasonDrafts((prev) => ({ ...prev, [date]: '' }));
       setShowReasonInput(false);
     } catch (err: any) {
@@ -617,22 +636,25 @@ export const DailyLogView: React.FC = () => {
     setIsEntryModalOpen(true);
   };
 
-  const canEditEntry = useCallback((entry: DailyLogEntry) => {
+  const isOwnEntry = useCallback((entry: DailyLogEntry) => {
     const currentUserId = user?.id;
     const currentUserName = (user?.full_name || user?.name || '').trim().toLowerCase();
     
-    const isAuthor = Boolean(
+    return Boolean(
       (entry.user_id && currentUserId && entry.user_id === currentUserId) ||
       (entry.resource_name && currentUserName && entry.resource_name.trim().toLowerCase() === currentUserName)
     );
-    if (!isAuthor) return false;
+  }, [user]);
+
+  const canEditEntry = useCallback((entry: DailyLogEntry) => {
+    if (!isOwnEntry(entry)) return false;
 
     if (entry.date && isLogDateExpired(entry.date, holidays, workingSaturdays)) {
       return false;
     }
 
     return true;
-  }, [user, holidays, workingSaturdays]);
+  }, [isOwnEntry, holidays, workingSaturdays]);
 
   const handleOpenEditModal = (entry: DailyLogEntry) => {
     if (!canEditEntry(entry)) return;
@@ -648,12 +670,31 @@ export const DailyLogView: React.FC = () => {
       setAvailableSheets((prev) => (prev.includes(entrySheet) ? prev : [...prev, entrySheet]));
     }
 
+    const params = buildFilterParams();
+    const paramKey = JSON.stringify(params);
+
+    setEntries((prev) => {
+      const idx = prev.findIndex((e) => e.id === savedEntry.id);
+      let updated: DailyLogEntry[];
+      if (idx >= 0) {
+        updated = [...prev];
+        updated[idx] = savedEntry;
+      } else {
+        updated = [savedEntry, ...prev];
+      }
+      dailyLogService.replaceCachedEntries(paramKey, updated);
+      dailyLogService.invalidateEntries(paramKey);
+      return updated;
+    });
+
+    refreshDayTarget();
+    dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
+
     if (datePreset === 'month' && entrySheet && entrySheet !== activeSheet) {
       setActiveSheet(entrySheet);
     } else {
       fetchEntries();
     }
-    dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
   };
 
   const handleDeleteRow = async (entryId: string) => {
@@ -666,66 +707,42 @@ export const DailyLogView: React.FC = () => {
       tone: 'danger',
     });
     if (!ok) return;
-    setEntries((prev) => prev.filter((entry) => entry.id !== entryId));
+
+    const entriesSnapshot = [...entries];
+    const dayTargetSnapshot = dayTarget ? { ...dayTarget } : null;
+    const params = buildFilterParams();
+    const paramKey = JSON.stringify(params);
+
+    const updatedEntries = entriesSnapshot.filter((e) => e.id !== entryId);
+    setEntries(updatedEntries);
+
+    if (entry && isOwnEntry(entry) && entry.date === bannerDate && dayTarget) {
+      const hours = Number(entry.hours_utilized) || 0;
+      setDayTarget((prev) => {
+        if (!prev) return null;
+        const newLogged = Math.max(0, (prev.logged_hours || 0) - hours);
+        const newRemaining = Math.max(0, (prev.expected_hours || 0) - newLogged);
+        return {
+          ...prev,
+          logged_hours: newLogged,
+          remaining_hours: newRemaining,
+        };
+      });
+    }
+
     try {
       await dailyLogService.deleteEntry(entryId);
-    } catch (err) {
-      console.error('Failed to delete daily log entry:', err);
+      dailyLogService.replaceCachedEntries(paramKey, updatedEntries);
+      dailyLogService.invalidateEntries(paramKey);
+      refreshDayTarget();
+      dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
       fetchEntries();
-    }
-  };
-
-  const handleAddNewColumn = async () => {
-    if (!newFieldLabel.trim()) return;
-    const newKey = newFieldLabel.trim().toLowerCase().replace(/\s+/g, '_');
-    if (columns.some((col) => col.key === newKey)) {
-      await alert({
-        title: 'Field name already used',
-        description: 'A field with this name already exists.',
-      });
-      return;
-    }
-
-    const optionsList =
-      newFieldType === 'select' && newFieldOptions.trim()
-        ? newFieldOptions
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean)
-        : undefined;
-
-    const newCol: DailyLogColumn = {
-      key: newKey,
-      label: newFieldLabel.trim(),
-      type: newFieldType,
-      options: optionsList,
-      editable: true,
-      width: '160',
-    };
-
-    const updated = [...columns, newCol];
-    setColumns(updated);
-    setColumnWidths((prev) => ({ ...prev, [newKey]: 160 }));
-
-    setNewFieldLabel('');
-    setNewFieldOptions('');
-    setNewFieldType('text');
-  };
-
-  const handleDeleteColumn = (colKey: string) => {
-    if (!isAdmin) return;
-    const updated = columns.filter((col) => col.key !== colKey);
-    setColumns(updated);
-  };
-
-  const handleSaveColumns = async () => {
-    try {
-      await dailyLogService.updateColumns(columns);
-      setIsColumnModalOpen(false);
-      addToast('Columns updated', 'Field schema saved successfully.', 'success');
-    } catch (err) {
-      console.error('Failed to save columns schema:', err);
-      addToast('Save failed', 'Could not save field schema.', 'error');
+    } catch (err: any) {
+      console.error('Failed to delete daily log entry:', err);
+      setEntries(entriesSnapshot);
+      setDayTarget(dayTargetSnapshot);
+      dailyLogService.replaceCachedEntries(paramKey, entriesSnapshot);
+      addToast('Could not delete entry', err?.message || 'Try again.', 'error');
     }
   };
 
@@ -780,7 +797,7 @@ export const DailyLogView: React.FC = () => {
         const next = { ...prev, [colKey]: finalWidth };
         try {
           localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
-        } catch (e) {}
+        } catch (_e) {}
         return next;
       });
     };
@@ -789,18 +806,24 @@ export const DailyLogView: React.FC = () => {
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  const handleResetLayout = () => {
+  const resetColumnWidths = () => {
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
       initial[col.key] = parseInt(col.width || '150', 10);
     });
     setColumnWidths(initial);
-    setRowHeights({});
     try {
       localStorage.removeItem('reamarc_daily_log_col_widths');
-      localStorage.removeItem('reamarc_daily_log_row_heights');
-    } catch (e) {}
+    } catch (_e) {}
     addToast('Layout reset', 'Column widths restored to defaults.', 'info');
+  };
+
+  const resetRowHeights = () => {
+    setRowHeights({});
+    try {
+      localStorage.removeItem('reamarc_daily_log_row_heights');
+    } catch (_e) {}
+    addToast('Layout reset', 'Row heights restored to defaults.', 'info');
   };
 
   // Summarize (uses ListChecks, restricted to Admin)
@@ -834,6 +857,38 @@ export const DailyLogView: React.FC = () => {
     return Array.from(set).sort();
   };
 
+  const [selectedMember, setSelectedMember] = useState<string>('ALL');
+
+  const memberOptions = useMemo(() => {
+    const memberMap = new Map<string, { id: string; name: string; isYou: boolean }>();
+    entries.forEach((e) => {
+      const isYou = isOwnEntry(e);
+      const key = e.user_id || (e.resource_name || '').trim().toLowerCase();
+      if (!key) return;
+      if (!memberMap.has(key)) {
+        memberMap.set(key, {
+          id: isYou ? '__YOU__' : (e.user_id || e.resource_name || key),
+          name: isYou ? 'You' : (e.resource_name || 'Unknown'),
+          isYou,
+        });
+      }
+    });
+    const others = Array.from(memberMap.values())
+      .filter((m) => !m.isYou)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const you = Array.from(memberMap.values()).find((m) => m.isYou);
+    const list = [{ value: 'ALL', label: 'Everyone' }];
+    if (you) list.push({ value: '__YOU__', label: 'You' });
+    others.forEach((m) => list.push({ value: m.id, label: m.name }));
+    return list;
+  }, [entries, isOwnEntry]);
+
+  useEffect(() => {
+    if (selectedMember !== 'ALL' && !memberOptions.some((o) => o.value === selectedMember)) {
+      setSelectedMember('ALL');
+    }
+  }, [memberOptions, selectedMember]);
+
   const filteredEntries = useMemo(() => {
     let result = entries;
 
@@ -842,6 +897,14 @@ export const DailyLogView: React.FC = () => {
       result = result.filter((e) =>
         Object.values(e).some((v) => typeof v === 'string' && v.toLowerCase().includes(q))
       );
+    }
+
+    if (isLead && selectedMember !== 'ALL') {
+      if (selectedMember === '__YOU__') {
+        result = result.filter(isOwnEntry);
+      } else {
+        result = result.filter((e) => e.user_id === selectedMember || e.resource_name === selectedMember);
+      }
     }
 
     Object.entries(columnFilters).forEach(([colKey, filterVal]) => {
@@ -859,7 +922,35 @@ export const DailyLogView: React.FC = () => {
     });
 
     return result;
-  }, [entries, searchQuery, columnFilters, columns]);
+  }, [entries, searchQuery, isLead, selectedMember, isOwnEntry, columnFilters, columns]);
+
+  const isTeamView = useMemo(() => {
+    return filteredEntries.some((e) => !isOwnEntry(e));
+  }, [filteredEntries, isOwnEntry]);
+
+  const sheetOptions = useMemo(() => {
+    const parseSheetDate = (sheetStr: string) => {
+      const parts = sheetStr.split(' - ');
+      if (parts.length === 2) {
+        const monthName = parts[0].trim();
+        const year = parseInt(parts[1].trim(), 10);
+        const monthIndex = [
+          'January', 'February', 'March', 'April', 'May', 'June',
+          'July', 'August', 'September', 'October', 'November', 'December'
+        ].indexOf(monthName);
+        if (monthIndex !== -1 && !isNaN(year)) {
+          return new Date(year, monthIndex, 1).getTime();
+        }
+      }
+      return 0;
+    };
+
+    const sorted = [...availableSheets].sort((a, b) => parseSheetDate(b) - parseSheetDate(a));
+    return sorted.map((sheet) => ({
+      value: sheet,
+      label: sheet.replace(' - ', ' '),
+    }));
+  }, [availableSheets]);
 
   // Grouped entries for the log view timeline
   const groupedEntries = useMemo(() => {
@@ -984,16 +1075,7 @@ export const DailyLogView: React.FC = () => {
         }
         actions={
           <>
-            {isAdmin && (
-              <Button
-                variant="secondary"
-                size="md"
-                icon={Settings2}
-                onClick={() => setIsColumnModalOpen(true)}
-              >
-                Customize fields
-              </Button>
-            )}
+
             <Button
               variant="secondary"
               size="md"
@@ -1127,12 +1209,13 @@ export const DailyLogView: React.FC = () => {
           <Callout
             variant="warning"
             icon={AlertTriangle}
-            title="Pending log submission:"
+            className="items-center py-1.5"
             action={
               <Button
                 variant="secondary"
                 size="sm"
                 icon={Plus}
+                className="shrink-0"
                 onClick={() => {
                   setPrefilledDate(extraMissingDates[0]);
                   setSelectedEntry(null);
@@ -1140,18 +1223,14 @@ export const DailyLogView: React.FC = () => {
                   setIsEntryModalOpen(true);
                 }}
               >
-                Log for {extraMissingDates[0]}
+                Log for {formatChipDate(extraMissingDates[0])}
               </Button>
             }
           >
-            <span>
-              You haven't recorded entries for{' '}
-              <strong className="font-numeric">
-                {extraMissingDates.slice(0, 3).join(', ')}
-                {extraMissingDates.length > 3 ? ` (+${extraMissingDates.length - 3} more)` : ''}
-              </strong>
-              .
-            </span>
+            <div className="truncate">
+              <span className="font-semibold text-fg">Pending log submission</span>
+              <span className="text-fg-2"> · You haven't logged {formatMissingDatesList(extraMissingDates)}.</span>
+            </div>
           </Callout>
         </div>
       )}
@@ -1236,6 +1315,19 @@ export const DailyLogView: React.FC = () => {
                     />
                   </PopoverContent>
                 </Popover>
+
+                {/* Member filter: Team leads only */}
+                {isLead && (
+                  <div className="w-[140px] shrink-0">
+                    <CustomSelect
+                      size="sm"
+                      value={selectedMember}
+                      onChange={setSelectedMember}
+                      options={memberOptions}
+                      icon={User}
+                    />
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons: Summarize (Admin) & Export */}
@@ -1339,7 +1431,13 @@ export const DailyLogView: React.FC = () => {
                           <span className="text-small text-fg-muted font-numeric tabular-nums">
                             {group.entries.length}{' '}
                             {group.entries.length === 1 ? 'entry' : 'entries'} ·{' '}
-                            {formatHours(group.totalHours)} logged
+                            {formatHours(group.totalHours)}
+                            {isTeamView && (() => {
+                              const distinctPeople = new Set(
+                                group.entries.map((e) => e.user_id || (e.resource_name || '').trim().toLowerCase())
+                              ).size;
+                              return ` · ${distinctPeople} ${distinctPeople === 1 ? 'person' : 'people'}`;
+                            })()}
                           </span>
                         </div>
 
@@ -1381,6 +1479,14 @@ export const DailyLogView: React.FC = () => {
                                   </div>
 
                                   <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                    {isTeamView && entry.resource_name && (
+                                      <>
+                                        <span className="text-small font-semibold text-fg">
+                                          {entry.resource_name}
+                                        </span>
+                                        <span className="text-fg-faint">·</span>
+                                      </>
+                                    )}
                                     <span className="text-small text-fg-muted font-medium">
                                       {entry.client_project || 'Internal agency work'}
                                     </span>
@@ -1420,10 +1526,11 @@ export const DailyLogView: React.FC = () => {
       {viewMode === 'sheet' && (
         <div className="flex-1 min-h-0 flex flex-col bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
           {/* Table Toolbar */}
-          <div className="p-3 border-b border-border flex items-center justify-between gap-2.5 flex-wrap shrink-0 bg-surface">
-            <div className="flex items-center gap-2 flex-wrap flex-1 min-w-0">
-              {/* Search */}
-              <div className="relative min-w-[180px] max-w-[320px] flex-1">
+          <div className="p-3 border-b border-border flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 shrink-0 bg-surface">
+            {/* Left group / Mobile rows 1-3 */}
+            <div className="flex flex-col lg:flex-row lg:items-center gap-2 flex-1 min-w-0">
+              {/* Row 1 at mobile / left on desktop: Search */}
+              <div className="relative w-full lg:w-auto lg:min-w-[180px] lg:max-w-[320px] flex-1">
                 <Search size={14} className="text-fg-muted absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
@@ -1444,77 +1551,95 @@ export const DailyLogView: React.FC = () => {
                 )}
               </div>
 
-              {/* Range SegmentedControl with Anchored Custom Range Popover in Sheet View */}
-              <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
-                <PopoverAnchor asChild>
-                  <div className="relative inline-flex">
-                    <SegmentedControl
-                      value={datePreset}
-                      onValueChange={handleRangeChange}
-                      options={rangeOptions}
+              {/* Row 2 at mobile: Range control (scrolls horizontally) */}
+              <div className="overflow-x-auto shrink-0 py-0.5">
+                <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
+                  <PopoverAnchor asChild>
+                    <div className="relative inline-flex">
+                      <SegmentedControl
+                        value={datePreset}
+                        onValueChange={handleRangeChange}
+                        options={rangeOptions}
+                      />
+                    </div>
+                  </PopoverAnchor>
+                  <PopoverContent
+                    className="p-0 border-0 shadow-lg w-auto rounded-lg z-[var(--z-popover,100)]"
+                    align="end"
+                    sideOffset={6}
+                  >
+                    <DateRangeCalendarPicker
+                      initialStartDate={customStartDate}
+                      initialEndDate={customEndDate}
+                      onCancel={() => setIsCustomRangeOpen(false)}
+                      onApply={({ startDate, endDate }) => {
+                        setCustomStartDate(startDate);
+                        setCustomEndDate(endDate);
+                        setDatePreset('custom');
+                        setIsCustomRangeOpen(false);
+                      }}
                     />
-                  </div>
-                </PopoverAnchor>
-                <PopoverContent
-                  className="p-0 border-0 shadow-lg w-auto rounded-lg z-[var(--z-popover,100)]"
-                  align="end"
-                  sideOffset={6}
-                >
-                  <DateRangeCalendarPicker
-                    initialStartDate={customStartDate}
-                    initialEndDate={customEndDate}
-                    onCancel={() => setIsCustomRangeOpen(false)}
-                    onApply={({ startDate, endDate }) => {
-                      setCustomStartDate(startDate);
-                      setCustomEndDate(endDate);
-                      setDatePreset('custom');
-                      setIsCustomRangeOpen(false);
-                    }}
-                  />
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
+              </div>
 
-              {/* Department Selector */}
-              {departmentOptions.length > 0 && (
-                <div className="w-[180px] shrink-0">
+              {/* Row 3 at mobile: Month & Dept selects sit 2-up */}
+              <div
+                className={cn(
+                  'grid gap-2 w-full lg:w-auto lg:flex lg:items-center shrink-0',
+                  departmentOptions.filter((o) => o.value !== 'All').length > 1 ? 'grid-cols-2' : 'grid-cols-1'
+                )}
+              >
+                <div className="w-full lg:w-[160px]">
                   <CustomSelect
-                    value={selectedDept}
-                    onChange={setSelectedDept}
-                    options={departmentOptions}
-                    placeholder="Department"
-                    icon={Layers}
+                    value={datePreset === 'month' ? activeSheet : ''}
+                    onChange={handleSheetChange}
+                    options={sheetOptions}
+                    placeholder="Month"
+                    icon={CalendarIcon}
                   />
                 </div>
-              )}
-
-              {/* Primary Add Entry Button in Sheet View */}
-              {!isAdmin && !isOperations && !hideLogCreate && (
-                <Button
-                  variant="primary"
-                  size="md"
-                  icon={Plus}
-                  onClick={handleOpenCreateModal}
-                  disabled={isLoading || isEntryModalOpen}
-                >
-                  Add entry
-                </Button>
-              )}
+                {departmentOptions.filter((o) => o.value !== 'All').length > 1 && (
+                  <div className="w-full lg:w-[180px]">
+                    <CustomSelect
+                      value={selectedDept}
+                      onChange={setSelectedDept}
+                      options={departmentOptions}
+                      placeholder="Department"
+                      icon={Layers}
+                    />
+                  </div>
+                )}
+              </div>
             </div>
 
-            {/* Right Tools in Sheet View */}
-            <div className="flex items-center gap-1.5 shrink-0 ml-auto">
-              {canExportLogs && (
-                <Button
-                  variant="secondary"
-                  size="md"
-                  icon={Download}
-                  loading={isExporting}
-                  disabled={isExporting || isLoading}
-                  onClick={handleExportExcel}
-                >
-                  Export
-                </Button>
-              )}
+            {/* Right Tools in Sheet View / Row 4 at mobile: right-aligned actions */}
+            <div className="flex items-center gap-1.5 shrink-0 justify-end lg:ml-auto">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <IconButton
+                    variant="secondary"
+                    size="md"
+                    icon={MoreHorizontal}
+                    label="More options"
+                  />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48">
+                  <DropdownMenuItem onClick={resetColumnWidths}>
+                    <Columns3 size={14} className="mr-2 text-fg-muted" />
+                    <span>Reset column widths</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={resetRowHeights}>
+                    <Rows3 size={14} className="mr-2 text-fg-muted" />
+                    <span>Reset row heights</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={fetchEntries}>
+                    <RotateCw size={14} className="mr-2 text-fg-muted" />
+                    <span>Refresh</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               {isAdmin && (
                 <Button
@@ -1529,21 +1654,30 @@ export const DailyLogView: React.FC = () => {
                 </Button>
               )}
 
-              <IconButton
-                variant="ghost"
-                size="md"
-                icon={RotateCcw}
-                label="Reset column widths"
-                onClick={handleResetLayout}
-              />
+              {canExportLogs && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  icon={Download}
+                  loading={isExporting}
+                  disabled={isExporting || isLoading}
+                  onClick={handleExportExcel}
+                >
+                  Export
+                </Button>
+              )}
 
-              <IconButton
-                variant="ghost"
-                size="md"
-                icon={RotateCw}
-                label="Refresh table"
-                onClick={fetchEntries}
-              />
+              {!isAdmin && !isOperations && !hideLogCreate && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={Plus}
+                  onClick={handleOpenCreateModal}
+                  disabled={isLoading || isEntryModalOpen}
+                >
+                  Add entry
+                </Button>
+              )}
             </div>
           </div>
 
@@ -2090,33 +2224,9 @@ export const DailyLogView: React.FC = () => {
             </div>
           </div>
 
-          {/* Bottom Sheet Tabs (Month Selector) */}
-          <div className="px-4 py-2 border-t border-border flex items-center justify-between gap-3 text-small shrink-0 bg-surface overflow-x-auto">
-            <div className="flex items-center gap-1.5 overflow-x-auto">
-              <span className="text-micro font-medium text-fg-muted px-1 shrink-0">
-                Sheets:
-              </span>
-              {availableSheets.map((sheet) => {
-                const isTabActive = activeSheet === sheet && datePreset === 'month';
-                return (
-                  <button
-                    key={sheet}
-                    type="button"
-                    onClick={() => handleSheetChange(sheet)}
-                    className={cn(
-                      'px-2.5 py-1 rounded-md text-small font-medium transition-colors cursor-pointer select-none shrink-0',
-                      isTabActive
-                        ? 'bg-accent text-accent-fg shadow-xs font-semibold'
-                        : 'bg-subtle text-fg-2 hover:bg-hover hover:text-fg'
-                    )}
-                  >
-                    {sheet}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="text-micro text-fg-muted font-numeric tabular-nums shrink-0">
+          {/* Footer: Showing N entries */}
+          <div className="px-4 py-2 border-t border-border flex items-center justify-end text-small shrink-0 bg-surface">
+            <div className="text-micro text-fg-muted font-numeric tabular-nums">
               Showing {filteredEntries.length} entries
             </div>
           </div>
@@ -2141,121 +2251,6 @@ export const DailyLogView: React.FC = () => {
         onRefreshRequired={fetchEntries}
       />
 
-      {/* ─── Column Customization Dialog (Admin Only, max-w-[560px]) ─── */}
-      {isAdmin && (
-        <Dialog open={isColumnModalOpen} onOpenChange={setIsColumnModalOpen}>
-          <DialogContent maxWidth="md" className="p-0 overflow-hidden">
-            <DialogHeader className="px-6 py-4 border-b border-border bg-subtle/40">
-              <DialogTitle>Customize fields</DialogTitle>
-              <DialogDescription>
-                Configure columns and custom fields for this workspace
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
-              {/* Add New Field Box */}
-              <div className="p-3.5 bg-subtle/50 border border-border rounded-lg space-y-3">
-                <span className="text-small font-semibold text-fg flex items-center gap-1.5">
-                  <Plus size={14} className="text-accent" />
-                  <span>Add new field</span>
-                </span>
-                <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px_auto] gap-2 items-center">
-                  <input
-                    type="text"
-                    placeholder="Field name (e.g. Priority)"
-                    value={newFieldLabel}
-                    onChange={(e) => setNewFieldLabel(e.target.value)}
-                    className="px-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
-                  />
-                  <select
-                    value={newFieldType}
-                    onChange={(e) => setNewFieldType(e.target.value as any)}
-                    className="px-2.5 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
-                  >
-                    {FIELD_TYPE_OPTIONS.map((opt) => (
-                      <option key={opt.id} value={opt.id}>
-                        {opt.label}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    type="button"
-                    variant="primary"
-                    size="sm"
-                    onClick={handleAddNewColumn}
-                    disabled={!newFieldLabel.trim()}
-                  >
-                    Add field
-                  </Button>
-                </div>
-                {newFieldType === 'select' && (
-                  <input
-                    type="text"
-                    placeholder="Options separated by commas (e.g. High, Medium, Low)"
-                    value={newFieldOptions}
-                    onChange={(e) => setNewFieldOptions(e.target.value)}
-                    className="w-full px-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
-                  />
-                )}
-              </div>
-
-              {/* Active Columns List */}
-              <div className="space-y-2">
-                <span className="text-micro font-medium text-fg-muted block mb-1">
-                  Active columns ({columns.length})
-                </span>
-                <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
-                  {columns.map((col, idx) => (
-                    <div
-                      key={col.key}
-                      className="flex items-center gap-2 bg-surface p-2 rounded-md border border-border"
-                    >
-                      <input
-                        type="text"
-                        value={col.label}
-                        onChange={(e) => {
-                          const newCols = [...columns];
-                          newCols[idx].label = e.target.value;
-                          setColumns(newCols);
-                        }}
-                        className="flex-1 px-2.5 py-1 h-7 bg-surface border border-border rounded text-small text-fg focus-visible:focus-ring"
-                      />
-                      <span className="text-micro font-medium text-fg-muted px-2 py-0.5 rounded bg-subtle border border-border shrink-0">
-                        {col.type}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteColumn(col.key)}
-                        className="p-1 text-fg-muted hover:text-danger-fg rounded cursor-pointer shrink-0"
-                        title="Remove column"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <div className="px-6 py-3 border-t border-border flex items-center justify-end gap-2 bg-subtle/30">
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => setIsColumnModalOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="md"
-                onClick={handleSaveColumns}
-              >
-                Save schema
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 };

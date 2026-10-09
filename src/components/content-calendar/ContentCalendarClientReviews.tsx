@@ -659,7 +659,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                 {/* Left Column: Media Deliverables Preview */}
                 <div className="md:col-span-6 space-y-4">
                   <div className="space-y-2">
-                    <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                    <span className="text-xs font-semibold text-fg-muted block">
                       Creative Deliverables
                     </span>
                     {detailItem.attachments && detailItem.attachments.length > 0 ? (
@@ -708,7 +708,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                   {/* On-Graphic Text */}
                   {detailItem.content_on_creative && (
                     <div className="space-y-1 pt-2">
-                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-semibold text-fg-muted block">
                         Copy on Graphic / Video
                       </span>
                       <p className="p-3 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap">
@@ -723,7 +723,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                   {/* Ad Copy */}
                   {detailItem.primary_text && (
                     <div className="space-y-1">
-                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-semibold text-fg-muted block">
                         Ad Copy / Caption
                       </span>
                       <p className="p-3.5 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap max-h-48 overflow-y-auto">
@@ -735,7 +735,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                   {/* Headlines & Hooks */}
                   {detailItem.headlines_hooks && (
                     <div className="space-y-1">
-                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-semibold text-fg-muted block">
                         Headlines & Hooks
                       </span>
                       <p className="p-3 rounded-md bg-subtle border border-border text-xs leading-relaxed text-fg whitespace-pre-wrap font-mono">

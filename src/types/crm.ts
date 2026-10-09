@@ -427,7 +427,7 @@ export interface CrmDealList {
   total_value: number;
 }
 
-export type CrmSubSection = 'board' | 'deals' | 'list' | 'followup' | 'settings' | 'templates' | 'ingest' | 'rules';
+export type CrmSubSection = 'board' | 'deals' | 'list' | 'followup';
 
 export interface CrmMetaPage {
   id: string;

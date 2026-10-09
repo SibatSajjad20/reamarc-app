@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
+import { Button } from '../ui/button';
 import { crmService } from '../../services/crmService';
 import type { CrmTemplate } from '../../types/crm';
 
@@ -176,14 +177,16 @@ export const CrmTemplatesPanel: React.FC<CrmTemplatesPanelProps> = ({ onClose })
             </label>
             {error && <p className="text-xs text-rose-600">{error}</p>}
             <div>
-              <button
+              <Button
                 type="submit"
-                disabled={saving}
-                className="h-8.5 px-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60 transition shadow-xs"
+                size="sm"
+                variant="primary"
+                loading={saving}
+                loadingText="Saving…"
+                icon={Plus}
               >
-                {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                 Save template
-              </button>
+              </Button>
             </div>
           </form>
         </div>

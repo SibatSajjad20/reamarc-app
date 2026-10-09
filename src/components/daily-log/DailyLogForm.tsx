@@ -8,7 +8,6 @@ import {
   Link2,
   AlertCircle,
   CheckCircle2,
-  Loader2,
   RefreshCw,
   Lock,
   Plus,
@@ -25,7 +24,7 @@ import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
 import { Button } from '../ui/button';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
-import type { DailyLogEntry, DailyLogColumn, DayTarget } from '../../types/dailyLog';
+import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
 import {
   findDuplicate,
   formatHours,
@@ -63,9 +62,33 @@ const TASK_TYPE_OPTIONS: SegmentedOption[] = [
 ];
 
 const TASK_STATUS_OPTIONS: SegmentedOption[] = [
-  { value: 'Completed', label: 'Completed' },
-  { value: 'Incomplete', label: 'Incomplete' },
-  { value: 'Blocker', label: 'Blocker' },
+  {
+    value: 'Completed',
+    label: (
+      <span className="inline-flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-success-fg shrink-0" aria-hidden="true" />
+        <span>Completed</span>
+      </span>
+    ),
+  },
+  {
+    value: 'Incomplete',
+    label: (
+      <span className="inline-flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-warning-fg shrink-0" aria-hidden="true" />
+        <span>Incomplete</span>
+      </span>
+    ),
+  },
+  {
+    value: 'Blocker',
+    label: (
+      <span className="inline-flex items-center gap-1">
+        <span className="w-1.5 h-1.5 rounded-full bg-danger-fg shrink-0" aria-hidden="true" />
+        <span>Blocker</span>
+      </span>
+    ),
+  },
 ];
 
 const ALLOWED_UPLOAD_EXTS = ['.pdf', '.png', '.jpg', '.jpeg', '.docx', '.doc', '.txt', '.zip', '.xlsx', '.csv'];
@@ -135,8 +158,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const [remarks, setRemarks] = useState<string>('');
   const [showRemarksInput, setShowRemarksInput] = useState<boolean>(false);
   const [customFields, setCustomFields] = useState<Record<string, any>>({});
-  const [, setDayTarget] = useState<DayTarget | null>(null);
-  const [, setDayTargetLoading] = useState<boolean>(false);
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSubmittingAnother, setIsSubmittingAnother] = useState<boolean>(false);
@@ -185,8 +206,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     setErrorMessage(null);
     setUploadError(null);
     setIsOccConflict(false);
-    setDayTarget(null);
-    setDayTargetLoading(false);
 
     if (mode === 'edit' && initialData) {
       setDate(initialData.date || getTodayIso());
@@ -273,34 +292,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     () => existingEntries.filter((e) => e.date === date),
     [existingEntries, date]
   );
-
-  useEffect(() => {
-    if (!date) {
-      setDayTarget(null);
-      setDayTargetLoading(false);
-      return;
-    }
-    let cancelled = false;
-    const controller = new AbortController();
-    setDayTargetLoading(true);
-    dailyLogService
-      .getDayTarget(date, { signal: controller.signal })
-      .then((target) => {
-        if (!cancelled) {
-          setDayTarget(target);
-          setDayTargetLoading(false);
-        }
-      })
-      .catch((err) => {
-        if (cancelled || err?.name === 'AbortError' || err?.status === 499) return;
-        setDayTarget(null);
-        setDayTargetLoading(false);
-      });
-    return () => {
-      cancelled = true;
-      controller.abort();
-    };
-  }, [date]);
 
   const duplicateHit = useMemo(
     () =>
@@ -496,15 +487,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           setCustomFields({});
           setTaskStatus('Incomplete');
           setErrorMessage(null);
-
-          if (date) {
-            setDayTargetLoading(true);
-            dailyLogService
-              .getDayTarget(date.trim())
-              .then(setDayTarget)
-              .catch(() => {})
-              .finally(() => setDayTargetLoading(false));
-          }
 
           setTimeout(() => {
             taskDescRef.current?.focus();
@@ -709,31 +691,43 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         />
       </div>
 
-      {/* Task Type & Task Status */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-label text-fg mb-1.5">
-            Task type
-          </label>
-          <SegmentedControl
-            size="sm"
-            value={taskType}
-            onValueChange={setTaskType}
-            options={TASK_TYPE_OPTIONS}
-          />
-        </div>
+      {/* Task Type */}
+      <div className="sm:w-1/2">
+        <label className="block text-label text-fg mb-1.5">
+          Task type
+        </label>
+        <SegmentedControl
+          size="sm"
+          value={taskType}
+          onValueChange={setTaskType}
+          options={TASK_TYPE_OPTIONS}
+        />
+      </div>
 
-        <div>
-          <label className="block text-label text-fg mb-1.5">
-            Task status
-          </label>
+      {/* Task Status */}
+      <div>
+        <label className="block text-label text-fg mb-1.5">
+          Task status
+        </label>
+        {TASK_STATUS_OPTIONS.length > 3 ? (
+          <CustomSelect
+            size="sm"
+            value={taskStatus}
+            onChange={setTaskStatus}
+            options={TASK_STATUS_OPTIONS.map((opt) => ({
+              value: opt.value,
+              label: opt.value,
+            }))}
+          />
+        ) : (
           <SegmentedControl
+            block
             size="sm"
             value={taskStatus}
             onValueChange={setTaskStatus}
             options={TASK_STATUS_OPTIONS}
           />
-        </div>
+        )}
       </div>
 
       {/* Hours Utilized */}
@@ -792,19 +786,18 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
 
         {/* Deliverables Dropzone / Upload button */}
         <div className="flex items-center gap-2">
-          <button
+          <Button
             type="button"
+            variant="secondary"
+            size="sm"
             onClick={() => fileInputRef.current?.click()}
-            disabled={isUploadingFile}
-            className="flex-1 flex items-center justify-center gap-2 py-2 px-3 border border-dashed border-border-strong hover:border-accent hover:bg-subtle/50 rounded-md text-small text-fg-muted hover:text-fg transition-colors cursor-pointer select-none"
+            loading={isUploadingFile}
+            loadingText="Uploading…"
+            icon={Upload}
+            className="flex-1 border-dashed"
           >
-            {isUploadingFile ? (
-              <Loader2 size={14} className="animate-spin text-accent" />
-            ) : (
-              <Upload size={14} className="text-fg-muted" />
-            )}
-            <span>{isUploadingFile ? 'Uploading…' : 'Drop files or click to upload'}</span>
-          </button>
+            Drop files or click to upload
+          </Button>
           <input
             ref={fileInputRef}
             type="file"
@@ -1008,6 +1001,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             onClick={() => handleSave(true)}
             disabled={isBusy || isDateInvalid}
             loading={isSubmittingAnother}
+            loadingText="Saving…"
           >
             Save & add another
           </Button>
@@ -1020,6 +1014,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           onClick={() => handleSave(false)}
           disabled={isBusy || isDateInvalid}
           loading={isSubmitting || isUploadingFile}
+          loadingText="Saving…"
           icon={CheckCircle2}
         >
           {mode === 'create' ? 'Save entry' : 'Save changes'}

@@ -8,7 +8,6 @@ import {
   RefreshCw,
   Calendar,
   Users,
-  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
@@ -1020,7 +1019,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                         directoryMembers.map((m) => {
                           const selected = m.id === selectedEmployeeId;
                           return (
-                            <button
+                            <Button
                               key={m.id}
                               type="button"
                               onClick={() => {
@@ -1031,18 +1030,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
                                   setIsLoadingTimesheet(false);
                                 }
                               }}
-                              className={`px-3 py-1.5 rounded-md text-xs font-medium border transition-colors cursor-pointer shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 ${
-                                selected
-                                  ? 'bg-accent text-accent-fg border-accent'
-                                  : 'bg-subtle text-fg-2 border-border hover:border-border-strong hover:bg-hover'
-                              }`}
+                              variant={selected ? 'primary' : 'secondary'}
+                              size="sm"
+                              className="shrink-0"
                               title={m.department ? `${m.full_name} · ${m.department}` : m.full_name}
+                              loading={selected && isLoadingTimesheet}
                             >
-                              {selected && isLoadingTimesheet && (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              )}
                               {m.full_name || m.email}
-                            </button>
+                            </Button>
                           );
                         })
                       )}

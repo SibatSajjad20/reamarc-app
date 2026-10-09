@@ -41,12 +41,12 @@ export const AuthModal: React.FC = () => {
       maxWidth="md"
       title={
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-subtle border border-border flex items-center justify-center text-accent-fg">
+          <div className="w-10 h-10 rounded-xl bg-subtle border border-border flex items-center justify-center text-accent-text">
             <Lock className="w-5 h-5" />
           </div>
           <div>
             <h2 className="text-base font-semibold text-fg">
-              Sign In to Reamarc AI
+              Sign In to Reamarc
             </h2>
             <p className="text-xs text-fg-muted mt-0.5 font-normal">
               Access your social campaigns and AI inbox.

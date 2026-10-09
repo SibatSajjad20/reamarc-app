@@ -63,7 +63,7 @@ export function exportMonthlyAttendanceWorkbook({
   summaryRows,
   summaryStats,
   employeeTimesheets = {},
-  companyName = 'Reamarc AI',
+  companyName = 'Reamarc',
 }: ExportOptions): void {
   const monthName = MONTH_NAMES[month - 1] || `Month-${month}`;
   const wb = XLSX.utils.book_new();
@@ -318,7 +318,7 @@ export function exportMonthlyAttendanceWorkbook({
             statusTag = 'Unpaid Leave';
             break;
           case 'missed_punch':
-            statusTag = '⚠️ Missed Punch (Unclosed)';
+            statusTag = 'Missed Punch (Unclosed)';
             break;
           case 'first_saturday_off':
             statusTag = 'First Saturday Off';
@@ -334,15 +334,15 @@ export function exportMonthlyAttendanceWorkbook({
         }
 
         if (record.is_wfh_approved) {
-          securityTier = '🏠 Approved WFH Bypass';
+          securityTier = 'Approved WFH Bypass';
         } else if (record.ip_verified && record.gps_verified) {
-          securityTier = `🔒 IP Verified + 📍 GPS (${record.distance_meters || 0}m)`;
+          securityTier = `IP Verified + GPS (${record.distance_meters || 0}m)`;
         } else if (record.ip_verified) {
-          securityTier = '🔒 Tier 1 Office IP Verified';
+          securityTier = 'Tier 1 Office IP Verified';
         } else if (record.gps_verified) {
-          securityTier = `📍 Tier 3 GPS Verified (${record.distance_meters || 0}m)`;
+          securityTier = `Tier 3 GPS Verified (${record.distance_meters || 0}m)`;
         } else if (record.punch_in) {
-          securityTier = '⚠️ External IP / Manual Override';
+          securityTier = 'External IP / Manual Override';
         }
 
         notes = record.notes || '';

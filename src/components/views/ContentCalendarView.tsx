@@ -11,7 +11,6 @@ import {
   Upload,
   ChevronDown,
   FileSpreadsheet,
-  Settings,
   Briefcase,
   User,
 } from 'lucide-react';
@@ -31,7 +30,6 @@ import { ContentCalendarMonthWeekView } from '../content-calendar/ContentCalenda
 import { ContentCalendarDrawer } from '../content-calendar/ContentCalendarDrawer';
 import { ContentCalendarModal } from '../content-calendar/ContentCalendarModal';
 import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarImportModal';
-import { ContentCalendarSettingsModal } from '../content-calendar/ContentCalendarSettingsModal';
 import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -232,10 +230,9 @@ export const ContentCalendarView: React.FC = () => {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<ContentCalendarItem | null>(null);
-  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
 
   // Zoom & Row Height Display Preferences
-  const [zoomLevel, setZoomLevel] = useState<number>(() => {
+  const [zoomLevel] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_zoom');
       if (saved) {
@@ -246,7 +243,7 @@ export const ContentCalendarView: React.FC = () => {
     return DEFAULT_ZOOM;
   });
 
-  const [defaultRowHeight, setDefaultRowHeight] = useState<number>(() => {
+  const [defaultRowHeight] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_row_height');
       if (saved) {
@@ -257,42 +254,7 @@ export const ContentCalendarView: React.FC = () => {
     return DEFAULT_ROW_HEIGHT;
   });
 
-  const [rowHeightsResetKey, setRowHeightsResetKey] = useState<number>(0);
-
-  const handleZoomChange = (newZoom: number) => {
-    setZoomLevel(newZoom);
-    try {
-      localStorage.setItem('reamarc_cc_zoom', String(newZoom));
-    } catch {}
-  };
-
-  const handleRowHeightChange = (newHeight: number) => {
-    setDefaultRowHeight(newHeight);
-    try {
-      localStorage.setItem('reamarc_cc_row_height', String(newHeight));
-    } catch {}
-  };
-
-  const handleResetRowHeights = () => {
-    setRowHeightsResetKey((prev) => prev + 1);
-    try {
-      localStorage.removeItem('reamarc_cc_row_heights');
-    } catch {}
-  };
-
-  const handleUpdateConstants = async (newConstants: ContentCalendarConstants) => {
-    setConstants(newConstants);
-    try {
-      localStorage.setItem('reamarc_cc_creative_types', JSON.stringify(newConstants.creative_types));
-    } catch {}
-    try {
-      await contentCalendarService.updateConstants({
-        creative_types: newConstants.creative_types,
-      });
-    } catch (err) {
-      console.warn('Backend constants update failed, saved locally:', err);
-    }
-  };
+  const [rowHeightsResetKey] = useState<number>(0);
 
   // Export / Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -507,11 +469,11 @@ export const ContentCalendarView: React.FC = () => {
 
         {/* Row 2: Search, Filters & Secondary Actions (Sheet/Pipeline/Calendar specific) */}
         {viewMode !== 'overview' && (
-          <div className="px-5 py-2.5 flex items-center justify-between gap-3 overflow-visible flex-wrap">
+          <div className="px-3 sm:px-5 py-2.5 flex items-center justify-between gap-2 overflow-visible flex-wrap">
             {/* Left: Search & Filter Controls */}
-            <div className="flex items-center gap-2.5 flex-1 min-w-0 flex-wrap">
+            <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
               {/* Search Input */}
-              <div className="relative w-48 sm:w-60">
+              <div className="relative w-full sm:w-60">
                 <Search className="w-3.5 h-3.5 text-fg-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                 <input
                   type="text"
@@ -630,17 +592,6 @@ export const ContentCalendarView: React.FC = () => {
                 <span>Import</span>
               </Button>
 
-              {/* Settings Button */}
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setIsSettingsModalOpen(true)}
-                title="Settings (Zoom, row height, field values)"
-              >
-                <Settings className="w-3.5 h-3.5 mr-1" />
-                <span>Settings</span>
-              </Button>
             </div>
           </div>
         )}
@@ -759,18 +710,6 @@ export const ContentCalendarView: React.FC = () => {
         activeClients={activeClients}
       />
 
-      {/* Settings Modal */}
-      <ContentCalendarSettingsModal
-        isOpen={isSettingsModalOpen}
-        onClose={() => setIsSettingsModalOpen(false)}
-        zoomLevel={zoomLevel}
-        onZoomChange={handleZoomChange}
-        defaultRowHeight={defaultRowHeight}
-        onRowHeightChange={handleRowHeightChange}
-        onResetRowHeights={handleResetRowHeights}
-        constants={constants}
-        onUpdateConstants={handleUpdateConstants}
-      />
     </div>
   );
 };

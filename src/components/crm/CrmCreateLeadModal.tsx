@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Loader2, Plus } from 'lucide-react';
+import { Check, Plus } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import {
   Dialog,
@@ -400,18 +400,11 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
               type="submit"
               variant="primary"
               disabled={saving}
+              loading={saving}
+              loadingText="Saving…"
+              icon={Plus}
             >
-              {saving ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Saving…
-                </>
-              ) : (
-                <>
-                  <Plus className="w-3.5 h-3.5 mr-1" />
-                  {mode === 'edit' ? 'Save form' : 'Create lead'}
-                </>
-              )}
+              {mode === 'edit' ? 'Save form' : 'Create lead'}
             </Button>
           </DialogFooter>
         </form>

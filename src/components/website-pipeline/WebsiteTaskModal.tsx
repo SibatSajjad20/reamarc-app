@@ -9,11 +9,11 @@ import {
   MessageSquare,
   Send,
   Trash2,
-  Plus,
   CheckCircle2,
   AlertCircle,
-  Loader2,
+  Plus,
 } from 'lucide-react';
+import { Button, IconButton } from '../ui/button';
 import type {
   WebsiteTask,
   WebsiteProject,
@@ -397,17 +397,17 @@ export const WebsiteTaskModal: React.FC<Props> = ({
         {/* Header Bar */}
         <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between gap-3 bg-subtle">
           <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-            <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border uppercase tracking-wider">
+            <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
               {cleanLabel(activeStage)}
             </span>
-            <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-surface text-fg-muted border border-border">
+            <span className="px-2 py-0.5 rounded text-xs font-semibold bg-surface text-fg-muted border border-border">
               {effectiveProject.name}
             </span>
             <span className="text-xs font-semibold text-fg">
               {isCreateMode ? '• Add New Card / Task' : '• Task Details'}
             </span>
             {!canEditTask && (
-              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-surface text-fg-muted border border-border">
+              <span className="px-2 py-0.5 rounded text-xs font-semibold bg-surface text-fg-muted border border-border">
                 View Only
               </span>
             )}
@@ -420,15 +420,15 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
           <div className="flex items-center gap-2">
             {!isCreateMode && effectiveCanManage && onDeleteTask && (
-              <button
-                type="button"
+              <IconButton
+                icon={Trash2}
+                size="sm"
+                variant="ghost"
                 onClick={handleDeleteTask}
-                disabled={isDeleting}
-                className="p-2 rounded-xl text-fg-muted hover:text-danger-fg hover:bg-danger-subtle transition-colors disabled:opacity-50 cursor-pointer"
-                title="Delete task"
-              >
-                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin text-danger-fg" /> : <Trash2 className="w-4 h-4" />}
-              </button>
+                loading={isDeleting}
+                label="Delete task"
+                className="text-fg-muted hover:text-danger-fg hover:bg-danger-subtle"
+              />
             )}
             <button
               type="button"
@@ -448,7 +448,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
             {/* Project Picker (Create mode with multiple available projects) */}
             {isCreateMode && availableProjects.length > 1 && (
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">
+                <label className="block text-xs font-semibold text-fg-muted mb-1.5">
                   Project *
                 </label>
                 <CustomSelect
@@ -463,7 +463,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
             {/* Task Title */}
             <div>
-              <label className="block text-xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">
+              <label className="block text-xs font-semibold text-fg-muted mb-1.5">
                 Task Title *
               </label>
               <input
@@ -480,7 +480,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
               {/* Status Dropdown */}
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Status
                 </label>
                 <CustomSelect
@@ -495,7 +495,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
               {/* Priority Dropdown */}
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Priority
                 </label>
                 <CustomSelect
@@ -510,7 +510,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
               {/* Assigned Person */}
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Assigned Person
                 </label>
                 <CustomSelect
@@ -526,7 +526,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
               {/* Department */}
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Department
                 </label>
                 <CustomSelect
@@ -544,7 +544,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
             {/* Second row: Due Date, Kind, Blocks Stage */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 pt-1">
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Due Date
                 </label>
                 <CustomDatePicker
@@ -557,7 +557,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
               </div>
 
               <div>
-                <label className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
+                <label className="block text-xs font-semibold text-fg-muted mb-1">
                   Task Kind
                 </label>
                 <CustomSelect
@@ -587,7 +587,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
             {/* Description Textarea */}
             <div className="pt-2">
-              <label className="block text-xs font-semibold uppercase tracking-wider text-fg-muted mb-1.5">
+              <label className="block text-xs font-semibold text-fg-muted mb-1.5">
                 Description & Notes
               </label>
               <textarea
@@ -620,7 +620,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 {/* Task Files & Links Section */}
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-fg flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold text-fg flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-accent" />
                       <span>Deliverables ({taskFiles.length})</span>
                     </h4>
@@ -628,7 +628,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                       <button
                         type="button"
                         onClick={() => setIsAttachingFile(!isAttachingFile)}
-                        className="text-xs font-semibold text-accent-fg hover:underline flex items-center gap-1 cursor-pointer"
+                        className="text-xs font-semibold text-accent-text hover:underline flex items-center gap-1 cursor-pointer"
                       >
                         <Plus className="w-3.5 h-3.5" /> Attach
                       </button>
@@ -709,7 +709,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                                 href={safeHttpUrl(file.external_url)}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="p-1 rounded text-accent-fg hover:underline"
+                                className="p-1 rounded text-accent-text hover:underline"
                                 title="Open external link"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -719,7 +719,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                                 href={getBackendFileUrl(file.storage_key)}
                                 target="_blank"
                                 rel="noreferrer"
-                                className="p-1 rounded text-accent-fg hover:underline"
+                                className="p-1 rounded text-accent-text hover:underline"
                                 title="Download file"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -748,7 +748,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 {/* Task Comments Section */}
                 <div className="flex-1 flex flex-col min-h-[220px] space-y-2 pt-2 border-t border-border">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold uppercase tracking-wider text-fg flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold text-fg flex items-center gap-1.5">
                       <MessageSquare className="w-3.5 h-3.5 text-accent" />
                       <span>Discussion ({comments.length})</span>
                     </h4>
@@ -764,12 +764,12 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                         >
                           <div className="flex items-center justify-between text-fg">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-fg font-semibold text-[9px] flex items-center justify-center border border-accent-border">
+                              <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center border border-accent-border">
                                 {getInitials(c.user_name)}
                               </div>
                               <span className="font-semibold text-fg">{c.user_name}</span>
                             </div>
-                            <span className="text-[10px] text-fg-subtle">
+                            <span className="text-xs text-fg-subtle">
                               {c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                             </span>
                           </div>
@@ -796,15 +796,18 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                       }}
                       className="flex-1 px-3 py-1.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong shadow-2xs"
                     />
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="primary"
                       onClick={handleAddComment}
-                      disabled={isSendingComment || !commentText.trim()}
-                      className="px-3.5 py-1.5 rounded-xl bg-accent hover:bg-accent/90 text-accent-fg text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
+                      disabled={!commentText.trim()}
+                      loading={isSendingComment}
+                      loadingText="Sending…"
+                      icon={Send}
                     >
-                      {isSendingComment ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      <span>Send</span>
-                    </button>
+                      Send
+                    </Button>
                   </div>
                 </div>
               </>
@@ -842,15 +845,16 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 >
                   Cancel
                 </button>
-                <button
+                <Button
                   type="button"
+                  variant="primary"
                   onClick={() => handleSave()}
-                  disabled={isSaving}
-                  className="px-5 py-2 rounded-xl bg-accent hover:bg-accent/90 text-accent-fg text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-all disabled:opacity-50 cursor-pointer"
+                  loading={isSaving}
+                  loadingText={isCreateMode ? 'Creating…' : 'Saving…'}
+                  icon={CheckCircle2}
                 >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  <span>{isSaving ? (isCreateMode ? 'Creating...' : 'Saving...') : (isCreateMode ? 'Create Task' : 'Save Changes')}</span>
-                </button>
+                  {isCreateMode ? 'Create Task' : 'Save Changes'}
+                </Button>
               </>
             )}
           </div>

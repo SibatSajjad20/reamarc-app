@@ -1,7 +1,6 @@
 /**
  * Employee Command Center Dashboard View.
- * Displays real-time KPIs, team hours chart, attendance records,
- * and department-specific modules categorized by user role & department.
+ * Role-based dashboard: Admin, Operations, HR, Team Lead, and Team Member.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -11,58 +10,66 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { attendanceService } from '../../services/attendanceService';
 import { dailyLogService } from '../../services/dailyLogService';
 import { crmService } from '../../services/crmService';
+import { logExceptionService } from '../../services/logExceptionService';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
-import { marketingService } from '../../services/marketingService';
-import { apiClient } from '../../services/apiClient';
+import { canAccessCrm } from '../../utils/crmAccess';
+import { canAccessContentCalendar } from '../../utils/contentCalendarAccess';
+import { canAccessWebsitePipeline } from '../../utils/websiteProjectAccess';
+import { visiblePipelineStages, getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
 
 import type {
   TodayAttendanceResponse,
   PersonalTimesheetResponse,
-  RequestType,
   DailyMatrixResponse,
   AttendanceRequest,
 } from '../../types/attendance';
-import type { DailyLogEntry } from '../../types/dailyLog';
-import type { CrmCounts, CrmLead } from '../../types/crm';
-import type { WebsiteProject, WebsiteSummaryMetrics } from '../../types/websiteProject';
-import type { ContentCalendarListResponse, PipelineStage } from '../../types/contentCalendar';
-import type { MarketingMatrixRow } from '../../types';
+import type {
+  OperatingSnapshot,
+  DayTarget,
+  TeamHoursMember,
+  UserLogActivity,
+} from '../../types/dailyLog';
+import type { WebsiteProject } from '../../types/websiteProject';
+import type { ContentCalendarItem } from '../../types/contentCalendar';
 
-import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
-import { StatusPill } from '../ui/StatusPill';
-import { SegmentedControl } from '../ui/SegmentedControl';
 import { DashboardSkeleton } from '../ui/Skeletons';
-import { Skeleton } from '../ui/skeleton';
-import { useToast } from '../../context/ToastContext';
+import { RequestManagementModal } from '../attendance/RequestManagementModal';
+import { EmployeePunchCard } from '../attendance/EmployeePunchCard';
+
+import { TeamDailyAttendanceCard } from '../dashboard/TeamDailyAttendanceCard';
+import { LogComplianceCard } from '../dashboard/LogComplianceCard';
+import { StageCountCard, type StageItem } from '../dashboard/StageCountCard';
+import { NeedsAttentionCard, type NeedsAttentionItem } from '../dashboard/NeedsAttentionCard';
+import {
+  LoggedThisWeekCard,
+  AtWorkThisWeekCard,
+  PresentInMonthCard,
+  type DailyStripDay,
+  type MonthDot,
+} from '../dashboard/StatCards';
+import { TeamHoursChart } from '../dashboard/TeamHoursChart';
+import { MyHoursChart, type MyHoursDay } from '../dashboard/MyHoursChart';
+import { HrAttendanceTodayCard } from '../dashboard/HrAttendanceTodayCard';
+import { HrApprovalInboxCard } from '../dashboard/HrApprovalInboxCard';
 
 import {
   Clock,
+  ShieldCheck,
   CalendarCheck,
-  CalendarDays,
-  Users,
-  Briefcase,
-  FilePlus,
   Plus,
-  ArrowRight,
-  LogOut,
-  LogIn,
-  Inbox,
+  ClipboardList,
+  Fingerprint,
+  FileWarning,
   FileText,
+  Calendar,
   Phone,
   Globe,
-  Share2,
-  AlertTriangle,
-  Megaphone,
+  AlertCircle,
 } from 'lucide-react';
-import { formatHours } from '../../utils/logTimeChecks';
 import { useOffDays } from '../../hooks/useOffDays';
-
-interface DashboardViewProps {
-  onNavigateView: (view: ViewType) => void;
-}
 
 export type DepartmentCategory = 'sales' | 'website' | 'content' | 'marketing' | 'hr' | 'ai' | 'general';
 
@@ -78,44 +85,54 @@ export function getDepartmentCategory(user?: any): DepartmentCategory {
   if (role === 'hr' || all.some((d) => d === 'hr')) return 'hr';
   if (all.some((d) => d === 'sales')) return 'sales';
   if (all.some((d) => d === 'ai' || d.includes('ai') || d.includes('artificial'))) return 'ai';
-  if (all.some((d) => d.includes('web') || d.includes('software') || d.includes('dev'))) return 'website';
+  if (all.some((d) => d.includes('web') || d.includes('software') || d.includes('dev') || d.includes('seo'))) return 'website';
   if (all.some((d) => d.includes('content') || d.includes('creative') || d.includes('social'))) return 'content';
-  if (all.some((d) => d.includes('marketing') || d.includes('seo'))) return 'marketing';
+  if (all.some((d) => d.includes('marketing'))) return 'marketing';
 
   if (role === 'admin' || role === 'operations') return 'sales';
   return 'general';
 }
 
-function getRelativeTime(value?: string): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
+export function getDepartmentCategories(user?: any): DepartmentCategory[] {
+  if (!user) return [];
+  const role = (user.role || '').toLowerCase().trim();
+  if (role === 'admin' || role === 'operations' || role === 'hr') return [];
 
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / (1000 * 60));
-  const diffHours = Math.floor(diffMins / 60);
+  const rawDepts: string[] = [];
+  if (user.department) rawDepts.push(user.department);
+  if (Array.isArray(user.departments)) {
+    user.departments.forEach((d: string) => {
+      if (d) rawDepts.push(d);
+    });
+  }
 
-  if (diffMins < 1) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m`;
-  if (diffHours < 24) return `${diffHours}h`;
-  const diffDays = Math.floor(diffHours / 24);
-  return `${diffDays}d`;
+  const cats = new Set<DepartmentCategory>();
+  for (const d of rawDepts) {
+    const s = d.toLowerCase().trim();
+    if (s.includes('sales')) cats.add('sales');
+    else if (s.includes('web') || s.includes('software') || s.includes('dev') || s.includes('seo')) cats.add('website');
+    else if (s.includes('content') || s.includes('creative') || s.includes('social')) cats.add('content');
+    else if (s.includes('marketing')) cats.add('marketing');
+  }
+
+  return Array.from(cats).slice(0, 2);
 }
 
-interface ActivityItem {
-  id: string;
-  title: string;
-  body: string;
-  kind?: string;
-  created_at?: string;
+interface DashboardViewProps {
+  onNavigateView: (view: ViewType) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) => {
   const { user } = useAuth();
-  const { addToast } = useToast();
+  const role = (user?.role || '').toLowerCase().trim();
+  const isAdmin = role === 'admin';
+  const isOps = role === 'operations';
+  const isHR = role === 'hr';
+  const isLead = role === 'team_lead';
+  const isMember = role === 'team_member';
+  const isLogger = !isAdmin && !isOps;
 
-  // Date calculations
+  // Date context
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => {
     const y = today.getFullYear();
@@ -124,1549 +141,1309 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     return `${y}-${m}-${d}`;
   }, [today]);
 
-  // Current week Monday
-  const mondayIso = useMemo(() => {
-    const d = new Date(today);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-    d.setDate(diff);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${dayStr}`;
+  const yesterdayIso = useMemo(() => {
+    const prev = new Date(today);
+    prev.setDate(prev.getDate() - 1);
+    const y = prev.getFullYear();
+    const m = String(prev.getMonth() + 1).padStart(2, '0');
+    const d = String(prev.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }, [today]);
 
-  // Previous week Monday and Sunday
-  const lastWeekMondayIso = useMemo(() => {
-    const d = new Date(today);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 7;
-    d.setDate(diff);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${dayStr}`;
-  }, [today]);
+  const currentYear = today.getFullYear();
+  const currentMonth = today.getMonth() + 1;
+  const monthName = today.toLocaleDateString('en-US', { month: 'long' });
 
-  const lastWeekSundayIso = useMemo(() => {
-    const d = new Date(today);
-    const day = d.getDay();
-    const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 1;
-    d.setDate(diff);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${dayStr}`;
-  }, [today]);
+  // Module load gating
+  const [isGateReady, setIsGateReady] = useState(false);
+  useModuleLoadGate(!isGateReady);
 
-  const { getOffDay } = useOffDays();
-  const todayOff = getOffDay(todayIso);
+  // General state
+  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
+  const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(null);
+  const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(null);
+  const [dayTarget, setDayTarget] = useState<DayTarget | null>(null);
 
-  // Cached states
-  const cachedAttendance = attendanceService.getCachedTodayStatus();
-  const cachedTimesheet = attendanceService.getCachedMyTimesheet(today.getFullYear(), today.getMonth() + 1);
-
-  // Loading States
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState(!cachedAttendance);
-  const [, setIsLoadingTimesheet] = useState(!cachedTimesheet);
-  const [, setIsLoadingDailyLog] = useState(false);
-  useModuleLoadGate(isLoadingAttendance);
-
-  // Data States
-  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(
-    () => cachedAttendance?.data || null
-  );
-  const [personalTimesheet, setPersonalTimesheet] = useState<PersonalTimesheetResponse | null>(
-    () => cachedTimesheet?.data || null
-  );
-  const [dailyMatrix, setDailyMatrix] = useState<DailyMatrixResponse | null>(null);
-  const [logEntries, setLogEntries] = useState<DailyLogEntry[]>([]);
-  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
-
-  // Department-specific data states
-  const [crmCounts, setCrmCounts] = useState<CrmCounts | null>(null);
-  const [crmLeads, setCrmLeads] = useState<CrmLead[]>([]);
-  const [websiteMetrics, setWebsiteMetrics] = useState<WebsiteSummaryMetrics | null>(null);
-  const [websiteProjects, setWebsiteProjects] = useState<WebsiteProject[]>([]);
-  const [contentData, setContentData] = useState<ContentCalendarListResponse | null>(null);
-  const [marketingRows, setMarketingRows] = useState<MarketingMatrixRow[]>([]);
+  // Admin snapshots & lists
+  const [weekSnapshot, setWeekSnapshot] = useState<OperatingSnapshot | null>(null);
   const [pendingRequests, setPendingRequests] = useState<AttendanceRequest[]>([]);
+  const [missedInquiries, setMissedInquiries] = useState<any[]>([]);
+  const [yesterdayMissingLogCount, setYesterdayMissingLogCount] = useState<number>(0);
+  const [yesterdayMissingSubtext, setYesterdayMissingSubtext] = useState<string>('');
 
-  // Request Modal State
+  // Team lead / Member / HR states
+  const [teamHoursRange, setTeamHoursRange] = useState<'7D' | '14D' | '30D'>('7D');
+  const [teamHoursMembers, setTeamHoursMembers] = useState<TeamHoursMember[]>([]);
+  const [isLoadingTeamHours, setIsLoadingTeamHours] = useState(false);
+  const [hasTeamHours404, setHasTeamHours404] = useState(false);
+
+  const [myHoursRange, setMyHoursRange] = useState<'7D' | '14D' | '30D'>('7D');
+  const [myHoursDays, setMyHoursDays] = useState<MyHoursDay[]>([]);
+  const [isLoadingMyHours, setIsLoadingMyHours] = useState(false);
+
+  const [logExceptionsInboxCount, setLogExceptionsInboxCount] = useState(0);
+  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(null);
+  const [myPendingInquiries, setMyPendingInquiries] = useState<any[]>([]);
+
+  // Pipeline stage cards state
+  const [crmStages, setCrmStages] = useState<StageItem[]>([]);
+  const [contentStages, setContentStages] = useState<StageItem[]>([]);
+  const [websiteStages, setWebsiteStages] = useState<StageItem[]>([]);
+
+  // CRM follow-ups / uncontacted
+  const [overdueFollowupsCount, setOverdueFollowupsCount] = useState(0);
+  const [overdueFollowupsSubtext, setOverdueFollowupsSubtext] = useState('');
+  const [uncontactedLeadsCount, setUncontactedLeadsCount] = useState(0);
+  const [uncontactedLeadsSubtext, setUncontactedLeadsSubtext] = useState('');
+
+  // Calendar overdue items
+  const [calendarOverdueCount, setCalendarOverdueCount] = useState(0);
+  const [calendarOverdueSubtext, setCalendarOverdueSubtext] = useState('');
+
+  // Website tasks overdue
+  const [websiteOverdueCount, setWebsiteOverdueCount] = useState(0);
+
+  // Weekly stats
+  const [weeklyLoggedHours, setWeeklyLoggedHours] = useState(0);
+  const [weeklyLoggedDays, setWeeklyLoggedDays] = useState<DailyStripDay[]>([]);
+  const [pastDaysLoggedCount, setPastDaysLoggedCount] = useState(0);
+
+  const [weeklyWorkedHours, setWeeklyWorkedHours] = useState(0);
+  const [weeklyWorkedDays, setWeeklyWorkedDays] = useState<DailyStripDay[]>([]);
+  const [pastDaysWorkedCount, setPastDaysWorkedCount] = useState(0);
+
+  // Month dots
+  const [monthDots, setMonthDots] = useState<MonthDot[]>([]);
+  const [workingDaysElapsed, setWorkingDaysElapsed] = useState(0);
+  const [lateStrikes, setLateStrikes] = useState(0);
+
+  // Request Management Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
-  const [requestModalTab, setRequestModalTab] = useState<RequestType>('leave');
+  const [requestModalTab, setRequestModalTab] = useState<'leave' | 'short_leave' | 'wfh' | 'regularization'>('leave');
 
-  // Chart range
-  const [chartRange, setChartRange] = useState<string>('14D');
+  // Off days hook
+  const { isOffDay: isDateOff } = useOffDays();
 
-  // Role & Department Categorization
-  const isAdmin = user?.role === 'admin';
-  const isOperations = user?.role === 'operations';
-  const isAdminOrOps = isAdmin || isOperations;
-
-  const userDefaultCategory = useMemo(() => getDepartmentCategory(user), [user]);
-  const [selectedCategory, setSelectedCategory] = useState<DepartmentCategory>(userDefaultCategory);
-
-  useEffect(() => {
-    setSelectedCategory(userDefaultCategory);
-  }, [userDefaultCategory]);
-
-  const activeCategory = isAdminOrOps ? selectedCategory : userDefaultCategory;
-  const hasDepartmentModule = isAdminOrOps || ['sales', 'website', 'content', 'marketing', 'hr'].includes(activeCategory);
-
-  // 1. Load Attendance & Timesheet
+  // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
+    if (isAdmin) {
+      return;
+    }
     setIsLoadingAttendance(true);
-    setIsLoadingTimesheet(true);
-
-    const todayPromise = attendanceService
-      .getTodayStatus()
-      .then((data) => {
-        if (data) setTodayAttendance(data);
-      })
-      .catch((err) => {
-        console.error('Failed to load dashboard attendance:', err);
-      })
-      .finally(() => {
-        setIsLoadingAttendance(false);
-      });
-
-    const timesheetPromise = attendanceService
-      .getMyTimesheet(today.getFullYear(), today.getMonth() + 1)
-      .then((data) => {
-        if (data) setPersonalTimesheet(data);
-      })
-      .catch((err) => {
-        console.error('Failed to load dashboard timesheet:', err);
-      })
-      .finally(() => {
-        setIsLoadingTimesheet(false);
-      });
-
-    const matrixPromise = attendanceService
-      .getDailyMatrix(todayIso)
-      .then((data) => {
-        if (data) setDailyMatrix(data);
-      })
-      .catch(() => {
-        // Management-only endpoint may 403 for general team member
-        setDailyMatrix(null);
-      });
-
-    await Promise.allSettled([todayPromise, timesheetPromise, matrixPromise]);
-  }, [today, todayIso]);
-
-  // 2. Load Daily Logs for range
-  const rangeStartIso = useMemo(() => {
-    const numDays = chartRange === '7D' ? 7 : chartRange === '14D' ? 14 : 30;
-    const d = new Date(today);
-    d.setDate(d.getDate() - numDays);
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const dayStr = String(d.getDate()).padStart(2, '0');
-    const calcStart = `${y}-${m}-${dayStr}`;
-    return calcStart < lastWeekMondayIso ? calcStart : lastWeekMondayIso;
-  }, [today, chartRange, lastWeekMondayIso]);
-
-  const loadDailyLogs = useCallback(async () => {
-    if (isOperations) return;
-    setIsLoadingDailyLog(true);
-
     try {
-      const entries = await dailyLogService.getEntries({
-        start_date: rangeStartIso,
-        end_date: todayIso,
-        user_id: user?.id,
-        limit: 500,
-      });
-      setLogEntries(entries || []);
-    } catch (err) {
-      console.error('Failed to load dashboard daily log entries:', err);
-    } finally {
-      setIsLoadingDailyLog(false);
-    }
-  }, [rangeStartIso, todayIso, user?.id, isOperations]);
+      const [todayRes, timesheetRes] = await Promise.allSettled([
+        attendanceService.getTodayStatus(),
+        attendanceService.getMyTimesheet(currentYear, currentMonth),
+      ]);
 
-  // 3. Load Department Specific Data & Activities
-  const loadDepartmentData = useCallback(async () => {
-    // Recent activity notifications
-    try {
-      const notifs = await apiClient.get<ActivityItem[]>('/mobile/notifications?limit=5');
-      if (Array.isArray(notifs)) setRecentActivities(notifs);
+      if (todayRes.status === 'fulfilled') {
+        setTodayAttendance(todayRes.value);
+      }
+      if (timesheetRes.status === 'fulfilled') {
+        setTimesheetData(timesheetRes.value);
+      }
     } catch {
-      // non-blocking
+      // silent
+    } finally {
+      setIsLoadingAttendance(false);
     }
+  }, [isAdmin, currentYear, currentMonth]);
 
-    // Sales data
-    if (activeCategory === 'sales' || isAdminOrOps) {
+  // 2. Load Matrix Data (Admin & HR only)
+  const loadMatrix = useCallback(async () => {
+    if (!isAdmin && !isHR) return;
+    try {
+      const data = await attendanceService.getDailyMatrix(todayIso);
+      setMatrixData(data);
+    } catch {
+      // 403 or failure silent
+    }
+  }, [isAdmin, isHR, todayIso]);
+
+  // 3. Load Management Inboxes & Approvals (Admin, Ops, HR)
+  const loadManagementData = useCallback(async () => {
+    if (!isAdmin && !isOps && !isHR) return;
+
+    // Pending requests
+    try {
+      const reqs = await attendanceService.getPendingRequests();
+      setPendingRequests(reqs || []);
+    } catch {}
+
+    // Missed punch inquiries
+    try {
+      const inquiries = await attendanceService.getMissedPunchInquiries({ status: 'pending' });
+      setMissedInquiries(inquiries || []);
+    } catch {}
+
+    // Admin week snapshot
+    if (isAdmin) {
       try {
-        const [counts, leadsRes] = await Promise.all([
-          crmService.getCounts().catch(() => null),
-          crmService.listLeads({ limit: 100 }).catch(() => ({ items: [], total: 0 })),
-        ]);
-        if (counts) setCrmCounts(counts);
-        if (leadsRes?.items) setCrmLeads(leadsRes.items);
-      } catch {
-        // non-blocking
-      }
-    }
+        const snap = await logExceptionService.getSnapshot(undefined, 'week');
+        setWeekSnapshot(snap);
+      } catch {}
 
-    // Website data
-    if (activeCategory === 'website' || isAdminOrOps) {
+      // Yesterday missing logs
       try {
-        const [metrics, projectsRes] = await Promise.all([
-          websiteProjectService.getSummaryMetrics().catch(() => null),
-          websiteProjectService.getProjects().catch(() => ({ items: [], total: 0 })),
-        ]);
-        if (metrics) setWebsiteMetrics(metrics);
-        if (projectsRes?.items) setWebsiteProjects(projectsRes.items);
-      } catch {
-        // non-blocking
-      }
+        const ySnap = await logExceptionService.getSnapshot(yesterdayIso, 'today');
+        const unlogged = (ySnap?.people || []).filter((p) => !p.logged);
+        setYesterdayMissingLogCount(unlogged.length);
+        if (unlogged.length > 0) {
+          const deptMap: Record<string, number> = {};
+          unlogged.forEach((p) => {
+            const d = p.department || 'Other';
+            deptMap[d] = (deptMap[d] || 0) + 1;
+          });
+          const text = Object.entries(deptMap)
+            .map(([d, c]) => `${d} ${c}`)
+            .slice(0, 3)
+            .join(' · ');
+          const extra = Object.keys(deptMap).length > 3 ? ` · +${Object.keys(deptMap).length - 3}` : '';
+          setYesterdayMissingSubtext(text + extra);
+        }
+      } catch {}
     }
+  }, [isAdmin, isOps, isHR, yesterdayIso]);
 
-    // Content calendar data
-    if (activeCategory === 'content' || isAdminOrOps) {
+  // 4. Load Non-Management Needs Attention items
+  const loadLoggerNeedsAttention = useCallback(async () => {
+    if (isAdmin) return;
+
+    // My pending missed punch inquiries
+    try {
+      const inquiries = await attendanceService.getMyPendingMissedPunchInquiries();
+      setMyPendingInquiries(inquiries || []);
+    } catch {}
+
+    // Log exceptions inbox (HR, Team lead)
+    if (isHR || isLead) {
       try {
-        const cRes = await contentCalendarService.getItems().catch(() => null);
-        if (cRes) setContentData(cRes);
-      } catch {
-        // non-blocking
-      }
+        const inbox = await logExceptionService.getInbox();
+        setLogExceptionsInboxCount(inbox?.length || 0);
+      } catch {}
     }
 
-    // Performance marketing data
-    if (activeCategory === 'marketing' || isAdminOrOps) {
+    // Missing logs via my activity
+    if (isLogger) {
       try {
-        const mRes = await marketingService.getDaily(todayIso).catch(() => null);
-        if (mRes?.rows) setMarketingRows(mRes.rows);
-      } catch {
-        // non-blocking
-      }
-    }
+        const act = await dailyLogService.getMyLogActivity(7);
+        setMyActivity(act);
+      } catch {}
 
-    // HR data
-    if (activeCategory === 'hr' || isAdminOrOps) {
+      // Day target
       try {
-        const pRes = await attendanceService.getPendingRequests().catch(() => []);
-        if (Array.isArray(pRes)) setPendingRequests(pRes);
-      } catch {
-        // non-blocking
-      }
+        const dt = await dailyLogService.getDayTarget(todayIso);
+        setDayTarget(dt);
+      } catch {}
     }
-  }, [activeCategory, isAdminOrOps, todayIso]);
 
+    // Sales CRM Leads
+    if (canAccessCrm(user)) {
+      try {
+        const leadsRes = await crmService.listLeads({ limit: 50 });
+        const items = leadsRes?.items || [];
+        const now = Date.now();
+        const overdue = items.filter(
+          (l) => !l.outcome && l.next_follow_up_at && new Date(l.next_follow_up_at).getTime() < now
+        );
+        setOverdueFollowupsCount(overdue.length);
+        if (overdue.length > 0) {
+          setOverdueFollowupsSubtext(
+            overdue
+              .slice(0, 2)
+              .map((l) => l.name || l.company || 'Lead')
+              .join(' · ')
+          );
+        }
+
+        const uncontacted = items.filter((l) => !l.outcome && !l.contacted);
+        setUncontactedLeadsCount(uncontacted.length);
+        setUncontactedLeadsSubtext(uncontacted.length > 0 ? `${uncontacted.length} awaiting first contact` : '');
+      } catch {}
+    }
+
+    // Content Calendar Overdue
+    if (canAccessContentCalendar(user)) {
+      try {
+        const itemsRes = await contentCalendarService.getItems();
+        const items = itemsRes?.items || [];
+        const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
+        setCalendarOverdueCount(overdue.length);
+        if (overdue.length > 0) {
+          const first = overdue[0];
+          const dateStr = first.publish_date || first.design_due || '';
+          setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+        }
+      } catch {}
+    }
+
+    // Website Tasks Overdue
+    if (canAccessWebsitePipeline(user)) {
+      try {
+        const tasks = await websiteProjectService.getAllTasks({
+          assignee_id: isLead ? undefined : user?.id,
+        });
+        const overdue = (tasks || []).filter((t: any) => {
+          return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
+        });
+        setWebsiteOverdueCount(overdue.length);
+      } catch {}
+    }
+  }, [isAdmin, isHR, isLead, isLogger, user, todayIso]);
+
+  // 5. Load Weekly Stat Strips (Logged & Worked)
+  const loadWeeklyStats = useCallback(async () => {
+    if (isAdmin) return;
+
+    // Current week Monday through Saturday
+    const currentDay = today.getDay(); // 0 = Sun
+    const monOffset = (currentDay + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - monOffset);
+
+    const weekDates: { label: string; date: string; isFuture: boolean; isToday: boolean }[] = [];
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const isToday = iso === todayIso;
+      const isFuture = d > today && !isToday;
+      weekDates.push({ label: dayLabels[i], date: iso, isFuture, isToday });
+    }
+
+    const startIso = weekDates[0].date;
+    const endIso = todayIso;
+
+    // Loggers: fetch logged entries
+    if (isLogger && user?.id) {
+      try {
+        const entries = await dailyLogService.getEntries({
+          user_id: user.id,
+          start_date: startIso,
+          end_date: endIso,
+          limit: 500,
+        });
+
+        const perDayMap: Record<string, number> = {};
+        let total = 0;
+        let pastLoggedCount = 0;
+
+        (entries || []).forEach((e) => {
+          const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+          perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
+        });
+
+        const stripDays: DailyStripDay[] = weekDates.map((wd) => {
+          const hrs = perDayMap[wd.date] || 0;
+          total += hrs;
+          if (!wd.isFuture && hrs > 0) pastLoggedCount++;
+          return {
+            label: wd.label,
+            date: wd.date,
+            hours: hrs,
+            isFuture: wd.isFuture,
+            isToday: wd.isToday,
+          };
+        });
+
+        setWeeklyLoggedHours(total);
+        setWeeklyLoggedDays(stripDays);
+        setPastDaysLoggedCount(pastLoggedCount);
+      } catch {}
+    }
+
+    // Operations: fetch worked timesheet records
+    if (isOps) {
+      const records = timesheetData?.records || [];
+      const perDayMap: Record<string, number> = {};
+      let total = 0;
+      let pastWorkedCount = 0;
+
+      records.forEach((r) => {
+        const hrs = (r.working_hours_minutes || 0) / 60;
+        perDayMap[r.date] = hrs;
+      });
+
+      const stripDays: DailyStripDay[] = weekDates.map((wd) => {
+        const hrs = perDayMap[wd.date] || 0;
+        total += hrs;
+        if (!wd.isFuture && hrs > 0) pastWorkedCount++;
+        return {
+          label: wd.label,
+          date: wd.date,
+          hours: hrs,
+          isFuture: wd.isFuture,
+          isToday: wd.isToday,
+        };
+      });
+
+      setWeeklyWorkedHours(total);
+      setWeeklyWorkedDays(stripDays);
+      setPastDaysWorkedCount(pastWorkedCount);
+    }
+  }, [isAdmin, isLogger, isOps, user?.id, today, todayIso, timesheetData]);
+
+  // 6. Calculate Month Dots & Present in Month
   useEffect(() => {
-    loadAttendance();
-    if (!isOperations) {
-      loadDailyLogs();
-    }
-    loadDepartmentData();
-  }, [loadAttendance, loadDailyLogs, loadDepartmentData, isOperations]);
+    if (isAdmin) return;
 
-  const handleOpenRequestModal = (tab: RequestType = 'leave') => {
-    setRequestModalTab(tab);
-    setIsRequestModalOpen(true);
-  };
+    const daysInMonth = new Date(currentYear, currentMonth, 0).getDate();
+    const todayNum = today.getDate();
+    const records = timesheetData?.records || [];
+    const recMap = new Map<string, any>();
+    records.forEach((r) => recMap.set(r.date, r));
 
-  // Punch in/out handler
-  const isCheckedIn = Boolean(
-    todayAttendance?.punch_status?.is_checked_in ||
-    (todayAttendance?.record?.check_in && !todayAttendance?.record?.check_out)
-  );
-  const punchInTime = todayAttendance?.punch_status?.check_in_time || todayAttendance?.record?.check_in;
-  const punchOutTime = todayAttendance?.punch_status?.check_out_time || todayAttendance?.record?.check_out;
+    const dots: MonthDot[] = [];
+    let elapsedWorking = 0;
+    let lateCount = 0;
 
-  const handleTogglePunch = async () => {
-    if (isCheckedIn) {
-      try {
-        const res = await attendanceService.checkOut({
-          notes: 'Standard check-out from dashboard',
-        });
-        if (res) {
-          addToast('Checked out', 'Your check-out has been recorded.', 'success');
-          loadAttendance();
+    for (let day = 1; day <= daysInMonth; day++) {
+      const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      const isPastOrToday = day <= todayNum;
+      const off = isDateOff(dateStr);
+
+      if (isPastOrToday) {
+        if (!off) elapsedWorking++;
+        const rec = recMap.get(dateStr);
+        if (rec) {
+          if (rec.is_late) {
+            lateCount++;
+            dots.push({ dayNumber: day, status: 'late', dateStr });
+          } else if (rec.status === 'present' || rec.status === 'half_day' || rec.status === 'wfh' || rec.check_in) {
+            dots.push({ dayNumber: day, status: 'present', dateStr });
+          } else {
+            dots.push({ dayNumber: day, status: off ? 'off' : 'off', dateStr });
+          }
+        } else {
+          dots.push({ dayNumber: day, status: off ? 'off' : 'upcoming', dateStr });
         }
-      } catch (err: any) {
-        addToast('Checkout error', err?.message || 'Error occurred during checkout', 'error');
-      }
-    } else {
-      try {
-        const res = await attendanceService.checkIn({
-          notes: 'Standard check-in from dashboard',
-        });
-        if (res) {
-          addToast('Checked in', 'Your check-in has been recorded.', 'success');
-          loadAttendance();
-        }
-      } catch (err: any) {
-        addToast('Check-in error', err?.message || 'Error occurred during check-in', 'error');
+      } else {
+        dots.push({ dayNumber: day, status: off ? 'off' : 'upcoming', dateStr });
       }
     }
-  };
 
-  // Compute Daily Log Summary (Hours)
-  const todayTotalHours = useMemo(() => {
-    return logEntries
-      .filter((e) => e.date === todayIso)
-      .reduce((acc, entry) => {
-        const hrs = typeof entry.hours_utilized === 'number'
-          ? entry.hours_utilized
-          : parseFloat(String(entry.hours_utilized || 0));
-        return acc + (isNaN(hrs) ? 0 : hrs);
-      }, 0);
-  }, [logEntries, todayIso]);
+    setMonthDots(dots);
+    setWorkingDaysElapsed(elapsedWorking);
+    setLateStrikes(timesheetData?.summary?.late_count ?? lateCount);
+  }, [isAdmin, currentYear, currentMonth, today, timesheetData, isDateOff]);
 
-  // Compute Week Logged Hours
-  const weekTotalHours = useMemo(() => {
-    return logEntries
-      .filter((e) => e.date >= mondayIso && e.date <= todayIso)
-      .reduce((acc, entry) => {
-        const hrs = typeof entry.hours_utilized === 'number'
-          ? entry.hours_utilized
-          : parseFloat(String(entry.hours_utilized || 0));
-        return acc + (isNaN(hrs) ? 0 : hrs);
-      }, 0);
-  }, [logEntries, mondayIso, todayIso]);
+  // 7. Team Hours (Team lead only, §3b)
+  const loadTeamHours = useCallback(async () => {
+    if (!isLead) return;
+    setIsLoadingTeamHours(true);
 
-  // Compute Last Week Logged Hours for diff
-  const lastWeekTotalHours = useMemo(() => {
-    return logEntries
-      .filter((e) => e.date >= lastWeekMondayIso && e.date <= lastWeekSundayIso)
-      .reduce((acc, entry) => {
-        const hrs = typeof entry.hours_utilized === 'number'
-          ? entry.hours_utilized
-          : parseFloat(String(entry.hours_utilized || 0));
-        return acc + (isNaN(hrs) ? 0 : hrs);
-      }, 0);
-  }, [logEntries, lastWeekMondayIso, lastWeekSundayIso]);
+    const daysCount = teamHoursRange === '7D' ? 7 : teamHoursRange === '14D' ? 14 : 30;
+    const start = new Date(today);
+    start.setDate(today.getDate() - (daysCount - 1));
+    const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
 
-  const weekDiffHours = weekTotalHours - lastWeekTotalHours;
+    try {
+      const res = await dailyLogService.getTeamHours(startIso, todayIso);
+      setTeamHoursMembers(res?.members || []);
+      setHasTeamHours404(false);
+    } catch (err: any) {
+      if (err?.status === 404) {
+        setHasTeamHours404(true);
+      }
+      setTeamHoursMembers([]);
+    } finally {
+      setIsLoadingTeamHours(false);
+    }
+  }, [isLead, teamHoursRange, today, todayIso]);
 
-  // Timesheet Summary metrics
-  const timesheetSummary = personalTimesheet?.summary;
-  const daysPresent = timesheetSummary?.days_present ?? (isCheckedIn ? 1 : 0);
-  const totalWorkingDays = timesheetSummary?.total_working_days ?? timesheetSummary?.working_days ?? 22;
-  const lateStrikes = timesheetSummary?.late_count ?? timesheetSummary?.late_strikes ?? 0;
+  // 8. My Hours Chart (HR, Members, or Leads with no team, §3c)
+  const loadMyHours = useCallback(async () => {
+    if (isAdmin || isOps) return;
+    if (isLead && !hasTeamHours404 && teamHoursMembers.length > 0) return;
 
-  const hour = today.getHours();
-  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = (user?.full_name || user?.name || '').split(' ')[0] || 'there';
-  const formattedDate = today.toLocaleDateString('en-US', {
+    setIsLoadingMyHours(true);
+    const daysCount = myHoursRange === '7D' ? 7 : myHoursRange === '14D' ? 14 : 30;
+    const start = new Date(today);
+    start.setDate(today.getDate() - (daysCount - 1));
+    const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
+
+    try {
+      // 1. Logged hours
+      const entries = await dailyLogService.getEntries({
+        user_id: user?.id,
+        start_date: startIso,
+        end_date: todayIso,
+        limit: 1000,
+      });
+
+      const loggedMap: Record<string, number> = {};
+      (entries || []).forEach((e) => {
+        const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+        loggedMap[e.date] = (loggedMap[e.date] || 0) + hrs;
+      });
+
+      // 2. Worked hours from timesheet (query months touched)
+      const monthsToFetch = new Set<string>();
+      let cur = new Date(start);
+      while (cur <= today) {
+        monthsToFetch.add(`${cur.getFullYear()}-${cur.getMonth() + 1}`);
+        cur.setDate(cur.getDate() + 1);
+      }
+
+      const workedMap: Record<string, number> = {};
+      for (const ym of monthsToFetch) {
+        const [y, m] = ym.split('-').map(Number);
+        try {
+          const ts = await attendanceService.getMyTimesheet(y, m);
+          (ts?.records || []).forEach((r) => {
+            workedMap[r.date] = (r.working_hours_minutes || 0) / 60;
+          });
+        } catch {}
+      }
+
+      // Generate day items
+      const daysList: MyHoursDay[] = [];
+      let iter = new Date(start);
+      while (iter <= today) {
+        const iso = `${iter.getFullYear()}-${String(iter.getMonth() + 1).padStart(2, '0')}-${String(iter.getDate()).padStart(2, '0')}`;
+        const isOff = isDateOff(iso);
+        const dayLabel = iter.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) + (isOff ? ' off' : '');
+
+        daysList.push({
+          date: iso,
+          dayLabel,
+          loggedHours: loggedMap[iso] || 0,
+          workedHours: workedMap[iso] || 0,
+          isOff,
+          isToday: iso === todayIso,
+        });
+        iter.setDate(iter.getDate() + 1);
+      }
+
+      setMyHoursDays(daysList);
+    } catch {} finally {
+      setIsLoadingMyHours(false);
+    }
+  }, [isAdmin, isOps, isLead, hasTeamHours404, teamHoursMembers.length, myHoursRange, today, todayIso, user?.id, isDateOff]);
+
+  // 9. Load Pipeline Stage Cards (§5)
+  const loadPipelineStageCards = useCallback(async () => {
+    // 1. Sales Pipeline
+    if (isAdmin || canAccessCrm(user)) {
+      try {
+        const pipeRes = await crmService.getPipeline();
+        const stagesList = pipeRes?.stages && pipeRes.stages.length > 0 ? pipeRes.stages : [
+          { id: 'new', name: 'New' },
+          { id: 'contacted', name: 'Contacted' },
+          { id: 'qualified', name: 'Qualified' },
+          { id: 'session_booked', name: 'Meeting Booked' },
+          { id: 'session_done', name: 'Meeting Completed' },
+        ];
+
+        const counts = await Promise.all(
+          stagesList.map(async (st: any) => {
+            try {
+              const res = await crmService.listLeads({ stage: st.id, limit: 1 });
+              return { label: st.name, count: res?.total || 0 };
+            } catch {
+              return { label: st.name, count: 0 };
+            }
+          })
+        );
+        setCrmStages(counts);
+      } catch {}
+    }
+
+    // 2. Content Calendar
+    if (isAdmin || canAccessContentCalendar(user)) {
+      try {
+        const visibleStages = visiblePipelineStages(user).filter((s) => s !== 'Posted');
+        const calRes = await contentCalendarService.getItems();
+
+        if (isAdmin || isLead) {
+          const countsMap = calRes?.stages_count || {};
+          const counts: StageItem[] = visibleStages.map((st) => ({
+            label: st,
+            count: countsMap[st] || 0,
+          }));
+          setContentStages(counts);
+        } else {
+          // Member: count own assigned items
+          const myItems = (calRes?.items || []).filter(
+            (i: ContentCalendarItem) => i.assignee_id === user?.id || (i as any).design_owner === user?.id
+          );
+          const counts: StageItem[] = visibleStages.map((st) => ({
+            label: st,
+            count: myItems.filter((i) => i.stage === st).length,
+          }));
+          setContentStages(counts);
+        }
+      } catch {}
+    }
+
+    // 3. Website Pipeline
+    if (isAdmin || canAccessWebsitePipeline(user)) {
+      try {
+        const allStages: { id: string; name: string }[] = [
+          { id: 'strategy', name: 'Strategy' },
+          { id: 'content', name: 'Content' },
+          { id: 'design', name: 'Design' },
+          { id: 'assets', name: 'Creative Assets' },
+          { id: 'development', name: 'Development' },
+          { id: 'qa', name: 'Internal QA' },
+          { id: 'client_review', name: 'Client Review' },
+          { id: 'production', name: 'Production' },
+        ];
+
+        const projectsRes = await websiteProjectService.getProjects();
+
+        let scopedProjects: WebsiteProject[] = projectsRes?.items || [];
+        if (isMember) {
+          // Member: manager or assigned tasks
+          const tasks = await websiteProjectService.getAllTasks({ assignee_id: user?.id });
+          const taskProjectIds = new Set((tasks || []).map((t: any) => t.project_id));
+          scopedProjects = scopedProjects.filter(
+            (p: WebsiteProject) => p.manager_id === user?.id || taskProjectIds.has(p.id)
+          );
+        }
+
+        const countsMap: Record<string, number> = {};
+        scopedProjects.forEach((p: WebsiteProject) => {
+          countsMap[p.stage] = (countsMap[p.stage] || 0) + 1;
+        });
+
+        const counts: StageItem[] = allStages.map((st) => ({
+          label: st.name,
+          count: countsMap[st.id] || 0,
+        }));
+        setWebsiteStages(counts);
+      } catch {}
+    }
+  }, [isAdmin, user, isLead, isMember]);
+
+  // Initial trigger effects
+  useEffect(() => {
+    let active = true;
+    Promise.allSettled([
+      loadAttendance(),
+      loadMatrix(),
+      loadManagementData(),
+      loadLoggerNeedsAttention(),
+      loadWeeklyStats(),
+      loadPipelineStageCards(),
+      isLead ? loadTeamHours() : Promise.resolve(),
+      loadMyHours(),
+    ]).finally(() => {
+      if (active) {
+        setIsGateReady(true);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    loadAttendance,
+    loadMatrix,
+    loadManagementData,
+    loadLoggerNeedsAttention,
+    loadWeeklyStats,
+    loadPipelineStageCards,
+    isLead,
+    loadTeamHours,
+    loadMyHours,
+  ]);
+
+  // Working days left calculation for header
+  const { workingDaysLeft, totalWorkingDaysInWeek } = useMemo(() => {
+    const currentDay = today.getDay(); // 0 = Sun
+    const monOffset = (currentDay + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - monOffset);
+
+    let total = 0;
+    let left = 0;
+
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const off = isDateOff(iso);
+      if (!off) {
+        total++;
+        if (d >= today || iso === todayIso) {
+          left++;
+        }
+      }
+    }
+
+    return { workingDaysLeft: left, totalWorkingDaysInWeek: total || 6 };
+  }, [today, todayIso, isDateOff]);
+
+  // Greeting
+  const greeting = useMemo(() => {
+    const hr = today.getHours();
+    if (hr < 12) return 'Good morning';
+    if (hr < 17) return 'Good afternoon';
+    return 'Good evening';
+  }, [today]);
+
+  const firstName = user?.full_name?.split(' ')[0] || user?.name?.split(' ')[0] || 'User';
+
+  const roleSubtitle = useMemo(() => {
+    if (isAdmin) return 'Admin';
+    if (isOps) return 'Operations';
+    if (isHR) return 'HR';
+    if (isLead) {
+      const count = teamHoursMembers.length;
+      return `${user?.department || 'Department'} team lead${count > 0 ? ` · ${count} people` : ''}`;
+    }
+    return user?.department || 'Team member';
+  }, [isAdmin, isOps, isHR, isLead, user?.department, teamHoursMembers.length]);
+
+  const formattedHeaderDate = today.toLocaleDateString('en-US', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
   });
-  const currentMonthName = today.toLocaleDateString('en-US', { month: 'long' });
 
-  const shift = todayAttendance?.shift;
-  const shiftExpectedHours = shift?.expected_hours ?? shift?.expected_work_hours ?? 8;
-  const logProgressPercent = Math.min(
-    100,
-    Math.round((todayTotalHours / (shiftExpectedHours || 8)) * 100)
-  );
+  // Date range label for charts
+  const chartDateRangeLabel = useMemo(() => {
+    const activeRange = isLead && teamHoursMembers.length > 0 ? teamHoursRange : myHoursRange;
+    const daysCount = activeRange === '7D' ? 7 : activeRange === '14D' ? 14 : 30;
+    const start = new Date(today);
+    start.setDate(today.getDate() - (daysCount - 1));
 
-  // Compute working days left in current week (Monday-Saturday)
-  const currentDayOfWeek = today.getDay();
-  const workingDaysLeft = currentDayOfWeek >= 1 && currentDayOfWeek <= 6 ? 6 - currentDayOfWeek : 0;
+    const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endStr = today.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `${startStr} – ${endStr}`;
+  }, [isLead, teamHoursMembers.length, teamHoursRange, myHoursRange, today]);
 
-  // Real at work elapsed time calculation
-  const elapsedAtWork = useMemo(() => {
-    if (!isCheckedIn || !punchInTime) return '—';
-    try {
-      let inDate: Date | null = null;
-      if (punchInTime.includes('T')) {
-        inDate = new Date(punchInTime);
-      } else {
-        const match = punchInTime.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)?/i);
-        if (match) {
-          let hr = parseInt(match[1], 10);
-          const min = parseInt(match[2], 10);
-          const ampm = match[3]?.toUpperCase();
-          if (ampm === 'PM' && hr < 12) hr += 12;
-          if (ampm === 'AM' && hr === 12) hr = 0;
-          inDate = new Date();
-          inDate.setHours(hr, min, 0, 0);
-        }
-      }
-      if (inDate && !isNaN(inDate.getTime())) {
-        const diffMs = Math.max(0, Date.now() - inDate.getTime());
-        const hrs = Math.floor(diffMs / 3600000);
-        const mins = Math.floor((diffMs % 3600000) / 60000);
-        return `${hrs}h ${mins}m`;
-      }
-    } catch {
-      // fallback
-    }
-    return '—';
-  }, [isCheckedIn, punchInTime]);
+  // Construct Needs Attention list (§4)
+  const needsAttentionItems = useMemo((): NeedsAttentionItem[] => {
+    const list: NeedsAttentionItem[] = [];
 
-  // Chart calculation for Team Hours (Dynamic SVG)
-  const numChartDays = chartRange === '7D' ? 7 : chartRange === '14D' ? 14 : 30;
-  const chartDaysList = useMemo(() => {
-    const list: string[] = [];
-    for (let i = numChartDays - 1; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const y = d.getFullYear();
-      const m = String(d.getMonth() + 1).padStart(2, '0');
-      const dayStr = String(d.getDate()).padStart(2, '0');
-      list.push(`${y}-${m}-${dayStr}`);
-    }
-    return list;
-  }, [today, numChartDays]);
+    // 1. Requests awaiting approval (Admin, Ops, HR)
+    if ((isAdmin || isOps || isHR) && pendingRequests.length > 0) {
+      const leaveCount = pendingRequests.filter((r) => r.request_type === 'leave').length;
+      const wfhCount = pendingRequests.filter((r) => r.request_type === 'wfh').length;
+      const otCount = pendingRequests.filter((r) => r.request_type === 'overtime').length;
+      const parts = [];
+      if (leaveCount) parts.push(`${leaveCount} leave`);
+      if (wfhCount) parts.push(`${wfhCount} WFH`);
+      if (otCount) parts.push(`${otCount} overtime`);
 
-  const { chartLogged, chartMaxH, pointsLogged, pointsAtWork, areaPolygonPoints } = useMemo(() => {
-    const loggedMap = new Map<string, number>();
-    logEntries.forEach((e) => {
-      const h = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0));
-      loggedMap.set(e.date, (loggedMap.get(e.date) || 0) + (isNaN(h) ? 0 : h));
-    });
-
-    const atWorkMap = new Map<string, number>();
-    personalTimesheet?.records?.forEach((r) => {
-      const h = (r.working_hours_minutes || 0) / 60;
-      atWorkMap.set(r.date, h);
-    });
-
-    const logged = chartDaysList.map((d) => loggedMap.get(d) || 0);
-    const atWork = chartDaysList.map((d) => atWorkMap.get(d) || 0);
-
-    const highest = Math.max(8, ...logged, ...atWork);
-    const maxH = Math.ceil(highest / 4) * 4;
-
-    const startX = 36;
-    const endX = 732;
-    const bottomY = 146;
-    const topY = 8;
-    const rangeY = bottomY - topY;
-
-    const loggedCoords = logged.map((val, idx) => {
-      const x = startX + (idx / (numChartDays - 1)) * (endX - startX);
-      const y = bottomY - (val / maxH) * rangeY;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    const atWorkCoords = atWork.map((val, idx) => {
-      const x = startX + (idx / (numChartDays - 1)) * (endX - startX);
-      const y = bottomY - (val / maxH) * rangeY;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    });
-
-    const areaPoints = `${startX},${bottomY} ${loggedCoords.join(' ')} ${endX},${bottomY}`;
-
-    return {
-      chartLogged: logged,
-      chartMaxH: maxH,
-      pointsLogged: loggedCoords.join(' '),
-      pointsAtWork: atWorkCoords.join(' '),
-      areaPolygonPoints: areaPoints,
-    };
-  }, [chartDaysList, logEntries, personalTimesheet, numChartDays]);
-
-  // Today attendance metrics
-  const matrixSummary = dailyMatrix?.summary;
-  const isSelfLate = Boolean(todayAttendance?.record?.is_late);
-  const isSelfWfh = Boolean(todayAttendance?.record?.is_wfh || todayAttendance?.is_wfh_approved);
-  const attendanceHeadcount = matrixSummary?.total_headcount ?? (isCheckedIn ? 1 : 0);
-  const attendancePresent = matrixSummary?.present ?? (isCheckedIn ? 1 : 0);
-  const attendanceLate = matrixSummary?.late ?? (isSelfLate ? 1 : 0);
-  const attendanceWfh = matrixSummary?.wfh ?? (isSelfWfh ? 1 : 0);
-  const attendanceLeaves = matrixSummary?.leaves ?? 0;
-  const attendanceOnTime = matrixSummary?.on_time ?? (isCheckedIn && !isSelfLate ? 1 : 0);
-
-  // Department KPI 4 resolution
-  const departmentKpi = useMemo(() => {
-    switch (activeCategory) {
-      case 'website': {
-        const active = websiteMetrics?.active_projects ?? websiteProjects.filter((p) => !p.on_hold).length;
-        const atRisk = websiteMetrics?.at_risk ?? websiteProjects.filter((p) => p.health === 'at_risk').length;
-        const overdue = websiteMetrics?.overdue_tasks ?? 0;
-        return {
-          icon: Globe,
-          title: 'Active projects',
-          value: String(active),
-          subtext: `${atRisk} at risk · ${overdue} overdue tasks`,
-          subtextColor: atRisk > 0 ? 'text-warning-fg' : 'text-success-fg',
-        };
-      }
-      case 'content': {
-        const total = contentData?.total ?? 0;
-        const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
-        const review = (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0);
-        const scheduled = (sc['Ready to Post'] || 0) + (sc['Posted'] || 0);
-        return {
-          icon: Share2,
-          title: 'Content items',
-          value: String(total),
-          subtext: `${review} in review · ${scheduled} scheduled`,
-          subtextColor: review > 0 ? 'text-warning-fg' : 'text-success-fg',
-        };
-      }
-      case 'marketing': {
-        const count = marketingRows.length;
-        const spend = marketingRows.reduce((acc, r) => acc + (r.ad_spend || 0), 0);
-        return {
-          icon: Megaphone,
-          title: 'Active campaigns',
-          value: String(count),
-          subtext: `PKR ${spend.toLocaleString()} spend today`,
-          subtextColor: 'text-success-fg',
-        };
-      }
-      case 'hr': {
-        const pending = pendingRequests.length;
-        const leaves = pendingRequests.filter((r) => r.request_type === 'leave' || r.request_type === 'short_leave').length;
-        const wfh = pendingRequests.filter((r) => r.request_type === 'wfh').length;
-        return {
-          icon: Users,
-          title: 'Pending requests',
-          value: String(pending),
-          subtext: `${leaves} leaves · ${wfh} WFH awaiting review`,
-          subtextColor: pending > 0 ? 'text-warning-fg' : 'text-success-fg',
-        };
-      }
-      case 'sales': {
-        const open = crmCounts
-          ? crmCounts.incoming + crmCounts.assigned + crmCounts.uncontacted
-          : crmLeads.filter((l) => l.stage !== 'won' && l.stage !== 'lost').length;
-        const uncontacted = crmCounts?.uncontacted ?? 0;
-        const won = crmCounts?.won ?? 0;
-        return {
-          icon: Briefcase,
-          title: 'Open leads',
-          value: String(open),
-          subtext: `${uncontacted} uncontacted · ${won} won`,
-          subtextColor: uncontacted > 0 ? 'text-warning-fg' : 'text-success-fg',
-        };
-      }
-      default:
-        return null;
-    }
-  }, [activeCategory, websiteMetrics, websiteProjects, contentData, marketingRows, pendingRequests, crmCounts, crmLeads]);
-
-  // Needs Attention items
-  const attentionItems = useMemo(() => {
-    const list: Array<{
-      id: string;
-      icon: any;
-      title: string;
-      desc: string;
-      actionText: string;
-      onAction: () => void;
-    }> = [];
-
-    // Sales check
-    if ((activeCategory === 'sales' || isAdminOrOps) && (crmCounts?.uncontacted || 0) > 0) {
       list.push({
-        id: 'crm-uncontacted',
+        id: 'pending_requests',
+        icon: ClipboardList,
+        title: `${pendingRequests.length} requests awaiting approval`,
+        subtitle: parts.length > 0 ? parts.join(' · ') : 'Review leave and attendance requests',
+        actionLabel: 'Open',
+        onAction: () => onNavigateView('attendance'),
+      });
+    }
+
+    // 2. Missed punch inquiries to review (Admin, Ops, HR)
+    if ((isAdmin || isOps || isHR) && missedInquiries.length > 0) {
+      list.push({
+        id: 'missed_inquiries_mgmt',
+        icon: Fingerprint,
+        title: `${missedInquiries.length} missed punch inquiries to review`,
+        subtitle: missedInquiries[0]?.created_at ? `Oldest from ${missedInquiries[0].created_at.slice(5, 10)}` : 'Review pending employee inquiries',
+        actionLabel: 'Review',
+        onAction: () => onNavigateView('attendance'),
+      });
+    }
+
+    // 3. People missing yesterday's log (Admin only)
+    if (isAdmin && yesterdayMissingLogCount > 0) {
+      list.push({
+        id: 'admin_missing_log_yesterday',
+        icon: FileWarning,
+        title: `${yesterdayMissingLogCount} people missing yesterday's log`,
+        subtitle: yesterdayMissingSubtext || 'Unlogged working hours yesterday',
+        actionLabel: 'Review',
+        onAction: () => onNavigateView('admin'),
+      });
+    }
+
+    // 4. Log exceptions inbox (HR, Team lead)
+    if ((isHR || isLead) && logExceptionsInboxCount > 0) {
+      list.push({
+        id: 'log_exceptions_inbox',
+        icon: AlertCircle,
+        title: `${logExceptionsInboxCount} log exceptions to review`,
+        subtitle: "Hours don't match time at work",
+        actionLabel: 'Open',
+        onAction: () => onNavigateView('exceptions'),
+      });
+    }
+
+    // 5. My pending missed-punch inquiry (Ops, HR, Lead, Member)
+    if (!isAdmin && myPendingInquiries.length > 0) {
+      const inq = myPendingInquiries[0];
+      list.push({
+        id: 'my_pending_inquiry',
+        icon: Clock,
+        title: `Your missed punch inquiry for ${inq.date || todayIso}`,
+        subtitle: 'Waiting for HR response',
+        actionLabel: 'View',
+        onAction: () => onNavigateView('attendance'),
+      });
+    }
+
+    // 6. Overdue follow-ups & uncontacted leads (Sales)
+    if (overdueFollowupsCount > 0) {
+      list.push({
+        id: 'overdue_followups',
         icon: Phone,
-        title: `${crmCounts?.uncontacted} uncontacted lead${(crmCounts?.uncontacted || 0) > 1 ? 's' : ''}`,
-        desc: 'New inbound leads awaiting first contact',
-        actionText: 'Open',
+        title: `${overdueFollowupsCount} follow-ups overdue`,
+        subtitle: overdueFollowupsSubtext || 'Overdue CRM client follow-ups',
+        actionLabel: 'Open',
+        onAction: () => onNavigateView('crm'),
+      });
+    }
+    if (uncontactedLeadsCount > 0) {
+      list.push({
+        id: 'uncontacted_leads',
+        icon: Phone,
+        title: `${uncontactedLeadsCount} uncontacted leads`,
+        subtitle: uncontactedLeadsSubtext || 'New incoming leads waiting for touch',
+        actionLabel: 'Open',
         onAction: () => onNavigateView('crm'),
       });
     }
 
-    // Website check
-    if ((activeCategory === 'website' || isAdminOrOps) && (websiteMetrics?.overdue_tasks || 0) > 0) {
+    // 7. Calendar items overdue (Content / Creative / Social)
+    if (calendarOverdueCount > 0) {
       list.push({
-        id: 'wp-overdue',
-        icon: AlertTriangle,
-        title: `${websiteMetrics?.overdue_tasks} overdue task${(websiteMetrics?.overdue_tasks || 0) > 1 ? 's' : ''}`,
-        desc: 'Website milestone deliverables past target date',
-        actionText: 'Review',
-        onAction: () => onNavigateView('website-pipeline'),
-      });
-    }
-
-    // Content check
-    const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
-    const clientReviewCount = (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0);
-    if ((activeCategory === 'content' || isAdminOrOps) && clientReviewCount > 0) {
-      list.push({
-        id: 'cc-review',
-        icon: Share2,
-        title: `${clientReviewCount} item${clientReviewCount > 1 ? 's' : ''} in client review`,
-        desc: 'Content approval or feedback requested',
-        actionText: 'Review',
+        id: 'calendar_overdue',
+        icon: Calendar,
+        title: `${calendarOverdueCount} calendar items overdue`,
+        subtitle: calendarOverdueSubtext || 'Campaign content behind schedule',
+        actionLabel: 'Open',
         onAction: () => onNavigateView('content-calendar'),
       });
     }
 
-    // HR check
-    if ((activeCategory === 'hr' || isAdminOrOps) && pendingRequests.length > 0) {
+    // 8. Website tasks overdue (Website / SEO)
+    if (websiteOverdueCount > 0) {
       list.push({
-        id: 'hr-requests',
-        icon: Users,
-        title: `${pendingRequests.length} pending request${pendingRequests.length > 1 ? 's' : ''}`,
-        desc: 'Leave, WFH or regularization approvals waiting',
-        actionText: 'Review',
-        onAction: () => onNavigateView('attendance'),
+        id: 'website_overdue',
+        icon: Globe,
+        title: `${websiteOverdueCount} website tasks overdue`,
+        subtitle: 'Pending project milestones',
+        actionLabel: 'Open',
+        onAction: () => onNavigateView('website-pipeline'),
       });
     }
 
-    // Personal log submission check
-    if (isCheckedIn && todayTotalHours === 0 && !isOperations) {
+    // 9. Missing log for <date> (HR, Lead, Member)
+    if (isLogger && myActivity?.missing_dates && myActivity.missing_dates.length > 0) {
+      const missingDate = myActivity.missing_dates[0];
       list.push({
-        id: 'log-missing',
+        id: 'my_missing_log',
         icon: FileText,
-        title: "Today's daily log pending",
-        desc: `Shift in progress (${formatHours(shiftExpectedHours || 8)})`,
-        actionText: 'Log work',
+        title: `Missing log for ${missingDate}`,
+        subtitle: 'Working hours recorded, nothing logged',
+        actionLabel: 'Log',
         onAction: () => onNavigateView('daily-log'),
       });
     }
 
-    // Late strikes check
-    if (lateStrikes > 0) {
-      list.push({
-        id: 'late-strikes',
-        icon: Inbox,
-        title: `${lateStrikes} late strike${lateStrikes > 1 ? 's' : ''} this month`,
-        desc: 'Check timesheet and punch records',
-        actionText: 'Timesheet',
-        onAction: () => onNavigateView('attendance'),
-      });
-    }
-
-    return list.slice(0, 3);
+    return list;
   }, [
-    activeCategory,
-    isAdminOrOps,
-    crmCounts,
-    websiteMetrics,
-    contentData,
+    isAdmin,
+    isOps,
+    isHR,
+    isLead,
+    isLogger,
     pendingRequests,
-    isCheckedIn,
-    todayTotalHours,
-    isOperations,
-    shiftExpectedHours,
-    lateStrikes,
+    missedInquiries,
+    yesterdayMissingLogCount,
+    yesterdayMissingSubtext,
+    logExceptionsInboxCount,
+    myPendingInquiries,
+    overdueFollowupsCount,
+    overdueFollowupsSubtext,
+    uncontactedLeadsCount,
+    uncontactedLeadsSubtext,
+    calendarOverdueCount,
+    calendarOverdueSubtext,
+    websiteOverdueCount,
+    myActivity,
+    todayIso,
     onNavigateView,
   ]);
 
-  if (isLoadingAttendance && !todayAttendance) {
+  // Department categories for leads & members
+  const deptCategories = useMemo(() => getDepartmentCategories(user), [user]);
+
+  // Gate Loading Skeleton
+  if (!isGateReady) {
     return (
-      <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-6 max-w-7xl mx-auto w-full dashboard-view">
-        <div className="space-y-2 mb-5">
-          <Skeleton className="w-56 h-8 rounded-md" />
-          <Skeleton className="w-80 h-4 rounded-md" />
-        </div>
-        <DashboardSkeleton />
+      <div className="p-6 max-w-7xl mx-auto space-y-6">
+        <PageHeader
+          title={`${greeting}, ${firstName}`}
+          description={`${formattedHeaderDate} · ${roleSubtitle} · ${workingDaysLeft} of ${totalWorkingDaysInWeek} working days left this week`}
+        />
+        <DashboardSkeleton role={role} />
       </div>
     );
   }
 
-  const KpiIcon = departmentKpi ? departmentKpi.icon : null;
-
-  const renderTodayAttendanceCard = () => (
-    <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
-      <div>
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-          <h3 className="text-ui font-semibold text-fg">
-            Today's attendance <span className="text-fg-muted font-normal text-xs ml-1">· {attendanceHeadcount} people</span>
-          </h3>
-          <button
-            type="button"
-            onClick={() => onNavigateView('attendance')}
-            className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-          >
-            View all
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
-        </div>
-
-        <div className="p-4 pt-2.5 space-y-2.5">
-          {/* Pills Summary */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <StatusPill variant="success" dot={false} label={`${attendancePresent} present`} />
-            <StatusPill variant="warning" dot={false} label={`${attendanceLate} late`} />
-            <StatusPill variant="accent" dot={false} label={`${attendanceWfh} WFH`} />
-            <StatusPill variant="info" dot={false} label={`${attendanceLeaves} leave`} />
-          </div>
-
-          {/* List Rows */}
-          <div className="divide-y divide-border pt-1">
-            {dailyMatrix && dailyMatrix.rows.length > 0 ? (
-              dailyMatrix.rows.slice(0, 3).map((row) => {
-                const inTime = row.punch_in || row.check_in;
-                const initials = (row.employee_name || 'U')
-                  .split(' ')
-                  .map((n) => n[0])
-                  .join('')
-                  .slice(0, 2)
-                  .toUpperCase();
-
-                const isLeaveStatus = row.status.includes('leave');
-
-                return (
-                  <div key={row.user_id} className="flex items-center gap-2.5 py-2">
-                    <span className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
-                      {initials}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-medium text-fg truncate">{row.employee_name}</p>
-                      <p className="text-micro text-fg-muted truncate">{row.department || 'General'}</p>
-                    </div>
-                    <span className="text-xs text-fg-muted font-numeric mr-1">
-                      {inTime || '—'}
-                    </span>
-                    <StatusPill
-                      variant={
-                        row.status === 'present'
-                          ? 'success'
-                          : row.status === 'late'
-                          ? 'warning'
-                          : row.status === 'wfh'
-                          ? 'accent'
-                          : isLeaveStatus
-                          ? 'info'
-                          : 'neutral'
-                      }
-                      dot
-                      label={row.status === 'wfh' ? 'WFH' : row.status === 'short_leave' ? 'Short Leave' : isLeaveStatus ? 'Leave' : row.status}
-                    />
-                  </div>
-                );
-              })
-            ) : (
-              /* Personal Attendance Row if matrix is not available */
-              <div className="flex items-center gap-2.5 py-3">
-                <span className="w-7 h-7 rounded-full bg-accent-soft text-accent border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
-                  {(user?.full_name || 'Me').slice(0, 2).toUpperCase()}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium text-fg truncate">{user?.full_name || 'My Record'}</p>
-                  <p className="text-micro text-fg-muted truncate">
-                    {isCheckedIn ? `In at ${punchInTime || '—'}` : 'Not clocked in'}
-                  </p>
-                </div>
-                <StatusPill
-                  variant={isCheckedIn ? 'success' : todayOff.isOff ? 'neutral' : 'warning'}
-                  dot
-                  label={isCheckedIn ? 'Checked in' : todayOff.isOff ? 'Rest day' : 'Not clocked in'}
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Card Footer */}
-      <div className="border-t border-border px-4 py-2.5 flex items-center justify-between text-xs">
-        <span className="text-fg-muted">Office status</span>
-        <span className="font-numeric">
-          <strong className="text-fg font-semibold">{attendanceOnTime} on-time today</strong>
-        </span>
-      </div>
-    </div>
-  );
-
   return (
-    <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-5 max-w-7xl mx-auto w-full dashboard-view view-enter">
-      {/* 1. Page Header */}
+    <div className="p-6 max-w-7xl mx-auto space-y-6">
+      {/* Page Header */}
       <PageHeader
         title={`${greeting}, ${firstName}`}
-        description={`${formattedDate} · ${user?.department || 'General'} · ${workingDaysLeft} of 6 working days left this week`}
+        description={`${formattedHeaderDate} · ${roleSubtitle} · ${workingDaysLeft} of ${totalWorkingDaysInWeek} working days left this week`}
         actions={
           <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => handleOpenRequestModal('leave')}
-              icon={FilePlus}
-            >
-              Request leave
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onNavigateView('attendance')}
-              icon={CalendarDays}
-            >
-              This week
-            </Button>
-            {!isOperations && (
+            {isAdmin ? (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onNavigateView('attendance')}
+                  icon={Clock}
+                >
+                  Daily attendance
+                </Button>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => onNavigateView('admin')}
+                  icon={ShieldCheck}
+                >
+                  Log compliance
+                </Button>
+              </>
+            ) : isOps ? (
               <Button
-                variant="primary"
+                variant="secondary"
                 size="sm"
-                onClick={() => onNavigateView('daily-log')}
-                icon={Plus}
+                onClick={() => {
+                  setRequestModalTab('leave');
+                  setIsRequestModalOpen(true);
+                }}
+                icon={CalendarCheck}
               >
-                Log work
+                Request leave
               </Button>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setRequestModalTab('leave');
+                    setIsRequestModalOpen(true);
+                  }}
+                  icon={CalendarCheck}
+                >
+                  Request leave
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => onNavigateView('daily-log')}
+                  icon={Plus}
+                >
+                  Log work
+                </Button>
+              </>
             )}
           </div>
         }
       />
 
-      {/* 2. Top KPI Row */}
-      <div className={departmentKpi ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-4"}>
-        {/* KPI 1: Logged this week */}
-        <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
-            <Clock className="w-4 h-4 text-fg-muted" />
-            <span>Logged this week</span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              {weekTotalHours.toFixed(1)}
-              <span className="text-xs text-fg-muted font-medium ml-0.5">h</span>
-            </div>
-            {/* Dynamic sparkline */}
-            <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
-              <polyline
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points="0,20 16,18 32,16 48,12 64,10 80,6"
+      {/* =========================================================================
+          ROLE: ADMIN
+          Row 1: Team daily attendance (span 2) · Needs attention + Log compliance (col 3)
+          Row 2: Sales pipeline · Content calendar · Website pipeline (3 stage cards)
+         ========================================================================= */}
+      {isAdmin && (
+        <div className="space-y-4">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <TeamDailyAttendanceCard
+              matrixData={matrixData}
+              isLoading={isLoadingAttendance}
+              onNavigateView={onNavigateView}
+              className="lg:col-span-2"
+            />
+            <div className="flex flex-col gap-4">
+              <NeedsAttentionCard
+                items={needsAttentionItems}
+                onNavigateView={onNavigateView}
               />
-            </svg>
-          </div>
-          <div className="text-xs text-fg-muted mt-2">
-            {lastWeekTotalHours > 0 ? (
-              <>
-                <span className={weekDiffHours >= 0 ? 'text-success-fg font-medium font-numeric' : 'text-warning-fg font-medium font-numeric'}>
-                  {weekDiffHours >= 0 ? `+${weekDiffHours.toFixed(1)}h` : `${weekDiffHours.toFixed(1)}h`}
-                </span>{' '}
-                vs last week
-              </>
-            ) : (
-              <span>Target: {formatHours(48)} / week</span>
-            )}
-          </div>
-        </div>
-
-        {/* KPI 2: Present in Month */}
-        <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
-            <CalendarCheck className="w-4 h-4 text-fg-muted" />
-            <span>Present in {currentMonthName}</span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              {daysPresent}
-              <span className="text-sm text-fg-muted font-medium">/{totalWorkingDays}</span>
-            </div>
-            <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
-              <polyline
-                fill="none"
-                stroke="var(--text-faint)"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points="0,14 16,14 32,14 48,14 64,14 80,14"
+              <LogComplianceCard
+                snapshot={weekSnapshot}
+                isLoading={false}
+                onNavigateView={onNavigateView}
               />
-            </svg>
+            </div>
           </div>
-          <div className="text-xs text-fg-muted mt-2">
-            <span className="font-numeric text-fg-2">{lateStrikes} late strike{lateStrikes !== 1 ? 's' : ''}</span> on schedule
-          </div>
-        </div>
 
-        {/* KPI 3: On time today */}
-        <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
-            <Users className="w-4 h-4 text-fg-muted" />
-            <span>On time today</span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              {attendanceOnTime}
-              <span className="text-sm text-fg-muted font-medium">/{attendanceHeadcount || 1}</span>
-            </div>
-            <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
-              <polyline
-                fill="none"
-                stroke="var(--text-faint)"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points="0,12 16,10 32,14 48,9 64,11 80,13"
-              />
-            </svg>
-          </div>
-          <div className="text-xs text-fg-muted mt-2">
-            <span className="text-warning-fg font-medium">{attendanceLate} late</span> · {attendanceLeaves} on leave
-          </div>
-        </div>
-
-        {/* KPI 4: Department-specific KPI (Only if departmentKpi exists) */}
-        {departmentKpi && KpiIcon && (
-          <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
-            <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
-              <KpiIcon className="w-4 h-4 text-fg-muted" />
-              <span>{departmentKpi.title}</span>
-            </div>
-            <div className="flex items-baseline justify-between">
-              <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-                {departmentKpi.value}
-              </div>
-              <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
-                <polyline
-                  fill="none"
-                  stroke="var(--accent)"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                  strokeLinecap="round"
-                  points="0,22 16,19 32,20 48,14 64,12 80,7"
-                />
-              </svg>
-            </div>
-            <div className="text-xs text-fg-muted mt-2">
-              <span className={`${departmentKpi.subtextColor} font-medium font-numeric`}>
-                {departmentKpi.subtext}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* 3. Your Day Card (Top Hero) */}
-      <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-          <div className="flex items-center gap-2">
-            <h3 className="text-ui font-semibold text-fg">Your day</h3>
-            <StatusPill
-              variant={isCheckedIn ? 'success' : todayOff.isOff ? 'neutral' : 'warning'}
-              dot
-              label={
-                todayOff.isOff
-                  ? 'Rest day'
-                  : isCheckedIn
-                  ? 'Checked in'
-                  : 'Not checked in'
-              }
+          {/* Row 2: Stage cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StageCountCard
+              title="Sales pipeline"
+              subtitle="leads by stage"
+              linkText="Open board"
+              onNavigate={() => onNavigateView('crm')}
+              stages={crmStages}
+            />
+            <StageCountCard
+              title="Content calendar"
+              subtitle="items by stage"
+              linkText="Open calendar"
+              onNavigate={() => onNavigateView('content-calendar')}
+              stages={contentStages}
+            />
+            <StageCountCard
+              title="Website pipeline"
+              subtitle="projects by stage"
+              linkText="Open pipeline"
+              onNavigate={() => onNavigateView('website-pipeline')}
+              stages={websiteStages}
             />
           </div>
-          <div className="text-xs text-fg-muted">
-            Shift: <span className="font-medium text-fg font-numeric">{shift?.start_time || '9:30 AM'} – {shift?.end_time || '6:30 PM'}</span>
+        </div>
+      )}
+
+      {/* =========================================================================
+          ROLE: OPERATIONS
+          Row 1: At work this week · Present in <Month> · Your day (no Log work)
+          Row 2: Needs attention (span 3 / full width)
+         ========================================================================= */}
+      {isOps && (
+        <div className="space-y-4">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <AtWorkThisWeekCard
+              totalHours={weeklyWorkedHours}
+              pastDaysAtWork={pastDaysWorkedCount}
+              pastDaysTotal={4}
+              todayInProgress={Boolean(todayAttendance?.record?.check_in && !todayAttendance?.record?.check_out)}
+              days={weeklyWorkedDays}
+              isLoading={isLoadingAttendance}
+            />
+            <PresentInMonthCard
+              monthName={monthName}
+              daysPresent={timesheetData?.summary?.days_present ?? 0}
+              workingDaysElapsed={workingDaysElapsed}
+              lateStrikes={lateStrikes}
+              isLateToday={Boolean(todayAttendance?.record?.is_late)}
+              dots={monthDots}
+              isLoading={isLoadingAttendance}
+            />
+            <EmployeePunchCard
+              variant="your-day"
+              todayData={todayAttendance}
+              isLoading={isLoadingAttendance}
+              onRefresh={loadAttendance}
+              onOpenRequestModal={(tab) => {
+                setRequestModalTab(tab || 'leave');
+                setIsRequestModalOpen(true);
+              }}
+              onNavigateView={onNavigateView}
+            />
+          </div>
+
+          {/* Row 2: Full-width Needs attention */}
+          <NeedsAttentionCard
+            items={needsAttentionItems}
+            onNavigateView={onNavigateView}
+            className="w-full"
+          />
+        </div>
+      )}
+
+      {/* =========================================================================
+          ROLE: HR
+          Row 1: Logged this week · Present in <Month> · Your day
+          Row 2: My hours (span 2) · Needs attention
+          Row 3: Attendance today · Approval inbox (span 2)
+         ========================================================================= */}
+      {isHR && (
+        <div className="space-y-4">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <LoggedThisWeekCard
+              totalHours={weeklyLoggedHours}
+              pastDaysLogged={pastDaysLoggedCount}
+              pastDaysTotal={4}
+              days={weeklyLoggedDays}
+              isLoading={isLoadingAttendance}
+            />
+            <PresentInMonthCard
+              monthName={monthName}
+              daysPresent={timesheetData?.summary?.days_present ?? 0}
+              workingDaysElapsed={workingDaysElapsed}
+              lateStrikes={lateStrikes}
+              isLateToday={Boolean(todayAttendance?.record?.is_late)}
+              dots={monthDots}
+              isLoading={isLoadingAttendance}
+            />
+            <EmployeePunchCard
+              variant="your-day"
+              todayData={todayAttendance}
+              isLoading={isLoadingAttendance}
+              onRefresh={loadAttendance}
+              loggedHours={dayTarget?.logged_hours}
+              expectedHours={dayTarget?.expected_hours}
+              onOpenRequestModal={(tab) => {
+                setRequestModalTab(tab || 'leave');
+                setIsRequestModalOpen(true);
+              }}
+              onNavigateView={onNavigateView}
+            />
+          </div>
+
+          {/* Row 2 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <MyHoursChart
+              days={myHoursDays}
+              range={myHoursRange}
+              onRangeChange={setMyHoursRange}
+              dateRangeLabel={chartDateRangeLabel}
+              isLoading={isLoadingMyHours}
+              className="lg:col-span-2"
+            />
+            <NeedsAttentionCard
+              items={needsAttentionItems}
+              onNavigateView={onNavigateView}
+            />
+          </div>
+
+          {/* Row 3 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <HrAttendanceTodayCard
+              matrixData={matrixData}
+              isLoading={false}
+              onNavigateView={onNavigateView}
+            />
+            <HrApprovalInboxCard
+              requests={pendingRequests}
+              isLoading={false}
+              onNavigateView={onNavigateView}
+              onOpenReview={(req) => {
+                setRequestModalTab((req.request_type as any) || 'leave');
+                setIsRequestModalOpen(true);
+              }}
+              className="lg:col-span-2"
+            />
           </div>
         </div>
+      )}
 
-        <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          {/* Left: At work time */}
-          <div className="min-w-[150px]">
-            <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
-              {elapsedAtWork}
-            </div>
-            <div className="text-xs text-fg-muted mt-0.5">
-              {isCheckedIn
-                ? `at work since ${punchInTime || '9:00 AM'}`
-                : punchOutTime
-                ? `checked out at ${punchOutTime}`
-                : 'not clocked in'}
-            </div>
+      {/* =========================================================================
+          ROLE: TEAM LEAD
+          Row 1: Logged · Present · Your day
+          Row 2: Team hours (span 2, or My hours if 0 members) · Needs attention
+          Row 3: Department stage-count card(s), full width
+         ========================================================================= */}
+      {isLead && (
+        <div className="space-y-4">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <LoggedThisWeekCard
+              totalHours={weeklyLoggedHours}
+              pastDaysLogged={pastDaysLoggedCount}
+              pastDaysTotal={4}
+              days={weeklyLoggedDays}
+              isLoading={isLoadingAttendance}
+            />
+            <PresentInMonthCard
+              monthName={monthName}
+              daysPresent={timesheetData?.summary?.days_present ?? 0}
+              workingDaysElapsed={workingDaysElapsed}
+              lateStrikes={lateStrikes}
+              isLateToday={Boolean(todayAttendance?.record?.is_late)}
+              dots={monthDots}
+              isLoading={isLoadingAttendance}
+            />
+            <EmployeePunchCard
+              variant="your-day"
+              todayData={todayAttendance}
+              isLoading={isLoadingAttendance}
+              onRefresh={loadAttendance}
+              loggedHours={dayTarget?.logged_hours}
+              expectedHours={dayTarget?.expected_hours}
+              onOpenRequestModal={(tab) => {
+                setRequestModalTab(tab || 'leave');
+                setIsRequestModalOpen(true);
+              }}
+              onNavigateView={onNavigateView}
+            />
           </div>
 
-          {/* Middle: Daily log progress bar */}
-          <div className="flex-1 max-w-lg w-full">
-            <div className="flex items-center justify-between text-xs text-fg-muted mb-1.5">
-              <span>Logged {formatHours(todayTotalHours)} of {formatHours(shiftExpectedHours || 8)}</span>
-              <span>Break 1:00 – 2:00 PM</span>
-            </div>
-            <div className="h-2 w-full bg-subtle rounded-full overflow-hidden">
-              <div
-                className="h-full bg-accent rounded-full transition-all duration-300"
-                style={{ width: `${logProgressPercent}%` }}
+          {/* Row 2 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            {teamHoursMembers.length > 0 && !hasTeamHours404 ? (
+              <TeamHoursChart
+                members={teamHoursMembers}
+                range={teamHoursRange}
+                onRangeChange={setTeamHoursRange}
+                dateRangeLabel={chartDateRangeLabel}
+                onNavigateView={onNavigateView}
+                isLoading={isLoadingTeamHours}
+                className="lg:col-span-2"
               />
-            </div>
-          </div>
-
-          {/* Right: Actions */}
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={handleTogglePunch}
-              icon={isCheckedIn ? LogOut : LogIn}
-            >
-              {isCheckedIn ? 'Check out' : 'Check in'}
-            </Button>
-            {!isOperations && (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => onNavigateView('daily-log')}
-                icon={Plus}
-              >
-                Log work
-              </Button>
+            ) : (
+              <MyHoursChart
+                days={myHoursDays}
+                range={myHoursRange}
+                onRangeChange={setMyHoursRange}
+                dateRangeLabel={chartDateRangeLabel}
+                isLoading={isLoadingMyHours}
+                className="lg:col-span-2"
+              />
             )}
+            <NeedsAttentionCard
+              items={needsAttentionItems}
+              onNavigateView={onNavigateView}
+            />
           </div>
+
+          {/* Row 3: Full-width department cards */}
+          {deptCategories.includes('content') && (
+            <StageCountCard
+              title="Content calendar"
+              subtitle="your department's stages"
+              linkText="Open calendar"
+              onNavigate={() => onNavigateView('content-calendar')}
+              stages={contentStages}
+              layout="two-col"
+            />
+          )}
+          {deptCategories.includes('sales') && (
+            <StageCountCard
+              title="Sales pipeline"
+              subtitle="team leads + unassigned"
+              linkText="Open board"
+              onNavigate={() => onNavigateView('crm')}
+              stages={crmStages}
+              layout="two-col"
+            />
+          )}
+          {deptCategories.includes('website') && (
+            <StageCountCard
+              title="Website pipeline"
+              subtitle="your department's stages"
+              linkText="Open pipeline"
+              onNavigate={() => onNavigateView('website-pipeline')}
+              stages={websiteStages}
+              layout="two-col"
+            />
+          )}
         </div>
-      </div>
+      )}
 
-      {/* 3. Main Content Area */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
-        {/* LEFT COLUMN */}
-        <div className="flex-1 min-w-0 flex flex-col gap-4 w-full">
-          {/* Team Hours Chart Card */}
-          <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border flex-wrap gap-2">
-              <div>
-                <h3 className="text-ui font-semibold text-fg">Team hours</h3>
-                <p className="text-xs text-fg-muted">Logged in daily logs vs time at work · last {chartRange}</p>
-              </div>
-
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-3 text-xs text-fg-muted">
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-accent shrink-0" />
-                    Logged
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-xs bg-fg-faint shrink-0" />
-                    At work
-                  </span>
-                </div>
-
-                <SegmentedControl
-                  size="sm"
-                  value={chartRange}
-                  onValueChange={setChartRange}
-                  options={[
-                    { value: '7D', label: '7D' },
-                    { value: '14D', label: '14D' },
-                    { value: '30D', label: '30D' },
-                  ]}
-                />
-              </div>
-            </div>
-
-            {/* Dynamic Responsive SVG Chart */}
-            <div className="p-4 pt-2">
-              <svg width="100%" height="168" viewBox="0 0 744 168" className="overflow-visible" preserveAspectRatio="none">
-                {/* Horizontal Gridlines */}
-                <line x1="36" x2="740" y1="146.0" y2="146.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="150.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">0h</text>
-
-                <line x1="36" x2="740" y1="100.0" y2="100.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="104.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
-                  {Math.round(chartMaxH / 3)}h
-                </text>
-
-                <line x1="36" x2="740" y1="54.0" y2="54.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="58.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
-                  {Math.round((chartMaxH * 2) / 3)}h
-                </text>
-
-                <line x1="36" x2="740" y1="8.0" y2="8.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="12.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
-                  {chartMaxH}h
-                </text>
-
-                {/* Area Fill under Logged line */}
-                <polygon
-                  points={areaPolygonPoints}
-                  fill="var(--accent)"
-                  opacity="0.08"
-                />
-
-                {/* At work (dashed line) */}
-                <polyline
-                  points={pointsAtWork}
-                  fill="none"
-                  stroke="var(--text-faint)"
-                  strokeWidth="1.5"
-                  strokeDasharray="4 3"
-                />
-
-                {/* Logged (solid purple line) */}
-                <polyline
-                  points={pointsLogged}
-                  fill="none"
-                  stroke="var(--accent)"
-                  strokeWidth="2"
-                  strokeLinejoin="round"
-                />
-
-                {/* Guide line at Today */}
-                <line x1="732.0" x2="732.0" y1="8" y2="146.0" stroke="var(--border-strong)" />
-                <circle
-                  cx="732.0"
-                  cy={(146 - ((chartLogged[chartLogged.length - 1] || 0) / chartMaxH) * (146 - 8)).toFixed(1)}
-                  r="4"
-                  fill="var(--bg-surface)"
-                  stroke="var(--accent)"
-                  strokeWidth="2"
-                />
-
-                {/* Dynamic X-axis date labels */}
-                {(() => {
-                  const labelIndices = [
-                    0,
-                    Math.floor(numChartDays * 0.2),
-                    Math.floor(numChartDays * 0.4),
-                    Math.floor(numChartDays * 0.6),
-                    Math.floor(numChartDays * 0.8),
-                    numChartDays - 1,
-                  ];
-                  const uniqueIndices = Array.from(new Set(labelIndices));
-                  return uniqueIndices.map((idx, i) => {
-                    const dateStr = chartDaysList[idx];
-                    const x = 36 + (idx / (numChartDays - 1)) * (732 - 36);
-                    const isLast = idx === numChartDays - 1;
-                    const dateObj = new Date(dateStr + 'T00:00:00');
-                    const label = isLast
-                      ? 'Today'
-                      : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-
-                    return (
-                      <text
-                        key={i}
-                        x={x}
-                        y="164"
-                        textAnchor={isLast ? 'end' : i === 0 ? 'start' : 'middle'}
-                        fontSize="11"
-                        fill="var(--text-muted)"
-                      >
-                        {label}
-                      </text>
-                    );
-                  });
-                })()}
-              </svg>
-            </div>
+      {/* =========================================================================
+          ROLE: TEAM MEMBER
+          Row 1: Logged · Present · Your day
+          Row 2: My hours (span 2) · Needs attention
+          Row 3: Department stage-count card, full width (own items)
+         ========================================================================= */}
+      {isMember && (
+        <div className="space-y-4">
+          {/* Row 1 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <LoggedThisWeekCard
+              totalHours={weeklyLoggedHours}
+              pastDaysLogged={pastDaysLoggedCount}
+              pastDaysTotal={4}
+              days={weeklyLoggedDays}
+              isLoading={isLoadingAttendance}
+            />
+            <PresentInMonthCard
+              monthName={monthName}
+              daysPresent={timesheetData?.summary?.days_present ?? 0}
+              workingDaysElapsed={workingDaysElapsed}
+              lateStrikes={lateStrikes}
+              isLateToday={Boolean(todayAttendance?.record?.is_late)}
+              dots={monthDots}
+              isLoading={isLoadingAttendance}
+            />
+            <EmployeePunchCard
+              variant="your-day"
+              todayData={todayAttendance}
+              isLoading={isLoadingAttendance}
+              onRefresh={loadAttendance}
+              loggedHours={dayTarget?.logged_hours}
+              expectedHours={dayTarget?.expected_hours}
+              onOpenRequestModal={(tab) => {
+                setRequestModalTab(tab || 'leave');
+                setIsRequestModalOpen(true);
+              }}
+              onNavigateView={onNavigateView}
+            />
           </div>
 
-          {/* Row of Cards: Department Module (if applicable) + Today's Attendance */}
-          {hasDepartmentModule ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* CARD 1: Department-Related Module */}
-              <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
-                <div>
-                  {/* Header with optional Admin switcher */}
-                  <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border gap-2 flex-wrap">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-ui font-semibold text-fg">
-                        {activeCategory === 'sales' && 'Sales pipeline'}
-                        {activeCategory === 'website' && 'Websites pipeline'}
-                        {activeCategory === 'content' && 'Content calendar'}
-                        {activeCategory === 'marketing' && 'Performance marketing'}
-                        {activeCategory === 'hr' && 'Pending approvals'}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      {/* Admin cross-department switcher */}
-                      {isAdminOrOps && (
-                        <SegmentedControl
-                          size="sm"
-                          value={selectedCategory}
-                          onValueChange={(val) => setSelectedCategory(val as DepartmentCategory)}
-                          options={[
-                            { value: 'sales', label: 'Sales' },
-                            { value: 'website', label: 'Web' },
-                            { value: 'content', label: 'Content' },
-                            { value: 'marketing', label: 'Ads' },
-                            { value: 'hr', label: 'HR' },
-                          ]}
-                        />
-                      )}
-
-                      {/* Navigation shortcut */}
-                      {activeCategory === 'sales' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigateView('crm')}
-                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          Open board
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {activeCategory === 'website' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigateView('website-pipeline')}
-                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          Open pipeline
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {activeCategory === 'content' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigateView('content-calendar')}
-                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          Open calendar
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {activeCategory === 'marketing' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigateView('marketing')}
-                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          Open matrix
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                      {activeCategory === 'hr' && (
-                        <button
-                          type="button"
-                          onClick={() => onNavigateView('attendance')}
-                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                        >
-                          View all
-                          <ArrowRight className="w-3.5 h-3.5" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Content body based on active category */}
-                  <div className="p-4 pt-2.5">
-                    {/* 1. SALES PIPELINE VIEW */}
-                    {activeCategory === 'sales' && (
-                      <div className="space-y-2.5">
-                        {(() => {
-                          const stageList = [
-                            { label: 'Incoming', count: crmCounts?.incoming || 0 },
-                            { label: 'Assigned', count: crmCounts?.assigned || 0 },
-                            { label: 'Contacted', count: crmCounts?.contacted_under_15m || 0 },
-                            { label: 'Uncontacted', count: crmCounts?.uncontacted || 0 },
-                            { label: 'Won', count: crmCounts?.won || 0 },
-                          ];
-                          const totalStageCount = Math.max(1, stageList.reduce((acc, s) => acc + s.count, 0));
-
-                          return (
-                            <div className="space-y-2">
-                              {stageList.map((stage) => {
-                                const pct = Math.round((stage.count / totalStageCount) * 100);
-                                return (
-                                  <div
-                                    key={stage.label}
-                                    className="grid grid-cols-[120px_1fr_40px] items-center gap-2.5 h-7 text-xs"
-                                  >
-                                    <span className="text-fg-muted truncate">{stage.label}</span>
-                                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                                      <div
-                                        className="h-full bg-accent rounded-full transition-all duration-300"
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                    <span className="font-semibold text-fg text-right font-numeric">{stage.count}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })()}
-                      </div>
-                    )}
-
-                    {/* 2. WEBSITE PIPELINE VIEW */}
-                    {activeCategory === 'website' && (
-                      <div className="space-y-2">
-                        {websiteProjects.length === 0 ? (
-                          <div className="py-6 text-center text-xs text-fg-muted">
-                            No active website projects found.
-                          </div>
-                        ) : (
-                          websiteProjects.slice(0, 4).map((proj) => {
-                            return (
-                              <div
-                                key={proj.id}
-                                className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
-                              >
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex items-center gap-1.5">
-                                    <span className="font-medium text-fg truncate">{proj.name}</span>
-                                    <span className="text-micro px-1.5 py-0.2 rounded-xs bg-subtle border border-border text-fg-muted shrink-0">
-                                      {proj.client_name}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2 mt-1">
-                                    <div className="h-1 flex-1 bg-border rounded-full overflow-hidden">
-                                      <div
-                                        className="h-full bg-accent rounded-full"
-                                        style={{ width: `${proj.progress || 0}%` }}
-                                      />
-                                    </div>
-                                    <span className="text-micro text-fg-muted font-mono">{proj.progress || 0}%</span>
-                                  </div>
-                                </div>
-                                <StatusPill
-                                  variant={
-                                    proj.health === 'on_track'
-                                      ? 'success'
-                                      : proj.health === 'at_risk'
-                                      ? 'warning'
-                                      : proj.health === 'waiting_on_client'
-                                      ? 'info'
-                                      : 'neutral'
-                                }
-                                dot
-                                label={
-                                  proj.health === 'on_track'
-                                    ? 'On track'
-                                    : proj.health === 'at_risk'
-                                    ? 'At risk'
-                                    : proj.health === 'waiting_on_client'
-                                    ? 'Client review'
-                                    : 'Active'
-                                }
-                              />
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  )}
-
-                  {/* 3. CONTENT CALENDAR VIEW */}
-                  {activeCategory === 'content' && (
-                    <div className="space-y-2.5">
-                      {(() => {
-                        const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
-                        const stages = [
-                          { label: 'Content Writing', count: (sc['Content'] || 0) + (sc['Content Internal Review'] || 0) },
-                          { label: 'Creative Design', count: (sc['Creative Production'] || 0) + (sc['Creative Internal Review'] || 0) },
-                          { label: 'Client Review', count: (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0) },
-                          { label: 'Revisions', count: (sc['Content Revision'] || 0) + (sc['Creative Revision'] || 0) },
-                          { label: 'Ready to Post', count: (sc['Ready to Post'] || 0) + (sc['Posted'] || 0) },
-                        ];
-                        const totalContent = Math.max(1, stages.reduce((a, b) => a + b.count, 0));
-
-                        return (
-                          <div className="space-y-2">
-                            {stages.map((st) => {
-                              const pct = Math.round((st.count / totalContent) * 100);
-                              return (
-                                <div
-                                  key={st.label}
-                                  className="grid grid-cols-[130px_1fr_36px] items-center gap-2.5 h-7 text-xs"
-                                >
-                                  <span className="text-fg-muted truncate">{st.label}</span>
-                                  <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                                    <div
-                                      className="h-full bg-accent rounded-full transition-all duration-300"
-                                      style={{ width: `${pct}%` }}
-                                    />
-                                  </div>
-                                  <span className="font-semibold text-fg text-right font-numeric">{st.count}</span>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
-                    </div>
-                  )}
-
-                  {/* 4. PERFORMANCE MARKETING VIEW */}
-                  {activeCategory === 'marketing' && (
-                    <div className="space-y-2">
-                      {marketingRows.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-fg-muted">
-                          No active ad campaigns recorded for today.
-                        </div>
-                      ) : (
-                        marketingRows.slice(0, 4).map((row) => (
-                          <div
-                            key={row.campaign_id}
-                            className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-fg truncate">{row.campaign_name}</p>
-                              <p className="text-micro text-fg-muted mt-0.5">
-                                Platform: <span className="capitalize">{row.platform}</span> · {row.objective}
-                              </p>
-                            </div>
-                            <div className="text-right shrink-0">
-                              <p className="font-semibold text-fg font-numeric">PKR {(row.ad_spend || 0).toLocaleString()}</p>
-                              <p className="text-micro text-fg-muted font-numeric">
-                                {row.leads_conversions || 0} leads
-                              </p>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-
-                  {/* 5. HR VIEW */}
-                  {activeCategory === 'hr' && (
-                    <div className="space-y-2">
-                      {pendingRequests.length === 0 ? (
-                        <div className="py-6 text-center text-xs text-fg-muted">
-                          No pending requests. All caught up!
-                        </div>
-                      ) : (
-                        pendingRequests.slice(0, 4).map((req) => (
-                          <div
-                            key={req.id}
-                            className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-medium text-fg truncate">{req.user_name}</p>
-                              <p className="text-micro text-fg-muted mt-0.5 capitalize">
-                                {req.request_type.replace('_', ' ')} · {req.start_date}
-                              </p>
-                            </div>
-                            <StatusPill variant="warning" dot label="Pending" />
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Summary Footer */}
-              <div className="border-t border-border px-4 py-2.5 flex items-center justify-between text-xs">
-                {activeCategory === 'sales' && (
-                  <>
-                    <span className="text-fg-muted">Won deals</span>
-                    <span className="font-numeric">
-                      <strong className="text-fg font-semibold">{crmCounts?.won || 0} deals won</strong>
-                    </span>
-                  </>
-                )}
-                {activeCategory === 'website' && (
-                  <>
-                    <span className="text-fg-muted">Pipeline summary</span>
-                    <span className="font-numeric">
-                      <strong className="text-fg font-semibold">{websiteProjects.length} projects</strong>
-                      <span className="text-fg-muted mx-1">·</span>
-                      <strong className="text-fg font-semibold">{websiteMetrics?.active_projects || 0} active</strong>
-                    </span>
-                  </>
-                )}
-                {activeCategory === 'content' && (
-                  <>
-                    <span className="text-fg-muted">Content total</span>
-                    <span className="font-numeric">
-                      <strong className="text-fg font-semibold">{contentData?.total || 0} campaign items</strong>
-                    </span>
-                  </>
-                )}
-                {activeCategory === 'marketing' && (
-                  <>
-                    <span className="text-fg-muted">Total ad spend today</span>
-                    <span className="font-numeric">
-                      <strong className="text-fg font-semibold">
-                        PKR {marketingRows.reduce((a, b) => a + (b.ad_spend || 0), 0).toLocaleString()}
-                      </strong>
-                    </span>
-                  </>
-                )}
-                {activeCategory === 'hr' && (
-                  <>
-                    <span className="text-fg-muted">Pending approvals</span>
-                    <span className="font-numeric">
-                      <strong className="text-fg font-semibold">{pendingRequests.length} requests</strong>
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* CARD 2: Today's Attendance Card */}
-            {renderTodayAttendanceCard()}
-          </div>
-        ) : (
-          <div className="w-full">
-            {/* Today's Attendance Card (Full Width) */}
-            {renderTodayAttendanceCard()}
-          </div>
-        )}
-      </div>
-
-      {/* RIGHT COLUMN (320px) */}
-      <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4">
-        {/* Card 1: Needs attention */}
-        <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-          <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-            <h3 className="text-ui font-semibold text-fg">Needs attention</h3>
+          {/* Row 2 */}
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+            <MyHoursChart
+              days={myHoursDays}
+              range={myHoursRange}
+              onRangeChange={setMyHoursRange}
+              dateRangeLabel={chartDateRangeLabel}
+              isLoading={isLoadingMyHours}
+              className="lg:col-span-2"
+            />
+            <NeedsAttentionCard
+              items={needsAttentionItems}
+              onNavigateView={onNavigateView}
+            />
           </div>
 
-            <div className="p-4 pt-2 space-y-3 divide-y divide-border">
-              {attentionItems.length === 0 ? (
-                <div className="py-4 text-center text-xs text-fg-muted">
-                  All caught up! No items requiring attention.
-                </div>
-              ) : (
-                attentionItems.map((item) => {
-                  const ItemIcon = item.icon;
-                  return (
-                    <div key={item.id} className="flex items-start gap-2.5 pt-2 first:pt-0">
-                      <div className="w-7 h-7 rounded-md bg-subtle text-fg-2 flex items-center justify-center shrink-0">
-                        <ItemIcon className="w-4 h-4 text-fg-muted" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-fg truncate">{item.title}</p>
-                        <p className="text-micro text-fg-muted line-clamp-1">{item.desc}</p>
-                      </div>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 px-2.5 text-xs shrink-0"
-                        onClick={item.onAction}
-                      >
-                        {item.actionText}
-                      </Button>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
-
-          {/* Card 3: Recent activity */}
-          <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-              <h3 className="text-ui font-semibold text-fg">Recent activity</h3>
-            </div>
-
-            <div className="p-4 pt-2 space-y-2.5 divide-y divide-border">
-              {recentActivities.length === 0 ? (
-                <div className="py-4 text-center text-xs text-fg-muted">
-                  No recent activities recorded.
-                </div>
-              ) : (
-                recentActivities.slice(0, 3).map((act) => {
-                  const initials = (act.title || 'A')
-                    .slice(0, 2)
-                    .toUpperCase();
-                  return (
-                    <div key={act.id} className="flex items-start gap-2.5 pt-2 first:pt-0">
-                      <span className="w-6 h-6 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg-2 shrink-0">
-                        {initials}
-                      </span>
-                      <div className="flex-1 min-w-0 text-xs text-fg-2 leading-relaxed">
-                        <strong className="text-fg font-medium">{act.title}</strong>{' '}
-                        <span className="line-clamp-1 text-fg-muted">{act.body}</span>
-                      </div>
-                      <span className="text-micro text-fg-muted font-numeric shrink-0">
-                        {getRelativeTime(act.created_at)}
-                      </span>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          {/* Row 3: Full-width department card (own items) */}
+          {deptCategories.includes('sales') && (
+            <StageCountCard
+              title="Sales pipeline"
+              subtitle="my leads + unassigned"
+              linkText="Open board"
+              onNavigate={() => onNavigateView('crm')}
+              stages={crmStages}
+              layout="two-col"
+            />
+          )}
+          {deptCategories.includes('content') && (
+            <StageCountCard
+              title="Content calendar"
+              subtitle="my assigned items"
+              linkText="Open calendar"
+              onNavigate={() => onNavigateView('content-calendar')}
+              stages={contentStages}
+              layout="two-col"
+            />
+          )}
+          {deptCategories.includes('website') && (
+            <StageCountCard
+              title="Website pipeline"
+              subtitle="my projects & tasks"
+              linkText="Open pipeline"
+              onNavigate={() => onNavigateView('website-pipeline')}
+              stages={websiteStages}
+              layout="two-col"
+            />
+          )}
         </div>
-      </div>
+      )}
 
-      {/* Self-Service Request / Appeal Modal */}
-      <RequestManagementModal
-        isOpen={isRequestModalOpen}
-        onClose={() => setIsRequestModalOpen(false)}
-        onSuccess={() => {
-          loadAttendance();
-        }}
-        defaultTab={requestModalTab}
-      />
+      {/* Leave Request Management Modal */}
+      {isRequestModalOpen && (
+        <RequestManagementModal
+          isOpen={isRequestModalOpen}
+          onClose={() => {
+            setIsRequestModalOpen(false);
+          }}
+          defaultTab={requestModalTab}
+          onSuccess={() => {
+            loadAttendance();
+            loadManagementData();
+          }}
+        />
+      )}
     </div>
   );
 };

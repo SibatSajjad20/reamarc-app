@@ -15,10 +15,10 @@ import {
   UserCheck,
 } from 'lucide-react';
 import type { UserRole } from '../../../types/auth';
-import type { AdminMember } from '../../../types/admin';
+import type { AdminMember, AdAccount } from '../../../types/admin';
 import type { Workspace } from '../../../types';
-import type { AdAccount } from '../../../types/admin';
-import type { AdminSectionType } from '../AdminSidebarNav';
+import type { AdminSectionType } from '../../../types/admin';
+import { useAuth } from '../../../context/AuthContext';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { PageHeader } from '../../ui/PageHeader';
 import { KpiCard } from '../../ui/KpiCard';
@@ -98,6 +98,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   onNavigateSection,
   canManageMembers = true,
 }) => {
+  const { user } = useAuth();
   const [directoryTab, setDirectoryTab] = useState<DirectoryTab>('team');
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -325,6 +326,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
           deltaContext={`${highPriorityWorkspacesCount} high priority${
             emergencyWorkspacesCount > 0 ? ` · ${emergencyWorkspacesCount} emergency` : ''
           }`}
+          onClick={onNavigateSection ? () => onNavigateSection('workspaces') : undefined}
         />
         <KpiCard
           label="Ad accounts"
@@ -334,6 +336,16 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
             needsAttentionAdAccountsCount > 0
               ? `${needsAttentionAdAccountsCount} needs credentials`
               : 'All accounts synced'
+          }
+          onClick={
+            user?.role === 'admin'
+              ? () => {
+                  try {
+                    window.history.pushState(null, '', '/settings/ad-accounts');
+                    window.dispatchEvent(new PopStateEvent('popstate'));
+                  } catch {}
+                }
+              : undefined
           }
         />
       </div>

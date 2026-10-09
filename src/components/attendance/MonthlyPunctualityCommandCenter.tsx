@@ -150,7 +150,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
             </button>
 
             <div className="h-10 px-4 rounded-lg bg-subtle border border-border text-xs font-semibold text-fg inline-flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-accent-fg" />
+              <Calendar className="w-3.5 h-3.5 text-accent-text" />
               <span>{MONTH_NAMES[selectedMonth - 1]}</span>
               <span>{selectedYear}</span>
             </div>
@@ -218,9 +218,9 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
       <div className="bg-surface rounded-xl border border-border shadow-xs overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between">
           <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-            <BarChart3 className="w-4 h-4 text-accent-fg" />
+            <BarChart3 className="w-4 h-4 text-accent-text" />
             Company-Wide Monthly Summary ({MONTH_NAMES[selectedMonth - 1]} {selectedYear})
-            {isDataLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-fg" />}
+            {isDataLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-accent-text" />}
           </h3>
           <span className="text-xs font-semibold text-fg-muted">
             {isDataLoading
@@ -350,7 +350,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Employee Name */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-fg font-semibold text-xs flex items-center justify-center">
+                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center">
                               {initials}
                             </div>
                             <span className="font-semibold text-fg leading-tight">

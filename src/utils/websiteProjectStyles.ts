@@ -40,7 +40,7 @@ export function healthBadge(health?: string | null): HealthBadgeInfo {
       return {
         dot: 'bg-accent',
         bg: 'bg-accent-subtle',
-        text: 'text-accent-fg',
+        text: 'text-accent-text',
         border: 'border-accent-border',
         label: 'Completed',
       };

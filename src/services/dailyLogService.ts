@@ -5,16 +5,20 @@ const dlColumnsCache = new BoundedCache<DailyLogColumn[]>(2);
 const dlSheetsCache = new BoundedCache<string[]>(2);
 const dlEntriesCache = new BoundedCache<DailyLogEntry[]>(10);
 const dlActivityCache = new BoundedCache<import('../types/dailyLog').UserLogActivity>(2);
-const dlDayTargetCache = new BoundedCache<import('../types/dailyLog').DayTarget>(5);
 import type {
   DailyLogEntry,
   DailyLogColumn,
   CreateDailyLogEntryPayload,
   UpdateDailyLogEntryPayload,
   GetDailyLogEntriesParams,
+  TeamHoursResponse,
 } from '../types/dailyLog';
 
 export const dailyLogService = {
+  async getTeamHours(startDate: string, endDate: string, options?: { signal?: AbortSignal }): Promise<TeamHoursResponse> {
+    const params = new URLSearchParams({ start_date: startDate, end_date: endDate });
+    return apiClient.get<TeamHoursResponse>(`/daily-log/team-hours?${params.toString()}`, options);
+  },
   async getColumns(options?: { signal?: AbortSignal }): Promise<DailyLogColumn[]> {
     return apiClient.get<DailyLogColumn[]>('/daily-log/columns', options);
   },
@@ -111,7 +115,8 @@ export const dailyLogService = {
         : '';
     return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>(
       `/daily-log/upload${qs}`,
-      formData
+      formData,
+      { skipWorkspaceHeader: !storeAs || !storeAs.trim() }
     );
   },
 
@@ -133,17 +138,25 @@ export const dailyLogService = {
   setCachedEntries(key: string, data: DailyLogEntry[]): void {
     dlEntriesCache.set(key, data);
   },
+  replaceCachedEntries(key: string, list: DailyLogEntry[]): void {
+    dlEntriesCache.set(key, list);
+  },
+  invalidateEntries(exceptKey?: string): void {
+    if (!exceptKey) {
+      dlEntriesCache.clear();
+      return;
+    }
+    const current = dlEntriesCache.get(exceptKey);
+    dlEntriesCache.clear();
+    if (current) {
+      dlEntriesCache.set(exceptKey, current.data);
+    }
+  },
   getCachedActivity(): CacheEntry<import('../types/dailyLog').UserLogActivity> | undefined {
     return dlActivityCache.get('activity');
   },
   setCachedActivity(data: import('../types/dailyLog').UserLogActivity): void {
     dlActivityCache.set('activity', data);
-  },
-  getCachedDayTarget(date?: string): CacheEntry<import('../types/dailyLog').DayTarget> | undefined {
-    return dlDayTargetCache.get(date || 'today');
-  },
-  setCachedDayTarget(data: import('../types/dailyLog').DayTarget, date?: string): void {
-    dlDayTargetCache.set(date || 'today', data);
   },
   hasInitialCache(): boolean {
     return dlEntriesCache.size() > 0;
@@ -153,7 +166,6 @@ export const dailyLogService = {
     dlSheetsCache.clear();
     dlEntriesCache.clear();
     dlActivityCache.clear();
-    dlDayTargetCache.clear();
   },
 };
 

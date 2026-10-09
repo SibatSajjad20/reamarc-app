@@ -73,7 +73,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
           href={OFFICE_MAP_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs font-medium text-accent-fg hover:underline shrink-0"
+          className="inline-flex items-center gap-1 text-xs font-medium text-accent-text hover:underline shrink-0"
         >
           <span>View on Google Maps</span>
           <ExternalLink className="w-3.5 h-3.5" />
@@ -129,7 +129,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
       </div>
 
       <div className="flex items-start gap-2 p-3 rounded-lg bg-subtle border border-border text-xs">
-        <MapPin className="w-3.5 h-3.5 mt-0.5 text-accent-fg shrink-0" />
+        <MapPin className="w-3.5 h-3.5 mt-0.5 text-accent-text shrink-0" />
         {previewError ? (
           <span className="text-danger-fg">{previewError}</span>
         ) : preview ? (

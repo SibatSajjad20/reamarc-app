@@ -83,7 +83,7 @@ export function exportDailyLogWorkbook(
   columns: DailyLogColumn[],
   meta: DailyLogExportMeta,
 ): string {
-  const companyName = meta.companyName || 'Reamarc AI';
+  const companyName = meta.companyName || 'Reamarc';
   const exportCols = columns.length > 0 ? columns : [];
   const sorted = [...entries].sort(compareEntries);
 

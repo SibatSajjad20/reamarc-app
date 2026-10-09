@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Globe, Loader2 } from 'lucide-react';
+import { Globe } from 'lucide-react';
+import { Button } from '../ui/button';
 import type { Workspace } from '../../types';
 import type { WebsiteProject, WebsiteType } from '../../types/websiteProject';
 import { WEBSITE_TYPES_LIST } from '../../types/websiteProject';
@@ -383,20 +384,15 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="submit"
-                disabled={isSubmitting || (Boolean(project) && !isDirty)}
-                className="px-5 py-2 rounded-xl bg-accent hover:bg-accent/90 text-accent-fg text-xs font-semibold transition-all shadow-sm disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
+                variant="primary"
+                loading={isSubmitting}
+                loadingText={project ? 'Saving Changes…' : 'Creating Project…'}
+                disabled={Boolean(project) && !isDirty}
               >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>{project ? 'Saving Changes...' : 'Creating Project...'}</span>
-                  </>
-                ) : (
-                  project ? 'Save Changes' : 'Create Project'
-                )}
-              </button>
+                {project ? 'Save Changes' : 'Create Project'}
+              </Button>
             </>
           )}
         </div>

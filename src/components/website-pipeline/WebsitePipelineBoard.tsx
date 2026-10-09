@@ -213,13 +213,13 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                         <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-surface text-fg-muted truncate max-w-[150px] border border-border">
                           {project.client_name}
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-fg border border-accent-border">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text border border-accent-border">
                           {formatType(project.website_type)}
                         </span>
                       </div>
 
                       {/* Project Title */}
-                      <h4 className="font-semibold text-sm text-fg group-hover:text-accent-fg transition-colors line-clamp-2 mb-2.5">
+                      <h4 className="font-semibold text-sm text-fg group-hover:text-accent-text transition-colors line-clamp-2 mb-2.5">
                         {project.name}
                       </h4>
 
@@ -240,7 +240,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                         )}
 
                         {project.stage === 'development' && (
-                          <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-accent-subtle text-accent-fg border border-accent-border">
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-accent-subtle text-accent-text border border-accent-border">
                             Parallel Assets
                           </span>
                         )}
@@ -314,7 +314,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                               rel="noreferrer"
                               onClick={(e) => e.stopPropagation()}
                               title="Preview Staging URL"
-                              className="p-1 rounded hover:bg-hover text-accent-fg"
+                              className="p-1 rounded hover:bg-hover text-accent-text"
                             >
                               <ExternalLink className="w-3.5 h-3.5" />
                             </a>
@@ -338,7 +338,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                             <span className="text-[10px] text-fg-muted truncate max-w-[80px]">
                               {project.manager_name}
                             </span>
-                            <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-fg font-semibold text-[9px] flex items-center justify-center border border-accent-border">
+                            <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text font-semibold text-[9px] flex items-center justify-center border border-accent-border">
                               {project.manager_name.charAt(0).toUpperCase()}
                             </div>
                           </div>

@@ -52,7 +52,7 @@ function priorityBadge(priority: TaskPriority) {
     case 'medium':
       return {
         bg: 'bg-accent-subtle',
-        text: 'text-accent-fg',
+        text: 'text-accent-text',
         border: 'border-accent-border',
         label: 'Medium',
       };
@@ -78,7 +78,7 @@ function kindBadge(kind: TaskKind) {
     case 'revision':
       return {
         bg: 'bg-accent-subtle',
-        text: 'text-accent-fg',
+        text: 'text-accent-text',
         border: 'border-accent-border',
         label: 'Revision',
       };
@@ -289,13 +289,13 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                           <Globe className="w-3 h-3 text-accent shrink-0" />
                           <span className="truncate">{projectName}</span>
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-fg border border-accent-border">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text border border-accent-border">
                           {stageLabel(task.stage)}
                         </span>
                       </div>
 
                       {/* Task Title */}
-                      <h4 className="font-semibold text-sm text-fg group-hover:text-accent-fg transition-colors line-clamp-2 mb-2">
+                      <h4 className="font-semibold text-sm text-fg group-hover:text-accent-text transition-colors line-clamp-2 mb-2">
                         {task.name}
                       </h4>
 
@@ -328,7 +328,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                         <div className="flex items-center gap-1.5 min-w-0">
                           {task.assignee_name ? (
                             <div className="flex items-center gap-1.5 truncate">
-                              <span className="w-5 h-5 rounded-full bg-accent-subtle text-accent-fg flex items-center justify-center font-semibold text-[10px] shrink-0 border border-accent-border">
+                              <span className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text flex items-center justify-center font-semibold text-[10px] shrink-0 border border-accent-border">
                                 {getInitials(task.assignee_name)}
                               </span>
                               <span className="truncate max-w-[90px]">{task.assignee_name}</span>

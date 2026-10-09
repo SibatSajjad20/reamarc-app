@@ -7,10 +7,10 @@ import {
   Trash2,
   Check,
   X,
-  Loader2,
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
+import { Button } from '../../ui/button';
 import { useSystemConfig } from '../../../hooks/useSystemConfig';
 import { useConfirm } from '../../ui/ConfirmProvider';
 import type { SystemRole } from '../../../services/systemConfigService';
@@ -284,15 +284,18 @@ export const SystemSettingsSection: React.FC = () => {
                 }}
                 className="flex-1 px-3 py-1.5 bg-surface border border-border-strong rounded-md text-xs text-fg focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
               />
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="primary"
                 onClick={handleAddDepartment}
-                disabled={isSaving || !newDeptName.trim()}
-                className="px-3 py-1.5 bg-accent hover:bg-accent-hover text-white rounded-md text-xs font-medium transition disabled:opacity-50 cursor-pointer flex items-center gap-1"
+                disabled={!newDeptName.trim()}
+                loading={isSaving}
+                loadingText="Saving…"
+                icon={Check}
               >
-                {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                <span>Save</span>
-              </button>
+                Save
+              </Button>
               <button
                 type="button"
                 onClick={() => setIsAddingDept(false)}
@@ -528,14 +531,17 @@ export const SystemSettingsSection: React.FC = () => {
                 >
                   Cancel
                 </button>
-                <button
+                <Button
                   type="submit"
-                  disabled={isSaving || !roleLabel.trim()}
-                  className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+                  size="sm"
+                  variant="primary"
+                  disabled={!roleLabel.trim()}
+                  loading={isSaving}
+                  loadingText="Saving…"
+                  icon={Check}
                 >
-                  {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                  <span>Save Role</span>
-                </button>
+                  Save Role
+                </Button>
               </div>
             </form>
           </div>

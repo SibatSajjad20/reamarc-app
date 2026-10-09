@@ -8,7 +8,6 @@ import {
 import {
   RefreshCw,
   Download,
-  KeyRound,
   SlidersHorizontal,
   MoveVertical,
   ZoomIn,
@@ -23,10 +22,8 @@ import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
 import { useMarketingMatrix } from '../../hooks/useMarketingMatrix';
 import { marketingService } from '../../services/marketingService';
-import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
-import { AdAccountCredentialsModal } from '../modals/AdAccountCredentialsModal';
 import { PageHeader } from '../ui/PageHeader';
 import { KpiCard } from '../ui/KpiCard';
 import { StatusPill } from '../ui/StatusPill';
@@ -97,7 +94,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
   adAccounts = [],
   onSelectWorkspace,
 }) => {
-  const { role } = useAuth();
   const { addToast } = useToast();
 
   const accountsList = useMemo(() => {
@@ -117,8 +113,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
     refetch,
   } = useMarketingMatrix(selectedWorkspace?.id);
   useModuleLoadGate(isLoading);
-
-  const [isCredsModalOpen, setIsCredsModalOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
 
   // Filters State
@@ -545,16 +539,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
               size="sm"
             />
 
-            {role === 'admin' && (
-              <Button
-                variant="secondary"
-                size="sm"
-                icon={KeyRound}
-                onClick={() => setIsCredsModalOpen(true)}
-              >
-                Credentials
-              </Button>
-            )}
+
 
             <Button
               variant="secondary"
@@ -1200,13 +1185,6 @@ export const PerformanceMarketing: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Ad Account Credentials Modal */}
-      <AdAccountCredentialsModal
-        isOpen={isCredsModalOpen}
-        onClose={() => setIsCredsModalOpen(false)}
-        selectedWorkspace={selectedWorkspace}
-        workspaces={accountsList as any}
-      />
     </div>
   );
 };

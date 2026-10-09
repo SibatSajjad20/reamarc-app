@@ -6,7 +6,6 @@ import {
   Copy,
   FileText,
   History,
-  Loader2,
   MessageCircle,
   Pencil,
   Phone,
@@ -659,7 +658,9 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   type="button"
                   variant="primary"
                   size="sm"
-                  disabled={reopening}
+                  loading={reopening}
+                  loadingText="Reopening…"
+                  icon={RotateCcw}
                   onClick={async () => {
                     setReopening(true);
                     try {
@@ -673,7 +674,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                     }
                   }}
                 >
-                  {reopening ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <RotateCcw className="w-3.5 h-3.5 mr-1" />}
                   Reopen
                 </Button>
               </div>
@@ -1023,10 +1023,11 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   type="button"
                   variant="primary"
                   size="sm"
-                  disabled={savingDeal || !newDealTitle.trim()}
+                  loading={savingDeal}
+                  loadingText="Saving…"
+                  disabled={!newDealTitle.trim()}
                   onClick={handleCreateDeal}
                 >
-                  {savingDeal ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : null}
                   Save deal
                 </Button>
                 <Button

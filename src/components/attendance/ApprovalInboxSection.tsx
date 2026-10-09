@@ -640,14 +640,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
 
                           {/* Extra info banners */}
                           {req.clarification_prompt && !isClarifiedPending(req) && (
-                            <div className="flex items-center gap-1 text-xs text-accent-fg font-semibold truncate">
+                            <div className="flex items-center gap-1 text-xs text-accent-text font-semibold truncate">
                               <HelpCircle className="w-3 h-3 shrink-0" />
                               <span className="truncate">HR: {req.clarification_prompt}</span>
                             </div>
                           )}
 
                           {req.appeal_reason && (
-                            <div className="flex items-center gap-1 text-xs text-accent-fg font-semibold truncate">
+                            <div className="flex items-center gap-1 text-xs text-accent-text font-semibold truncate">
                               <CornerUpLeft className="w-3 h-3 shrink-0" />
                               <span className="truncate">Appeal: {req.appeal_reason}</span>
                             </div>
@@ -732,9 +732,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenReview(req, 'needs_info');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-fg hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
-                                    <HelpCircle className="w-3.5 h-3.5 text-accent-fg" />
+                                    <HelpCircle className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Ask for Info</span>
                                   </button>
                                   <button
@@ -761,9 +761,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenEditStatus(req);
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-fg hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
-                                    <Edit3 className="w-3.5 h-3.5 text-accent-fg" />
+                                    <Edit3 className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Edit Decision</span>
                                   </button>
                                 </>
@@ -780,9 +780,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setClarifyingItem(req);
                                       setClarifyResponseText('');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-fg hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
-                                    <MessageSquare className="w-3.5 h-3.5 text-accent-fg" />
+                                    <MessageSquare className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Reply to HR</span>
                                   </button>
                                 </>
@@ -799,9 +799,9 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setAppealingItem(req);
                                       setAppealReasonText('');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-fg hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
-                                    <CornerUpLeft className="w-3.5 h-3.5 text-accent-fg" />
+                                    <CornerUpLeft className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Appeal Rejection</span>
                                   </button>
                                 </>

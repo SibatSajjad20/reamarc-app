@@ -273,7 +273,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             {!isContentStage && assets.length > 0 && (
               <div className="bg-surface rounded-xl border border-border p-5 space-y-4 shadow-xs">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider flex items-center gap-2">
+                  <span className="text-xs font-medium text-fg-muted flex items-center gap-2">
                     <Layers className="w-3.5 h-3.5 text-accent" />
                     <span>Creative deliverables ({assets.length})</span>
                   </span>
@@ -373,7 +373,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
               {/* Primary Text (Ad Copy / Caption) */}
               <div className="space-y-1.5 pt-3 border-t border-border">
-                <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                <span className="text-xs font-medium text-fg-muted block">
                   Ad copy / Caption
                 </span>
                 <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-fg py-1">
@@ -386,7 +386,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
               {/* Angles & Hooks */}
               {hookLines.length > 0 && (
                 <div className="space-y-2.5 pt-4 border-t border-border">
-                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                  <span className="text-xs font-medium text-fg-muted block">
                     Hooks & Opening headlines
                   </span>
                   <div className="space-y-2">
@@ -408,7 +408,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
               {/* Visual Copy (Copy On Creative) */}
               {item.content_on_creative && (
                 <div className="space-y-1.5 pt-4 border-t border-border">
-                  <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                  <span className="text-xs font-medium text-fg-muted block">
                     Copy on graphic / video
                   </span>
                   <p className="text-xs sm:text-sm font-medium text-fg py-1">
@@ -422,7 +422,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-border">
                   {item.offer && (
                     <div className="space-y-1">
-                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Promotional offer
                       </span>
                       <p className="text-sm font-semibold text-fg">{item.offer}</p>
@@ -430,7 +430,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                   )}
                   {item.cta && (
                     <div className="space-y-1">
-                      <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Call to action
                       </span>
                       <p className="text-sm font-semibold text-accent-text">{item.cta}</p>
@@ -474,7 +474,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             {/* Approval Decision Card */}
             <div className="bg-surface rounded-xl border border-border p-6 space-y-4 shadow-xs">
               <div className="space-y-1">
-                <span className="text-xs font-semibold uppercase tracking-wider text-accent-text">
+                <span className="text-xs font-semibold text-accent-text">
                   Client review
                 </span>
                 <h3 className="text-sm sm:text-base font-semibold text-fg">
@@ -613,7 +613,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
             {/* Campaign Metadata Details */}
             <div className="p-5 rounded-xl bg-surface border border-border text-xs space-y-2.5 shadow-xs">
-              <span className="text-xs font-semibold text-fg-muted uppercase tracking-wider block">
+              <span className="text-xs font-medium text-fg-muted block">
                 Campaign details
               </span>
               <dl className="space-y-2">

@@ -43,37 +43,37 @@ export const ContentCalendarShareModal: React.FC<Props> = ({ item, isOpen, onClo
   };
 
   const buildWhatsAppText = (): string => {
-    let t = `📢 *${item.serial || 'CAMPAIGN'} - ${item.content_concept}*\n`;
-    t += `🏢 *Client:* ${item.client_name || 'Apex Transfers LLC'}\n`;
-    t += `📊 *Stage:* ${item.stage} | *Type:* ${item.creative_type}\n`;
-    if (item.publish_date) t += `📅 *Scheduled:* ${item.publish_date}\n`;
-    if (item.assignee_name) t += `👤 *Assignee:* ${item.assignee_name}\n`;
+    let t = `*${item.serial || 'CAMPAIGN'} - ${item.content_concept}*\n`;
+    t += `*Client:* ${item.client_name || 'Apex Transfers LLC'}\n`;
+    t += `*Stage:* ${item.stage} | *Type:* ${item.creative_type}\n`;
+    if (item.publish_date) t += `*Scheduled:* ${item.publish_date}\n`;
+    if (item.assignee_name) t += `*Assignee:* ${item.assignee_name}\n`;
     if (showReviewLink) {
-      t += `🔗 *Client Review Link:* ${clientReviewUrl}\n\n`;
+      t += `*Client Review Link:* ${clientReviewUrl}\n\n`;
     } else {
       t += `\n`;
     }
 
     if (item.headlines_hooks?.trim()) {
-      t += `🎣 *Hooks & Angles:*\n${item.headlines_hooks.trim()}\n\n`;
+      t += `*Hooks & Angles:*\n${item.headlines_hooks.trim()}\n\n`;
     }
     if (item.primary_text?.trim()) {
-      t += `📝 *Ad Copy / Caption:*\n${item.primary_text.trim()}\n\n`;
+      t += `*Ad Copy / Caption:*\n${item.primary_text.trim()}\n\n`;
     }
     if (item.content_on_creative?.trim()) {
-      t += `🎨 *Copy on Creative:*\n${item.content_on_creative.trim()}\n\n`;
+      t += `*Copy on Creative:*\n${item.content_on_creative.trim()}\n\n`;
     }
     if (item.offer?.trim() || item.cta?.trim()) {
-      t += `🎯 *Offer & CTA:*\n`;
+      t += `*Offer & CTA:*\n`;
       if (item.offer?.trim()) t += `• Offer: ${item.offer.trim()}\n`;
       if (item.cta?.trim()) t += `• CTA: ${item.cta.trim()}\n`;
       t += `\n`;
     }
     if (item.captions_hashtags?.trim()) {
-      t += `🏷️ *Hashtags:*\n${item.captions_hashtags.trim()}\n\n`;
+      t += `*Hashtags:*\n${item.captions_hashtags.trim()}\n\n`;
     }
     if (item.attachments && item.attachments.length > 0) {
-      t += `🔗 *Deliverables & Assets (${item.attachments.length}):*\n`;
+      t += `*Deliverables & Assets (${item.attachments.length}):*\n`;
       item.attachments.forEach((att, idx) => {
         const fullUrl = att.url?.startsWith('http')
           ? att.url
@@ -142,7 +142,7 @@ export const ContentCalendarShareModal: React.FC<Props> = ({ item, isOpen, onClo
       t += `${item.primary_text.trim()}\n\n`;
     }
     if (item.cta?.trim()) {
-      t += `👉 ${item.cta.trim()}\n\n`;
+      t += `${item.cta.trim()}\n\n`;
     }
     if (item.captions_hashtags?.trim()) {
       t += `${item.captions_hashtags.trim()}`;

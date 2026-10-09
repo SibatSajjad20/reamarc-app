@@ -27,6 +27,7 @@ import type { WorkspaceCreatePayload, WorkspaceUpdatePayload } from '../../servi
 import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { Button } from '../ui/button';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 
 export interface WorkspaceFormSeed {
@@ -426,8 +427,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           {/* SECTION 1: Client & Brand Basics */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
-              <Building2 className="w-4 h-4 text-accent-fg" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+              <Building2 className="w-4 h-4 text-accent-text" />
+              <span className="text-xs font-semibold text-fg">
                 1. Client & Brand Identity
               </span>
             </div>
@@ -472,7 +473,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div>
               <label className="block text-xs font-medium text-fg mb-2 flex items-center justify-between">
                 <div className="flex items-center gap-1.5">
-                  <Palette className="w-3.5 h-3.5 text-accent-fg" />
+                  <Palette className="w-3.5 h-3.5 text-accent-text" />
                   <span>Brand Avatar Color</span>
                 </div>
                 <span className="font-mono text-xs text-fg-muted font-semibold uppercase">
@@ -534,8 +535,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           {/* SECTION 2: Engagement Lifecycle, Health & Priority */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
-              <Clock className="w-4 h-4 text-accent-fg" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+              <Clock className="w-4 h-4 text-accent-text" />
+              <span className="text-xs font-semibold text-fg">
                 2. Status, Cycle, Health & Contract Timeline
               </span>
             </div>
@@ -544,10 +545,10 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div>
               <label className="block text-xs font-medium text-fg mb-1.5 flex items-center justify-between">
                 <span className="flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-accent-fg" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-accent-text" />
                   <span>Workspace Status</span>
                 </span>
-                <span className="text-[10px] text-fg-muted">Controls visibility for team members</span>
+                <span className="text-caption text-fg-muted">Controls visibility for team members</span>
               </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
@@ -580,7 +581,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <Layers className="w-3.5 h-3.5 text-accent-fg" />
+                  <Layers className="w-3.5 h-3.5 text-accent-text" />
                   <span>Project Cycle</span>
                 </label>
                 <CustomSelect
@@ -621,7 +622,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-accent-fg" />
+                  <Calendar className="w-3.5 h-3.5 text-accent-text" />
                   <span>Contract Start Date</span>
                   <span className="text-danger-fg font-semibold">*</span>
                 </label>
@@ -637,7 +638,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-accent-fg" />
+                  <Calendar className="w-3.5 h-3.5 text-accent-text" />
                   <span>Contract End Date</span>
                   <span className="text-danger-fg font-semibold">*</span>
                 </label>
@@ -658,19 +659,19 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           <div className="space-y-3">
             <div className="flex items-center justify-between pb-1 border-b border-border">
               <div className="flex items-center gap-2">
-                <Layers className="w-4 h-4 text-accent-fg" />
-                <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+                <Layers className="w-4 h-4 text-accent-text" />
+                <span className="text-xs font-semibold text-fg">
                   3. Services Provided
                 </span>
                 <span className="text-danger-fg font-semibold">*</span>
               </div>
               <div className="flex items-center gap-2">
                 {selectedServices.length === 0 && (
-                  <span className="text-[10px] font-semibold text-danger-fg bg-danger-subtle px-2 py-0.5 rounded-full border border-danger-border">
+                  <span className="text-caption font-semibold text-danger-fg bg-danger-subtle px-2 py-0.5 rounded-full border border-danger-border">
                     At least 1 required
                   </span>
                 )}
-                <span className="text-xs font-semibold text-accent-fg bg-subtle px-2 py-0.5 rounded-full border border-border">
+                <span className="text-xs font-semibold text-accent-text bg-subtle px-2 py-0.5 rounded-full border border-border">
                   {selectedServices.length} selected
                 </span>
               </div>
@@ -701,8 +702,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           {/* SECTION 4: Proposal Document Upload */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
-              <Paperclip className="w-4 h-4 text-accent-fg" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+              <Paperclip className="w-4 h-4 text-accent-text" />
+              <span className="text-xs font-semibold text-fg">
                 4. Client Proposal / Agreement (Attachment)
               </span>
             </div>
@@ -717,7 +718,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             {proposalUrl ? (
               <div className="flex items-center justify-between p-3 rounded-xl bg-subtle border border-border text-xs">
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-8 h-8 rounded-lg bg-surface text-accent-fg border border-border flex items-center justify-center shrink-0">
+                  <div className="w-8 h-8 rounded-lg bg-surface text-accent-text border border-border flex items-center justify-center shrink-0">
                     <FileText className="w-4 h-4" />
                   </div>
                   <div className="min-w-0">
@@ -725,7 +726,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       {proposalName || 'Client Proposal Document'}
                     </p>
                     {proposalSize && (
-                      <p className="text-[10px] text-fg-muted font-mono mt-0.5">
+                      <p className="text-caption text-fg-muted font-mono mt-0.5">
                         {formatFileSize(proposalSize)}
                       </p>
                     )}
@@ -736,7 +737,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <button
                     type="button"
                     onClick={() => openFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
-                    className="p-1.5 text-accent-fg hover:underline rounded-md transition cursor-pointer"
+                    className="p-1.5 text-accent-text hover:underline rounded-md transition cursor-pointer"
                     title="View Proposal in Browser"
                   >
                     <ExternalLink className="w-4 h-4" />
@@ -744,7 +745,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   <button
                     type="button"
                     onClick={() => downloadFileAttachment(proposalUrl, proposalName || `${name}_Proposal`)}
-                    className="p-1.5 text-accent-fg hover:underline rounded-md transition cursor-pointer"
+                    className="p-1.5 text-accent-text hover:underline rounded-md transition cursor-pointer"
                     title="Download Proposal Document"
                   >
                     <Download className="w-4 h-4" />
@@ -768,27 +769,35 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   className="hidden"
                   accept=".pdf,.doc,.docx,.xlsx,.xls,.zip,.png,.jpg,.jpeg"
                 />
-                <button
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploadingProposal}
-                  className="w-full py-4 px-4 border border-dashed border-border hover:border-accent rounded-xl flex flex-col items-center justify-center gap-1.5 text-xs text-fg-muted hover:text-fg transition cursor-pointer bg-subtle disabled:opacity-50"
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => !isUploadingProposal && fileInputRef.current?.click()}
+                  onKeyDown={(e) => {
+                    if ((e.key === 'Enter' || e.key === ' ') && !isUploadingProposal) {
+                      e.preventDefault();
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  className={`w-full py-4 px-4 border border-dashed border-border hover:border-accent rounded-xl flex flex-col items-center justify-center gap-1.5 text-xs text-fg-muted hover:text-fg transition cursor-pointer bg-subtle ${
+                    isUploadingProposal ? 'opacity-50 pointer-events-none' : ''
+                  }`}
                 >
                   {isUploadingProposal ? (
-                    <div className="flex items-center gap-2 font-semibold text-accent-fg">
+                    <div className="flex items-center gap-2 font-semibold text-accent-text">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>Uploading Proposal Document...</span>
                     </div>
                   ) : (
                     <>
-                      <UploadCloud className="w-5 h-5 text-accent-fg" />
+                      <UploadCloud className="w-5 h-5 text-accent-text" />
                       <span className="font-semibold text-fg">
                         Click to upload Client Proposal (PDF, Word, Excel, Zip)
                       </span>
-                      <span className="text-[10px] text-fg-muted">Up to 25MB supported</span>
+                      <span className="text-caption text-fg-muted">Up to 25MB supported</span>
                     </>
                   )}
-                </button>
+                </div>
               </div>
             )}
           </div>
@@ -796,8 +805,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           {/* SECTION 5: Point of Contact (POC) Details */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
-              <User className="w-4 h-4 text-accent-fg" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+              <User className="w-4 h-4 text-accent-text" />
+              <span className="text-xs font-semibold text-fg">
                 5. Point of Contact (POC) Details
               </span>
             </div>
@@ -805,7 +814,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-accent-fg" />
+                  <User className="w-3.5 h-3.5 text-accent-text" />
                   <span>POC Full Name</span>
                 </label>
                 <input
@@ -819,7 +828,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-accent-fg" />
+                  <Mail className="w-3.5 h-3.5 text-accent-text" />
                   <span>POC Email</span>
                 </label>
                 <input
@@ -833,7 +842,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-accent-fg" />
+                  <Phone className="w-3.5 h-3.5 text-accent-text" />
                   <span>POC Phone Number</span>
                 </label>
                 <input
@@ -850,8 +859,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           {/* SECTION 6: Billing Contact Details */}
           <div className="space-y-3">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
-              <CreditCard className="w-4 h-4 text-accent-fg" />
-              <span className="text-xs font-semibold uppercase tracking-wider text-fg">
+              <CreditCard className="w-4 h-4 text-accent-text" />
+              <span className="text-xs font-semibold text-fg">
                 6. Billing Contact Details
               </span>
             </div>
@@ -859,7 +868,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <User className="w-3.5 h-3.5 text-accent-fg" />
+                  <User className="w-3.5 h-3.5 text-accent-text" />
                   <span>Billing Contact Name</span>
                 </label>
                 <input
@@ -873,7 +882,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <Mail className="w-3.5 h-3.5 text-accent-fg" />
+                  <Mail className="w-3.5 h-3.5 text-accent-text" />
                   <span>Billing Email</span>
                 </label>
                 <input
@@ -887,7 +896,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
               <div>
                 <label className="block text-xs font-medium text-fg mb-1.5 flex items-center gap-1">
-                  <Phone className="w-3.5 h-3.5 text-accent-fg" />
+                  <Phone className="w-3.5 h-3.5 text-accent-text" />
                   <span>Billing Phone Number</span>
                 </label>
                 <input
@@ -911,28 +920,15 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             >
               Cancel
             </button>
-            <button
+            <Button
               type="submit"
-              disabled={isSubmitting || isUploadingProposal}
-              className="px-5 py-2 rounded-lg bg-accent text-accent-fg hover:opacity-90 transition-colors flex items-center gap-2 cursor-pointer disabled:opacity-50 select-none text-xs font-medium"
+              variant="primary"
+              loading={isSubmitting || isUploadingProposal}
+              loadingText={isSubmitting ? 'Saving Workspace…' : 'Uploading Document…'}
+              icon={CheckCircle2}
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Saving Workspace...</span>
-                </>
-              ) : isUploadingProposal ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  <span>Uploading Document...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  <span>{workspaceToEdit ? 'Save Changes' : 'Create Workspace'}</span>
-                </>
-              )}
-            </button>
+              {workspaceToEdit ? 'Save Changes' : 'Create Workspace'}
+            </Button>
           </div>
         </form>
       </div>

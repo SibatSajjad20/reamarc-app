@@ -17,7 +17,7 @@ const envApiUrl =
 
 if (!envApiUrl && !(import.meta as any).env?.DEV) {
   throw new Error(
-    '[Reamarc AI] VITE_API_URL / NEXT_PUBLIC_API_URL is required in production. Refusing to start with a localhost API fallback.'
+    '[Reamarc] VITE_API_URL / NEXT_PUBLIC_API_URL is required in production. Refusing to start with a localhost API fallback.'
   );
 }
 

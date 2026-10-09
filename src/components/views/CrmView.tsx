@@ -7,7 +7,6 @@ import {
   List,
   Plus,
   Search,
-  SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -35,8 +34,6 @@ import { CrmWonLeadMenu } from '../crm/CrmWonLeadMenu';
 import { WorkspaceModal, type WorkspaceFormSeed } from '../modals/WorkspaceModal';
 import type { WorkspaceCreatePayload } from '../../services/workspaceService';
 import { CrmLeadDrawer, CrmLeadDrawerSkeleton } from '../crm/CrmLeadDrawer';
-import { CrmSettingsView } from '../crm/settings/CrmSettingsView';
-import type { CrmSettingsTab } from '../crm/settings/CrmSettingsView';
 import { CrmDeleteConfirmModal } from '../crm/CrmDeleteConfirmModal';
 import {
   CrmLostReasonModal,
@@ -126,8 +123,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const [assignedTo, setAssignedTo] = useState('');
   const [quickFilter, setQuickFilter] = useState<QuickFilter>('all');
   const [createOpen, setCreateOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<CrmSettingsTab>('templates');
-  const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup' | 'settings'>('board');
+  const [viewMode, setViewMode] = useState<'list' | 'board' | 'deals' | 'followup'>('board');
   const [proposalModalLead, setProposalModalLead] = useState<CrmLead | null>(null);
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
   const [newDealFormKey, setNewDealFormKey] = useState(0);
@@ -147,29 +143,12 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   // Synchronize with external activeSection prop from Sidebar
   useEffect(() => {
     if (!activeSection) return;
-    if (activeSection === 'board') {
-      setViewMode('board');
-    } else if (activeSection === 'deals') {
-      setViewMode('deals');
-    } else if (activeSection === 'list') {
-      setViewMode('list');
-    } else if (activeSection === 'followup') {
-      setViewMode('followup');
-    } else if (activeSection === 'settings') {
-      setViewMode('settings');
-    } else if (activeSection === 'templates') {
-      setViewMode('settings');
-      setSettingsTab('templates');
-    } else if (activeSection === 'ingest') {
-      setViewMode('settings');
-      setSettingsTab('ingest');
-    } else if (activeSection === 'rules') {
-      setViewMode('settings');
-      setSettingsTab('rules');
+    if (activeSection === 'board' || activeSection === 'deals' || activeSection === 'list' || activeSection === 'followup') {
+      setViewMode(activeSection);
     }
   }, [activeSection]);
 
-  const handleToggleViewMode = (mode: 'list' | 'board' | 'deals' | 'followup' | 'settings') => {
+  const handleToggleViewMode = (mode: 'list' | 'board' | 'deals' | 'followup') => {
     setViewMode(mode);
     onSectionChange?.(mode as CrmSubSection);
   };
@@ -548,15 +527,6 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     setProposalModalLead(lead);
   };
 
-  if (viewMode === 'settings') {
-    return (
-      <CrmSettingsView
-        initialTab={settingsTab}
-        assignees={assignees}
-        onBackToPipeline={() => handleToggleViewMode('board')}
-      />
-    );
-  }
 
   return (
     <div className="flex-1 flex h-full min-w-0 overflow-hidden bg-canvas">
@@ -624,17 +594,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                     </div>
                   )
                 )}
-                {canAssign && (
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleToggleViewMode('settings')}
-                    title="Pipeline Settings (Templates, Ingest Sources, Rules & Team)"
-                  >
-                    <SlidersHorizontal className="w-3.5 h-3.5" />
-                    <span className="hidden sm:inline">Settings</span>
-                  </Button>
-                )}
+
                 {viewMode === 'deals' ? (
                   <CrmWonLeadMenu onSelect={openDealForWonLead} />
                 ) : (

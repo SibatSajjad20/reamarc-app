@@ -295,6 +295,10 @@
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+  .animate-spin {
+    animation-duration: 1s !important;
+    animation-iteration-count: infinite !important;
+  }
   .skeleton::after { display: none; }
 }
 
@@ -393,6 +397,16 @@ body.dark.public-review-page #root {
 }
 .matrix-grid-scroll::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* ─── Sidebar Collapsed Expand Button Cross-fade ─── */
+.sidebar-expand-btn:hover .sidebar-expand-r,
+.sidebar-expand-btn:focus-visible .sidebar-expand-r {
+  opacity: 0 !important;
+}
+.sidebar-expand-btn:hover .sidebar-expand-icon,
+.sidebar-expand-btn:focus-visible .sidebar-expand-icon {
+  opacity: 1 !important;
 }
 
 /* ─── Animations ────────────────────────────────────── */

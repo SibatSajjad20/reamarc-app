@@ -305,6 +305,27 @@ export interface EmployeeComplianceDetailResponse {
   days: DayComplianceDetail[];
 }
 
+export interface TeamHoursDay {
+  date: string;
+  logged_hours: number;
+  worked_hours: number;
+  is_off: boolean;
+}
+
+export interface TeamHoursMember {
+  user_id: string;
+  full_name: string;
+  department: string;
+  days: TeamHoursDay[];
+  logged_total: number;
+  worked_total: number;
+  gap: number;
+}
+
+export interface TeamHoursResponse {
+  members: TeamHoursMember[];
+}
+
 
 
 

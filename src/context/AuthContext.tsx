@@ -88,15 +88,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
     apiClient.setToken(null);
     const role = res.user?.role;
-    let initialView = 'dashboard';
-    if (role === 'client') {
-      initialView = 'marketing';
-    } else if (role === 'admin') {
-      initialView = 'attendance';
-    } else {
-      // Team lead, team member, hr, operations always land on dashboard
-      initialView = 'dashboard';
-    }
+    const initialView = role === 'client' ? 'marketing' : 'dashboard';
     if (typeof window !== 'undefined') {
       localStorage.setItem('reamarc_active_view', initialView);
       window.history.replaceState(null, '', `/${initialView}`);

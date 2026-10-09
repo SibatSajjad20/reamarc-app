@@ -95,11 +95,15 @@ const withDerivedHours = (shift: ShiftTemplate, patch: Partial<ShiftTemplate> = 
   return next;
 };
 
-export const AttendancePoliciesSection: React.FC = () => {
+interface AttendancePoliciesSectionProps {
+  fixedTab?: 'shifts' | 'calendar' | 'leaves';
+}
+
+export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps> = ({ fixedTab }) => {
   const { addToast } = useToast();
   const confirm = useConfirm();
 
-  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'leaves'>('shifts');
+  const [activeTab, setActiveTab] = useState<'shifts' | 'calendar' | 'leaves'>(fixedTab || 'shifts');
   const [isSaving, setIsSaving] = useState(false);
 
   // Shift Templates State
@@ -668,54 +672,56 @@ export const AttendancePoliciesSection: React.FC = () => {
       />
 
       {/* Policy Navigation Subtabs Bar */}
-      <div className="flex items-center gap-1 border-b border-border pb-px overflow-x-auto shrink-0">
-        <button
-          type="button"
-          onClick={() => setActiveTab('shifts')}
-          className={cn(
-            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
-            activeTab === 'shifts'
-              ? 'border-accent text-accent-text bg-accent-soft-2'
-              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
-          )}
-        >
-          <Clock className="w-4 h-4" />
-          <span>Shift patterns & rules</span>
-        </button>
+      {!fixedTab && (
+        <div className="flex items-center gap-1 border-b border-border pb-px overflow-x-auto shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab('shifts')}
+            className={cn(
+              'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
+              activeTab === 'shifts'
+                ? 'border-accent text-accent-text bg-accent-soft-2'
+                : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+            )}
+          >
+            <Clock className="w-4 h-4" />
+            <span>Shift patterns & rules</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveTab('calendar')}
-          className={cn(
-            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
-            activeTab === 'calendar'
-              ? 'border-accent text-accent-text bg-accent-soft-2'
-              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
-          )}
-        >
-          <Calendar className="w-4 h-4" />
-          <span>Company calendar</span>
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('calendar')}
+            className={cn(
+              'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
+              activeTab === 'calendar'
+                ? 'border-accent text-accent-text bg-accent-soft-2'
+                : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+            )}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Company calendar</span>
+          </button>
 
-        <button
-          type="button"
-          onClick={() => {
-            setActiveTab('leaves');
-            if (leaveBalances.length === 0 && !isLoadingLeaveBalances) {
-              void fetchSecondary();
-            }
-          }}
-          className={cn(
-            'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
-            activeTab === 'leaves'
-              ? 'border-accent text-accent-text bg-accent-soft-2'
-              : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
-          )}
-        >
-          <TreePalm className="w-4 h-4" />
-          <span>Leave quotas</span>
-        </button>
-      </div>
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('leaves');
+              if (leaveBalances.length === 0 && !isLoadingLeaveBalances) {
+                void fetchSecondary();
+              }
+            }}
+            className={cn(
+              'px-3.5 py-2 text-xs font-semibold rounded-t-md transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap cursor-pointer',
+              activeTab === 'leaves'
+                ? 'border-accent text-accent-text bg-accent-soft-2'
+                : 'border-transparent text-fg-muted hover:text-fg hover:bg-hover'
+            )}
+          >
+            <TreePalm className="w-4 h-4" />
+            <span>Leave quotas</span>
+          </button>
+        </div>
+      )}
 
       {/* Scrollable Content Container */}
       <div className="flex-1 overflow-y-auto p-5 md:p-6 space-y-6">

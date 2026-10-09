@@ -30,10 +30,16 @@ import type { CrmIngestSource, CrmMetaPage, CrmQueueStats } from '../../../types
 
 type IngestSubTab = 'sources' | 'meta' | 'scheduler' | 'queue';
 
-export const CrmSettingsIngest: React.FC = () => {
+interface CrmSettingsIngestProps {
+  fixedPart?: 'lead-sources' | 'booking-scheduler';
+}
+
+export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart }) => {
   const { addToast } = useToast();
   const confirm = useConfirm();
-  const [activeTab, setActiveTab] = useState<IngestSubTab>('sources');
+  const [activeTab, setActiveTab] = useState<IngestSubTab>(
+    fixedPart === 'booking-scheduler' ? 'scheduler' : 'sources'
+  );
   const [sources, setSources] = useState<CrmIngestSource[]>([]);
   const [metaPages, setMetaPages] = useState<CrmMetaPage[]>([]);
   const [queueStats, setQueueStats] = useState<CrmQueueStats | null>(null);
@@ -352,59 +358,104 @@ export const CrmSettingsIngest: React.FC = () => {
         </div>
 
         {/* Sub-tab switcher */}
-        <div className="flex items-center gap-1 p-1 rounded-md bg-subtle border border-border self-start md:self-auto shrink-0 overflow-x-auto">
-          <button
-            type="button"
-            onClick={() => setActiveTab('sources')}
-            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'sources'
-                ? 'bg-surface text-fg shadow-xs'
-                : 'text-fg-muted hover:text-fg'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>Webhooks</span>
-          </button>
+        {!fixedPart && (
+          <div className="flex items-center gap-1 p-1 rounded-md bg-subtle border border-border self-start md:self-auto shrink-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('sources')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'sources'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Webhooks</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('meta')}
-            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'meta'
-                ? 'bg-surface text-fg shadow-xs'
-                : 'text-fg-muted hover:text-fg'
-            }`}
-          >
-            <Webhook className="w-3.5 h-3.5" />
-            <span>Meta Ads</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('meta')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'meta'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Webhook className="w-3.5 h-3.5" />
+              <span>Meta Ads</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('scheduler')}
-            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'scheduler'
-                ? 'bg-surface text-fg shadow-xs'
-                : 'text-fg-muted hover:text-fg'
-            }`}
-          >
-            <Calendar className="w-3.5 h-3.5" />
-            <span>Scheduler embed</span>
-          </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('scheduler')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'scheduler'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              <span>Scheduler embed</span>
+            </button>
 
-          <button
-            type="button"
-            onClick={() => setActiveTab('queue')}
-            className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
-              activeTab === 'queue'
-                ? 'bg-surface text-fg shadow-xs'
-                : 'text-fg-muted hover:text-fg'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>Queue health</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => setActiveTab('queue')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'queue'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Queue health</span>
+            </button>
+          </div>
+        )}
+
+        {fixedPart === 'lead-sources' && (
+          <div className="flex items-center gap-1 p-1 rounded-md bg-subtle border border-border self-start md:self-auto shrink-0 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('sources')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'sources'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Globe className="w-3.5 h-3.5" />
+              <span>Webhooks</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('meta')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'meta'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Webhook className="w-3.5 h-3.5" />
+              <span>Meta Ads</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setActiveTab('queue')}
+              className={`px-3 py-1.5 rounded-sm text-small font-medium transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                activeTab === 'queue'
+                  ? 'bg-surface text-fg shadow-xs'
+                  : 'text-fg-muted hover:text-fg'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Queue health</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -623,11 +674,12 @@ export const CrmSettingsIngest: React.FC = () => {
 
                 <Button
                   type="submit"
-                  disabled={saving}
                   variant="primary"
                   className="w-full"
+                  loading={saving}
+                  loadingText="Creating webhook endpoint…"
+                  icon={Plus}
                 >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
                   Create webhook endpoint
                 </Button>
               </form>
@@ -765,11 +817,12 @@ export const CrmSettingsIngest: React.FC = () => {
 
               <Button
                 type="submit"
-                disabled={savingPage}
                 variant="primary"
                 className="w-full"
+                loading={savingPage}
+                loadingText="Connecting page…"
+                icon={Plus}
               >
-                {savingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
                 Connect page
               </Button>
             </form>
@@ -959,11 +1012,12 @@ export const CrmSettingsIngest: React.FC = () => {
 
               <Button
                 type="submit"
-                disabled={savingConfig}
                 variant="primary"
+                loading={savingConfig}
+                loadingText="Saving scheduler settings…"
+                icon={Check}
               >
-                {savingConfig ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Check className="w-3.5 h-3.5 mr-1.5" />}
-                <span>Save scheduler settings</span>
+                Save scheduler settings
               </Button>
             </form>
 

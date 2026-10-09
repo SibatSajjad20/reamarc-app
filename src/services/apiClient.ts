@@ -1,5 +1,5 @@
 /**
- * Production-Grade API Client for Reamarc AI
+ * Production-Grade API Client for Reamarc
  * Session auth via HttpOnly cookies (credentials: include).
  * No JWT in localStorage — XSS cannot steal the session that way.
  */
@@ -368,10 +368,19 @@ class ApiClient {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' });
   }
 
-  public async upload<T>(endpoint: string, formData: FormData): Promise<T> {
+  public async upload<T>(
+    endpoint: string,
+    formData: FormData,
+    options?: { headers?: HeadersInit; skipWorkspaceHeader?: boolean }
+  ): Promise<T> {
+    const headers = this.buildHeaders(options?.headers, true);
+    if (options?.skipWorkspaceHeader) {
+      delete headers['X-Workspace-ID'];
+      delete headers['x-workspace-id'];
+    }
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       method: 'POST',
-      headers: this.buildHeaders(undefined, true),
+      headers,
       body: formData,
       credentials: 'include',
     });
@@ -386,7 +395,7 @@ class ApiClient {
       if (response.status === 401) {
         const refreshed = await this.tryRefreshSession();
         if (refreshed) {
-          return this.upload<T>(endpoint, formData);
+          return this.upload<T>(endpoint, formData, options);
         }
         if (this.onUnauthorizedCallback) this.onUnauthorizedCallback();
       }

@@ -8,7 +8,7 @@ import { DailyLogView } from './components/views/DailyLogView';
 import { ExceptionInboxView } from './components/views/ExceptionInboxView';
 import { AttendanceView } from './components/views/AttendanceView';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
-import { ProfileSettingsView } from './components/views/ProfileSettingsView';
+import { SettingsView } from './components/settings/SettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
 import { CrmView } from './components/views/CrmView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
@@ -16,7 +16,9 @@ import { WebsitePipelineView } from './components/views/WebsitePipelineView';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
-import type { AdminSectionType } from './components/admin/AdminSidebarNav';
+import type { AdminSectionType } from './types/admin';
+import type { SettingsSectionSlug } from './types/settings';
+import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
@@ -48,16 +50,78 @@ function AppInner() {
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
 
+  // User-persisted sidebar state without flash (§8.5, requirement 5)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      const lastUserId = localStorage.getItem('reamarc_last_user_id');
+      const userKey = lastUserId ? `sidebar_collapsed_${lastUserId}` : 'sidebar_collapsed';
+      const saved = localStorage.getItem(userKey) ?? localStorage.getItem('sidebar_collapsed');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Sync state whenever authenticated user changes
+  useEffect(() => {
+    if (user?.id) {
+      try {
+        localStorage.setItem('reamarc_last_user_id', user.id);
+        const userKey = `sidebar_collapsed_${user.id}`;
+        const saved = localStorage.getItem(userKey);
+        if (saved !== null) {
+          setIsSidebarCollapsed(saved === 'true');
+        } else {
+          const generic = localStorage.getItem('sidebar_collapsed');
+          if (generic !== null) {
+            setIsSidebarCollapsed(generic === 'true');
+            localStorage.setItem(userKey, generic);
+          }
+        }
+      } catch {}
+    }
+  }, [user?.id]);
+
+  const handleToggleSidebar = useCallback(() => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        if (user?.id) {
+          localStorage.setItem(`sidebar_collapsed_${user.id}`, String(next));
+        }
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch {}
+      return next;
+    });
+  }, [user?.id]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      // ⌘K or Ctrl+K for command palette
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
         setIsCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      // ⌘\ or Ctrl+\ for sidebar toggle (except while typing in input, textarea, or contenteditable)
+      if ((e.metaKey || e.ctrlKey) && (e.key === '\\' || e.code === 'Backslash')) {
+        const target = e.target as HTMLElement | null;
+        const isTyping =
+          target &&
+          (target.tagName === 'INPUT' ||
+            target.tagName === 'TEXTAREA' ||
+            target.isContentEditable ||
+            Boolean(target.closest?.('[contenteditable="true"]')));
+        if (!isTyping) {
+          e.preventDefault();
+          handleToggleSidebar();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [handleToggleSidebar]);
 
   const deptLower = (user?.department || '').toLowerCase().trim();
   const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
@@ -81,22 +145,32 @@ function AppInner() {
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
 
-  const v1Views: ViewType[] = ['dashboard', 'active-clients', 'marketing', 'admin', 'daily-log', 'attendance', 'profile', 'exceptions', 'crm', 'content-calendar', 'website-pipeline', 'portal'];
+  const v1Views: ViewType[] = [
+    'dashboard',
+    'active-clients',
+    'marketing',
+    'admin',
+    'daily-log',
+    'attendance',
+    'exceptions',
+    'crm',
+    'content-calendar',
+    'website-pipeline',
+    'portal',
+    'settings',
+  ];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
     if (isClient) return 'portal';
-    if (isAdmin) return 'attendance';
     return 'dashboard';
-  }, [isClient, isAdmin]);
+  }, [isClient]);
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     if (isClient) return 'portal';
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
-    if (saved === 'dashboard' && isAdmin) return 'attendance';
+    if (saved === 'profile') return 'settings';
     return saved && v1Views.includes(saved)
       ? saved
-      : isAdmin
-      ? 'attendance'
       : 'dashboard';
   });
 
@@ -107,6 +181,8 @@ function AppInner() {
   const [activeAdminSection, setActiveAdminSection] = useState<AdminSectionType>('directory');
   const [activeWebsiteSection, setActiveWebsiteSection] = useState<'board' | 'tasks' | 'table'>('board');
   const [activePortalTab, setActivePortalTab] = useState<'content' | 'website'>('content');
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionSlug>('profile');
+  const [lastNonSettingsView, setLastNonSettingsView] = useState<ViewType>(() => getDefaultViewForUser());
 
   // Route guard effect to enforce V1.0 module boundaries & URL path redirects
   useEffect(() => {
@@ -127,7 +203,7 @@ function AppInner() {
         return;
       }
 
-      const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian', 'settings'];
+      const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian'];
 
       if (nonV1Routes.includes(currentPath)) {
         const fallback = getDefaultViewForUser();
@@ -135,7 +211,7 @@ function AppInner() {
         setCurrentView(fallback);
         localStorage.setItem('reamarc_active_view', fallback);
       } else if (currentPath === 'dashboard') {
-        if (isAdmin || isClient) {
+        if (isClient) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -247,9 +323,25 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath.startsWith('settings')) {
+        const segments = currentPath.split('/');
+        const requestedSlug = (segments[1] || 'profile') as SettingsSectionSlug;
+        if (isSettingsSectionAllowed(requestedSlug, user)) {
+          window.history.replaceState(null, '', `/settings/${requestedSlug}`);
+          setCurrentView('settings');
+          setActiveSettingsSection(requestedSlug);
+          localStorage.setItem('reamarc_active_view', 'settings');
+        } else {
+          window.history.replaceState(null, '', '/settings/profile');
+          setCurrentView('settings');
+          setActiveSettingsSection('profile');
+          localStorage.setItem('reamarc_active_view', 'settings');
+        }
       } else if (currentPath === 'profile') {
-        setCurrentView('profile');
-        localStorage.setItem('reamarc_active_view', 'profile');
+        window.history.replaceState(null, '', '/settings/profile');
+        setCurrentView('settings');
+        setActiveSettingsSection('profile');
+        localStorage.setItem('reamarc_active_view', 'settings');
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
@@ -258,8 +350,13 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
-        } else if (!isAdmin && !isClient && (currentPath === '' || currentPath === '/')) {
-          // Team lead, team member, hr, operations always land on dashboard
+        } else if (currentSaved === 'profile') {
+          window.history.replaceState(null, '', '/settings/profile');
+          setCurrentView('settings');
+          setActiveSettingsSection('profile');
+          localStorage.setItem('reamarc_active_view', 'settings');
+        } else if (!isClient && (currentPath === '' || currentPath === '/')) {
+          // Team lead, team member, hr, operations, admin land on dashboard
           window.history.replaceState(null, '', '/dashboard');
           setCurrentView('dashboard');
           localStorage.setItem('reamarc_active_view', 'dashboard');
@@ -293,7 +390,7 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
-        } else if (currentSaved === 'dashboard' && (isAdmin || isClient)) {
+        } else if (currentSaved === 'dashboard' && isClient) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
@@ -309,7 +406,7 @@ function AppInner() {
 
   const handleSelectView = (view: ViewType) => {
     let allowedViews: ViewType[] = [];
-    if (!isAdmin && !isClient) {
+    if (!isClient) {
       allowedViews.push('dashboard');
     }
     if (isClient) allowedViews.push('portal');
@@ -324,18 +421,39 @@ function AppInner() {
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
-    allowedViews.push('profile');
+    allowedViews.push('settings');
 
     const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
 
+    if (targetView !== 'settings') {
+      setLastNonSettingsView(targetView);
+    }
+
     try {
-      window.history.pushState(null, '', `/${targetView}`);
+      if (targetView === 'settings') {
+        window.history.pushState(null, '', `/settings/${activeSettingsSection || 'profile'}`);
+      } else {
+        window.history.pushState(null, '', `/${targetView}`);
+      }
     } catch {
       // Fallback
     }
 
     setCurrentView(targetView);
     localStorage.setItem('reamarc_active_view', targetView);
+  };
+
+  const handleSelectSettingsSection = (slug: SettingsSectionSlug) => {
+    const validSlug = isSettingsSectionAllowed(slug, user) ? slug : 'profile';
+    setActiveSettingsSection(validSlug);
+    if (currentView !== 'settings') {
+      setLastNonSettingsView(currentView);
+      setCurrentView('settings');
+    }
+    try {
+      window.history.pushState(null, '', `/settings/${validSlug}`);
+    } catch {}
+    localStorage.setItem('reamarc_active_view', 'settings');
   };
 
   useEffect(() => {
@@ -457,7 +575,7 @@ function AppInner() {
 
   const handleSignOut = () => {
     logout();
-    addToast('Signed Out', 'You have been safely signed out of Reamarc AI.', 'warning');
+    addToast('Signed Out', 'You have been safely signed out of Reamarc.', 'warning');
   };
 
   const currentPathLower = window.location.pathname.toLowerCase();
@@ -496,6 +614,9 @@ function AppInner() {
         onMobileNavOpenChange={setIsMobileNavOpen}
         sidebar={
           <Sidebar
+            isCollapsed={isSidebarCollapsed}
+            onToggleCollapse={handleToggleSidebar}
+            isMobile={false}
             currentView={currentView}
             onSelectView={handleSelectView}
             onSignOut={handleSignOut}
@@ -538,11 +659,16 @@ function AppInner() {
                 handleSelectView('portal');
               }
             }}
+            activeSettingsSection={activeSettingsSection}
+            onSelectSettingsSection={handleSelectSettingsSection}
+            lastNonSettingsView={lastNonSettingsView}
             onOpenShortcuts={() => setIsShortcutsOpen(true)}
           />
         }
         mobileSidebar={
           <Sidebar
+            isCollapsed={false}
+            isMobile={true}
             currentView={currentView}
             onSelectView={(v) => {
               handleSelectView(v);
@@ -593,6 +719,12 @@ function AppInner() {
               }
               setIsMobileNavOpen(false);
             }}
+            activeSettingsSection={activeSettingsSection}
+            onSelectSettingsSection={(sec) => {
+              handleSelectSettingsSection(sec);
+              setIsMobileNavOpen(false);
+            }}
+            lastNonSettingsView={lastNonSettingsView}
             onOpenShortcuts={() => {
               setIsMobileNavOpen(false);
               setIsShortcutsOpen(true);
@@ -638,6 +770,8 @@ function AppInner() {
                 handleSelectView('portal');
               }
             }}
+            activeSettingsSection={activeSettingsSection}
+            onSelectSettingsSection={handleSelectSettingsSection}
             onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
             onOpenShortcuts={() => setIsShortcutsOpen(true)}
             onOpenMobileMenu={() => setIsMobileNavOpen(true)}
@@ -645,7 +779,7 @@ function AppInner() {
         }
       >
         <ErrorBoundary onGoHome={() => handleSelectView(getDefaultViewForUser())}>
-          {currentView === 'dashboard' && !isAdmin && !isClient && (
+          {currentView === 'dashboard' && !isClient && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <DashboardView onNavigateView={handleSelectView} />
             </div>
@@ -733,9 +867,11 @@ function AppInner() {
             </div>
           )}
 
-          {currentView === 'profile' && (
+          {currentView === 'settings' && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-              <ProfileSettingsView
+              <SettingsView
+                currentSection={activeSettingsSection}
+                onSelectSection={handleSelectSettingsSection}
                 themePreference={themePreference}
                 onSelectThemePreference={setThemePreference}
               />
@@ -770,14 +906,12 @@ function AppInner() {
           setActivePortalTab(tab);
           if (currentView !== 'portal') handleSelectView('portal');
         }}
+        activeSettingsSection={activeSettingsSection}
+        onSelectSettingsSection={handleSelectSettingsSection}
         themePreference={themePreference}
         onSelectThemePreference={setThemePreference}
-        isSidebarCollapsed={false}
-        onToggleSidebar={() => {
-          const current = localStorage.getItem('sidebar_collapsed') === 'true';
-          localStorage.setItem('sidebar_collapsed', String(!current));
-          window.dispatchEvent(new Event('storage'));
-        }}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebar={handleToggleSidebar}
         onOpenShortcuts={() => setIsShortcutsOpen(true)}
         onSignOut={handleSignOut}
         canSeeActiveClients={canSeeActiveClients}

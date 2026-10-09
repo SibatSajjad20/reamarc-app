@@ -226,7 +226,7 @@ export const MobileOpsSection: React.FC = () => {
 
           {/* Right: Neutral Live Preview Card (13px text) */}
           <div className="flex flex-col gap-2">
-            <span className="text-caption font-medium uppercase tracking-wider text-fg-muted">
+            <span className="text-caption font-medium text-fg-muted">
               Live device preview
             </span>
             <div className="border border-border rounded-xl p-4 bg-canvas/70 shadow-xs space-y-3">
@@ -235,7 +235,7 @@ export const MobileOpsSection: React.FC = () => {
                   <div className="w-5 h-5 rounded-md bg-accent flex items-center justify-center text-white text-[10px] font-semibold">
                     R
                   </div>
-                  <span className="text-xs font-semibold text-fg uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-fg">
                     Reamarc
                   </span>
                 </div>

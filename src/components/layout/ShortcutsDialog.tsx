@@ -36,6 +36,10 @@ export const ShortcutsDialog: React.FC<ShortcutsDialogProps> = ({ open, onOpenCh
       keys: [`${metaKey}`, 'K'],
     },
     {
+      description: 'Toggle sidebar',
+      keys: [`${metaKey}`, '\\'],
+    },
+    {
       description: 'Show keyboard shortcuts',
       keys: [`${metaKey}`, '/'],
     },

@@ -17,11 +17,7 @@ export interface ToastContextType {
 
 export const stripEmoji = (str: string): string => {
   if (!str) return '';
-  return str
-    .replace(/\p{Extended_Pictographic}/gu, '')
-    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2B50}\u{FE00}-\u{FE0F}]/gu, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return str.replace(/\s+/g, ' ').trim();
 };
 
 const ToastContext = createContext<ToastContextType | undefined>(undefined);

@@ -434,11 +434,12 @@ export const CrmSettingsRules: React.FC<CrmSettingsRulesProps> = ({ assignees: i
 
             <Button
               type="submit"
-              disabled={saving}
               variant="primary"
               className="w-full"
+              loading={saving}
+              loadingText="Saving rule…"
+              icon={Plus}
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : <Plus className="w-3.5 h-3.5 mr-1.5" />}
               Save assignment rule
             </Button>
           </form>

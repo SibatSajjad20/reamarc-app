@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Loader2, Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X } from 'lucide-react';
+import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
 import { crmService } from '../../services/crmService';
 import type { CrmAssignee, CrmAssignmentRule } from '../../types/crm';
@@ -208,14 +209,16 @@ export const CrmRulesPanel: React.FC<CrmRulesPanelProps> = ({ assignees, onClose
               />
             </div>
             {error && <p className="text-xs text-rose-600">{error}</p>}
-            <button
+            <Button
               type="submit"
-              disabled={saving}
-              className="h-8.5 px-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-60 transition shadow-xs"
+              size="sm"
+              variant="primary"
+              loading={saving}
+              loadingText="Saving…"
+              icon={Plus}
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
               Save rule
-            </button>
+            </Button>
           </form>
         </div>
         <div className="px-5 py-3 border-t border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30 flex items-center justify-end">

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Loader2, Plus, Trash2, MessageSquareText, Eye, Check, Copy } from 'lucide-react';
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
-import { Button } from '../../ui/button';
+import { Button, IconButton } from '../../ui/button';
 import type { CrmTemplate } from '../../../types/crm';
 
 const PLACEHOLDERS = [
@@ -216,15 +216,15 @@ export const CrmSettingsTemplates: React.FC = () => {
                             Set default
                           </button>
                         )}
-                        <button
-                          type="button"
+                        <IconButton
+                          icon={Trash2}
+                          size="sm"
+                          variant="ghost"
                           onClick={() => void handleDelete(tpl)}
-                          disabled={isDeleting}
-                          className="p-1 rounded text-fg-muted hover:text-danger-fg hover:bg-danger-bg transition-colors cursor-pointer disabled:opacity-50"
-                          title="Delete template"
-                        >
-                          {isDeleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                        </button>
+                          loading={isDeleting}
+                          label="Delete template"
+                          className="text-fg-muted hover:text-danger-fg hover:bg-danger-bg"
+                        />
                       </div>
                     </div>
 
@@ -329,10 +329,11 @@ export const CrmSettingsTemplates: React.FC = () => {
             <Button
               type="submit"
               variant="primary"
-              disabled={saving}
               className="w-full"
+              loading={saving}
+              loadingText="Saving template…"
+              icon={Plus}
             >
-              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Plus className="w-3.5 h-3.5 mr-1" />}
               Save template
             </Button>
           </form>

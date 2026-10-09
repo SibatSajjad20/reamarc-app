@@ -289,7 +289,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
         <div className="px-6 py-3 bg-subtle border-b border-border space-y-2.5 text-xs shrink-0">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="text-caption font-semibold text-fg-muted uppercase tracking-wider shrink-0">
+              <span className="text-caption font-medium text-fg-muted shrink-0">
                 Pipeline stage:
               </span>
               <span className="text-xs font-semibold text-fg truncate">{currentItem.stage}</span>
@@ -553,7 +553,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
               {/* External Asset Links */}
               {(currentItem.draft_preview_link || currentItem.final_asset_link) && (
                 <div className="space-y-2">
-                  <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                  <h3 className="text-caption font-medium text-fg-muted">
                     External deliverables & links
                   </h3>
                   <div className="flex flex-wrap gap-2 text-xs">
@@ -589,7 +589,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {currentItem.primary_text && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                <h3 className="text-caption font-medium text-fg-muted">
                   Primary text (ad copy)
                 </h3>
                 <button
@@ -611,7 +611,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {currentItem.headlines_hooks && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                <h3 className="text-caption font-medium text-fg-muted">
                   Headlines & hooks library
                 </h3>
                 <button
@@ -633,7 +633,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {currentItem.content_on_creative && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                <h3 className="text-caption font-medium text-fg-muted">
                   Content on creative (overlay & script)
                 </h3>
                 <button
@@ -654,7 +654,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {/* Production Direction */}
           {currentItem.production_direction && (
             <div className="space-y-2">
-              <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+              <h3 className="text-caption font-medium text-fg-muted">
                 Production direction
               </h3>
               <div className="p-3.5 rounded-md bg-subtle border border-border text-xs text-fg leading-relaxed">
@@ -667,7 +667,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {currentItem.captions_hashtags && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                <h3 className="text-caption font-medium text-fg-muted">
                   Captions, hashtags & keywords
                 </h3>
                 <button
@@ -689,7 +689,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           {currentItem.notes && (
             <div className="space-y-2">
               <div className="flex items-center justify-between">
-                <h3 className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                <h3 className="text-caption font-medium text-fg-muted">
                   Comments
                 </h3>
                 <span className="text-caption text-fg-muted flex items-center gap-1.5 font-medium">

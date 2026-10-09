@@ -242,7 +242,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                   {/* Summary KPI Cards */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                     <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-[10px] font-medium text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Worked
                       </span>
                       <div className="mt-1 flex items-baseline gap-1">
@@ -259,7 +259,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                     </div>
 
                     <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-[10px] font-medium text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Logged
                       </span>
                       <div className="mt-1">
@@ -271,7 +271,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                     </div>
 
                     <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-[10px] font-medium text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Net Gap
                       </span>
                       <div className="mt-1">
@@ -298,7 +298,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                     </div>
 
                     <div className="p-3 bg-canvas border border-border rounded-lg">
-                      <span className="text-[10px] font-medium text-fg-muted uppercase tracking-wider block">
+                      <span className="text-xs font-medium text-fg-muted block">
                         Submissions
                       </span>
                       <div className="mt-1">
@@ -360,7 +360,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                             )}
                             title={`${day.date} (${day.day_name}): ${day.status} - ${formatHours(day.logged_hours)} logged / ${formatHours(day.worked_hours)} work`}
                           >
-                            <span className="text-[9px] font-medium uppercase tracking-tight block opacity-75">
+                            <span className="text-[10px] font-medium block opacity-75">
                               {dayLetter}
                             </span>
                             <span className="text-xs font-mono font-semibold tabular-nums leading-tight">
@@ -395,7 +395,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                   {/* History Timeline per §13.15.3 */}
                   <div className="space-y-3">
                     <div className="flex items-center justify-between px-0.5">
-                      <h4 className="text-xs font-semibold text-fg uppercase tracking-wider">
+                      <h4 className="text-xs font-semibold text-fg">
                         History timeline
                       </h4>
                       <div className="flex items-center gap-2">
@@ -536,7 +536,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                                   {/* Tasks */}
                                   {day.tasks.length > 0 ? (
                                     <div className="space-y-1.5 pt-1">
-                                      <span className="text-[10px] font-medium uppercase tracking-wider text-fg-muted block">
+                                      <span className="text-xs font-medium text-fg-muted block">
                                         Logged tasks ({day.tasks.length})
                                       </span>
                                       <div className="space-y-1.5">

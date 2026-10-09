@@ -109,7 +109,7 @@ export function notificationPermission(): NotificationPermission | 'unsupported'
 
 /** Show an immediate local desktop notification to verify on-screen display. */
 export async function showWelcomeNotification(
-  title = 'Notifications Enabled 🎉',
+  title = 'Notifications Enabled',
   body = 'You will now receive real-time alerts from Reamarc.'
 ): Promise<boolean> {
   return showDesktopPopup(title, body, `reamarc-welcome-${Date.now()}`);
@@ -232,7 +232,7 @@ export async function sendTestPush(): Promise<{ success: boolean; message: strin
     (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
   ) {
     const shown = await showDesktopPopup(
-      'Reamarc Web Push Test 🚀',
+      'Reamarc Web Push Test',
       'Desktop popup notifications are active on this browser!',
       `reamarc-test-${Date.now()}`
     );
@@ -257,7 +257,7 @@ export async function sendTestPush(): Promise<{ success: boolean; message: strin
     }
     // If backend reports 0 subscribers (e.g. backend key sync delay), trigger local system popup directly
     const shown = await showDesktopPopup(
-      'Reamarc Web Push Test 🚀',
+      'Reamarc Web Push Test',
       'Desktop popup notifications are active on this browser!',
       `reamarc-test-${Date.now()}`
     );
@@ -269,7 +269,7 @@ export async function sendTestPush(): Promise<{ success: boolean; message: strin
     };
   } catch {
     const shown = await showDesktopPopup(
-      'Reamarc Web Push Test 🚀',
+      'Reamarc Web Push Test',
       'Desktop popup notifications are active on this browser!',
       `reamarc-test-${Date.now()}`
     );

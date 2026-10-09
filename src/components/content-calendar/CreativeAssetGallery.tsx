@@ -22,6 +22,7 @@ import {
   ChevronDown,
 } from 'lucide-react';
 import type { CreativeAsset, ContentCalendarItem, AssetRole } from '../../types/contentCalendar';
+import { Button } from '../ui/button';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { openGoogleDrivePicker } from '../../services/googlePickerService';
 import { useToast } from '../../context/ToastContext';
@@ -432,33 +433,33 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       {/* Gallery Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-semibold text-fg uppercase tracking-wider flex items-center gap-1.5">
-            <ImageIcon className="w-3.5 h-3.5 text-accent-fg" />
+          <span className="text-xs font-semibold text-fg flex items-center gap-1.5">
+            <ImageIcon className="w-3.5 h-3.5 text-accent-text" />
             <span>Creative Assets</span>
           </span>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-subtle text-fg border border-border">
+          <span className="px-2 py-0.5 rounded-full text-caption font-semibold bg-subtle text-fg border border-border">
             Total: {assets.length}
           </span>
           {imageCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-caption font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <ImageIcon className="w-2.5 h-2.5" />
               <span>{imageCount} {imageCount === 1 ? 'image' : 'images'}</span>
             </span>
           )}
           {videoCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-caption font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <Film className="w-2.5 h-2.5" />
               <span>{videoCount} {videoCount === 1 ? 'video' : 'videos'}</span>
             </span>
           )}
           {linkCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-caption font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <Link2 className="w-2.5 h-2.5" />
               <span>{linkCount} {linkCount === 1 ? 'link' : 'links'}</span>
             </span>
           )}
           {docCount > 0 && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
+            <span className="px-2 py-0.5 rounded-full text-caption font-medium bg-subtle text-fg-muted border border-border flex items-center gap-1">
               <FileText className="w-2.5 h-2.5" />
               <span>{docCount} {docCount === 1 ? 'doc' : 'docs'}</span>
             </span>
@@ -486,26 +487,25 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg bg-subtle hover:bg-hover text-fg transition cursor-pointer border border-border"
               title="Add deliverable link (Figma, Canva, Drive, Loom, etc.)"
             >
-              <Link2 className="w-3.5 h-3.5 text-accent-fg" />
+              <Link2 className="w-3.5 h-3.5 text-accent-text" />
               <span>Add Link</span>
             </button>
 
             {/* Upload Button Group: Primary Google Drive, Secondary Local Device Fallback */}
             <div className="relative inline-flex items-center rounded-lg shadow-xs">
-              <button
+              <Button
                 type="button"
+                size="sm"
+                variant="primary"
                 onClick={() => void handleOpenGoogleDrivePicker()}
-                disabled={isUploading || isOpeningPicker}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-l-lg bg-accent text-accent-contrast hover:opacity-90 transition cursor-pointer disabled:opacity-50"
+                loading={isUploading || isOpeningPicker}
+                loadingText="Uploading…"
+                icon={GoogleDriveIcon}
+                className="rounded-r-none"
                 title="Insert files using Google Drive (Recent, Upload, My Drive, Starred)"
               >
-                {isUploading || isOpeningPicker ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <GoogleDriveIcon className="w-3.5 h-3.5" />
-                )}
-                <span>Upload</span>
-              </button>
+                Upload
+              </Button>
 
               <button
                 type="button"
@@ -570,13 +570,13 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
           {/* Top Bar Overlay: Role & Filename & Controls */}
           <div className="absolute top-0 left-0 right-0 z-10 px-4 py-2.5 bg-overlay border-b border-white/10 flex items-center justify-between gap-3 text-white">
             <div className="flex items-center gap-2 min-w-0">
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-accent text-accent-fg shrink-0">
+              <span className="px-2 py-0.5 rounded-md text-caption font-semibold bg-accent text-accent-fg shrink-0">
                 {getRoleLabel(activeAsset.role)}
               </span>
               <span className="text-xs font-medium truncate opacity-90" title={activeAsset.filename}>
                 {activeAsset.filename}
               </span>
-              <span className="text-[10px] opacity-60 shrink-0">
+              <span className="text-caption opacity-60 shrink-0">
                 ({formatBytes(activeAsset.size_bytes)})
               </span>
             </div>
@@ -674,7 +674,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             ) : activeAsset.kind === 'link' ? (
               /* Link Presentation */
               <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-xl bg-subtle text-accent-fg border border-border">
+                <div className="p-4 rounded-xl bg-subtle text-accent-text border border-border">
                   <Globe className="w-10 h-10" />
                 </div>
                 <div className="max-w-md space-y-1.5">
@@ -685,7 +685,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                     href={safeHttpUrl(activeAsset.url) || undefined}
                     target="_blank"
                     rel="noreferrer noopener"
-                    className="text-xs text-accent-fg hover:underline break-all inline-flex items-center gap-1"
+                    className="text-xs text-accent-text hover:underline break-all inline-flex items-center gap-1"
                   >
                     <span>{activeAsset.url}</span>
                     <ExternalLink className="w-3 h-3 shrink-0" />
@@ -714,7 +714,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             ) : (
               /* Document Card Presentation */
               <div className="w-full py-12 px-6 flex flex-col items-center justify-center text-center space-y-4">
-                <div className="p-4 rounded-xl bg-subtle text-accent-fg border border-border">
+                <div className="p-4 rounded-xl bg-subtle text-accent-text border border-border">
                   <FileText className="w-10 h-10" />
                 </div>
                 <div className="max-w-sm space-y-1">
@@ -772,7 +772,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               </button>
 
               {/* Bottom slide index counter */}
-              <div className="absolute bottom-2 left-1/2 -translate-y-0 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/70 text-white text-[10px] font-semibold tracking-wide border border-white/10 pointer-events-none">
+              <div className="absolute bottom-2 left-1/2 -translate-y-0 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/70 text-white text-caption font-semibold tracking-wide border border-white/10 pointer-events-none">
                 {selectedIndex + 1} of {assets.length}
               </div>
             </>
@@ -788,7 +788,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               Carousel & Deliverable Slides ({assets.length})
             </span>
             {!readOnly && (
-              <span className="text-[10px] text-fg-muted">
+              <span className="text-caption text-fg-muted">
                 Use arrows to reorder slide sequence
               </span>
             )}
@@ -851,27 +851,27 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                         <div className="absolute inset-0 bg-black/25 flex items-center justify-center pointer-events-none">
                           <Play className="w-4 h-4 fill-white text-white drop-shadow-xs" />
                         </div>
-                        <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/75 text-white text-[8px] font-semibold">
+                        <span className="absolute bottom-1 right-1 px-1 py-0.2 rounded bg-black/75 text-white text-micro font-semibold">
                           Video
                         </span>
                       </div>
                     ) : asset.kind === 'link' ? (
                       <div className="flex flex-col items-center justify-center text-fg-muted p-1 w-full h-full bg-subtle">
                         <Link2 className="w-5 h-5 text-accent" />
-                        <span className="text-[9px] font-semibold mt-0.5 text-center truncate max-w-[80px]">
+                        <span className="text-caption font-semibold mt-0.5 text-center truncate max-w-[80px]">
                           {asset.filename || 'Link'}
                         </span>
                       </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center text-fg-muted">
                         <FileText className="w-5 h-5 text-accent" />
-                        <span className="text-[9px] font-semibold mt-0.5">Doc</span>
+                        <span className="text-caption font-semibold mt-0.5">Doc</span>
                       </div>
                     )}
                   </div>
 
                   {/* Slide index number tag */}
-                  <span className="absolute top-1 left-1 px-1.5 py-0.2 rounded-md text-[9px] font-semibold bg-overlay text-white pointer-events-none">
+                  <span className="absolute top-1 left-1 px-1.5 py-0.2 rounded-md text-caption font-semibold bg-overlay text-white pointer-events-none">
                     {idx + 1}
                   </span>
 
@@ -892,7 +892,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                         </button>
                       ) : <span className="w-3.5" />}
 
-                      <span className="text-[8px] font-medium text-white/70 select-none">
+                      <span className="text-micro font-medium text-white/70 select-none">
                         drag
                       </span>
 
@@ -970,7 +970,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
           {/* Header */}
           <div className="px-6 py-4 flex items-center justify-between text-white border-b border-white/10 shrink-0">
             <div className="flex items-center gap-3">
-              <span className="text-xs font-semibold uppercase tracking-wider text-accent-fg">
+              <span className="text-xs font-semibold text-accent-text">
                 {getRoleLabel(activeAsset.role)}
               </span>
               <span className="text-sm font-semibold truncate max-w-md">
@@ -1065,15 +1065,16 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
-                disabled={isDeleting}
+                variant="destructive"
+                size="sm"
+                loading={isDeleting}
+                loadingText="Deleting…"
                 onClick={() => void handleDeleteConfirmed()}
-                className="px-3.5 py-1.5 rounded-lg text-xs font-medium bg-danger-solid hover:opacity-90 text-white transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
               >
-                {isDeleting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Delete Asset</span>
-              </button>
+                Delete Asset
+              </Button>
             </div>
           </div>
         </div>
@@ -1085,7 +1086,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
           <div className="w-full max-w-md rounded-xl bg-surface border border-border p-6 space-y-4 shadow-lg">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-subtle text-accent-fg border border-border">
+                <div className="p-2 rounded-lg bg-subtle text-accent-text border border-border">
                   <Link2 className="w-5 h-5" />
                 </div>
                 <div>
@@ -1160,14 +1161,16 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 >
                   Cancel
                 </button>
-                <button
+                <Button
                   type="submit"
-                  disabled={isSubmittingLink || !linkUrl.trim()}
-                  className="px-4 py-1.5 rounded-lg text-xs font-medium bg-accent text-accent-fg hover:opacity-90 transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                  variant="primary"
+                  size="sm"
+                  loading={isSubmittingLink}
+                  loadingText="Adding link…"
+                  disabled={!linkUrl.trim()}
                 >
-                  {isSubmittingLink && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Add Link</span>
-                </button>
+                  Add Link
+                </Button>
               </div>
             </form>
           </div>

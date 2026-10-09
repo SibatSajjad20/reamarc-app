@@ -317,6 +317,158 @@ async def get_my_log_activity(
     }
 
 
+@router.get("/team-hours")
+async def get_team_hours(
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Returns team members' logged hours vs worked hours for the given date range.
+    Accessible only to team leads.
+    """
+    role = str(current_user.get("role") or "").lower()
+    if role not in ("team_lead", UserRole.TEAM_LEAD.value):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only team leads can access team hours",
+        )
+
+    try:
+        start_d = datetime.strptime(start_date, "%Y-%m-%d").date()
+        end_d = datetime.strptime(end_date, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Dates must be in YYYY-MM-DD format",
+        )
+
+    if start_d > end_d:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="start_date cannot be after end_date",
+        )
+
+    if (end_d - start_d).days > 31:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Date range cannot exceed 31 days",
+        )
+
+    db = get_database()
+    if db is None:
+        return {"members": []}
+
+    viewer_id = current_user.get("id")
+    lead_user_doc = await db.users.find_one(
+        {"id": viewer_id},
+        {"departments": 1, "department": 1, "lead_department": 1, "primary_department": 1},
+    )
+    lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+    if not lead_depts:
+        return {"members": []}
+
+    user_query = {
+        "is_active": {"$ne": False},
+        "role": {"$in": ["team_member", UserRole.TEAM_MEMBER.value]},
+        "$or": [_dept_match_query(d) for d in lead_depts],
+        "id": {"$ne": viewer_id},
+    }
+    members = await db.users.find(
+        user_query,
+        {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1},
+    ).to_list(500)
+    if not members:
+        return {"members": []}
+
+    from app.services.workdays import load_off_day_index
+    off_idx = await load_off_day_index(start_d, end_d)
+
+    member_ids = [m["id"] for m in members]
+
+    entries = await db.daily_log_entries.find(
+        {
+            "user_id": {"$in": member_ids},
+            "date": {"$gte": start_date, "$lte": end_date},
+        },
+        {"_id": 0, "user_id": 1, "date": 1, "hours": 1},
+    ).to_list(10000)
+
+    attendance_records = await db.attendance_records.find(
+        {
+            "user_id": {"$in": member_ids},
+            "date": {"$gte": start_date, "$lte": end_date},
+        },
+        {"_id": 0, "user_id": 1, "date": 1, "working_hours_minutes": 1},
+    ).to_list(10000)
+
+    logged_map = {}
+    for entry in entries:
+        uid = entry.get("user_id")
+        d_str = entry.get("date")
+        if uid and d_str:
+            key = (uid, d_str)
+            try:
+                hrs = float(entry.get("hours") or 0.0)
+            except (ValueError, TypeError):
+                hrs = 0.0
+            logged_map[key] = logged_map.get(key, 0.0) + hrs
+
+    worked_map = {}
+    for rec in attendance_records:
+        uid = rec.get("user_id")
+        d_str = rec.get("date")
+        if uid and d_str:
+            key = (uid, d_str)
+            mins = rec.get("working_hours_minutes") or 0
+            worked_map[key] = round(mins / 60.0, 2)
+
+    curr = start_d
+    dates_list = []
+    while curr <= end_d:
+        dates_list.append(curr.strftime("%Y-%m-%d"))
+        curr += timedelta(days=1)
+
+    result_members = []
+    for m in members:
+        uid = m["id"]
+        fname = m.get("full_name") or m.get("name") or "Unknown"
+        dept = m.get("department") or ""
+        member_days = []
+        logged_total = 0.0
+        worked_total = 0.0
+
+        for d_str in dates_list:
+            d_logged = round(logged_map.get((uid, d_str), 0.0), 2)
+            d_worked = round(worked_map.get((uid, d_str), 0.0), 2)
+            is_off = off_idx.is_off_iso(d_str)
+
+            member_days.append({
+                "date": d_str,
+                "logged_hours": d_logged,
+                "worked_hours": d_worked,
+                "is_off": is_off,
+            })
+            logged_total += d_logged
+            worked_total += d_worked
+
+        logged_total = round(logged_total, 2)
+        worked_total = round(worked_total, 2)
+        gap = round(logged_total - worked_total, 2)
+
+        result_members.append({
+            "user_id": uid,
+            "full_name": fname,
+            "department": dept,
+            "days": member_days,
+            "logged_total": logged_total,
+            "worked_total": worked_total,
+            "gap": gap,
+        })
+
+    return {"members": result_members}
+
+
 @router.get("/day-target")
 async def get_day_target(
     date: Optional[str] = Query(None, description="YYYY-MM-DD, defaults to today PKT"),

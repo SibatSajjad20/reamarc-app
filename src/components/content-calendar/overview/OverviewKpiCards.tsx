@@ -33,7 +33,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-1.5">
-            <span className="text-[10.5px] font-medium tracking-wider uppercase text-fg-muted truncate">
+            <span className="text-xs font-medium text-fg-muted truncate">
               Total Posts
             </span>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
@@ -56,7 +56,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-1.5">
-            <span className="text-[10.5px] font-medium tracking-wider uppercase text-fg-muted truncate">
+            <span className="text-xs font-medium text-fg-muted truncate">
               Posted (Done)
             </span>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
@@ -87,7 +87,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-1.5">
-            <span className="text-[10.5px] font-medium tracking-wider uppercase text-fg-muted truncate">
+            <span className="text-xs font-medium text-fg-muted truncate">
               Ready to Post
             </span>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
@@ -110,7 +110,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-1.5">
-            <span className="text-[10.5px] font-medium tracking-wider uppercase text-fg-muted truncate">
+            <span className="text-xs font-medium text-fg-muted truncate">
               In Review
             </span>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
@@ -133,7 +133,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
         <div>
           <div className="flex items-center justify-between gap-1.5">
-            <span className="text-[10.5px] font-medium tracking-wider uppercase text-fg-muted truncate">
+            <span className="text-xs font-medium text-fg-muted truncate">
               Revisions
             </span>
             <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
@@ -163,7 +163,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
         <div>
           <div className="flex items-center justify-between gap-1.5">
             <span
-              className={`text-[10.5px] font-medium tracking-wider uppercase truncate ${
+              className={`text-xs font-medium truncate ${
                 metrics.overdueCount > 0
                   ? 'text-danger-fg font-semibold'
                   : 'text-fg-muted'

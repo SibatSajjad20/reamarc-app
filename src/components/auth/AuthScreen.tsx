@@ -627,11 +627,14 @@ export const AuthScreen: React.FC = () => {
         </div>
 
         <div className="mt-8 w-[980px] max-w-full rounded-lg border border-border overflow-hidden shadow-lg bg-surface">
-          <img
-            src="/login-shot.png"
-            alt="Reamarc operations hub preview"
-            className="w-full block"
-          />
+          <picture>
+            <source srcSet="/login-shot.webp" type="image/webp" />
+            <img
+              src="/login-shot.webp"
+              alt="Reamarc operations hub preview"
+              className="w-full block"
+            />
+          </picture>
         </div>
       </div>
     </div>

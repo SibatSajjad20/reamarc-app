@@ -73,7 +73,7 @@ export const WebsiteTableView: React.FC<Props> = ({ projects, onSelectProject })
                   </td>
 
                   <td className="py-3 px-3 font-medium text-fg">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent-subtle text-accent-fg border border-accent-border">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-accent-subtle text-accent-text border border-accent-border">
                       {getStageName(p.stage)}
                     </span>
                   </td>
@@ -130,7 +130,7 @@ export const WebsiteTableView: React.FC<Props> = ({ projects, onSelectProject })
                           rel="noreferrer"
                           onClick={(e) => e.stopPropagation()}
                           title="Preview Staging URL"
-                          className="p-1 rounded hover:bg-hover text-accent-fg"
+                          className="p-1 rounded hover:bg-hover text-accent-text"
                         >
                           <ExternalLink className="w-3.5 h-3.5" />
                         </a>

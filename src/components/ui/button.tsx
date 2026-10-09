@@ -45,6 +45,7 @@ export interface ButtonProps
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
   loading?: boolean;
+  loadingText?: string;
   icon?: React.ComponentType<{ className?: string; size?: number }>;
   trailingIcon?: React.ComponentType<{ className?: string; size?: number }>;
 }
@@ -58,6 +59,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       block,
       asChild = false,
       loading = false,
+      loadingText,
       icon: Icon,
       trailingIcon: TrailingIcon,
       children,
@@ -68,21 +70,34 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
   ) => {
     const Comp = asChild ? Slot.Root : 'button';
     const isDisabled = disabled || loading;
+    const iconSize = size === 'sm' ? 14 : 16;
 
     return (
       <Comp
-        className={cn(buttonVariants({ variant, size, block, className }))}
+        className={cn(
+          buttonVariants({ variant, size, block, className }),
+          loading && 'disabled:opacity-100 cursor-progress'
+        )}
         ref={ref}
         disabled={isDisabled}
         aria-busy={loading ? 'true' : undefined}
         {...props}
       >
         {loading ? (
-          <LoaderCircle className="animate-spin" size={14} aria-hidden="true" />
+          <LoaderCircle className="animate-spin" size={iconSize} aria-hidden="true" />
         ) : (
-          Icon && <Icon size={size === 'sm' ? 14 : 16} aria-hidden="true" />
+          Icon && <Icon size={iconSize} aria-hidden="true" />
         )}
-        {children}
+        {loadingText ? (
+          <span className="inline-grid [grid-template-areas:'s'] *:[grid-area:s]">
+            <span className={cn(loading ? 'invisible' : 'visible')}>{children}</span>
+            <span className={cn(loading ? 'visible' : 'invisible')} aria-hidden={!loading}>
+              {loadingText}
+            </span>
+          </span>
+        ) : (
+          children
+        )}
         {TrailingIcon && !loading && (
           <TrailingIcon size={size === 'sm' ? 14 : 16} aria-hidden="true" />
         )}
@@ -98,6 +113,7 @@ export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonEl
   variant?: 'ghost' | 'secondary' | 'primary' | 'soft' | 'destructive' | 'danger';
   size?: 'sm' | 'md' | 'lg';
   hasDot?: boolean;
+  loading?: boolean;
 }
 
 export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
@@ -108,6 +124,7 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
       variant = 'ghost',
       size = 'md',
       hasDot = false,
+      loading = false,
       className,
       ...props
     },
@@ -121,12 +138,13 @@ export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
         ref={ref}
         variant={variant}
         size={sizeMap[size]}
+        loading={loading}
         aria-label={label}
         title={label}
         className={cn('relative', className)}
         {...props}
       >
-        <Icon size={iconSizes[size]} aria-hidden="true" />
+        {!loading && <Icon size={iconSizes[size]} aria-hidden="true" />}
         {hasDot && (
           <span
             className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-accent ring-2 ring-surface"

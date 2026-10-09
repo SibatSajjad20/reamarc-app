@@ -24,6 +24,7 @@ import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
 import { getAttendanceMinDate } from '../../constants/attendance';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
+import { matchesAttendanceStatus } from '../../utils/attendanceFilters';
 
 interface DailyAttendanceMatrixProps {
   matrixData: DailyMatrixResponse | null;
@@ -261,17 +262,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
         row.employee_code.toLowerCase().includes(term) ||
         row.role.toLowerCase().includes(term);
 
-      const matchesStatus =
-        statusFilter === 'All' ||
-        (statusFilter === 'Present' && (row.status === 'present' || row.status === 'late')) ||
-        (statusFilter === 'Late' && (row.is_late || row.status === 'late')) ||
-        (statusFilter === 'WFH' && (row.is_wfh_approved || row.status === 'wfh')) ||
-        (statusFilter === 'Leaves' &&
-          ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'short_leave'].includes(
-            row.status
-          )) ||
-        (statusFilter === 'Missed' && row.status === 'missed_punch') ||
-        (statusFilter === 'Absent' && row.status === 'absent');
+      const matchesStatus = matchesAttendanceStatus(row, statusFilter);
 
       return matchesDept && matchesSearch && matchesStatus;
     });
@@ -465,13 +456,13 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* Employee Info */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-fg font-semibold text-xs flex items-center justify-center border border-accent-border">
+                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center border border-accent-border">
                               {initials}
                             </div>
                             <span
                               className={`font-semibold text-fg leading-tight ${
                                 onSelectEmployee
-                                  ? 'hover:text-accent-fg hover:underline cursor-pointer'
+                                  ? 'hover:text-accent-text hover:underline cursor-pointer'
                                   : ''
                               }`}
                               onClick={() => onSelectEmployee?.(row.user_id)}
@@ -536,7 +527,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               ) : row.punch_out || row.check_out ? (
                                 '0h 0m'
                               ) : (
-                                <span className="text-accent-fg font-semibold">In Progress</span>
+                                <span className="text-accent-text font-semibold">In Progress</span>
                               )
                             ) : (
                               <span className="text-fg-subtle font-normal">&mdash;</span>
@@ -559,7 +550,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         <td className="py-3 px-4 whitespace-nowrap">
                           {row.status === 'missed_punch' ? (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
-                              ⚠️ Missed Punch
+                              Missed Punch
                             </span>
                           ) : row.status === 'present' ? (
                             row.is_late ? (
@@ -576,7 +567,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                                Late Arrival
                             </span>
                           ) : row.status === 'wfh' || row.is_wfh_approved ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
                               W.F.H
                             </span>
                           ) : ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'on_leave'].includes(row.status) ? (
@@ -584,7 +575,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               {row.status.replace('_', ' ')}
                             </span>
                           ) : row.status === 'short_leave' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
                               Short Leave
                             </span>
                           ) : row.status === 'sunday_off' ? (
@@ -596,7 +587,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               1st Sat Off
                             </span>
                           ) : row.status === 'holiday' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-fg border border-accent-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
                               Holiday
                             </span>
                           ) : row.status === 'awaiting_checkin' ? (
@@ -616,7 +607,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                             <button
                               type="button"
                               onClick={() => handleOpenOverride(row)}
-                              className="p-1.5 rounded-lg text-fg-muted hover:text-accent-fg hover:bg-hover transition-colors cursor-pointer"
+                              className="p-1.5 rounded-lg text-fg-muted hover:text-accent-text hover:bg-hover transition-colors cursor-pointer"
                               title="HR Manual Override"
                             >
                               <Edit3 className="w-3.5 h-3.5" />

@@ -15,9 +15,9 @@ import {
   Trash2,
   User,
   X,
-  Loader2,
   Info,
 } from 'lucide-react';
+import { Button } from '../ui/button';
 import type { Workspace } from '../../types';
 import type {
   WebsiteActivity,
@@ -394,7 +394,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-subtle text-fg-muted border border-border">
                   {project.client_name}
                 </span>
-                <span className="px-2 py-0.5 rounded text-xs font-semibold uppercase tracking-wider bg-accent-subtle text-accent-fg border border-accent-border">
+                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
                   {cleanLabel(project.website_type)}
                 </span>
                 {(() => {
@@ -428,18 +428,17 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 <span>Overview</span>
               </button>
               {canManage && (
-                <button
+                <Button
                   type="button"
+                  variant="outline"
+                  size="sm"
+                  loading={isUpdatingHold}
+                  loadingText={isOnHold ? 'Resuming…' : 'Holding…'}
+                  icon={PauseCircle}
                   onClick={handleToggleOnHold}
-                  className="px-3 py-1.5 rounded-xl text-xs font-medium border border-border hover:bg-hover transition-colors flex items-center gap-1.5 cursor-pointer text-fg"
                 >
-                  {isUpdatingHold ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-fg-muted" />
-                  ) : (
-                    <PauseCircle className="w-3.5 h-3.5 text-fg-muted" />
-                  )}
                   {isOnHold ? 'Resume Auto-Advance' : 'Hold Project'}
-                </button>
+                </Button>
               )}
               <button
                 type="button"
@@ -457,7 +456,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-fg">Stage:</span>
-                <span className="px-2 py-0.5 rounded bg-accent-subtle text-accent-fg font-semibold border border-accent-border">
+                <span className="px-2 py-0.5 rounded bg-accent-subtle text-accent-text font-semibold border border-accent-border">
                   {cleanLabel(project.stage).toUpperCase()}
                 </span>
               </div>
@@ -481,7 +480,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                   href={safeHttpUrl(project.staging_url)!}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-accent-fg hover:underline font-medium"
+                  className="inline-flex items-center gap-1 text-accent-text hover:underline font-medium"
                 >
                   <ExternalLink className="w-3.5 h-3.5" /> Staging Preview
                 </a>
@@ -540,7 +539,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                         onClick={() => setFilterMyTasks(!filterMyTasks)}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                           filterMyTasks
-                            ? 'bg-accent-subtle border-accent-border text-accent-fg font-semibold'
+                            ? 'bg-accent-subtle border-accent-border text-accent-text font-semibold'
                             : 'border-border text-fg-muted hover:bg-hover'
                         }`}
                       >
@@ -612,7 +611,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                             {stageConf.name}
                           </span>
                           {stageConf.id === project.stage && (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-accent text-accent-fg uppercase tracking-wider">
+                            <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-accent text-accent-fg">
                               Active Stage
                             </span>
                           )}
@@ -678,7 +677,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                 <div className="min-w-0 flex-1">
                                   {/* Task title */}
                                   <p
-                                    className={`text-xs font-medium hover:text-accent-fg transition-colors ${
+                                    className={`text-xs font-medium hover:text-accent-text transition-colors ${
                                       isDone ? 'line-through text-fg-subtle' : 'text-fg'
                                     }`}
                                     title="Click to view/edit task details"
@@ -693,7 +692,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                         t.status === 'completed'
                                           ? 'bg-success-subtle text-success-fg border-success-border'
                                           : t.status === 'in_progress'
-                                          ? 'bg-accent-subtle text-accent-fg border-accent-border'
+                                          ? 'bg-accent-subtle text-accent-text border-accent-border'
                                           : t.status === 'review'
                                           ? 'bg-warning-subtle text-warning-fg border-warning-border'
                                           : 'bg-surface text-fg-muted border-border'
@@ -709,7 +708,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     </span>
 
                                     {t.kind === 'revision' && (
-                                      <span className="px-1.5 py-0.5 rounded bg-accent-subtle text-accent-fg font-semibold text-[10px] border border-accent-border">
+                                      <span className="px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text font-semibold text-[10px] border border-accent-border">
                                         Revision
                                       </span>
                                     )}
@@ -745,7 +744,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     e.stopPropagation();
                                     setSelectedTask(t);
                                   }}
-                                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-fg-muted hover:text-accent-fg hover:bg-hover transition-colors cursor-pointer"
+                                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-md text-fg-muted hover:text-accent-text hover:bg-hover transition-colors cursor-pointer"
                                   title={`${commentCount} comment${commentCount === 1 ? '' : 's'}`}
                                 >
                                   <MessageSquare className="w-3.5 h-3.5" />
@@ -786,7 +785,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                               setCreateTaskStage(stageConf.id);
                               setIsCreateTaskModalOpen(true);
                             }}
-                            className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-fg-muted hover:text-accent-fg hover:bg-hover flex items-center gap-2 transition-colors cursor-pointer border border-dashed border-border mt-1"
+                            className="w-full text-left p-2.5 rounded-xl text-xs font-semibold text-fg-muted hover:text-accent-text hover:bg-hover flex items-center gap-2 transition-colors cursor-pointer border border-dashed border-border mt-1"
                           >
                             <Plus className="w-3.5 h-3.5 text-accent" />
                             <span>Add a card / task to {stageConf.name}</span>
@@ -887,7 +886,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                         {/* History Log */}
                         {g.history && g.history.length > 0 && (
                           <div className="pt-2 text-xs space-y-1.5">
-                            <span className="font-semibold text-fg-muted text-xs uppercase tracking-wider">
+                            <span className="font-semibold text-fg-muted text-xs">
                               Decision History:
                             </span>
                             <div className="space-y-1">
@@ -897,7 +896,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                   className="p-2 rounded-lg bg-subtle border border-border flex items-start justify-between text-fg"
                                 >
                                   <div>
-                                    <span className="font-semibold capitalize text-accent-fg">
+                                    <span className="font-semibold capitalize text-accent-text">
                                       {h.decision.replace('_', ' ')}
                                     </span>{' '}
                                     by {h.actor_name} (Round {h.round})
@@ -986,7 +985,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     href={file.external_url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="p-1 rounded text-accent-fg hover:underline"
+                                    className="p-1 rounded text-accent-text hover:underline"
                                     title="Open external link"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" />
@@ -996,7 +995,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     href={getBackendFileUrl(file.storage_key)}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="p-1 rounded text-accent-fg hover:underline"
+                                    className="p-1 rounded text-accent-text hover:underline"
                                     title="Download file"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5" />
@@ -1121,15 +1120,16 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
+                loading={isSubmittingGate}
+                loadingText="Submitting…"
                 onClick={() => submitGateKey && handleSubmitGateForReview(submitGateKey)}
-                disabled={isSubmittingGate}
-                className="px-4 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                {isSubmittingGate ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                <span>Confirm & Submit</span>
-              </button>
+                Confirm & Submit
+              </Button>
             </div>
           </div>
         </Modal>
@@ -1171,15 +1171,16 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
+                loading={isCreatingRevision}
+                loadingText="Creating…"
                 onClick={() => revisionGateKey && handleCreateRevisionTask(revisionGateKey)}
-                disabled={isCreatingRevision}
-                className="px-4 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                {isCreatingRevision ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                <span>Create Revision Task</span>
-              </button>
+                Create Revision Task
+              </Button>
             </div>
           </div>
         </Modal>
@@ -1238,15 +1239,16 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               >
                 Cancel
               </button>
-              <button
+              <Button
                 type="button"
+                variant="primary"
+                size="sm"
+                loading={isAddingFile}
+                loadingText="Saving…"
                 onClick={handleAddFileOrLink}
-                disabled={isAddingFile}
-                className="px-4 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
-                {isAddingFile ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-                <span>Save Attachment</span>
-              </button>
+                Save Attachment
+              </Button>
             </div>
           </div>
         </Modal>

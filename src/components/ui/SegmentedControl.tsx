@@ -16,6 +16,7 @@ export interface SegmentedControlProps {
   onValueChange?: (value: string) => void;
   options: SegmentedOption[];
   size?: 'default' | 'sm';
+  block?: boolean;
   className?: string;
   disabled?: boolean;
   'aria-label'?: string;
@@ -27,6 +28,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
   onValueChange,
   options,
   size = 'default',
+  block = false,
   className,
   disabled = false,
   'aria-label': ariaLabel,
@@ -105,7 +107,8 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
     <div
       ref={containerRef}
       className={cn(
-        'inline-flex items-center bg-subtle p-[2px] rounded-[8px] select-none shrink-0 border-0 outline-none',
+        block ? 'flex w-full' : 'inline-flex shrink-0',
+        'items-center bg-subtle p-[2px] rounded-[8px] select-none border-0 outline-none',
         className
       )}
     >
@@ -150,6 +153,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
               disabled={option.disabled || disabled}
               className={cn(
                 'relative z-10 inline-flex items-center justify-center font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer outline-none select-none border-0 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0',
+                block && 'flex-1 min-w-fit',
                 size === 'sm'
                   ? 'h-[24px] px-2 text-xs rounded-[5px] gap-1'
                   : 'h-[28px] px-2.5 text-[13px] rounded-[6px] gap-1.5',

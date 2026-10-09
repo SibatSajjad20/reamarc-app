@@ -374,7 +374,7 @@ function StageCardList({
                     )}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
-                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted shrink-0">
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-caption font-medium bg-subtle border border-border text-fg-muted shrink-0">
                       {item.creative_type}
                     </span>
 
@@ -402,7 +402,7 @@ function StageCardList({
                             className="absolute right-0 top-7 z-40 w-48 rounded-lg bg-surface border border-border shadow-lg py-1 text-xs animate-in fade-in-50 zoom-in-95 duration-150"
                           >
                             <div className="px-3 py-1.5 border-b border-border">
-                              <span className="text-[10px] font-medium uppercase tracking-wider text-fg-muted">
+                              <span className="text-caption font-medium text-fg-muted">
                                 Client Review Link
                               </span>
                             </div>
@@ -445,7 +445,7 @@ function StageCardList({
                                 const token = item.share_token || item.id;
                                 const url = `${window.location.origin}/review/${token}`;
                                 const greeting = item.client_name ? `Hi ${item.client_name} team` : 'Hi';
-                                const msg = `${greeting}, please review the draft for "${item.content_concept}" (${item.serial || 'Campaign'}):\n\n🔗 ${url}\n\nPlease submit your feedback or approval when ready!`;
+                                const msg = `${greeting}, please review the draft for "${item.content_concept}" (${item.serial || 'Campaign'}):\n\nReview link: ${url}\n\nPlease submit your feedback or approval when ready!`;
                                 window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
                                 setMenuOpenId(null);
                               }}
@@ -502,7 +502,7 @@ function StageCardList({
                           }}
                         />
                         {imageCount > 1 && (
-                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-[9px] font-medium flex items-center gap-1">
+                          <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-caption font-medium flex items-center gap-1">
                             <ImageIcon className="w-2.5 h-2.5" />
                             <span>+{imageCount - 1}</span>
                           </span>
@@ -536,7 +536,7 @@ function StageCardList({
                             <Play className="w-3.5 h-3.5 fill-current translate-x-0.5" />
                           </div>
                         </div>
-                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-[9px] font-medium flex items-center gap-1">
+                        <span className="absolute bottom-1 right-1 px-1.5 py-0.5 rounded-sm bg-black/80 text-white text-caption font-medium flex items-center gap-1">
                           <Film className="w-2.5 h-2.5 text-white" />
                           <span>Video</span>
                         </span>
@@ -549,11 +549,11 @@ function StageCardList({
                       <div className="mb-2 p-2 rounded-sm bg-subtle border border-border flex items-center justify-between gap-1.5">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <Link2 className="w-3.5 h-3.5 text-accent shrink-0" />
-                          <span className="text-[10px] font-medium text-fg truncate">
+                          <span className="text-caption font-medium text-fg truncate">
                             {primaryMedia.filename || 'Deliverable link'}
                           </span>
                         </div>
-                        <span className="text-[9px] px-1.5 py-0.5 rounded-sm font-mono uppercase font-medium text-fg-muted bg-surface border border-border shrink-0">
+                        <span className="text-caption px-1.5 py-0.5 rounded-sm font-mono uppercase font-medium text-fg-muted bg-surface border border-border shrink-0">
                           Link
                         </span>
                       </div>
@@ -563,7 +563,7 @@ function StageCardList({
                   return (
                     <div className="mb-2 p-1.5 rounded-sm bg-subtle border border-border flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-accent shrink-0" />
-                      <span className="text-[10px] font-medium text-fg truncate">
+                      <span className="text-caption font-medium text-fg truncate">
                         {primaryMedia.filename}
                       </span>
                     </div>
@@ -577,7 +577,7 @@ function StageCardList({
                   return (
                     <div className="flex items-center flex-wrap gap-1 mb-2">
                       <span
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-[9px] font-medium bg-subtle text-fg border border-border"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-sm text-caption font-medium bg-subtle text-fg border border-border"
                         title={`${counts.total} Total deliverable asset${counts.total > 1 ? 's' : ''}`}
                       >
                         <Paperclip className="w-2.5 h-2.5 text-fg-muted" />
@@ -585,7 +585,7 @@ function StageCardList({
                       </span>
                       {counts.images > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
                           title={`${counts.images} image${counts.images > 1 ? 's' : ''}`}
                         >
                           <ImageIcon className="w-2.5 h-2.5" />
@@ -594,7 +594,7 @@ function StageCardList({
                       )}
                       {counts.videos > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
                           title={`${counts.videos} video${counts.videos > 1 ? 's' : ''}`}
                         >
                           <Film className="w-2.5 h-2.5" />
@@ -603,7 +603,7 @@ function StageCardList({
                       )}
                       {counts.links > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
                           title={`${counts.links} link${counts.links > 1 ? 's' : ''}`}
                         >
                           <Link2 className="w-2.5 h-2.5" />
@@ -612,7 +612,7 @@ function StageCardList({
                       )}
                       {counts.docs > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-[9px] font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
                           title={`${counts.docs} document${counts.docs > 1 ? 's' : ''}`}
                         >
                           <FileText className="w-2.5 h-2.5" />
@@ -658,7 +658,7 @@ function StageCardList({
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           {dateStr ? (
                             <span
-                              className={`font-mono text-[10px] inline-flex items-center gap-1 font-medium shrink-0 ${
+                              className={`font-mono text-caption inline-flex items-center gap-1 font-medium shrink-0 ${
                                 isOverdue
                                   ? 'text-danger bg-danger-soft px-1.5 py-0.5 rounded-sm'
                                   : isToday
@@ -671,13 +671,13 @@ function StageCardList({
                               <span>{label}: {formattedDate}</span>
                             </span>
                           ) : (
-                            <span className="text-[10px] text-fg-muted font-medium">No date</span>
+                            <span className="text-caption text-fg-muted font-medium">No date</span>
                           )}
                         </div>
 
                         {item.assignee_name && (
                           <div
-                            className="w-5 h-5 rounded-full bg-accent-soft text-accent text-[9px] font-medium flex items-center justify-center shrink-0 border border-accent/20"
+                            className="w-5 h-5 rounded-full bg-accent-soft text-accent text-caption font-medium flex items-center justify-center shrink-0 border border-accent/20"
                             title={`Assigned to ${item.assignee_name}`}
                           >
                             {getInitials(item.assignee_name)}
@@ -693,7 +693,7 @@ function StageCardList({
                             e.stopPropagation();
                             onAction(item, primary.action);
                           }}
-                          className="w-full py-1 px-2 rounded-sm text-[10px] font-medium text-center text-accent bg-accent-soft hover:bg-accent-soft/80 border border-accent/20 cursor-pointer disabled:opacity-50 transition-colors"
+                          className="w-full py-1 px-2 rounded-sm text-caption font-medium text-center text-accent bg-accent-soft hover:bg-accent-soft/80 border border-accent/20 cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           {primary.label}
                         </button>

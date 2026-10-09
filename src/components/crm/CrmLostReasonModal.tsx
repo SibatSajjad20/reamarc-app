@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Loader2, TriangleAlert } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -158,15 +158,10 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
               type="submit"
               variant="danger"
               disabled={isSubmitting}
+              loading={isSubmitting}
+              loadingText="Saving…"
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Saving…
-                </>
-              ) : (
-                'Confirm lost'
-              )}
+              Confirm lost
             </Button>
           </DialogFooter>
         </form>

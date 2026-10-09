@@ -873,21 +873,11 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
             <Button
               type="submit"
               variant="primary"
-              disabled={isSubmitting || isUploading || createBlocked}
+              loading={isSubmitting || isUploading}
+              loadingText={isUploading ? 'Uploading proposal…' : isEdit ? 'Saving deal…' : 'Creating deal…'}
+              disabled={createBlocked}
             >
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  {isEdit ? 'Saving deal…' : 'Creating deal…'}
-                </>
-              ) : isUploading ? (
-                <>
-                  <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                  Uploading proposal…
-                </>
-              ) : (
-                isEdit ? 'Save deal' : 'Create deal → proposal'
-              )}
+              {isEdit ? 'Save deal' : 'Create deal → proposal'}
             </Button>
           </DialogFooter>
         </form>

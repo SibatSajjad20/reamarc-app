@@ -8,7 +8,6 @@ import {
   Copy,
   ExternalLink,
   Globe,
-  Loader2,
   Plus,
   RefreshCw,
   Sparkles,
@@ -16,6 +15,7 @@ import {
   Webhook,
   X,
 } from 'lucide-react';
+import { Button } from '../ui/button';
 import { API_BASE_URL } from '../../services/apiClient';
 import { crmService } from '../../services/crmService';
 import type { CrmIngestSource, CrmMetaPage, CrmQueueStats } from '../../types/crm';
@@ -354,7 +354,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
               )}
 
               <form onSubmit={handleCreateSource} className="space-y-3 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50/50 dark:bg-zinc-900/30">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Create new ingest webhook</p>
+                <p className="text-xs font-semibold text-zinc-500">Create new ingest webhook</p>
                 <div className="grid grid-cols-2 gap-2.5">
                   <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 block">
                     Source Name
@@ -385,14 +385,16 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                     className="mt-1 w-full h-8.5 px-3 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-xs focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                   />
                 </label>
-                <button
+                <Button
                   type="submit"
-                  disabled={saving}
-                  className="h-8.5 px-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 transition shadow-xs"
+                  size="sm"
+                  variant="primary"
+                  loading={saving}
+                  loadingText="Creating token…"
+                  icon={Plus}
                 >
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                   Create webhook token
-                </button>
+                </Button>
               </form>
 
               <div className="pt-2">
@@ -411,7 +413,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                         <div>
                           <span className="font-semibold text-zinc-900 dark:text-zinc-100">{src.name}</span>
                           {!src.enabled && (
-                            <span className="ml-2 text-[10px] uppercase tracking-wider text-zinc-400">Disabled</span>
+                            <span className="ml-2 text-xs text-zinc-400">Disabled</span>
                           )}
                           <p className="mt-0.5 text-zinc-500">
                             {src.default_source}
@@ -472,7 +474,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
 
               {/* Connect new page form */}
               <form onSubmit={handleConnectPage} className="space-y-3 border border-zinc-200 dark:border-zinc-800 rounded-xl p-4 bg-zinc-50/50 dark:bg-zinc-900/30">
-                <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">Connect Facebook / Instagram Page</p>
+                <p className="text-xs font-semibold text-zinc-500">Connect Facebook / Instagram Page</p>
                 <div className="grid grid-cols-2 gap-2.5">
                   <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400 block">
                     Page Name
@@ -519,14 +521,16 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                   />
                 </label>
 
-                <button
+                <Button
                   type="submit"
-                  disabled={savingPage}
-                  className="h-8.5 px-4 inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer disabled:opacity-50 transition shadow-xs"
+                  size="sm"
+                  variant="primary"
+                  loading={savingPage}
+                  loadingText="Connecting page…"
+                  icon={Plus}
                 >
-                  {savingPage ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
                   Connect Page
-                </button>
+                </Button>
               </form>
 
               {/* Connected pages list */}
@@ -652,7 +656,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                 {/* WordPress Integration (Embed Snippet Generator) */}
                 <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-4 space-y-3">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                    <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                       <Code className="w-3.5 h-3.5 text-blue-500" />
                       WordPress Embed Generator (Elementor &amp; Gutenberg Ready)
                     </h4>
@@ -738,12 +742,12 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
    target="_blank" 
    rel="noopener noreferrer"
    style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.25);">
-  📅 Book a Strategy Session
+  Book a Strategy Session
 </a>`}
                         </pre>
                         <button
                           type="button"
-                          onClick={() => void copyText(`<!-- Reamarc Booking CTA Button for WordPress -->\n<a href="${effectiveBaseUrl}/book" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.25);">\n  📅 Book a Strategy Session\n</a>`)}
+                          onClick={() => void copyText(`<!-- Reamarc Booking CTA Button for WordPress -->\n<a href="${effectiveBaseUrl}/book" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; background: #2563eb; color: #ffffff; border-radius: 12px; font-weight: 700; text-decoration: none; font-size: 14px; box-shadow: 0 4px 14px rgba(37,99,235,0.25);">\n  Book a Strategy Session\n</a>`)}
                           className="absolute top-2 right-2 px-2.5 py-1 text-[11px] font-semibold rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center gap-1 cursor-pointer"
                         >
                           <Copy className="w-3 h-3" />
@@ -779,7 +783,7 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                 <form onSubmit={handleSaveSchedulerConfig} className="rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900/40 p-4 sm:p-5 space-y-4">
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-100 dark:border-zinc-800 pb-3">
                     <div>
-                      <h4 className="text-xs font-bold uppercase tracking-wider text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
+                      <h4 className="text-xs font-semibold text-zinc-900 dark:text-zinc-100 flex items-center gap-1.5">
                         <Clock className="w-3.5 h-3.5 text-blue-500" />
                         Scheduler Timing &amp; Working Hours Configuration
                       </h4>
@@ -787,23 +791,16 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
                         Adjust available booking days, start &amp; end hours, session durations, and host information.
                       </p>
                     </div>
-                    <button
+                    <Button
                       type="submit"
-                      disabled={savingSchedulerConfig}
-                      className="px-4 py-2 rounded-xl text-xs font-bold bg-blue-600 hover:bg-blue-500 text-white transition flex items-center gap-1.5 shadow-md shadow-blue-600/20 cursor-pointer disabled:opacity-50"
+                      size="sm"
+                      variant="primary"
+                      loading={savingSchedulerConfig}
+                      loadingText="Saving…"
+                      icon={CheckCircle2}
                     >
-                      {savingSchedulerConfig ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          <span>Saving…</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Save Settings</span>
-                        </>
-                      )}
-                    </button>
+                      Save Settings
+                    </Button>
                   </div>
 
                   {schedulerConfigSuccess && (
@@ -995,19 +992,19 @@ export const CrmIngestPanel: React.FC<CrmIngestPanelProps> = ({ onClose }) => {
               {queueStats ? (
                 <div className="grid grid-cols-3 gap-3">
                   <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Completed</span>
+                    <span className="text-xs font-medium text-zinc-500 block">Completed</span>
                     <span className="text-xl font-bold font-numeric text-emerald-600 dark:text-emerald-400">
                       {queueStats.completed}
                     </span>
                   </div>
                   <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">In Queue / Processing</span>
+                    <span className="text-xs font-medium text-zinc-500 block">In Queue / Processing</span>
                     <span className="text-xl font-bold font-numeric text-blue-600 dark:text-blue-400">
                       {queueStats.pending + queueStats.processing}
                     </span>
                   </div>
                   <div className="p-3 rounded-xl border border-zinc-200/80 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/30">
-                    <span className="text-[10px] uppercase font-bold text-zinc-400 block">Retries / Warnings</span>
+                    <span className="text-xs font-medium text-zinc-500 block">Retries / Warnings</span>
                     <span className="text-xl font-bold font-numeric text-amber-600 dark:text-amber-400">
                       {queueStats.retry}
                     </span>

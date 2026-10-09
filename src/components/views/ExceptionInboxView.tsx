@@ -838,17 +838,18 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                                   {formatHours(Number(entry.hours_utilized) || 0)}
                                 </td>
                                 <td className="px-3.5 py-2.5">
-                                  <StatusPill
-                                    variant={
-                                      entry.task_status === 'completed' ? 'success' : 'warning'
-                                    }
-                                    label={
-                                      entry.task_status === 'completed'
-                                        ? 'Completed'
-                                        : 'Incomplete'
-                                    }
-                                    dot
-                                  />
+                                  {(() => {
+                                    const st = String(entry.task_status || '').toLowerCase();
+                                    const isComp = st === 'completed';
+                                    const isBlock = st === 'blocker';
+                                    return (
+                                      <StatusPill
+                                        variant={isComp ? 'success' : isBlock ? 'danger' : 'warning'}
+                                        label={isComp ? 'Completed' : isBlock ? 'Blocker' : 'Incomplete'}
+                                        dot
+                                      />
+                                    );
+                                  })()}
                                 </td>
                               </tr>
                             ))}
@@ -905,16 +906,12 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         <Button
                           variant="primary"
                           size="sm"
-                          disabled={actingId === selectedDetailItem.id}
+                          loading={actingId === selectedDetailItem.id}
+                          loadingText="Accepting…"
+                          icon={Check}
                           onClick={() => handleAction(selectedDetailItem, 'accept')}
-                          className="gap-1.5"
                         >
-                          {actingId === selectedDetailItem.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                          <span>Accept reason</span>
+                          Accept reason
                         </Button>
                       </>
                     ) : (
@@ -942,16 +939,12 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         <Button
                           variant="primary"
                           size="sm"
-                          disabled={actingId === selectedDetailItem.id}
+                          loading={actingId === selectedDetailItem.id}
+                          loadingText="Updating…"
+                          icon={Check}
                           onClick={() => handleAction(selectedDetailItem, 'review')}
-                          className="gap-1.5"
                         >
-                          {actingId === selectedDetailItem.id ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Check className="w-3.5 h-3.5" />
-                          )}
-                          <span>Mark as looks fine</span>
+                          Mark as looks fine
                         </Button>
                       </>
                     )}

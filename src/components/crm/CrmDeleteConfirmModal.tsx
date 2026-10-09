@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { TriangleAlert, Loader2 } from 'lucide-react';
+import { TriangleAlert } from 'lucide-react';
 import { Button } from '../ui/button';
 
 interface CrmDeleteConfirmModalProps {
@@ -79,15 +79,10 @@ export const CrmDeleteConfirmModal: React.FC<CrmDeleteConfirmModalProps> = ({
             variant="danger"
             onClick={() => void onConfirm()}
             disabled={isDeleting}
+            loading={isDeleting}
+            loadingText="Deleting…"
           >
-            {isDeleting ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin mr-1.5" />
-                Deleting…
-              </>
-            ) : (
-              'Delete lead'
-            )}
+            Delete lead
           </Button>
         </div>
       </div>

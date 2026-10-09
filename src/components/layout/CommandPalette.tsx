@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react';
 import type { ViewType, ThemePreference } from '@/types';
 import type { CrmSubSection } from '@/types/crm';
 import type { AttendanceSubSection } from '@/types/attendance';
-import type { AdminSectionType } from '@/components/admin/AdminSidebarNav';
+import type { AdminSectionType } from '@/types/admin';
+import type { SettingsSectionSlug } from '@/types/settings';
+import { useAuth } from '@/context/AuthContext';
+import { getVisibleSettingsSections } from '@/utils/settingsAccess';
 import {
   CommandDialog,
   CommandInput,
@@ -59,10 +62,12 @@ interface CommandPaletteProps {
   canSeeAttendance: boolean;
   canSeeDailyLog: boolean;
   canSeeExceptions: boolean;
+  activeSettingsSection?: SettingsSectionSlug;
+  onSelectSettingsSection?: (section: SettingsSectionSlug) => void;
   canSeeAdmin: boolean;
   adminLabel: string;
   isManagementRole: boolean;
-  canAssignCrm: boolean;
+  canAssignCrm?: boolean;
   isClient: boolean;
   isAdmin: boolean;
 }
@@ -77,6 +82,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onSelectAdminSection,
   onSelectWebsiteSection,
   onSelectPortalTab,
+  onSelectSettingsSection,
   onSelectThemePreference,
   isSidebarCollapsed,
   onToggleSidebar,
@@ -93,10 +99,11 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   canSeeAdmin,
   adminLabel,
   isManagementRole,
-  canAssignCrm,
   isClient,
   isAdmin,
 }) => {
+  const { user } = useAuth();
+  const visibleSettings = getVisibleSettingsSections(user);
   const [recents, setRecents] = useState<ViewType[]>([currentView]);
 
   useEffect(() => {
@@ -123,7 +130,8 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     exceptions: { label: 'Exceptions', icon: Inbox },
     admin: { label: adminLabel, icon: Shield },
     portal: { label: 'Client portal', icon: CircleCheck },
-    profile: { label: 'Profile & settings', icon: Settings },
+    profile: { label: 'Settings', icon: Settings },
+    settings: { label: 'Settings', icon: Settings },
   };
 
   return (
@@ -168,7 +176,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
 
         {/* All Accessible Pages */}
         <CommandGroup heading="Pages">
-          {!isAdmin && !isClient && (
+          {!isClient && (
             <CommandItem
               onSelect={() => handleSelectPage('dashboard')}
               className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
@@ -267,13 +275,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               <span>Client portal</span>
             </CommandItem>
           )}
-          <CommandItem
-            onSelect={() => handleSelectPage('profile')}
-            className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
-          >
-            <Settings size={16} className="text-fg-muted shrink-0" />
-            <span>Profile & settings</span>
-          </CommandItem>
         </CommandGroup>
 
         {/* Sections */}
@@ -327,19 +328,6 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     <Contact size={16} className="text-fg-muted shrink-0" />
                     <span>Sales pipeline: Follow-ups</span>
                   </CommandItem>
-                  {canAssignCrm && (
-                    <CommandItem
-                      onSelect={() => {
-                        onSelectView('crm');
-                        onSelectCrmSection?.('settings');
-                        onOpenChange(false);
-                      }}
-                      className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
-                    >
-                      <Contact size={16} className="text-fg-muted shrink-0" />
-                      <span>Sales pipeline: Pipeline settings</span>
-                    </CommandItem>
-                  )}
                 </>
               )}
 
@@ -445,28 +433,19 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       <span>Admin: Log compliance</span>
                     </CommandItem>
                   )}
-                  <CommandItem
-                    onSelect={() => {
-                      onSelectView('admin');
-                      onSelectAdminSection?.('attendance_policies');
-                      onOpenChange(false);
-                    }}
-                    className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
-                  >
-                    <Shield size={16} className="text-fg-muted shrink-0" />
-                    <span>Admin: Attendance policies</span>
-                  </CommandItem>
-                  <CommandItem
-                    onSelect={() => {
-                      onSelectView('admin');
-                      onSelectAdminSection?.('mobile_ops');
-                      onOpenChange(false);
-                    }}
-                    className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
-                  >
-                    <Shield size={16} className="text-fg-muted shrink-0" />
-                    <span>Admin: Mobile & alerts</span>
-                  </CommandItem>
+                  {(isAdmin || user?.role === 'operations') && (
+                    <CommandItem
+                      onSelect={() => {
+                        onSelectView('admin');
+                        onSelectAdminSection?.('workspaces');
+                        onOpenChange(false);
+                      }}
+                      className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+                    >
+                      <Shield size={16} className="text-fg-muted shrink-0" />
+                      <span>Admin: Client workspaces</span>
+                    </CommandItem>
+                  )}
                 </>
               )}
 
@@ -481,7 +460,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                     className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
                   >
                     <Globe size={16} className="text-fg-muted shrink-0" />
-                    <span>Website pipeline: Websites pipeline</span>
+                    <span>Website pipeline</span>
                   </CommandItem>
                   <CommandItem
                     onSelect={() => {
@@ -527,6 +506,29 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
           </>
         )}
 
+        {/* Settings Sections */}
+        {visibleSettings.length > 0 && (
+          <>
+            <CommandSeparator />
+            <CommandGroup heading="Settings">
+              {visibleSettings.map((section) => (
+                <CommandItem
+                  key={`settings-${section.slug}`}
+                  onSelect={() => {
+                    onSelectView('settings');
+                    onSelectSettingsSection?.(section.slug);
+                    onOpenChange(false);
+                  }}
+                  className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+                >
+                  <Settings size={16} className="text-fg-muted shrink-0" />
+                  <span>Settings: {section.groupLabel} — {section.label}</span>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </>
+        )}
+
         <CommandSeparator />
 
         {/* Actions */}
@@ -566,14 +568,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
               onToggleSidebar();
               onOpenChange(false);
             }}
-            className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+            className="flex items-center justify-between h-9 px-3 text-[13px] rounded-md cursor-pointer"
           >
-            {isSidebarCollapsed ? (
-              <PanelLeft size={16} className="text-fg-muted shrink-0" />
-            ) : (
-              <PanelLeftClose size={16} className="text-fg-muted shrink-0" />
-            )}
-            <span>{isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}</span>
+            <div className="flex items-center gap-2.5 min-w-0">
+              {isSidebarCollapsed ? (
+                <PanelLeft size={16} className="text-fg-muted shrink-0" />
+              ) : (
+                <PanelLeftClose size={16} className="text-fg-muted shrink-0" />
+              )}
+              <span>Toggle sidebar</span>
+            </div>
+            <kbd className="font-mono text-[11px] leading-tight px-1.5 py-0.5 border border-border rounded bg-surface text-fg-muted">
+              {typeof window !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(window.navigator.userAgent)
+                ? '⌘\\'
+                : 'Ctrl+\\'}
+            </kbd>
           </CommandItem>
           <CommandItem
             onSelect={() => {

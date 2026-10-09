@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { BrandMark } from '../ui/BrandMark';
 import { Calendar } from '../ui/calendar';
-import { buttonVariants } from '../ui/button';
+import { Button, buttonVariants } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { API_BASE_URL } from '../../services/apiClient';
 import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
@@ -1473,23 +1473,16 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     <ArrowLeft className="w-3.5 h-3.5" />
                     <span>Back</span>
                   </button>
-                  <button
+                  <Button
                     type="submit"
-                    disabled={submitting}
-                    className="h-10 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                    variant="primary"
+                    className="h-10 px-6"
+                    loading={submitting}
+                    loadingText="Confirming booking…"
+                    trailingIcon={ArrowRight}
                   >
-                    {submitting ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Confirming booking…</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Confirm booking</span>
-                        <ArrowRight className="w-3.5 h-3.5" />
-                      </>
-                    )}
-                  </button>
+                    Confirm booking
+                  </Button>
                 </div>
               </form>
             )}
@@ -1794,23 +1787,16 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                       >
                         Back to Meeting Scheduler
                       </button>
-                      <button
+                      <Button
                         type="submit"
-                        disabled={candidateSubmitting}
-                        className="h-10 px-6 rounded-md bg-accent hover:bg-accent-hover text-white text-xs font-medium transition-colors flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                        variant="primary"
+                        className="h-10 px-6"
+                        loading={candidateSubmitting}
+                        loadingText="Opening WhatsApp…"
+                        icon={MessageSquare}
                       >
-                        {candidateSubmitting ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            <span>Opening WhatsApp…</span>
-                          </>
-                        ) : (
-                          <>
-                            <MessageSquare className="w-3.5 h-3.5" />
-                            <span>Continue to WhatsApp</span>
-                          </>
-                        )}
-                      </button>
+                        Continue to WhatsApp
+                      </Button>
                     </div>
                   </form>
                 )}
