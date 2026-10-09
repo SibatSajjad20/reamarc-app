@@ -441,7 +441,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         : 'bg-subtle text-fg-muted'
                     )}
                   >
-                    {st.count}
+                    {isLoading && requests.length === 0 ? '-' : st.count}
                   </span>
                 </button>
               );

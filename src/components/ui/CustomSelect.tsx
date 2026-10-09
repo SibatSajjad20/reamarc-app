@@ -214,7 +214,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
                   )}
                 </button>
               );
-            })}
+            }))}
           </PopoverPrimitive.Content>
         )}
       </PopoverPrimitive.Root>

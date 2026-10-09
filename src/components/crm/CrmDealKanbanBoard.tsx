@@ -335,7 +335,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
       )}
 
       {/* Columns */}
-      <div className="h-full flex gap-3 min-w-min pb-2 items-start">
+      <div className="h-full flex gap-3 min-w-min pb-2 items-stretch">
         {openStages.map((stage, stageIndex) => {
           const columnDeals = byStage[stage.id] || [];
           const key = `stage:${stage.id}`;
@@ -343,9 +343,9 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total, weighted } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div key={stage.id} className="w-[210px] shrink-0 flex flex-col gap-1.5">
+            <div key={stage.id} className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               {/* Header */}
-              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none">
+              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[13px] font-semibold text-fg truncate" title={stage.name}>
                     {formatStageTitle(stage.name)}
@@ -375,7 +375,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'stage', stage: stage.id });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 min-h-[480px] max-h-full overflow-y-auto custom-scrollbar transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >
@@ -397,8 +397,8 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div className="w-[210px] shrink-0 flex flex-col gap-1.5">
-              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none">
+            <div className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[13px] font-semibold text-success-fg">Won</span>
                   <span className="text-micro font-numeric tabular-nums text-success-fg bg-success-bg px-1.5 py-0.2 rounded-full">
@@ -421,7 +421,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 min-h-[480px] max-h-full overflow-y-auto custom-scrollbar border border-success/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success/20 transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >
@@ -443,8 +443,8 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div className="w-[210px] shrink-0 flex flex-col gap-1.5">
-              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none">
+            <div className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+              <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
                   <span className="text-[13px] font-semibold text-danger-fg">Lost</span>
                   <span className="text-micro font-numeric tabular-nums text-danger-fg bg-danger-bg px-1.5 py-0.2 rounded-full">
@@ -467,7 +467,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 min-h-[480px] max-h-full overflow-y-auto custom-scrollbar border border-danger/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger/20 transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >

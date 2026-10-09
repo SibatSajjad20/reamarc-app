@@ -1,6 +1,7 @@
 /**
  * Employee Command Center Dashboard View.
- * Matches Mock 01 (01-dashboard.png) and Section 13.2 of updated_design.md.
+ * Displays real-time KPIs, team hours chart, attendance records,
+ * and department-specific modules categorized by user role & department.
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -9,12 +10,24 @@ import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { attendanceService } from '../../services/attendanceService';
 import { dailyLogService } from '../../services/dailyLogService';
+import { crmService } from '../../services/crmService';
+import { websiteProjectService } from '../../services/websiteProjectService';
+import { contentCalendarService } from '../../services/contentCalendarService';
+import { marketingService } from '../../services/marketingService';
+import { apiClient } from '../../services/apiClient';
+
 import type {
   TodayAttendanceResponse,
   PersonalTimesheetResponse,
   RequestType,
+  DailyMatrixResponse,
+  AttendanceRequest,
 } from '../../types/attendance';
-import type { DailyLogEntry, DayTarget } from '../../types/dailyLog';
+import type { DailyLogEntry } from '../../types/dailyLog';
+import type { CrmCounts, CrmLead } from '../../types/crm';
+import type { WebsiteProject, WebsiteSummaryMetrics } from '../../types/websiteProject';
+import type { ContentCalendarListResponse, PipelineStage } from '../../types/contentCalendar';
+import type { MarketingMatrixRow } from '../../types';
 
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { PageHeader } from '../ui/PageHeader';
@@ -39,6 +52,10 @@ import {
   Inbox,
   FileText,
   Phone,
+  Globe,
+  Share2,
+  AlertTriangle,
+  Megaphone,
 } from 'lucide-react';
 import { formatHours } from '../../utils/logTimeChecks';
 import { useOffDays } from '../../hooks/useOffDays';
@@ -47,11 +64,58 @@ interface DashboardViewProps {
   onNavigateView: (view: ViewType) => void;
 }
 
+export type DepartmentCategory = 'sales' | 'website' | 'content' | 'marketing' | 'hr' | 'ai' | 'general';
+
+export function getDepartmentCategory(user?: any): DepartmentCategory {
+  if (!user) return 'general';
+  const role = (user.role || '').toLowerCase().trim();
+  const dept = (user.department || '').toLowerCase().trim();
+  const depts: string[] = Array.isArray(user.departments)
+    ? user.departments.map((d: string) => (d || '').toLowerCase().trim())
+    : [];
+  const all = [dept, ...depts].filter(Boolean);
+
+  if (role === 'hr' || all.some((d) => d === 'hr')) return 'hr';
+  if (all.some((d) => d === 'sales')) return 'sales';
+  if (all.some((d) => d === 'ai' || d.includes('ai') || d.includes('artificial'))) return 'ai';
+  if (all.some((d) => d.includes('web') || d.includes('software') || d.includes('dev'))) return 'website';
+  if (all.some((d) => d.includes('content') || d.includes('creative') || d.includes('social'))) return 'content';
+  if (all.some((d) => d.includes('marketing') || d.includes('seo'))) return 'marketing';
+
+  if (role === 'admin' || role === 'operations') return 'sales';
+  return 'general';
+}
+
+function getRelativeTime(value?: string): string {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMins / 60);
+
+  if (diffMins < 1) return 'Just now';
+  if (diffMins < 60) return `${diffMins}m`;
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  return `${diffDays}d`;
+}
+
+interface ActivityItem {
+  id: string;
+  title: string;
+  body: string;
+  kind?: string;
+  created_at?: string;
+}
+
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) => {
   const { user } = useAuth();
   const { addToast } = useToast();
 
-  // Date helpers
+  // Date calculations
   const today = useMemo(() => new Date(), []);
   const todayIso = useMemo(() => {
     const y = today.getFullYear();
@@ -60,52 +124,105 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     return `${y}-${m}-${d}`;
   }, [today]);
 
-  const yesterdayIso = useMemo(() => {
-    const yest = new Date(today);
-    yest.setDate(yest.getDate() - 1);
-    const y = yest.getFullYear();
-    const m = String(yest.getMonth() + 1).padStart(2, '0');
-    const d = String(yest.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+  // Current week Monday
+  const mondayIso = useMemo(() => {
+    const d = new Date(today);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    d.setDate(diff);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dayStr}`;
+  }, [today]);
+
+  // Previous week Monday and Sunday
+  const lastWeekMondayIso = useMemo(() => {
+    const d = new Date(today);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 7;
+    d.setDate(diff);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dayStr}`;
+  }, [today]);
+
+  const lastWeekSundayIso = useMemo(() => {
+    const d = new Date(today);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1) - 1;
+    d.setDate(diff);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dayStr}`;
   }, [today]);
 
   const { getOffDay } = useOffDays();
   const todayOff = getOffDay(todayIso);
 
+  // Cached states
   const cachedAttendance = attendanceService.getCachedTodayStatus();
   const cachedTimesheet = attendanceService.getCachedMyTimesheet(today.getFullYear(), today.getMonth() + 1);
-  const cachedDayTarget = dailyLogService.getCachedDayTarget(todayIso);
 
   // Loading States
   const [isLoadingAttendance, setIsLoadingAttendance] = useState(!cachedAttendance);
   const [, setIsLoadingTimesheet] = useState(!cachedTimesheet);
-  const [, setIsLoadingDailyLog] = useState(!cachedDayTarget);
+  const [, setIsLoadingDailyLog] = useState(false);
   useModuleLoadGate(isLoadingAttendance);
 
   // Data States
-  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(() => cachedAttendance?.data || null);
-  const [personalTimesheet, setPersonalTimesheet] = useState<PersonalTimesheetResponse | null>(() => cachedTimesheet?.data || null);
-  const [todayLogEntries, setTodayLogEntries] = useState<DailyLogEntry[]>([]);
-  const [, setYesterdayLogEntries] = useState<DailyLogEntry[]>([]);
-  const [, setLogFollowUps] = useState<DayTarget['follow_ups']>(() => cachedDayTarget?.data?.follow_ups || []);
+  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(
+    () => cachedAttendance?.data || null
+  );
+  const [personalTimesheet, setPersonalTimesheet] = useState<PersonalTimesheetResponse | null>(
+    () => cachedTimesheet?.data || null
+  );
+  const [dailyMatrix, setDailyMatrix] = useState<DailyMatrixResponse | null>(null);
+  const [logEntries, setLogEntries] = useState<DailyLogEntry[]>([]);
+  const [recentActivities, setRecentActivities] = useState<ActivityItem[]>([]);
+
+  // Department-specific data states
+  const [crmCounts, setCrmCounts] = useState<CrmCounts | null>(null);
+  const [crmLeads, setCrmLeads] = useState<CrmLead[]>([]);
+  const [websiteMetrics, setWebsiteMetrics] = useState<WebsiteSummaryMetrics | null>(null);
+  const [websiteProjects, setWebsiteProjects] = useState<WebsiteProject[]>([]);
+  const [contentData, setContentData] = useState<ContentCalendarListResponse | null>(null);
+  const [marketingRows, setMarketingRows] = useState<MarketingMatrixRow[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<AttendanceRequest[]>([]);
 
   // Request Modal State
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [requestModalTab, setRequestModalTab] = useState<RequestType>('leave');
 
-  // Interactive Range for Team Hours Chart
+  // Chart range
   const [chartRange, setChartRange] = useState<string>('14D');
 
-  // Role Logic
+  // Role & Department Categorization
+  const isAdmin = user?.role === 'admin';
   const isOperations = user?.role === 'operations';
+  const isAdminOrOps = isAdmin || isOperations;
 
+  const userDefaultCategory = useMemo(() => getDepartmentCategory(user), [user]);
+  const [selectedCategory, setSelectedCategory] = useState<DepartmentCategory>(userDefaultCategory);
+
+  useEffect(() => {
+    setSelectedCategory(userDefaultCategory);
+  }, [userDefaultCategory]);
+
+  const activeCategory = isAdminOrOps ? selectedCategory : userDefaultCategory;
+  const hasDepartmentModule = isAdminOrOps || ['sales', 'website', 'content', 'marketing', 'hr'].includes(activeCategory);
+
+  // 1. Load Attendance & Timesheet
   const loadAttendance = useCallback(async () => {
     setIsLoadingAttendance(true);
     setIsLoadingTimesheet(true);
 
-    const todayPromise = attendanceService.getTodayStatus()
-      .then((todayData) => {
-        if (todayData) setTodayAttendance(todayData);
+    const todayPromise = attendanceService
+      .getTodayStatus()
+      .then((data) => {
+        if (data) setTodayAttendance(data);
       })
       .catch((err) => {
         console.error('Failed to load dashboard attendance:', err);
@@ -114,9 +231,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         setIsLoadingAttendance(false);
       });
 
-    const timesheetPromise = attendanceService.getMyTimesheet(today.getFullYear(), today.getMonth() + 1)
-      .then((timesheetData) => {
-        if (timesheetData) setPersonalTimesheet(timesheetData);
+    const timesheetPromise = attendanceService
+      .getMyTimesheet(today.getFullYear(), today.getMonth() + 1)
+      .then((data) => {
+        if (data) setPersonalTimesheet(data);
       })
       .catch((err) => {
         console.error('Failed to load dashboard timesheet:', err);
@@ -125,53 +243,126 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         setIsLoadingTimesheet(false);
       });
 
-    await Promise.allSettled([todayPromise, timesheetPromise]);
-  }, [today]);
+    const matrixPromise = attendanceService
+      .getDailyMatrix(todayIso)
+      .then((data) => {
+        if (data) setDailyMatrix(data);
+      })
+      .catch(() => {
+        // Management-only endpoint may 403 for general team member
+        setDailyMatrix(null);
+      });
+
+    await Promise.allSettled([todayPromise, timesheetPromise, matrixPromise]);
+  }, [today, todayIso]);
+
+  // 2. Load Daily Logs for range
+  const rangeStartIso = useMemo(() => {
+    const numDays = chartRange === '7D' ? 7 : chartRange === '14D' ? 14 : 30;
+    const d = new Date(today);
+    d.setDate(d.getDate() - numDays);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayStr = String(d.getDate()).padStart(2, '0');
+    const calcStart = `${y}-${m}-${dayStr}`;
+    return calcStart < lastWeekMondayIso ? calcStart : lastWeekMondayIso;
+  }, [today, chartRange, lastWeekMondayIso]);
 
   const loadDailyLogs = useCallback(async () => {
     if (isOperations) return;
     setIsLoadingDailyLog(true);
 
-    const entriesPromise = dailyLogService
-      .getEntries({
-        start_date: yesterdayIso,
+    try {
+      const entries = await dailyLogService.getEntries({
+        start_date: rangeStartIso,
         end_date: todayIso,
         user_id: user?.id,
-        limit: 100,
-      })
-      .then((allEntries) => {
-        const entries = allEntries || [];
-        setTodayLogEntries(entries.filter((e) => e.date === todayIso));
-        setYesterdayLogEntries(entries.filter((e) => e.date === yesterdayIso));
-      })
-      .catch((err) => {
-        console.error('Failed to load dashboard daily log entries:', err);
-      })
-      .finally(() => {
-        setIsLoadingDailyLog(false);
+        limit: 500,
       });
+      setLogEntries(entries || []);
+    } catch (err) {
+      console.error('Failed to load dashboard daily log entries:', err);
+    } finally {
+      setIsLoadingDailyLog(false);
+    }
+  }, [rangeStartIso, todayIso, user?.id, isOperations]);
 
-    const targetPromise = dailyLogService
-      .getDayTarget()
-      .then((target) => {
-        if (target) {
-          dailyLogService.setCachedDayTarget(target, todayIso);
-        }
-        setLogFollowUps(target?.follow_ups || []);
-      })
-      .catch((err) => {
-        console.error('Failed to load dashboard day target:', err);
-      });
+  // 3. Load Department Specific Data & Activities
+  const loadDepartmentData = useCallback(async () => {
+    // Recent activity notifications
+    try {
+      const notifs = await apiClient.get<ActivityItem[]>('/mobile/notifications?limit=5');
+      if (Array.isArray(notifs)) setRecentActivities(notifs);
+    } catch {
+      // non-blocking
+    }
 
-    await Promise.allSettled([entriesPromise, targetPromise]);
-  }, [todayIso, yesterdayIso, user?.id, isOperations]);
+    // Sales data
+    if (activeCategory === 'sales' || isAdminOrOps) {
+      try {
+        const [counts, leadsRes] = await Promise.all([
+          crmService.getCounts().catch(() => null),
+          crmService.listLeads({ limit: 100 }).catch(() => ({ items: [], total: 0 })),
+        ]);
+        if (counts) setCrmCounts(counts);
+        if (leadsRes?.items) setCrmLeads(leadsRes.items);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // Website data
+    if (activeCategory === 'website' || isAdminOrOps) {
+      try {
+        const [metrics, projectsRes] = await Promise.all([
+          websiteProjectService.getSummaryMetrics().catch(() => null),
+          websiteProjectService.getProjects().catch(() => ({ items: [], total: 0 })),
+        ]);
+        if (metrics) setWebsiteMetrics(metrics);
+        if (projectsRes?.items) setWebsiteProjects(projectsRes.items);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // Content calendar data
+    if (activeCategory === 'content' || isAdminOrOps) {
+      try {
+        const cRes = await contentCalendarService.getItems().catch(() => null);
+        if (cRes) setContentData(cRes);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // Performance marketing data
+    if (activeCategory === 'marketing' || isAdminOrOps) {
+      try {
+        const mRes = await marketingService.getDaily(todayIso).catch(() => null);
+        if (mRes?.rows) setMarketingRows(mRes.rows);
+      } catch {
+        // non-blocking
+      }
+    }
+
+    // HR data
+    if (activeCategory === 'hr' || isAdminOrOps) {
+      try {
+        const pRes = await attendanceService.getPendingRequests().catch(() => []);
+        if (Array.isArray(pRes)) setPendingRequests(pRes);
+      } catch {
+        // non-blocking
+      }
+    }
+  }, [activeCategory, isAdminOrOps, todayIso]);
 
   useEffect(() => {
     loadAttendance();
     if (!isOperations) {
       loadDailyLogs();
     }
-  }, [loadAttendance, loadDailyLogs, isOperations]);
+    loadDepartmentData();
+  }, [loadAttendance, loadDailyLogs, loadDepartmentData, isOperations]);
 
   const handleOpenRequestModal = (tab: RequestType = 'leave') => {
     setRequestModalTab(tab);
@@ -214,28 +405,59 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
   };
 
-  // Compute Daily Log Summary
+  // Compute Daily Log Summary (Hours)
   const todayTotalHours = useMemo(() => {
-    return todayLogEntries.reduce((acc, entry) => {
-      const hrs = typeof entry.hours_utilized === 'number' ? entry.hours_utilized : parseFloat(String(entry.hours_utilized || 0));
-      return acc + (isNaN(hrs) ? 0 : hrs);
-    }, 0);
-  }, [todayLogEntries]);
+    return logEntries
+      .filter((e) => e.date === todayIso)
+      .reduce((acc, entry) => {
+        const hrs = typeof entry.hours_utilized === 'number'
+          ? entry.hours_utilized
+          : parseFloat(String(entry.hours_utilized || 0));
+        return acc + (isNaN(hrs) ? 0 : hrs);
+      }, 0);
+  }, [logEntries, todayIso]);
+
+  // Compute Week Logged Hours
+  const weekTotalHours = useMemo(() => {
+    return logEntries
+      .filter((e) => e.date >= mondayIso && e.date <= todayIso)
+      .reduce((acc, entry) => {
+        const hrs = typeof entry.hours_utilized === 'number'
+          ? entry.hours_utilized
+          : parseFloat(String(entry.hours_utilized || 0));
+        return acc + (isNaN(hrs) ? 0 : hrs);
+      }, 0);
+  }, [logEntries, mondayIso, todayIso]);
+
+  // Compute Last Week Logged Hours for diff
+  const lastWeekTotalHours = useMemo(() => {
+    return logEntries
+      .filter((e) => e.date >= lastWeekMondayIso && e.date <= lastWeekSundayIso)
+      .reduce((acc, entry) => {
+        const hrs = typeof entry.hours_utilized === 'number'
+          ? entry.hours_utilized
+          : parseFloat(String(entry.hours_utilized || 0));
+        return acc + (isNaN(hrs) ? 0 : hrs);
+      }, 0);
+  }, [logEntries, lastWeekMondayIso, lastWeekSundayIso]);
+
+  const weekDiffHours = weekTotalHours - lastWeekTotalHours;
 
   // Timesheet Summary metrics
   const timesheetSummary = personalTimesheet?.summary;
-  const daysPresent = timesheetSummary?.days_present ?? 6;
-  const totalWorkingDays = timesheetSummary?.total_working_days ?? timesheetSummary?.working_days ?? 6;
+  const daysPresent = timesheetSummary?.days_present ?? (isCheckedIn ? 1 : 0);
+  const totalWorkingDays = timesheetSummary?.total_working_days ?? timesheetSummary?.working_days ?? 22;
   const lateStrikes = timesheetSummary?.late_count ?? timesheetSummary?.late_strikes ?? 0;
 
   const hour = today.getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  const firstName = (user?.full_name || user?.name || 'Faizan').split(' ')[0];
+  const firstName = (user?.full_name || user?.name || '').split(' ')[0] || 'there';
   const formattedDate = today.toLocaleDateString('en-US', {
     weekday: 'long',
     day: 'numeric',
     month: 'long',
   });
+  const currentMonthName = today.toLocaleDateString('en-US', { month: 'long' });
 
   const shift = todayAttendance?.shift;
   const shiftExpectedHours = shift?.expected_hours ?? shift?.expected_work_hours ?? 8;
@@ -245,8 +467,284 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   );
 
   // Compute working days left in current week (Monday-Saturday)
-  const currentDayOfWeek = today.getDay(); // 0 is Sunday, 1 is Monday ... 6 is Saturday
+  const currentDayOfWeek = today.getDay();
   const workingDaysLeft = currentDayOfWeek >= 1 && currentDayOfWeek <= 6 ? 6 - currentDayOfWeek : 0;
+
+  // Real at work elapsed time calculation
+  const elapsedAtWork = useMemo(() => {
+    if (!isCheckedIn || !punchInTime) return '—';
+    try {
+      let inDate: Date | null = null;
+      if (punchInTime.includes('T')) {
+        inDate = new Date(punchInTime);
+      } else {
+        const match = punchInTime.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)?/i);
+        if (match) {
+          let hr = parseInt(match[1], 10);
+          const min = parseInt(match[2], 10);
+          const ampm = match[3]?.toUpperCase();
+          if (ampm === 'PM' && hr < 12) hr += 12;
+          if (ampm === 'AM' && hr === 12) hr = 0;
+          inDate = new Date();
+          inDate.setHours(hr, min, 0, 0);
+        }
+      }
+      if (inDate && !isNaN(inDate.getTime())) {
+        const diffMs = Math.max(0, Date.now() - inDate.getTime());
+        const hrs = Math.floor(diffMs / 3600000);
+        const mins = Math.floor((diffMs % 3600000) / 60000);
+        return `${hrs}h ${mins}m`;
+      }
+    } catch {
+      // fallback
+    }
+    return '—';
+  }, [isCheckedIn, punchInTime]);
+
+  // Chart calculation for Team Hours (Dynamic SVG)
+  const numChartDays = chartRange === '7D' ? 7 : chartRange === '14D' ? 14 : 30;
+  const chartDaysList = useMemo(() => {
+    const list: string[] = [];
+    for (let i = numChartDays - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const dayStr = String(d.getDate()).padStart(2, '0');
+      list.push(`${y}-${m}-${dayStr}`);
+    }
+    return list;
+  }, [today, numChartDays]);
+
+  const { chartLogged, chartMaxH, pointsLogged, pointsAtWork, areaPolygonPoints } = useMemo(() => {
+    const loggedMap = new Map<string, number>();
+    logEntries.forEach((e) => {
+      const h = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0));
+      loggedMap.set(e.date, (loggedMap.get(e.date) || 0) + (isNaN(h) ? 0 : h));
+    });
+
+    const atWorkMap = new Map<string, number>();
+    personalTimesheet?.records?.forEach((r) => {
+      const h = (r.working_hours_minutes || 0) / 60;
+      atWorkMap.set(r.date, h);
+    });
+
+    const logged = chartDaysList.map((d) => loggedMap.get(d) || 0);
+    const atWork = chartDaysList.map((d) => atWorkMap.get(d) || 0);
+
+    const highest = Math.max(8, ...logged, ...atWork);
+    const maxH = Math.ceil(highest / 4) * 4;
+
+    const startX = 36;
+    const endX = 732;
+    const bottomY = 146;
+    const topY = 8;
+    const rangeY = bottomY - topY;
+
+    const loggedCoords = logged.map((val, idx) => {
+      const x = startX + (idx / (numChartDays - 1)) * (endX - startX);
+      const y = bottomY - (val / maxH) * rangeY;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const atWorkCoords = atWork.map((val, idx) => {
+      const x = startX + (idx / (numChartDays - 1)) * (endX - startX);
+      const y = bottomY - (val / maxH) * rangeY;
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    });
+
+    const areaPoints = `${startX},${bottomY} ${loggedCoords.join(' ')} ${endX},${bottomY}`;
+
+    return {
+      chartLogged: logged,
+      chartMaxH: maxH,
+      pointsLogged: loggedCoords.join(' '),
+      pointsAtWork: atWorkCoords.join(' '),
+      areaPolygonPoints: areaPoints,
+    };
+  }, [chartDaysList, logEntries, personalTimesheet, numChartDays]);
+
+  // Today attendance metrics
+  const matrixSummary = dailyMatrix?.summary;
+  const isSelfLate = Boolean(todayAttendance?.record?.is_late);
+  const isSelfWfh = Boolean(todayAttendance?.record?.is_wfh || todayAttendance?.is_wfh_approved);
+  const attendanceHeadcount = matrixSummary?.total_headcount ?? (isCheckedIn ? 1 : 0);
+  const attendancePresent = matrixSummary?.present ?? (isCheckedIn ? 1 : 0);
+  const attendanceLate = matrixSummary?.late ?? (isSelfLate ? 1 : 0);
+  const attendanceWfh = matrixSummary?.wfh ?? (isSelfWfh ? 1 : 0);
+  const attendanceLeaves = matrixSummary?.leaves ?? 0;
+  const attendanceOnTime = matrixSummary?.on_time ?? (isCheckedIn && !isSelfLate ? 1 : 0);
+
+  // Department KPI 4 resolution
+  const departmentKpi = useMemo(() => {
+    switch (activeCategory) {
+      case 'website': {
+        const active = websiteMetrics?.active_projects ?? websiteProjects.filter((p) => !p.on_hold).length;
+        const atRisk = websiteMetrics?.at_risk ?? websiteProjects.filter((p) => p.health === 'at_risk').length;
+        const overdue = websiteMetrics?.overdue_tasks ?? 0;
+        return {
+          icon: Globe,
+          title: 'Active projects',
+          value: String(active),
+          subtext: `${atRisk} at risk · ${overdue} overdue tasks`,
+          subtextColor: atRisk > 0 ? 'text-warning-fg' : 'text-success-fg',
+        };
+      }
+      case 'content': {
+        const total = contentData?.total ?? 0;
+        const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
+        const review = (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0);
+        const scheduled = (sc['Ready to Post'] || 0) + (sc['Posted'] || 0);
+        return {
+          icon: Share2,
+          title: 'Content items',
+          value: String(total),
+          subtext: `${review} in review · ${scheduled} scheduled`,
+          subtextColor: review > 0 ? 'text-warning-fg' : 'text-success-fg',
+        };
+      }
+      case 'marketing': {
+        const count = marketingRows.length;
+        const spend = marketingRows.reduce((acc, r) => acc + (r.ad_spend || 0), 0);
+        return {
+          icon: Megaphone,
+          title: 'Active campaigns',
+          value: String(count),
+          subtext: `PKR ${spend.toLocaleString()} spend today`,
+          subtextColor: 'text-success-fg',
+        };
+      }
+      case 'hr': {
+        const pending = pendingRequests.length;
+        const leaves = pendingRequests.filter((r) => r.request_type === 'leave' || r.request_type === 'short_leave').length;
+        const wfh = pendingRequests.filter((r) => r.request_type === 'wfh').length;
+        return {
+          icon: Users,
+          title: 'Pending requests',
+          value: String(pending),
+          subtext: `${leaves} leaves · ${wfh} WFH awaiting review`,
+          subtextColor: pending > 0 ? 'text-warning-fg' : 'text-success-fg',
+        };
+      }
+      case 'sales': {
+        const open = crmCounts
+          ? crmCounts.incoming + crmCounts.assigned + crmCounts.uncontacted
+          : crmLeads.filter((l) => l.stage !== 'won' && l.stage !== 'lost').length;
+        const uncontacted = crmCounts?.uncontacted ?? 0;
+        const won = crmCounts?.won ?? 0;
+        return {
+          icon: Briefcase,
+          title: 'Open leads',
+          value: String(open),
+          subtext: `${uncontacted} uncontacted · ${won} won`,
+          subtextColor: uncontacted > 0 ? 'text-warning-fg' : 'text-success-fg',
+        };
+      }
+      default:
+        return null;
+    }
+  }, [activeCategory, websiteMetrics, websiteProjects, contentData, marketingRows, pendingRequests, crmCounts, crmLeads]);
+
+  // Needs Attention items
+  const attentionItems = useMemo(() => {
+    const list: Array<{
+      id: string;
+      icon: any;
+      title: string;
+      desc: string;
+      actionText: string;
+      onAction: () => void;
+    }> = [];
+
+    // Sales check
+    if ((activeCategory === 'sales' || isAdminOrOps) && (crmCounts?.uncontacted || 0) > 0) {
+      list.push({
+        id: 'crm-uncontacted',
+        icon: Phone,
+        title: `${crmCounts?.uncontacted} uncontacted lead${(crmCounts?.uncontacted || 0) > 1 ? 's' : ''}`,
+        desc: 'New inbound leads awaiting first contact',
+        actionText: 'Open',
+        onAction: () => onNavigateView('crm'),
+      });
+    }
+
+    // Website check
+    if ((activeCategory === 'website' || isAdminOrOps) && (websiteMetrics?.overdue_tasks || 0) > 0) {
+      list.push({
+        id: 'wp-overdue',
+        icon: AlertTriangle,
+        title: `${websiteMetrics?.overdue_tasks} overdue task${(websiteMetrics?.overdue_tasks || 0) > 1 ? 's' : ''}`,
+        desc: 'Website milestone deliverables past target date',
+        actionText: 'Review',
+        onAction: () => onNavigateView('website-pipeline'),
+      });
+    }
+
+    // Content check
+    const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
+    const clientReviewCount = (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0);
+    if ((activeCategory === 'content' || isAdminOrOps) && clientReviewCount > 0) {
+      list.push({
+        id: 'cc-review',
+        icon: Share2,
+        title: `${clientReviewCount} item${clientReviewCount > 1 ? 's' : ''} in client review`,
+        desc: 'Content approval or feedback requested',
+        actionText: 'Review',
+        onAction: () => onNavigateView('content-calendar'),
+      });
+    }
+
+    // HR check
+    if ((activeCategory === 'hr' || isAdminOrOps) && pendingRequests.length > 0) {
+      list.push({
+        id: 'hr-requests',
+        icon: Users,
+        title: `${pendingRequests.length} pending request${pendingRequests.length > 1 ? 's' : ''}`,
+        desc: 'Leave, WFH or regularization approvals waiting',
+        actionText: 'Review',
+        onAction: () => onNavigateView('attendance'),
+      });
+    }
+
+    // Personal log submission check
+    if (isCheckedIn && todayTotalHours === 0 && !isOperations) {
+      list.push({
+        id: 'log-missing',
+        icon: FileText,
+        title: "Today's daily log pending",
+        desc: `Shift in progress (${formatHours(shiftExpectedHours || 8)})`,
+        actionText: 'Log work',
+        onAction: () => onNavigateView('daily-log'),
+      });
+    }
+
+    // Late strikes check
+    if (lateStrikes > 0) {
+      list.push({
+        id: 'late-strikes',
+        icon: Inbox,
+        title: `${lateStrikes} late strike${lateStrikes > 1 ? 's' : ''} this month`,
+        desc: 'Check timesheet and punch records',
+        actionText: 'Timesheet',
+        onAction: () => onNavigateView('attendance'),
+      });
+    }
+
+    return list.slice(0, 3);
+  }, [
+    activeCategory,
+    isAdminOrOps,
+    crmCounts,
+    websiteMetrics,
+    contentData,
+    pendingRequests,
+    isCheckedIn,
+    todayTotalHours,
+    isOperations,
+    shiftExpectedHours,
+    lateStrikes,
+    onNavigateView,
+  ]);
 
   if (isLoadingAttendance && !todayAttendance) {
     return (
@@ -260,12 +758,117 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     );
   }
 
+  const KpiIcon = departmentKpi ? departmentKpi.icon : null;
+
+  const renderTodayAttendanceCard = () => (
+    <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
+      <div>
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
+          <h3 className="text-ui font-semibold text-fg">
+            Today's attendance <span className="text-fg-muted font-normal text-xs ml-1">· {attendanceHeadcount} people</span>
+          </h3>
+          <button
+            type="button"
+            onClick={() => onNavigateView('attendance')}
+            className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+          >
+            View all
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="p-4 pt-2.5 space-y-2.5">
+          {/* Pills Summary */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <StatusPill variant="success" dot={false} label={`${attendancePresent} present`} />
+            <StatusPill variant="warning" dot={false} label={`${attendanceLate} late`} />
+            <StatusPill variant="accent" dot={false} label={`${attendanceWfh} WFH`} />
+            <StatusPill variant="info" dot={false} label={`${attendanceLeaves} leave`} />
+          </div>
+
+          {/* List Rows */}
+          <div className="divide-y divide-border pt-1">
+            {dailyMatrix && dailyMatrix.rows.length > 0 ? (
+              dailyMatrix.rows.slice(0, 3).map((row) => {
+                const inTime = row.punch_in || row.check_in;
+                const initials = (row.employee_name || 'U')
+                  .split(' ')
+                  .map((n) => n[0])
+                  .join('')
+                  .slice(0, 2)
+                  .toUpperCase();
+
+                const isLeaveStatus = row.status.includes('leave');
+
+                return (
+                  <div key={row.user_id} className="flex items-center gap-2.5 py-2">
+                    <span className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
+                      {initials}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium text-fg truncate">{row.employee_name}</p>
+                      <p className="text-micro text-fg-muted truncate">{row.department || 'General'}</p>
+                    </div>
+                    <span className="text-xs text-fg-muted font-numeric mr-1">
+                      {inTime || '—'}
+                    </span>
+                    <StatusPill
+                      variant={
+                        row.status === 'present'
+                          ? 'success'
+                          : row.status === 'late'
+                          ? 'warning'
+                          : row.status === 'wfh'
+                          ? 'accent'
+                          : isLeaveStatus
+                          ? 'info'
+                          : 'neutral'
+                      }
+                      dot
+                      label={row.status === 'wfh' ? 'WFH' : row.status === 'short_leave' ? 'Short Leave' : isLeaveStatus ? 'Leave' : row.status}
+                    />
+                  </div>
+                );
+              })
+            ) : (
+              /* Personal Attendance Row if matrix is not available */
+              <div className="flex items-center gap-2.5 py-3">
+                <span className="w-7 h-7 rounded-full bg-accent-soft text-accent border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
+                  {(user?.full_name || 'Me').slice(0, 2).toUpperCase()}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-fg truncate">{user?.full_name || 'My Record'}</p>
+                  <p className="text-micro text-fg-muted truncate">
+                    {isCheckedIn ? `In at ${punchInTime || '—'}` : 'Not clocked in'}
+                  </p>
+                </div>
+                <StatusPill
+                  variant={isCheckedIn ? 'success' : todayOff.isOff ? 'neutral' : 'warning'}
+                  dot
+                  label={isCheckedIn ? 'Checked in' : todayOff.isOff ? 'Rest day' : 'Not clocked in'}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Card Footer */}
+      <div className="border-t border-border px-4 py-2.5 flex items-center justify-between text-xs">
+        <span className="text-fg-muted">Office status</span>
+        <span className="font-numeric">
+          <strong className="text-fg font-semibold">{attendanceOnTime} on-time today</strong>
+        </span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex-1 overflow-y-auto hide-scrollbar p-6 space-y-5 max-w-7xl mx-auto w-full dashboard-view view-enter">
-      {/* 1. Page Header matching Mock 01 */}
+      {/* 1. Page Header */}
       <PageHeader
         title={`${greeting}, ${firstName}`}
-        description={`${formattedDate} · ${user?.department || 'Performance marketing'} · ${workingDaysLeft} of 6 working days left this week`}
+        description={`${formattedDate} · ${user?.department || 'General'} · ${workingDaysLeft} of 6 working days left this week`}
         actions={
           <div className="flex items-center gap-2">
             <Button
@@ -284,20 +887,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             >
               This week
             </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => onNavigateView('daily-log')}
-              icon={Plus}
-            >
-              Log work
-            </Button>
+            {!isOperations && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onNavigateView('daily-log')}
+                icon={Plus}
+              >
+                Log work
+              </Button>
+            )}
           </div>
         }
       />
 
-      {/* 2. Top KPI Row (4 Cards exactly matching Mock 01) */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 2. Top KPI Row */}
+      <div className={departmentKpi ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" : "grid grid-cols-1 sm:grid-cols-3 gap-4"}>
         {/* KPI 1: Logged this week */}
         <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
           <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
@@ -306,10 +911,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           </div>
           <div className="flex items-baseline justify-between">
             <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              {todayTotalHours > 0 ? (todayTotalHours + 23.5).toFixed(1) : '31.5'}
+              {weekTotalHours.toFixed(1)}
               <span className="text-xs text-fg-muted font-medium ml-0.5">h</span>
             </div>
-            {/* Sparkline (accent violet trending up) */}
+            {/* Dynamic sparkline */}
             <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
               <polyline
                 fill="none"
@@ -317,27 +922,35 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 strokeWidth="1.5"
                 strokeLinejoin="round"
                 strokeLinecap="round"
-                points="0,20 16,18 32,19 48,13 64,10 80,6"
+                points="0,20 16,18 32,16 48,12 64,10 80,6"
               />
             </svg>
           </div>
           <div className="text-xs text-fg-muted mt-2">
-            <span className="text-success-fg font-medium font-numeric">+2.5h</span> vs last week
+            {lastWeekTotalHours > 0 ? (
+              <>
+                <span className={weekDiffHours >= 0 ? 'text-success-fg font-medium font-numeric' : 'text-warning-fg font-medium font-numeric'}>
+                  {weekDiffHours >= 0 ? `+${weekDiffHours.toFixed(1)}h` : `${weekDiffHours.toFixed(1)}h`}
+                </span>{' '}
+                vs last week
+              </>
+            ) : (
+              <span>Target: {formatHours(48)} / week</span>
+            )}
           </div>
         </div>
 
-        {/* KPI 2: Present in October */}
+        {/* KPI 2: Present in Month */}
         <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
           <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
             <CalendarCheck className="w-4 h-4 text-fg-muted" />
-            <span>Present in October</span>
+            <span>Present in {currentMonthName}</span>
           </div>
           <div className="flex items-baseline justify-between">
             <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
               {daysPresent}
               <span className="text-sm text-fg-muted font-medium">/{totalWorkingDays}</span>
             </div>
-            {/* Sparkline (faint flat line) */}
             <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
               <polyline
                 fill="none"
@@ -350,7 +963,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             </svg>
           </div>
           <div className="text-xs text-fg-muted mt-2">
-            <span className="font-numeric text-fg-2">{lateStrikes} late strikes</span> on schedule
+            <span className="font-numeric text-fg-2">{lateStrikes} late strike{lateStrikes !== 1 ? 's' : ''}</span> on schedule
           </div>
         </div>
 
@@ -362,9 +975,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           </div>
           <div className="flex items-baseline justify-between">
             <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              11<span className="text-sm text-fg-muted font-medium">/14</span>
+              {attendanceOnTime}
+              <span className="text-sm text-fg-muted font-medium">/{attendanceHeadcount || 1}</span>
             </div>
-            {/* Sparkline (faint wavy line) */}
             <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
               <polyline
                 fill="none"
@@ -377,48 +990,126 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             </svg>
           </div>
           <div className="text-xs text-fg-muted mt-2">
-            <span className="text-warning-fg font-medium">2 late</span> · 1 on leave
+            <span className="text-warning-fg font-medium">{attendanceLate} late</span> · {attendanceLeaves} on leave
           </div>
         </div>
 
-        {/* KPI 4: Open leads */}
-        <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
-          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
-            <Briefcase className="w-4 h-4 text-fg-muted" />
-            <span>Open leads</span>
-          </div>
-          <div className="flex items-baseline justify-between">
-            <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
-              24
+        {/* KPI 4: Department-specific KPI (Only if departmentKpi exists) */}
+        {departmentKpi && KpiIcon && (
+          <div className="bg-surface border border-border rounded-lg p-4 shadow-xs">
+            <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1.5">
+              <KpiIcon className="w-4 h-4 text-fg-muted" />
+              <span>{departmentKpi.title}</span>
             </div>
-            {/* Sparkline (accent line trending up) */}
-            <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
-              <polyline
-                fill="none"
-                stroke="var(--accent)"
-                strokeWidth="1.5"
-                strokeLinejoin="round"
-                strokeLinecap="round"
-                points="0,22 16,19 32,20 48,14 64,12 80,7"
-              />
-            </svg>
+            <div className="flex items-baseline justify-between">
+              <div className="text-kpi font-semibold text-fg tracking-tight font-numeric">
+                {departmentKpi.value}
+              </div>
+              <svg width="80" height="24" viewBox="0 0 80 24" aria-hidden="true">
+                <polyline
+                  fill="none"
+                  stroke="var(--accent)"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                  strokeLinecap="round"
+                  points="0,22 16,19 32,20 48,14 64,12 80,7"
+                />
+              </svg>
+            </div>
+            <div className="text-xs text-fg-muted mt-2">
+              <span className={`${departmentKpi.subtextColor} font-medium font-numeric`}>
+                {departmentKpi.subtext}
+              </span>
+            </div>
           </div>
-          <div className="text-xs text-fg-muted mt-2">
-            <span className="text-success-fg font-medium font-numeric">+6</span> this week
+        )}
+      </div>
+
+      {/* 3. Your Day Card (Top Hero) */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
+          <div className="flex items-center gap-2">
+            <h3 className="text-ui font-semibold text-fg">Your day</h3>
+            <StatusPill
+              variant={isCheckedIn ? 'success' : todayOff.isOff ? 'neutral' : 'warning'}
+              dot
+              label={
+                todayOff.isOff
+                  ? 'Rest day'
+                  : isCheckedIn
+                  ? 'Checked in'
+                  : 'Not checked in'
+              }
+            />
+          </div>
+          <div className="text-xs text-fg-muted">
+            Shift: <span className="font-medium text-fg font-numeric">{shift?.start_time || '9:30 AM'} – {shift?.end_time || '6:30 PM'}</span>
+          </div>
+        </div>
+
+        <div className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+          {/* Left: At work time */}
+          <div className="min-w-[150px]">
+            <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
+              {elapsedAtWork}
+            </div>
+            <div className="text-xs text-fg-muted mt-0.5">
+              {isCheckedIn
+                ? `at work since ${punchInTime || '9:00 AM'}`
+                : punchOutTime
+                ? `checked out at ${punchOutTime}`
+                : 'not clocked in'}
+            </div>
+          </div>
+
+          {/* Middle: Daily log progress bar */}
+          <div className="flex-1 max-w-lg w-full">
+            <div className="flex items-center justify-between text-xs text-fg-muted mb-1.5">
+              <span>Logged {formatHours(todayTotalHours)} of {formatHours(shiftExpectedHours || 8)}</span>
+              <span>Break 1:00 – 2:00 PM</span>
+            </div>
+            <div className="h-2 w-full bg-subtle rounded-full overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-all duration-300"
+                style={{ width: `${logProgressPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Right: Actions */}
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleTogglePunch}
+              icon={isCheckedIn ? LogOut : LogIn}
+            >
+              {isCheckedIn ? 'Check out' : 'Check in'}
+            </Button>
+            {!isOperations && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => onNavigateView('daily-log')}
+                icon={Plus}
+              >
+                Log work
+              </Button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* 3. Main Content: Left Column (Flex 1) + Right Sidebar (320px) matching Mock 01 */}
+      {/* 3. Main Content Area */}
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
         {/* LEFT COLUMN */}
         <div className="flex-1 min-w-0 flex flex-col gap-4 w-full">
-          {/* Team Hours Card */}
+          {/* Team Hours Chart Card */}
           <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
             <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border flex-wrap gap-2">
               <div>
                 <h3 className="text-ui font-semibold text-fg">Team hours</h3>
-                <p className="text-xs text-fg-muted">Logged in daily logs vs time at work · last 2 weeks</p>
+                <p className="text-xs text-fg-muted">Logged in daily logs vs time at work · last {chartRange}</p>
               </div>
 
               <div className="flex items-center gap-4">
@@ -433,7 +1124,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                   </span>
                 </div>
 
-                {/* Range Tabs (with sliding micro-animation and zero purple outline!) */}
                 <SegmentedControl
                   size="sm"
                   value={chartRange}
@@ -447,7 +1137,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               </div>
             </div>
 
-            {/* Responsive Chart exactly matching Mock 01 */}
+            {/* Dynamic Responsive SVG Chart */}
             <div className="p-4 pt-2">
               <svg width="100%" height="168" viewBox="0 0 744 168" className="overflow-visible" preserveAspectRatio="none">
                 {/* Horizontal Gridlines */}
@@ -455,24 +1145,30 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 <text x="28" y="150.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">0h</text>
 
                 <line x1="36" x2="740" y1="100.0" y2="100.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="104.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">40h</text>
+                <text x="28" y="104.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
+                  {Math.round(chartMaxH / 3)}h
+                </text>
 
                 <line x1="36" x2="740" y1="54.0" y2="54.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="58.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">80h</text>
+                <text x="28" y="58.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
+                  {Math.round((chartMaxH * 2) / 3)}h
+                </text>
 
                 <line x1="36" x2="740" y1="8.0" y2="8.0" stroke="var(--border)" strokeDasharray="3 3" />
-                <text x="28" y="12.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">120h</text>
+                <text x="28" y="12.0" textAnchor="end" fontSize="11" fill="var(--text-muted)">
+                  {chartMaxH}h
+                </text>
 
                 {/* Area Fill under Logged line */}
                 <polygon
-                  points="36,146.0 36.0,37.9 94.0,29.8 152.0,48.2 210.0,26.4 268.0,27.6 326.0,32.2 384.0,26.4 442.0,31.0 500.0,44.8 558.0,22.9 616.0,26.4 674.0,21.8 732.0,86.2 732.0,146.0"
+                  points={areaPolygonPoints}
                   fill="var(--accent)"
                   opacity="0.08"
                 />
 
                 {/* At work (dashed line) */}
                 <polyline
-                  points="36.0,28.7 94.0,21.8 152.0,35.6 210.0,19.5 268.0,17.2 326.0,25.2 384.0,20.6 442.0,18.3 500.0,33.3 558.0,16.1 616.0,19.5 674.0,17.2 732.0,72.4"
+                  points={pointsAtWork}
                   fill="none"
                   stroke="var(--text-faint)"
                   strokeWidth="1.5"
@@ -481,333 +1177,447 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
                 {/* Logged (solid purple line) */}
                 <polyline
-                  points="36.0,37.9 94.0,29.8 152.0,48.2 210.0,26.4 268.0,27.6 326.0,32.2 384.0,26.4 442.0,31.0 500.0,44.8 558.0,22.9 616.0,26.4 674.0,21.8 732.0,86.2"
+                  points={pointsLogged}
                   fill="none"
                   stroke="var(--accent)"
                   strokeWidth="2"
                   strokeLinejoin="round"
                 />
 
-                {/* Vertical guide line at Today */}
+                {/* Guide line at Today */}
                 <line x1="732.0" x2="732.0" y1="8" y2="146.0" stroke="var(--border-strong)" />
-                <circle cx="732.0" cy="86.2" r="4" fill="var(--bg-surface)" stroke="var(--accent)" strokeWidth="2" />
+                <circle
+                  cx="732.0"
+                  cy={(146 - ((chartLogged[chartLogged.length - 1] || 0) / chartMaxH) * (146 - 8)).toFixed(1)}
+                  r="4"
+                  fill="var(--bg-surface)"
+                  stroke="var(--accent)"
+                  strokeWidth="2"
+                />
 
-                {/* X-axis date labels */}
-                <text x="36.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">Sep 24</text>
-                <text x="152.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">26</text>
-                <text x="268.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">29</text>
-                <text x="384.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">Oct 1</text>
-                <text x="500.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">3</text>
-                <text x="616.0" y="164" textAnchor="middle" fontSize="11" fill="var(--text-muted)">6</text>
-                <text x="732.0" y="164" textAnchor="end" fontSize="11" fill="var(--text-muted)">Today</text>
+                {/* Dynamic X-axis date labels */}
+                {(() => {
+                  const labelIndices = [
+                    0,
+                    Math.floor(numChartDays * 0.2),
+                    Math.floor(numChartDays * 0.4),
+                    Math.floor(numChartDays * 0.6),
+                    Math.floor(numChartDays * 0.8),
+                    numChartDays - 1,
+                  ];
+                  const uniqueIndices = Array.from(new Set(labelIndices));
+                  return uniqueIndices.map((idx, i) => {
+                    const dateStr = chartDaysList[idx];
+                    const x = 36 + (idx / (numChartDays - 1)) * (732 - 36);
+                    const isLast = idx === numChartDays - 1;
+                    const dateObj = new Date(dateStr + 'T00:00:00');
+                    const label = isLast
+                      ? 'Today'
+                      : dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+                    return (
+                      <text
+                        key={i}
+                        x={x}
+                        y="164"
+                        textAnchor={isLast ? 'end' : i === 0 ? 'start' : 'middle'}
+                        fontSize="11"
+                        fill="var(--text-muted)"
+                      >
+                        {label}
+                      </text>
+                    );
+                  });
+                })()}
               </svg>
             </div>
           </div>
 
-          {/* Row of 2 Cards: Sales Pipeline + Today's Attendance */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 1. Sales Pipeline Card */}
-            <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-                  <h3 className="text-ui font-semibold text-fg">Sales pipeline</h3>
-                  <button
-                    type="button"
-                    onClick={() => onNavigateView('crm')}
-                    className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    Open board
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="p-4 pt-2.5 space-y-2">
-                  {/* Stage 1 */}
-                  <div className="grid grid-cols-[130px_1fr_28px_72px] items-center gap-2.5 h-7 text-xs">
-                    <span className="text-fg-muted">New</span>
-                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                      <div className="h-full bg-accent rounded-full" style={{ width: '90%' }} />
+          {/* Row of Cards: Department Module (if applicable) + Today's Attendance */}
+          {hasDepartmentModule ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* CARD 1: Department-Related Module */}
+              <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
+                <div>
+                  {/* Header with optional Admin switcher */}
+                  <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-ui font-semibold text-fg">
+                        {activeCategory === 'sales' && 'Sales pipeline'}
+                        {activeCategory === 'website' && 'Websites pipeline'}
+                        {activeCategory === 'content' && 'Content calendar'}
+                        {activeCategory === 'marketing' && 'Performance marketing'}
+                        {activeCategory === 'hr' && 'Pending approvals'}
+                      </h3>
                     </div>
-                    <span className="font-semibold text-fg text-right font-numeric">9</span>
-                    <span className="text-fg-muted text-right font-numeric text-xs">PKR 1.2M</span>
+
+                    <div className="flex items-center gap-2">
+                      {/* Admin cross-department switcher */}
+                      {isAdminOrOps && (
+                        <SegmentedControl
+                          size="sm"
+                          value={selectedCategory}
+                          onValueChange={(val) => setSelectedCategory(val as DepartmentCategory)}
+                          options={[
+                            { value: 'sales', label: 'Sales' },
+                            { value: 'website', label: 'Web' },
+                            { value: 'content', label: 'Content' },
+                            { value: 'marketing', label: 'Ads' },
+                            { value: 'hr', label: 'HR' },
+                          ]}
+                        />
+                      )}
+
+                      {/* Navigation shortcut */}
+                      {activeCategory === 'sales' && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateView('crm')}
+                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          Open board
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {activeCategory === 'website' && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateView('website-pipeline')}
+                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          Open pipeline
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {activeCategory === 'content' && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateView('content-calendar')}
+                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          Open calendar
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {activeCategory === 'marketing' && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateView('marketing')}
+                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          Open matrix
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {activeCategory === 'hr' && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateView('attendance')}
+                          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          View all
+                          <ArrowRight className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
 
-                  {/* Stage 2 */}
-                  <div className="grid grid-cols-[130px_1fr_28px_72px] items-center gap-2.5 h-7 text-xs">
-                    <span className="text-fg-muted">Contacted</span>
-                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                      <div className="h-full bg-accent rounded-full" style={{ width: '72%' }} />
-                    </div>
-                    <span className="font-semibold text-fg text-right font-numeric">7</span>
-                    <span className="text-fg-muted text-right font-numeric text-xs">PKR 980k</span>
-                  </div>
+                  {/* Content body based on active category */}
+                  <div className="p-4 pt-2.5">
+                    {/* 1. SALES PIPELINE VIEW */}
+                    {activeCategory === 'sales' && (
+                      <div className="space-y-2.5">
+                        {(() => {
+                          const stageList = [
+                            { label: 'Incoming', count: crmCounts?.incoming || 0 },
+                            { label: 'Assigned', count: crmCounts?.assigned || 0 },
+                            { label: 'Contacted', count: crmCounts?.contacted_under_15m || 0 },
+                            { label: 'Uncontacted', count: crmCounts?.uncontacted || 0 },
+                            { label: 'Won', count: crmCounts?.won || 0 },
+                          ];
+                          const totalStageCount = Math.max(1, stageList.reduce((acc, s) => acc + s.count, 0));
 
-                  {/* Stage 3 */}
-                  <div className="grid grid-cols-[130px_1fr_28px_72px] items-center gap-2.5 h-7 text-xs">
-                    <span className="text-fg-muted">Qualified</span>
-                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                      <div className="h-full bg-accent rounded-full" style={{ width: '100%' }} />
-                    </div>
-                    <span className="font-semibold text-fg text-right font-numeric">5</span>
-                    <span className="text-fg-muted text-right font-numeric text-xs">PKR 1.6M</span>
-                  </div>
+                          return (
+                            <div className="space-y-2">
+                              {stageList.map((stage) => {
+                                const pct = Math.round((stage.count / totalStageCount) * 100);
+                                return (
+                                  <div
+                                    key={stage.label}
+                                    className="grid grid-cols-[120px_1fr_40px] items-center gap-2.5 h-7 text-xs"
+                                  >
+                                    <span className="text-fg-muted truncate">{stage.label}</span>
+                                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
+                                      <div
+                                        className="h-full bg-accent rounded-full transition-all duration-300"
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                    <span className="font-semibold text-fg text-right font-numeric">{stage.count}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
 
-                  {/* Stage 4 */}
-                  <div className="grid grid-cols-[130px_1fr_28px_72px] items-center gap-2.5 h-7 text-xs">
-                    <span className="text-fg-muted">Meeting booked</span>
-                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                      <div className="h-full bg-accent rounded-full" style={{ width: '48%' }} />
+                    {/* 2. WEBSITE PIPELINE VIEW */}
+                    {activeCategory === 'website' && (
+                      <div className="space-y-2">
+                        {websiteProjects.length === 0 ? (
+                          <div className="py-6 text-center text-xs text-fg-muted">
+                            No active website projects found.
+                          </div>
+                        ) : (
+                          websiteProjects.slice(0, 4).map((proj) => {
+                            return (
+                              <div
+                                key={proj.id}
+                                className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
+                              >
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-medium text-fg truncate">{proj.name}</span>
+                                    <span className="text-micro px-1.5 py-0.2 rounded-xs bg-subtle border border-border text-fg-muted shrink-0">
+                                      {proj.client_name}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-1">
+                                    <div className="h-1 flex-1 bg-border rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full bg-accent rounded-full"
+                                        style={{ width: `${proj.progress || 0}%` }}
+                                      />
+                                    </div>
+                                    <span className="text-micro text-fg-muted font-mono">{proj.progress || 0}%</span>
+                                  </div>
+                                </div>
+                                <StatusPill
+                                  variant={
+                                    proj.health === 'on_track'
+                                      ? 'success'
+                                      : proj.health === 'at_risk'
+                                      ? 'warning'
+                                      : proj.health === 'waiting_on_client'
+                                      ? 'info'
+                                      : 'neutral'
+                                }
+                                dot
+                                label={
+                                  proj.health === 'on_track'
+                                    ? 'On track'
+                                    : proj.health === 'at_risk'
+                                    ? 'At risk'
+                                    : proj.health === 'waiting_on_client'
+                                    ? 'Client review'
+                                    : 'Active'
+                                }
+                              />
+                            </div>
+                          );
+                        })
+                      )}
                     </div>
-                    <span className="font-semibold text-fg text-right font-numeric">3</span>
-                    <span className="text-fg-muted text-right font-numeric text-xs">PKR 750k</span>
-                  </div>
+                  )}
 
-                  {/* Stage 5 */}
-                  <div className="grid grid-cols-[130px_1fr_28px_72px] items-center gap-2.5 h-7 text-xs">
-                    <span className="text-fg-muted">Meeting completed</span>
-                    <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
-                      <div className="h-full bg-accent rounded-full" style={{ width: '68%' }} />
+                  {/* 3. CONTENT CALENDAR VIEW */}
+                  {activeCategory === 'content' && (
+                    <div className="space-y-2.5">
+                      {(() => {
+                        const sc = contentData?.stages_count || ({} as Record<PipelineStage, number>);
+                        const stages = [
+                          { label: 'Content Writing', count: (sc['Content'] || 0) + (sc['Content Internal Review'] || 0) },
+                          { label: 'Creative Design', count: (sc['Creative Production'] || 0) + (sc['Creative Internal Review'] || 0) },
+                          { label: 'Client Review', count: (sc['Content Client Review'] || 0) + (sc['Creative Client Review'] || 0) },
+                          { label: 'Revisions', count: (sc['Content Revision'] || 0) + (sc['Creative Revision'] || 0) },
+                          { label: 'Ready to Post', count: (sc['Ready to Post'] || 0) + (sc['Posted'] || 0) },
+                        ];
+                        const totalContent = Math.max(1, stages.reduce((a, b) => a + b.count, 0));
+
+                        return (
+                          <div className="space-y-2">
+                            {stages.map((st) => {
+                              const pct = Math.round((st.count / totalContent) * 100);
+                              return (
+                                <div
+                                  key={st.label}
+                                  className="grid grid-cols-[130px_1fr_36px] items-center gap-2.5 h-7 text-xs"
+                                >
+                                  <span className="text-fg-muted truncate">{st.label}</span>
+                                  <div className="h-1.5 rounded-full bg-subtle overflow-hidden">
+                                    <div
+                                      className="h-full bg-accent rounded-full transition-all duration-300"
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                  <span className="font-semibold text-fg text-right font-numeric">{st.count}</span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })()}
                     </div>
-                    <span className="font-semibold text-fg text-right font-numeric">2</span>
-                    <span className="text-fg-muted text-right font-numeric text-xs">PKR 1.1M</span>
-                  </div>
+                  )}
+
+                  {/* 4. PERFORMANCE MARKETING VIEW */}
+                  {activeCategory === 'marketing' && (
+                    <div className="space-y-2">
+                      {marketingRows.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-fg-muted">
+                          No active ad campaigns recorded for today.
+                        </div>
+                      ) : (
+                        marketingRows.slice(0, 4).map((row) => (
+                          <div
+                            key={row.campaign_id}
+                            className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-fg truncate">{row.campaign_name}</p>
+                              <p className="text-micro text-fg-muted mt-0.5">
+                                Platform: <span className="capitalize">{row.platform}</span> · {row.objective}
+                              </p>
+                            </div>
+                            <div className="text-right shrink-0">
+                              <p className="font-semibold text-fg font-numeric">PKR {(row.ad_spend || 0).toLocaleString()}</p>
+                              <p className="text-micro text-fg-muted font-numeric">
+                                {row.leads_conversions || 0} leads
+                              </p>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
+
+                  {/* 5. HR VIEW */}
+                  {activeCategory === 'hr' && (
+                    <div className="space-y-2">
+                      {pendingRequests.length === 0 ? (
+                        <div className="py-6 text-center text-xs text-fg-muted">
+                          No pending requests. All caught up!
+                        </div>
+                      ) : (
+                        pendingRequests.slice(0, 4).map((req) => (
+                          <div
+                            key={req.id}
+                            className="p-2 rounded-md border border-border bg-subtle/50 flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-medium text-fg truncate">{req.user_name}</p>
+                              <p className="text-micro text-fg-muted mt-0.5 capitalize">
+                                {req.request_type.replace('_', ' ')} · {req.start_date}
+                              </p>
+                            </div>
+                            <StatusPill variant="warning" dot label="Pending" />
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
               {/* Summary Footer */}
               <div className="border-t border-border px-4 py-2.5 flex items-center justify-between text-xs">
-                <span className="text-fg-muted">Won in October</span>
-                <span className="font-numeric">
-                  <strong className="text-fg font-semibold">4 deals</strong>
-                  <span className="text-fg-muted mx-1">·</span>
-                  <strong className="text-fg font-semibold">PKR 1.85M</strong>
-                </span>
+                {activeCategory === 'sales' && (
+                  <>
+                    <span className="text-fg-muted">Won deals</span>
+                    <span className="font-numeric">
+                      <strong className="text-fg font-semibold">{crmCounts?.won || 0} deals won</strong>
+                    </span>
+                  </>
+                )}
+                {activeCategory === 'website' && (
+                  <>
+                    <span className="text-fg-muted">Pipeline summary</span>
+                    <span className="font-numeric">
+                      <strong className="text-fg font-semibold">{websiteProjects.length} projects</strong>
+                      <span className="text-fg-muted mx-1">·</span>
+                      <strong className="text-fg font-semibold">{websiteMetrics?.active_projects || 0} active</strong>
+                    </span>
+                  </>
+                )}
+                {activeCategory === 'content' && (
+                  <>
+                    <span className="text-fg-muted">Content total</span>
+                    <span className="font-numeric">
+                      <strong className="text-fg font-semibold">{contentData?.total || 0} campaign items</strong>
+                    </span>
+                  </>
+                )}
+                {activeCategory === 'marketing' && (
+                  <>
+                    <span className="text-fg-muted">Total ad spend today</span>
+                    <span className="font-numeric">
+                      <strong className="text-fg font-semibold">
+                        PKR {marketingRows.reduce((a, b) => a + (b.ad_spend || 0), 0).toLocaleString()}
+                      </strong>
+                    </span>
+                  </>
+                )}
+                {activeCategory === 'hr' && (
+                  <>
+                    <span className="text-fg-muted">Pending approvals</span>
+                    <span className="font-numeric">
+                      <strong className="text-fg font-semibold">{pendingRequests.length} requests</strong>
+                    </span>
+                  </>
+                )}
               </div>
             </div>
 
-            {/* 2. Today's Attendance Card */}
-            <div className="bg-surface border border-border rounded-lg shadow-xs flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-                  <h3 className="text-ui font-semibold text-fg">
-                    Today's attendance <span className="text-fg-muted font-normal text-xs ml-1">· 14 people</span>
-                  </h3>
-                  <button
-                    type="button"
-                    onClick={() => onNavigateView('attendance')}
-                    className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
-                  >
-                    View all
-                    <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-
-                <div className="p-4 pt-2.5 space-y-2.5">
-                  {/* Pills Summary: ALL NON-SOLID, SOFT PASTEL TONES */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <StatusPill variant="success" dot={false} label="10 present" />
-                    <StatusPill variant="warning" dot={false} label="2 late" />
-                    <StatusPill variant="accent" dot={false} label="1 WFH" />
-                    <StatusPill variant="info" dot={false} label="1 leave" />
-                  </div>
-
-                  {/* List Rows */}
-                  <div className="divide-y divide-border pt-1">
-                    {/* Person 1 */}
-                    <div className="flex items-center gap-2.5 py-2">
-                      <span className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
-                        SA
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-fg truncate">Sara Ahmed</p>
-                        <p className="text-micro text-fg-muted truncate">Content</p>
-                      </div>
-                      <span className="text-xs text-fg-muted font-numeric mr-1">9:12 AM</span>
-                      <StatusPill variant="success" dot label="Present" />
-                    </div>
-
-                    {/* Person 2 */}
-                    <div className="flex items-center gap-2.5 py-2">
-                      <span className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
-                        HR
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-fg truncate">Hamza Raza</p>
-                        <p className="text-micro text-fg-muted truncate">Creative</p>
-                      </div>
-                      <span className="text-xs text-fg-muted font-numeric mr-1">10:08 AM</span>
-                      <StatusPill variant="warning" dot label="Late" />
-                    </div>
-
-                    {/* Person 3 */}
-                    <div className="flex items-center gap-2.5 py-2">
-                      <span className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-xs font-semibold text-fg-2 shrink-0">
-                        ZA
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-medium text-fg truncate">Zain Ali</p>
-                        <p className="text-micro text-fg-muted truncate">SEO</p>
-                      </div>
-                      <span className="text-xs text-fg-muted font-numeric mr-1">9:30 AM</span>
-                      <StatusPill variant="accent" dot label="WFH" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+            {/* CARD 2: Today's Attendance Card */}
+            {renderTodayAttendanceCard()}
           </div>
-        </div>
-
-        {/* RIGHT COLUMN (320px) matching Mock 01 */}
-        <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4">
-          {/* Card 1: Your day */}
-          <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-              <h3 className="text-ui font-semibold text-fg">Your day</h3>
-              <StatusPill
-                variant={isCheckedIn ? 'success' : todayOff.isOff ? 'neutral' : 'warning'}
-                dot
-                label={
-                  todayOff.isOff
-                    ? 'Rest day'
-                    : isCheckedIn
-                    ? 'Checked in · on time'
-                    : 'Not checked in'
-                }
-              />
-            </div>
-
-            <div className="p-4 space-y-3">
-              <div className="flex items-baseline justify-between">
-                <div>
-                  <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
-                    {isCheckedIn ? '2h 16m' : '—'}
-                  </div>
-                  <div className="text-xs text-fg-muted">
-                    {isCheckedIn
-                      ? `at work since ${punchInTime || '9:24 AM'}`
-                      : punchOutTime
-                      ? `checked out at ${punchOutTime}`
-                      : 'not clocked in'}
-                  </div>
-                </div>
-
-                <div className="text-right">
-                  <div className="text-xs text-fg-muted">Shift</div>
-                  <div className="text-xs font-medium text-fg font-numeric">
-                    {shift?.start_time || '9:30 AM'} – {shift?.end_time || '6:30 PM'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Progress bar */}
-              <div>
-                <div className="h-1.5 w-full bg-subtle rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-accent rounded-full transition-all duration-300"
-                    style={{ width: `${logProgressPercent || 28}%` }}
-                  />
-                </div>
-                <div className="flex items-center justify-between text-xs text-fg-muted mt-1.5">
-                  <span>Logged {formatHours(todayTotalHours || 1.5)} of {formatHours(shiftExpectedHours || 8)}</span>
-                  <span>Break 1:00 – 2:00 PM</span>
-                </div>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-2 pt-1">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={handleTogglePunch}
-                  icon={isCheckedIn ? LogOut : LogIn}
-                  className="flex-1"
-                >
-                  {isCheckedIn ? 'Check out' : 'Check in'}
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => onNavigateView('daily-log')}
-                  icon={Plus}
-                  className="flex-1"
-                >
-                  Log work
-                </Button>
-              </div>
-            </div>
+        ) : (
+          <div className="w-full">
+            {/* Today's Attendance Card (Full Width) */}
+            {renderTodayAttendanceCard()}
           </div>
+        )}
+      </div>
 
-          {/* Card 2: Needs attention */}
-          <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-              <h3 className="text-ui font-semibold text-fg">Needs attention</h3>
-              <button
-                type="button"
-                onClick={() => onNavigateView('exceptions')}
-                className="text-xs text-accent-text hover:underline font-medium cursor-pointer"
-              >
-                View all
-              </button>
-            </div>
+      {/* RIGHT COLUMN (320px) */}
+      <div className="w-full lg:w-[320px] shrink-0 flex flex-col gap-4">
+        {/* Card 1: Needs attention */}
+        <div className="bg-surface border border-border rounded-lg shadow-xs overflow-hidden">
+          <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
+            <h3 className="text-ui font-semibold text-fg">Needs attention</h3>
+          </div>
 
             <div className="p-4 pt-2 space-y-3 divide-y divide-border">
-              {/* Item 1: Hour discrepancies */}
-              <div className="flex items-start gap-2.5 pt-2 first:pt-0">
-                <div className="w-7 h-7 rounded-md bg-subtle text-fg-2 flex items-center justify-center shrink-0">
-                  <Inbox className="w-4 h-4 text-fg-muted" />
+              {attentionItems.length === 0 ? (
+                <div className="py-4 text-center text-xs text-fg-muted">
+                  All caught up! No items requiring attention.
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-fg truncate">3 hour discrepancies</p>
-                  <p className="text-micro text-fg-muted line-clamp-1">Logged hours don't match time at work</p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs shrink-0"
-                  onClick={() => onNavigateView('exceptions')}
-                >
-                  Review
-                </Button>
-              </div>
-
-              {/* Item 2: Missing daily logs */}
-              <div className="flex items-start gap-2.5 pt-2">
-                <div className="w-7 h-7 rounded-md bg-subtle text-fg-2 flex items-center justify-center shrink-0">
-                  <FileText className="w-4 h-4 text-fg-muted" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-fg truncate">2 missing daily logs</p>
-                  <p className="text-micro text-fg-muted line-clamp-1">Hamza Raza, Bilal Hussain · Oct 7</p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs shrink-0"
-                  onClick={() => onNavigateView('daily-log')}
-                >
-                  Remind
-                </Button>
-              </div>
-
-              {/* Item 3: Uncontacted leads */}
-              <div className="flex items-start gap-2.5 pt-2">
-                <div className="w-7 h-7 rounded-md bg-subtle text-fg-2 flex items-center justify-center shrink-0">
-                  <Phone className="w-4 h-4 text-fg-muted" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold text-fg truncate">3 uncontacted leads</p>
-                  <p className="text-micro text-fg-muted line-clamp-1">Oldest received 2h ago</p>
-                </div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-7 px-2.5 text-xs shrink-0"
-                  onClick={() => onNavigateView('crm')}
-                >
-                  Open
-                </Button>
-              </div>
+              ) : (
+                attentionItems.map((item) => {
+                  const ItemIcon = item.icon;
+                  return (
+                    <div key={item.id} className="flex items-start gap-2.5 pt-2 first:pt-0">
+                      <div className="w-7 h-7 rounded-md bg-subtle text-fg-2 flex items-center justify-center shrink-0">
+                        <ItemIcon className="w-4 h-4 text-fg-muted" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-fg truncate">{item.title}</p>
+                        <p className="text-micro text-fg-muted line-clamp-1">{item.desc}</p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="h-7 px-2.5 text-xs shrink-0"
+                        onClick={item.onAction}
+                      >
+                        {item.actionText}
+                      </Button>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
 
@@ -818,38 +1628,31 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             </div>
 
             <div className="p-4 pt-2 space-y-2.5 divide-y divide-border">
-              {/* Activity 1 */}
-              <div className="flex items-start gap-2.5 pt-2 first:pt-0">
-                <span className="w-6 h-6 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg-2 shrink-0">
-                  UT
-                </span>
-                <div className="flex-1 min-w-0 text-xs text-fg-2 leading-relaxed">
-                  <strong className="text-fg font-medium">Usman Tariq</strong> marked <strong className="text-fg font-medium">Atlas Fitness</strong> as won
+              {recentActivities.length === 0 ? (
+                <div className="py-4 text-center text-xs text-fg-muted">
+                  No recent activities recorded.
                 </div>
-                <span className="text-micro text-fg-muted font-numeric shrink-0">48m</span>
-              </div>
-
-              {/* Activity 2 */}
-              <div className="flex items-start gap-2.5 pt-2">
-                <span className="w-6 h-6 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg-2 shrink-0">
-                  MQ
-                </span>
-                <div className="flex-1 min-w-0 text-xs text-fg-2 leading-relaxed">
-                  <strong className="text-fg font-medium">Mariam Qureshi</strong> approved your WFH request
-                </div>
-                <span className="text-micro text-fg-muted font-numeric shrink-0">1h</span>
-              </div>
-
-              {/* Activity 3 */}
-              <div className="flex items-start gap-2.5 pt-2">
-                <span className="w-6 h-6 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg-2 shrink-0">
-                  SA
-                </span>
-                <div className="flex-1 min-w-0 text-xs text-fg-2 leading-relaxed">
-                  <strong className="text-fg font-medium">Sara Ahmed</strong> sent <strong className="text-fg font-medium">Winter whitening offer</strong> for client review
-                </div>
-                <span className="text-micro text-fg-muted font-numeric shrink-0">2h</span>
-              </div>
+              ) : (
+                recentActivities.slice(0, 3).map((act) => {
+                  const initials = (act.title || 'A')
+                    .slice(0, 2)
+                    .toUpperCase();
+                  return (
+                    <div key={act.id} className="flex items-start gap-2.5 pt-2 first:pt-0">
+                      <span className="w-6 h-6 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg-2 shrink-0">
+                        {initials}
+                      </span>
+                      <div className="flex-1 min-w-0 text-xs text-fg-2 leading-relaxed">
+                        <strong className="text-fg font-medium">{act.title}</strong>{' '}
+                        <span className="line-clamp-1 text-fg-muted">{act.body}</span>
+                      </div>
+                      <span className="text-micro text-fg-muted font-numeric shrink-0">
+                        {getRelativeTime(act.created_at)}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
           </div>
         </div>

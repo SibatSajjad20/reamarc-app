@@ -64,6 +64,15 @@ async def mark_notifications_read(current_user: dict = Depends(get_current_user)
     return {"updated": updated}
 
 
+@router.post("/notifications/{notification_id}/read")
+async def mark_single_notification_read(
+    notification_id: str,
+    current_user: dict = Depends(get_current_user),
+):
+    updated = await push_service.mark_one_read(current_user.get("id"), notification_id)
+    return {"updated": updated}
+
+
 @router.delete("/notifications/clear-all")
 async def clear_notifications(current_user: dict = Depends(get_current_user)):
     deleted = await push_service.clear_all_notifications(current_user.get("id"))

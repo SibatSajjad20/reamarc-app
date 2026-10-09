@@ -111,6 +111,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     return !attendanceService.getCachedMyTimesheet(d.getFullYear(), d.getMonth() + 1);
   });
   const [isLoadingTimesheet, setIsLoadingTimesheet] = useState<boolean>(false);
+  const [isLoadingRequests, setIsLoadingRequests] = useState<boolean>(!attendanceService.getCachedRequests());
   useModuleLoadGate(isLoading);
   const [isExporting, setIsExporting] = useState<boolean>(false);
 
@@ -279,11 +280,14 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       setRequests(cached.data);
       if (Date.now() - cached.fetchedAt < 60_000) return;
     }
+    setIsLoadingRequests(true);
     try {
       const data = await attendanceService.getRequests();
       setRequests(data || []);
     } catch (err: any) {
       console.error('Failed to load attendance requests:', err);
+    } finally {
+      setIsLoadingRequests(false);
     }
   }, []);
 
@@ -559,6 +563,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     loadMonthlySummary,
     monthlySummaryData,
   ]);
+
+  // Load requests when navigating to Approvals / Requests tab
+  useEffect(() => {
+    if ((isManagementRole && activeTab === 'approvals') || (!isManagementRole && employeeTab === 'requests')) {
+      void loadRequests();
+    }
+  }, [isManagementRole, activeTab, employeeTab, loadRequests]);
 
   // Clean up abort controllers on unmount
   useEffect(() => {
@@ -1071,7 +1082,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {activeTab === 'approvals' && (
               <ApprovalInboxSection
                 requests={requests}
-                isLoading={isLoading}
+                isLoading={isLoading || isLoadingRequests}
                 onRefresh={loadRequests}
                 canReview={isAdmin || isHR || isOperations}
               />
@@ -1101,7 +1112,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
             {employeeTab === 'requests' && (
               <ApprovalInboxSection
                 requests={myRequests}
-                isLoading={isLoading}
+                isLoading={isLoading || isLoadingRequests}
                 onRefresh={loadRequests}
                 canReview={false}
               />

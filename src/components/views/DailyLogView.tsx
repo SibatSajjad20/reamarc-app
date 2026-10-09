@@ -63,7 +63,7 @@ import {
 import {
   Popover,
   PopoverContent,
-  PopoverTrigger,
+  PopoverAnchor,
 } from '../ui/popover';
 import { cn } from '../../lib/utils';
 
@@ -977,7 +977,11 @@ export const DailyLogView: React.FC = () => {
       {/* ─── Page Header ─── */}
       <PageHeader
         title="Daily log"
-        description="Record what you worked on. Logged hours are compared with your time at work."
+        description={
+          isAdmin || isOperations
+            ? 'Review and manage team daily logs and hours logged across departments.'
+            : 'Record what you worked on. Logged hours are compared with your time at work.'
+        }
         actions={
           <>
             {isAdmin && (
@@ -1002,12 +1006,14 @@ export const DailyLogView: React.FC = () => {
         }
       />
 
-      {/* ─── Shift Summary Strip (Mock 06 Reference) ─── */}
-      <ShiftTasksTracker
-        dayTarget={dayTarget}
-        loading={isLoading && !dayTarget}
-        variant="strip"
-      />
+      {/* ─── Shift Summary Strip (Mock 06 Reference, only for employees who log shifts) ─── */}
+      {!isAdmin && !isOperations && (
+        <ShiftTasksTracker
+          dayTarget={dayTarget}
+          loading={isLoading && !dayTarget}
+          variant="strip"
+        />
+      )}
 
       {/* ─── Off-Day Warning Banner ─── */}
       {hideLogCreate && (
@@ -1173,52 +1179,49 @@ export const DailyLogView: React.FC = () => {
          ───────────────────────────────────────────────────────────── */}
       {viewMode === 'log' && (
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 overflow-hidden">
-          {/* Left Card: Add Entry Form (Inline) */}
-          <div className="w-full lg:w-[440px] shrink-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface shrink-0">
-              <h3 className="text-h3 font-semibold text-fg">Add entry</h3>
-              <span className="text-small text-fg-muted font-numeric">{activeSheet}</span>
+          {/* Left Card: Add Entry Form (Inline, only for non-admin & non-operations members who log daily shifts) */}
+          {!isAdmin && !isOperations && (
+            <div className="w-full lg:w-[440px] shrink-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
+              <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface shrink-0">
+                <h3 className="text-h3 font-semibold text-fg">Add entry</h3>
+                <span className="text-small text-fg-muted font-numeric">{activeSheet}</span>
+              </div>
+              <div className="p-4 flex-1 overflow-y-auto">
+                <DailyLogForm
+                  mode="create"
+                  prefilledDate={prefilledDate}
+                  columns={columns}
+                  activeSheet={activeSheet}
+                  currentUser={modalCurrentUser}
+                  existingEntries={modalExistingEntries}
+                  onSaved={handleEntrySaved}
+                  onRefreshRequired={fetchEntries}
+                  layout="card"
+                />
+              </div>
             </div>
-            <div className="p-4 flex-1 overflow-y-auto">
-              <DailyLogForm
-                mode="create"
-                prefilledDate={prefilledDate}
-                columns={columns}
-                activeSheet={activeSheet}
-                currentUser={modalCurrentUser}
-                existingEntries={modalExistingEntries}
-                onSaved={handleEntrySaved}
-                onRefreshRequired={fetchEntries}
-                layout="card"
-              />
-            </div>
-          </div>
+          )}
 
           {/* Right Card: Timeline of Entries */}
           <div className="flex-1 min-w-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
             {/* Toolbar: Range SegmentedControl, Summarize, Export */}
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap shrink-0">
               <div className="flex items-center gap-2">
-                <SegmentedControl
-                  value={datePreset}
-                  onValueChange={handleRangeChange}
-                  options={rangeOptions}
-                />
-
-                {/* Popover for Custom Range */}
+                {/* Range SegmentedControl with Anchored Custom Range Popover */}
                 <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      className="sr-only"
-                      aria-label="Open custom calendar"
-                    >
-                      Calendar
-                    </button>
-                  </PopoverTrigger>
+                  <PopoverAnchor asChild>
+                    <div className="relative inline-flex">
+                      <SegmentedControl
+                        value={datePreset}
+                        onValueChange={handleRangeChange}
+                        options={rangeOptions}
+                      />
+                    </div>
+                  </PopoverAnchor>
                   <PopoverContent
-                    className="p-0 border-0 shadow-none w-auto"
-                    align="start"
+                    className="p-0 border-0 shadow-lg w-auto rounded-lg z-[var(--z-popover,100)]"
+                    align="end"
+                    sideOffset={6}
                   >
                     <DateRangeCalendarPicker
                       initialStartDate={customStartDate}
@@ -1441,25 +1444,22 @@ export const DailyLogView: React.FC = () => {
                 )}
               </div>
 
-              {/* Range SegmentedControl */}
-              <SegmentedControl
-                value={datePreset}
-                onValueChange={handleRangeChange}
-                options={rangeOptions}
-              />
-
-              {/* Popover for Custom Range in Sheet View */}
+              {/* Range SegmentedControl with Anchored Custom Range Popover in Sheet View */}
               <Popover open={isCustomRangeOpen} onOpenChange={setIsCustomRangeOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className="sr-only"
-                    aria-label="Open custom calendar"
-                  >
-                    Calendar
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="p-0 border-0 shadow-none w-auto" align="start">
+                <PopoverAnchor asChild>
+                  <div className="relative inline-flex">
+                    <SegmentedControl
+                      value={datePreset}
+                      onValueChange={handleRangeChange}
+                      options={rangeOptions}
+                    />
+                  </div>
+                </PopoverAnchor>
+                <PopoverContent
+                  className="p-0 border-0 shadow-lg w-auto rounded-lg z-[var(--z-popover,100)]"
+                  align="end"
+                  sideOffset={6}
+                >
                   <DateRangeCalendarPicker
                     initialStartDate={customStartDate}
                     initialEndDate={customEndDate}
@@ -2125,7 +2125,7 @@ export const DailyLogView: React.FC = () => {
 
       {/* ─── Create / Edit Daily Log Modal ─── */}
       <DailyLogModal
-        isOpen={isEntryModalOpen}
+        isOpen={isEntryModalOpen && (!isAdmin && !isOperations || entryModalMode === 'edit')}
         mode={entryModalMode}
         initialData={selectedEntry}
         prefilledDate={prefilledDate}

@@ -1038,7 +1038,7 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
       {/* PROJECT DETAIL SHEET (Drawer) */}
       <Sheet open={!!selectedProject} onOpenChange={(open) => !open && setSelectedProject(null)}>
         {selectedProject && (
-          <SheetContent side="right" size="wide" className="w-full sm:max-w-[560px] p-0 flex flex-col">
+          <SheetContent side="right" size="wide" showClose={false} className="w-full sm:max-w-[560px] p-0 flex flex-col">
             <SheetHeader className="p-5 border-b border-border bg-subtle flex-row items-center justify-between space-y-0">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="w-10 h-10 rounded-lg bg-surface border border-border text-fg font-semibold text-sm flex items-center justify-center shrink-0">

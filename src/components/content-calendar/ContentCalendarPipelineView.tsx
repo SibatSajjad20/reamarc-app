@@ -183,7 +183,7 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
               e.preventDefault();
               void handleDropOnStage(stage);
             }}
-            className={`w-[280px] min-w-[280px] max-w-[280px] flex-shrink-0 flex flex-col rounded-lg transition-colors ${
+            className={`w-[280px] min-w-[280px] max-w-[280px] flex-shrink-0 flex flex-col rounded-lg h-full min-h-0 transition-colors ${
               isColumnOver
                 ? 'bg-accent-soft/30 border-2 border-dashed border-accent shadow-xs'
                 : 'bg-surface border border-border'

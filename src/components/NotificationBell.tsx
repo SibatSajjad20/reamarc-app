@@ -12,7 +12,6 @@ import { apiClient } from '@/services/apiClient';
 import {
   enableWebPush,
   notificationPermission,
-  sendTestPush,
   syncWebPushSubscription,
 } from '@/services/webPushService';
 import { viewForNotificationKind } from '@/utils/notificationRoute';
@@ -107,7 +106,6 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
   const [activeTab, setActiveTab] = useState<'all' | 'unread'>('all');
   const [permission, setPermission] = useState(notificationPermission);
   const [enabling, setEnabling] = useState(false);
-  const [testing, setTesting] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = items.filter((item) => !item.read).length;
@@ -185,15 +183,15 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     }
   };
 
-  const handleTestPopup = async () => {
-    setTesting(true);
+
+  const markOneRead = async (id: string) => {
     try {
-      const result = await sendTestPush();
-      addToast('Notification test', result.message, result.success ? 'info' : 'warning');
-    } catch (err: any) {
-      addToast('Test failed', err.message || 'Could not send test popup.', 'error');
-    } finally {
-      setTesting(false);
+      await apiClient.post(`/mobile/notifications/${encodeURIComponent(id)}/read`);
+      setItems((current) =>
+        current.map((item) => (item.id === id ? { ...item, read: true } : item))
+      );
+    } catch {
+      // Keep state as is on error
     }
   };
 
@@ -201,7 +199,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     onSelectView(viewForNotificationKind(item.kind, user?.role));
     setOpen(false);
     if (!item.read) {
-      void markAllRead();
+      void markOneRead(item.id);
     }
   };
 
@@ -308,21 +306,6 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             </div>
           )}
 
-          {permission === 'granted' && (
-            <div className="px-4 py-2 bg-success-bg text-success-fg border-b border-border flex items-center justify-between text-xs shrink-0">
-              <span className="flex items-center gap-1.5 font-medium">
-                <span className="w-1.5 h-1.5 rounded-full bg-success-dot" /> Desktop alerts active
-              </span>
-              <button
-                type="button"
-                disabled={testing}
-                onClick={() => void handleTestPopup()}
-                className="hover:underline font-medium cursor-pointer disabled:opacity-50"
-              >
-                {testing ? 'Sending…' : 'Send test popup'}
-              </button>
-            </div>
-          )}
 
           {permission === 'denied' && (
             <div className="px-4 py-2 bg-subtle text-fg-muted border-b border-border text-xs shrink-0">

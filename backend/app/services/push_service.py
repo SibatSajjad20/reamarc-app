@@ -59,6 +59,17 @@ async def mark_all_read(user_id: str) -> int:
     return int(result.modified_count or 0)
 
 
+async def mark_one_read(user_id: str, notification_id: str) -> int:
+    db = get_database()
+    if db is None:
+        return 0
+    result = await db.mobile_notifications.update_one(
+        {"user_id": user_id, "id": notification_id},
+        {"$set": {"read": True}},
+    )
+    return int(result.modified_count or 0)
+
+
 async def clear_all_notifications(user_id: str) -> int:
     db = get_database()
     if db is None:
