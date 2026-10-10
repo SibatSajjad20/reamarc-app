@@ -39,6 +39,7 @@ import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { cleanLabel } from '../../utils/websiteProjectStyles';
 import { cn } from '../../lib/utils';
+import { DriveAttach } from '../ui/DriveAttach';
 
 interface Props {
   task?: WebsiteTask | null;
@@ -142,11 +143,6 @@ export const WebsiteTaskModal: React.FC<Props> = ({
   // Files linked to this task
   const [taskFiles, setTaskFiles] = useState<WebsiteFile[]>([]);
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
-  const [isAttachingFile, setIsAttachingFile] = useState(false);
-  const [newFileName, setNewFileName] = useState('');
-  const [newFileFolder, setNewFileFolder] = useState<FileFolder>('development');
-  const [newFileUrl, setNewFileUrl] = useState('');
-  const [isSavingFile, setIsSavingFile] = useState(false);
 
   // Submit states & rate limits
   const [isSaving, setIsSaving] = useState(false);
@@ -155,13 +151,10 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
   const [taskError, setTaskError] = useState<string | null>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
-  const [deliverableError, setDeliverableError] = useState<string | null>(null);
-  const deliverableInputRef = useRef<HTMLInputElement>(null);
 
   // Synchronize when task prop changes
   useEffect(() => {
     setTaskError(null);
-    setDeliverableError(null);
     if (task) {
       setSelectedProjectId(task.project_id);
       setName(task.name);
@@ -334,34 +327,6 @@ export const WebsiteTaskModal: React.FC<Props> = ({
       setTimeout(() => {
         commentCooldownRef.current = false;
       }, 400);
-    }
-  };
-
-  // Attach File to Task
-  const handleAttachFile = async () => {
-    if (!task?.id) return;
-    if (!newFileName.trim()) {
-      setDeliverableError('Deliverable name is required');
-      if (deliverableInputRef.current) deliverableInputRef.current.focus();
-      return;
-    }
-    setIsSavingFile(true);
-    try {
-      await websiteProjectService.createFile(effectiveProject.id, {
-        name: newFileName.trim(),
-        folder: newFileFolder,
-        external_url: newFileUrl.trim() || undefined,
-        task_id: task.id,
-      });
-      addToast('File Attached', `Attached "${newFileName.trim()}" to this task`, 'success');
-      setNewFileName('');
-      setNewFileUrl('');
-      setIsAttachingFile(false);
-      fetchTaskFiles();
-    } catch (err: any) {
-      addToast('Attach Failed', err.message || 'Failed to attach file', 'error');
-    } finally {
-      setIsSavingFile(false);
     }
   };
 
@@ -633,10 +598,10 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 <div className="w-12 h-12 rounded-xl bg-accent-soft flex items-center justify-center text-accent mb-3 shadow-2xs">
                   <MessageSquare className="w-6 h-6" />
                 </div>
-                <h4 className="text-sm font-semibold text-fg mb-1.5">
+                <h4 className="text-label font-semibold text-fg mb-1.5">
                   Deliverables & Discussion
                 </h4>
-                <p className="text-xs text-fg-muted max-w-xs leading-relaxed">
+                <p className="text-small text-fg-muted max-w-xs leading-relaxed">
                   Once this task is created, you can attach deliverable files (Figma, Google Drive, Loom), add feedback notes, and collaborate in real-time.
                 </p>
               </div>
@@ -645,83 +610,51 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 {/* Task Files & Links Section */}
                 <div className="space-y-2.5">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-xs font-semibold text-fg flex items-center gap-1.5">
+                    <h4 className="text-label font-semibold text-fg flex items-center gap-1.5">
                       <FileText className="w-3.5 h-3.5 text-accent" />
                       <span>Deliverables ({taskFiles.length})</span>
                     </h4>
                     {effectiveCanManage && (
-                      <button
-                        type="button"
-                        onClick={() => setIsAttachingFile(!isAttachingFile)}
-                        className="text-xs font-semibold text-accent-text hover:underline flex items-center gap-1 cursor-pointer"
-                      >
-                        <Plus className="w-3.5 h-3.5" /> Attach
-                      </button>
+                      <DriveAttach
+                        getConfig={() => websiteProjectService.getDrivePickerConfig(effectiveProject.id, task?.id)}
+                        onPicked={async (pickedFiles, folder) => {
+                          if (!task?.id) return;
+                          await websiteProjectService.attachDriveFiles(effectiveProject.id, {
+                            task_id: task.id,
+                            folder: (folder as FileFolder) || 'development',
+                            files: pickedFiles.map((f) => ({
+                              id: f.id,
+                              name: f.name,
+                              mime_type: f.mime_type,
+                              url: f.url || `https://drive.google.com/open?id=${f.id}`,
+                              size_bytes: f.size_bytes,
+                            })),
+                          });
+                          fetchTaskFiles();
+                        }}
+                        allowLinks
+                        onAddLink={async (name, url, folder) => {
+                          if (!task?.id) return;
+                          await websiteProjectService.createFile(effectiveProject.id, {
+                            name,
+                            folder: (folder as FileFolder) || 'development',
+                            external_url: url,
+                            task_id: task.id,
+                          });
+                          fetchTaskFiles();
+                        }}
+                        existingLinks={taskFiles.filter((f) => !!f.external_url).map((f) => f.external_url!)}
+                        folders={WEBSITE_FOLDERS.map((f) => ({ value: f.id, label: f.label }))}
+                        defaultFolder="development"
+                        trigger={
+                          <span className="text-xs font-semibold text-accent-text hover:underline flex items-center gap-1 cursor-pointer">
+                            <Plus className="w-3.5 h-3.5" /> Attach
+                          </span>
+                        }
+                        title={`Attach Deliverable — ${task?.name || ''}`}
+                      />
                     )}
                   </div>
-
-                  {/* Attach File Inline Form */}
-                  {isAttachingFile && (
-                    <div className="p-3 rounded-xl border border-accent-pill-bd bg-accent-soft space-y-2.5 animate-in fade-in duration-100">
-                      <div>
-                        <input
-                          ref={deliverableInputRef}
-                          type="text"
-                          value={newFileName}
-                          aria-invalid={!!deliverableError}
-                          onChange={(e) => {
-                            setNewFileName(e.target.value);
-                            if (deliverableError) setDeliverableError(null);
-                          }}
-                          placeholder="File or link label (e.g. Wireframe v2)..."
-                          className={cn(
-                            'w-full px-2.5 py-1.5 rounded-lg text-xs border bg-surface text-fg placeholder:text-fg-muted outline-none',
-                            deliverableError ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
-                          )}
-                        />
-                        {deliverableError && (
-                          <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
-                            <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                            <span>{deliverableError}</span>
-                          </p>
-                        )}
-                      </div>
-                      <input
-                        type="url"
-                        value={newFileUrl}
-                        onChange={(e) => setNewFileUrl(e.target.value)}
-                        placeholder="URL (Figma, Loom, Google Drive)..."
-                        className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-border bg-surface text-fg placeholder:text-fg-muted outline-none"
-                      />
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="w-36">
-                          <CustomSelect
-                            value={newFileFolder}
-                            onChange={(v) => setNewFileFolder(v as FileFolder)}
-                            options={WEBSITE_FOLDERS.map((f) => ({ value: f.id, label: f.label }))}
-                            size="xs"
-                          />
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => setIsAttachingFile(false)}
-                            className="px-2.5 py-1 rounded-lg text-xs text-fg-muted hover:bg-hover"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleAttachFile}
-                            disabled={isSavingFile}
-                            className="px-3 py-1 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 disabled:opacity-50"
-                          >
-                            {isSavingFile ? 'Saving...' : 'Add'}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
 
                   {/* Files List */}
                   <div className="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">

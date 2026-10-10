@@ -19,6 +19,7 @@ import type {
   WebsiteSummaryMetrics,
   TaskComment,
 } from '../types/websiteProject';
+import type { DrivePickerConfig } from '../types/contentCalendar';
 
 export interface WebsiteProjectFilter {
   workspace_id?: string;
@@ -232,6 +233,33 @@ export const websiteProjectService = {
   async deleteFile(projectId: string, fileId: string): Promise<void> {
     await apiClient.delete<void>(`/website-projects/${projectId}/files/${fileId}`);
     emitInvalidation(['website-pipeline', 'dashboard']);
+  },
+
+  async getDrivePickerConfig(projectId: string, taskId?: string): Promise<DrivePickerConfig> {
+    const params = new URLSearchParams();
+    if (taskId) params.set('task_id', taskId);
+    const queryStr = params.toString() ? `?${params.toString()}` : '';
+    return apiClient.get<DrivePickerConfig>(`/website-projects/${projectId}/picker-config${queryStr}`);
+  },
+
+  async attachDriveFiles(
+    projectId: string,
+    payload: {
+      task_id?: string;
+      gate_id?: string;
+      folder?: string;
+      files: Array<{
+        id: string;
+        name: string;
+        mime_type?: string;
+        url: string;
+        size_bytes?: number;
+      }>;
+    }
+  ): Promise<WebsiteFile[]> {
+    const res = await apiClient.post<WebsiteFile[]>(`/website-projects/${projectId}/files/from-drive`, payload);
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   // Activities

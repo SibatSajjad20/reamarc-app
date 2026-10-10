@@ -21,23 +21,15 @@ import {
   Globe,
   ChevronDown,
 } from 'lucide-react';
-import type { CreativeAsset, ContentCalendarItem, AssetRole } from '../../types/contentCalendar';
+import type { CreativeAsset, ContentCalendarItem, AssetRole, DrivePickedFile } from '../../types/contentCalendar';
 import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
 import { contentCalendarService } from '../../services/contentCalendarService';
-import { openGoogleDrivePicker } from '../../services/googlePickerService';
+import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
-
-const GoogleDriveIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M8.28 2.85L1.57 14.5L5 20.45L11.71 8.8L8.28 2.85Z" fill="#3777E3" />
-    <path d="M15.72 2.85H8.28L15 14.5H22.43L15.72 2.85Z" fill="#FFCF63" />
-    <path d="M11.71 8.8L5 20.45H19L22.43 14.5L11.71 8.8Z" fill="#11A861" />
-  </svg>
-);
 
 interface CreativeAssetGalleryProps {
   itemId: string;
@@ -130,7 +122,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const [assetToDelete, setAssetToDelete] = useState<CreativeAsset | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
-  const [isOpeningPicker, setIsOpeningPicker] = useState(false);
+  const [isOpeningPicker] = useState(false);
   const [showUploadMenu, setShowUploadMenu] = useState(false);
 
   // Add Link Modal State
@@ -143,6 +135,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const linkInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const driveAttachRef = useRef<DriveAttachRef>(null);
 
   const activeAsset: CreativeAsset | undefined = assets[selectedIndex] || assets[0];
 
@@ -221,29 +214,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
     }
   };
 
-  const handleOpenGoogleDrivePicker = async () => {
-    if (isUploading || isOpeningPicker) return;
-    setIsOpeningPicker(true);
+  const handlePickedFromDrive = async (pickedFiles: DrivePickedFile[]) => {
+    setIsUploading(true);
+    setUploadProgressText(
+      `Attaching ${pickedFiles.length} file${pickedFiles.length > 1 ? 's' : ''} from Google Drive...`
+    );
     try {
-      const config = await contentCalendarService.getDrivePickerConfig(itemId);
-      if (!config.developer_key) {
-        addToast(
-          'Google API Key Required',
-          'Please configure GOOGLE_DRIVE_API_KEY in your server environment.',
-          'error',
-        );
-        return;
-      }
-      const pickedFiles = await openGoogleDrivePicker({ config });
-      if (!pickedFiles || pickedFiles.length === 0) {
-        return;
-      }
-
-      setIsUploading(true);
-      setUploadProgressText(
-        `Attaching ${pickedFiles.length} file${pickedFiles.length > 1 ? 's' : ''} from Google Drive...`
-      );
-
       const effectiveRole =
         pickedFiles.length > 1 && uploadRole === 'primary' ? 'carousel_slide' : uploadRole;
 
@@ -253,30 +229,21 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
         effectiveRole
       );
 
-      addToast(
-        'Upload Successful',
-        `${pickedFiles.length} asset${pickedFiles.length > 1 ? 's' : ''} attached via Google Drive.`,
-        'success'
-      );
-
       if (onAssetsUpdated) {
         onAssetsUpdated(updatedItem);
       }
       if (updatedItem.attachments && updatedItem.attachments.length > 0) {
         setSelectedIndex(updatedItem.attachments.length - 1);
       }
-    } catch (err: any) {
-      console.error('Google Drive Picker error:', err);
-      addToast(
-        'Google Drive Error',
-        err.message || 'Could not open Google Drive picker dialog.',
-        'error'
-      );
     } finally {
-      setIsOpeningPicker(false);
       setIsUploading(false);
       setUploadProgressText('');
     }
+  };
+
+  const handleOpenGoogleDrivePicker = async () => {
+    if (isUploading || isOpeningPicker) return;
+    await driveAttachRef.current?.openPicker();
   };
 
   const handleDeleteConfirmed = async () => {
@@ -1208,6 +1175,14 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
           </div>
         </div>
       )}
+
+      <DriveAttach
+        ref={driveAttachRef}
+        trigger={null}
+        getConfig={() => contentCalendarService.getDrivePickerConfig(itemId)}
+        onPicked={handlePickedFromDrive}
+        disabled={readOnly}
+      />
     </div>
   );
 };

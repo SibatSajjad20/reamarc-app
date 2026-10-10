@@ -38,6 +38,7 @@ import { useToast } from '../../context/ToastContext';
 import { useConfirm } from '../ui/ConfirmProvider';
 import { canManageWebsiteProject, canEditWebsiteTask } from '../../utils/websiteProjectAccess';
 import { websiteProjectService } from '../../services/websiteProjectService';
+import { DriveAttach } from '../ui/DriveAttach';
 import { getBackendFileUrl } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { Modal } from '../ui/Modal';
@@ -183,13 +184,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
   const [revisionGateKey, setRevisionGateKey] = useState<string | null>(null);
   const [revisionAssigneeId, setRevisionAssigneeId] = useState('');
   const [isCreatingRevision, setIsCreatingRevision] = useState(false);
-
-  // File Upload / Link Modal
-  const [isFileModalOpen, setIsFileModalOpen] = useState(false);
-  const [fileFolder, setFileFolder] = useState<FileFolder>('strategy');
-  const [fileName, setFileName] = useState('');
-  const [fileLinkUrl, setFileLinkUrl] = useState('');
-  const [isAddingFile, setIsAddingFile] = useState(false);
+  const fileFolder: FileFolder = 'strategy';
 
   const canManage = !isClient && canManageWebsiteProject(user, project);
 
@@ -337,27 +332,6 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
       addToast('Error', err.message || 'Failed to create revision task', 'error');
     } finally {
       setIsCreatingRevision(false);
-    }
-  };
-
-  const handleAddFileOrLink = async () => {
-    if (!fileName.trim() || isAddingFile) return;
-    setIsAddingFile(true);
-    try {
-      await websiteProjectService.createFile(project.id, {
-        name: fileName.trim(),
-        folder: fileFolder,
-        external_url: fileLinkUrl.trim() || undefined,
-      });
-      addToast('Added Deliverable', 'File or link attached successfully', 'success');
-      setIsFileModalOpen(false);
-      setFileName('');
-      setFileLinkUrl('');
-      loadData();
-    } catch (err: any) {
-      addToast('Error', err.message || 'Failed to attach file or link', 'error');
-    } finally {
-      setIsAddingFile(false);
     }
   };
 
@@ -933,13 +907,45 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                     Folder-organized deliverables and external links (Figma, Loom, Staging).
                   </p>
                   {canManage && (
-                    <button
-                      type="button"
-                      onClick={() => setIsFileModalOpen(true)}
-                      className="px-3 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 flex items-center gap-1.5 cursor-pointer shadow-2xs"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add File or Link
-                    </button>
+                    <DriveAttach
+                      getConfig={() => websiteProjectService.getDrivePickerConfig(project.id)}
+                      onPicked={async (pickedFiles, folder) => {
+                        await websiteProjectService.attachDriveFiles(project.id, {
+                          folder: (folder as FileFolder) || fileFolder || 'strategy',
+                          files: pickedFiles.map((f) => ({
+                            id: f.id,
+                            name: f.name,
+                            mime_type: f.mime_type,
+                            url: f.url || `https://drive.google.com/open?id=${f.id}`,
+                            size_bytes: f.size_bytes,
+                          })),
+                        });
+                        loadData();
+                        onRefresh();
+                      }}
+                      allowLinks
+                      onAddLink={async (name, url, folder) => {
+                        await websiteProjectService.createFile(project.id, {
+                          name,
+                          folder: (folder as FileFolder) || fileFolder || 'strategy',
+                          external_url: url,
+                        });
+                        loadData();
+                        onRefresh();
+                      }}
+                      existingLinks={files.filter((f) => !!f.external_url).map((f) => f.external_url!)}
+                      folders={WEBSITE_FOLDERS.map((f) => ({ value: f.id, label: f.label }))}
+                      defaultFolder={fileFolder}
+                      trigger={
+                        <button
+                          type="button"
+                          className="px-3 py-1.5 rounded-lg bg-accent text-accent-fg text-xs font-semibold hover:bg-accent/90 flex items-center gap-1.5 cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" /> Attach File or Link
+                        </button>
+                      }
+                      title="Attach Deliverable to Project"
+                    />
                   )}
                 </div>
 
@@ -1042,10 +1048,8 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                     className="p-3 rounded-xl border border-border bg-subtle flex items-start justify-between gap-3 text-xs"
                   >
                     <div>
-                      <span className="font-semibold text-fg">
-                        {act.actor_name || 'System'}:
-                      </span>{' '}
-                      <span className="text-fg-muted">{act.body}</span>
+                      <span className="font-medium text-fg">{act.body}</span>
+                      <span className="text-fg-muted"> · {act.actor_name || 'System'}</span>
                     </div>
                     <span className="text-[10px] text-fg-muted whitespace-nowrap">
                       {act.created_at ? new Date(act.created_at).toLocaleDateString() : ''}
@@ -1180,74 +1184,6 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 onClick={() => revisionGateKey && handleCreateRevisionTask(revisionGateKey)}
               >
                 Create Revision Task
-              </Button>
-            </div>
-          </div>
-        </Modal>
-
-        {/* Modal: Add File or External Link */}
-        <Modal
-          isOpen={isFileModalOpen}
-          onClose={() => setIsFileModalOpen(false)}
-          title="Attach File or Link"
-          maxWidth="md"
-        >
-          <div className="space-y-3">
-            <div>
-              <label className="block text-xs font-semibold text-fg mb-1">
-                Folder
-              </label>
-              <CustomSelect
-                value={fileFolder}
-                onChange={(v) => setFileFolder(v as FileFolder)}
-                options={WEBSITE_FOLDERS.map((f) => ({ value: f.id, label: f.label }))}
-                placeholder="Select folder..."
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-fg mb-1">
-                Deliverable Name *
-              </label>
-              <input
-                type="text"
-                placeholder="e.g. Sitemap Architecture v1 or Figma Prototype..."
-                value={fileName}
-                onChange={(e) => setFileName(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong shadow-2xs"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-fg mb-1">
-                External Link URL (Figma, Loom, Google Drive)
-              </label>
-              <input
-                type="url"
-                placeholder="https://figma.com/file/..."
-                value={fileLinkUrl}
-                onChange={(e) => setFileLinkUrl(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong shadow-2xs"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setIsFileModalOpen(false)}
-                className="px-3 py-1.5 rounded-lg text-xs text-fg-muted hover:bg-hover cursor-pointer"
-              >
-                Cancel
-              </button>
-              <Button
-                type="button"
-                variant="primary"
-                size="sm"
-                loading={isAddingFile}
-                loadingText="Saving…"
-                onClick={handleAddFileOrLink}
-              >
-                Save Attachment
               </Button>
             </div>
           </div>
