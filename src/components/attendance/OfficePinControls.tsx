@@ -62,7 +62,7 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between p-3 rounded-xl bg-warning-subtle border border-warning-border text-warning-fg text-xs">
+      <div className="flex items-center justify-between p-3 rounded-xl bg-warning-bg border border-warning-bd text-warning-fg text-xs">
         <div className="flex items-center gap-2">
           <Lock className="w-4 h-4 text-warning-fg shrink-0" />
           <span className="font-semibold">

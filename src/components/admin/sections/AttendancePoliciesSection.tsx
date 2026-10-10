@@ -822,13 +822,13 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           })}
                         </div>
                       </TD>
-                      <TD className="font-mono text-ui tabular-nums text-fg">
+                      <TD className="font-numeric text-ui tabular-nums text-fg">
                         {shift.start_time} — {shift.end_time}
                       </TD>
-                      <TD className="font-mono text-caption tabular-nums text-fg-muted">
+                      <TD className="font-numeric text-caption tabular-nums text-fg-muted">
                         {shift.grace_period_minutes}m
                       </TD>
-                      <TD className="font-mono text-caption tabular-nums text-fg-muted">
+                      <TD className="font-numeric text-caption tabular-nums text-fg-muted">
                         {(shift.break_duration_minutes || 0) > 0 ? `${shift.break_duration_minutes}m` : '—'}
                       </TD>
                       <TD className="text-caption text-fg-muted tabular-nums">
@@ -1006,7 +1006,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     Allowed arrival window after scheduled shift start before employee is marked late.
                   </div>
                 </div>
-                <span className="font-mono text-ui font-semibold text-fg">30 minutes</span>
+                <span className="font-numeric text-ui font-semibold text-fg">30 minutes</span>
               </div>
 
               <div className="p-3.5 flex items-center justify-between">
@@ -1016,7 +1016,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     Arrival beyond grace period is automatically flagged as late punch on timesheets.
                   </div>
                 </div>
-                <span className="font-mono text-ui font-semibold text-fg">Shift start + 30m</span>
+                <span className="font-numeric text-ui font-semibold text-fg">Shift start + 30m</span>
               </div>
 
               <div className="p-3.5 flex items-center justify-between">
@@ -1026,7 +1026,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     Shifts under 4.0 worked hours or short leaves exceeding 2.0 hours deduct 0.5 day quota.
                   </div>
                 </div>
-                <span className="font-mono text-ui font-semibold text-fg">4.0 hours</span>
+                <span className="font-numeric text-ui font-semibold text-fg">4.0 hours</span>
               </div>
 
               <div className="p-3.5 flex items-center justify-between">
@@ -1036,7 +1036,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     Every 8.0 hours of cumulative monthly undertime triggers 1 full day quota deduction.
                   </div>
                 </div>
-                <span className="font-mono text-ui font-semibold text-fg">8.0 hours</span>
+                <span className="font-numeric text-ui font-semibold text-fg">8.0 hours</span>
               </div>
             </div>
           </div>
@@ -1296,11 +1296,11 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                       }}
                       className={cn(
                         'w-full h-9 px-3 rounded-md bg-surface border text-fg text-ui focus:outline-none focus:border-accent',
-                        shiftErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                        shiftErrors.name ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
                       )}
                     />
                     {shiftErrors.name && (
-                      <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                      <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                         <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                         <span>{shiftErrors.name}</span>
                       </p>
@@ -1415,7 +1415,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     <label className="block text-xs font-medium text-fg-muted uppercase mb-1">
                       Expected Work
                     </label>
-                    <div className="h-9 px-3 rounded-md bg-canvas border border-border flex items-center text-sm font-semibold font-mono text-fg">
+                    <div className="h-9 px-3 rounded-md bg-canvas border border-border flex items-center text-sm font-semibold font-numeric text-fg">
                       {formatHours(editingShift.expected_hours ?? editingShift.expected_work_hours ?? 8)}
                     </div>
                   </div>
@@ -1472,7 +1472,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     />
                   )}
                   {shiftServerError && (
-                    <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                    <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                       <span>{shiftServerError}</span>
                     </p>
@@ -1536,11 +1536,11 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent',
-                    holidayErrors.title ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                    holidayErrors.title ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
                   )}
                 />
                 {holidayErrors.title && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{holidayErrors.title}</span>
                   </p>
@@ -1586,7 +1586,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
               <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-border">
                 <div>
                   {holidayServerError && (
-                    <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                    <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
                       <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                       <span>{holidayServerError}</span>
                     </p>

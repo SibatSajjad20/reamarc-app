@@ -223,7 +223,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
       onClose={onClose}
       title={
         <div className="flex items-center gap-2">
-          <div className="p-2 rounded-xl bg-accent-subtle text-accent">
+          <div className="p-2 rounded-xl bg-accent-soft text-accent">
             <Globe className="w-5 h-5" />
           </div>
           <div>
@@ -266,12 +266,12 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
               if (fieldErrors.name) setFieldErrors((prev) => { const n = { ...prev }; delete n.name; return n; });
             }}
             className={cn(
-              'w-full px-3.5 py-2.5 rounded-xl text-xs border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
-              fieldErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+              'w-full px-3.5 py-2.5 rounded-xl text-xs border bg-subtle text-fg placeholder:text-fg-muted outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
+              fieldErrors.name ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
             )}
           />
           {fieldErrors.name && (
-            <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+            <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
               <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
               <span>{fieldErrors.name}</span>
             </p>
@@ -366,7 +366,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
               placeholder="https://staging.client.com"
               value={stagingUrl}
               onChange={(e) => setStagingUrl(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
             />
           </div>
 
@@ -380,7 +380,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
               placeholder="https://client.com"
               value={liveUrl}
               onChange={(e) => setLiveUrl(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
             />
           </div>
         </div>
@@ -395,7 +395,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
             placeholder="Key deliverables, tech stack, CMS, or client objectives..."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+            className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
           />
         </div>
 
@@ -409,7 +409,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
               />
             )}
             {serverError && (
-              <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+              <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                 <span>{serverError}</span>
               </p>

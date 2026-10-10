@@ -48,6 +48,7 @@ export const NumberStepper: React.FC<NumberStepperProps> = ({
 
       <div className="h-9 px-1 flex items-center justify-between rounded-md bg-surface border border-border-strong shadow-xs focus-within:border-ring-border focus-within:ring-3 focus-within:ring-[var(--ring)]">
         <IconButton
+          type="button"
           variant="ghost"
           size="sm"
           icon={Minus}
@@ -62,6 +63,7 @@ export const NumberStepper: React.FC<NumberStepperProps> = ({
         </div>
 
         <IconButton
+          type="button"
           variant="ghost"
           size="sm"
           icon={Plus}

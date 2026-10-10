@@ -759,7 +759,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 <Button
                   type="button"
                   variant="secondary"
-                  size="sm"
+                  size="md"
                   disabled={busy}
                   onClick={() => {
                     if (!followUpLocal) {
@@ -776,7 +776,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    size="md"
                     disabled={busy}
                     onClick={() => {
                       setFollowUpLocal('');

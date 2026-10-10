@@ -229,7 +229,7 @@ function CountryCodeDropdown({ value, onChange }: CountryCodeDropdownProps) {
       >
         <span className="flex items-center gap-1.5 truncate">
           <span className="text-sm shrink-0 leading-none">{selectedCountry.flag}</span>
-          <span className="text-xs font-mono">{selectedCountry.code}</span>
+          <span className="text-xs font-numeric">{selectedCountry.code}</span>
         </span>
         <ChevronDown
           className={cn('w-3.5 h-3.5 text-fg-muted transition-transform duration-200 shrink-0', isOpen && 'rotate-180 text-fg')}
@@ -257,7 +257,7 @@ function CountryCodeDropdown({ value, onChange }: CountryCodeDropdownProps) {
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm shrink-0 leading-none">{c.flag}</span>
-                  <span className="font-mono font-medium shrink-0">{c.code}</span>
+                  <span className="font-numeric font-medium shrink-0">{c.code}</span>
                   <span className="text-xs text-fg-muted truncate">{c.name}</span>
                 </div>
                 {isSelected && <Check className="w-3.5 h-3.5 shrink-0 text-accent-text" />}
@@ -1159,7 +1159,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                         <span>Available times</span>
                       </div>
                       {selectedDate && (
-                        <span className="text-xs text-fg-muted font-mono font-medium">
+                        <span className="text-xs text-fg-muted font-numeric font-medium">
                           {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                         </span>
                       )}
@@ -1233,7 +1233,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                 <div className="flex items-center justify-between p-3 rounded-md bg-subtle border border-border text-xs">
                   <div className="flex items-center gap-2 text-fg">
                     <CalendarIcon className="w-4 h-4 text-accent shrink-0" />
-                    <span className="font-mono">
+                    <span className="font-numeric">
                       {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                       {' at '}
                       <strong>{selectedSlot.label}</strong> (PKT)
@@ -1249,13 +1249,13 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                 </div>
 
                 {bookingError && (
-                  <div role="alert" className="p-3 rounded-md bg-danger-soft border border-danger-border text-danger-fg text-xs font-medium">
+                  <div role="alert" className="p-3 rounded-md bg-danger-bg border border-danger-bd text-danger-fg text-xs font-medium">
                     {bookingError}
                   </div>
                 )}
 
                 {isLikelyJobSeeker && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-md bg-warning-soft border border-warning-border text-warning-fg text-xs gap-2">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-md bg-warning-bg border border-warning-bd text-warning-fg text-xs gap-2">
                     <span>Applying for a job? Please select Jobs &amp; Careers instead of booking a client meeting.</span>
                     <button
                       type="button"
@@ -1491,7 +1491,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             {topic !== 'jobs_and_career' && step === 3 && bookingResult && (
               <div className="text-center py-6 space-y-5">
                 {/* Success Tile */}
-                <div className="w-10 h-10 rounded-full bg-success-soft text-success-fg flex items-center justify-center mx-auto">
+                <div className="w-10 h-10 rounded-full bg-success-bg text-success-fg flex items-center justify-center mx-auto">
                   <CircleCheck className="w-5 h-5" />
                 </div>
 
@@ -1510,7 +1510,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-fg-muted">Date &amp; Time</span>
-                    <span className="font-mono font-medium text-accent text-right">
+                    <span className="font-numeric font-medium text-accent text-right">
                       {bookingResult.meeting?.date} at {bookingResult.meeting?.time_label} ({bookingResult.meeting?.timezone || config.timezone})
                     </span>
                   </div>
@@ -1530,7 +1530,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
 
                 {/* In-Person vs Virtual Location Info */}
                 {bookingResult.meeting?.meeting_mode === 'in_person' ? (
-                  <div className="max-w-md mx-auto p-3.5 rounded-lg bg-warning-soft border border-warning-border text-left space-y-1.5 text-xs">
+                  <div className="max-w-md mx-auto p-3.5 rounded-lg bg-warning-bg border border-warning-bd text-left space-y-1.5 text-xs">
                     <div className="font-medium text-warning-fg">Office visit</div>
                     <p className="text-fg-muted leading-relaxed">
                       {bookingResult.meeting?.office_address || 'Reamarc Office, Rawalpindi HQ, Pakistan'}
@@ -1604,7 +1604,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
               <div>
                 {candidateSubmitted ? (
                   <div className="text-center py-6 space-y-5">
-                    <div className="w-10 h-10 rounded-full bg-success-soft text-success-fg flex items-center justify-center mx-auto">
+                    <div className="w-10 h-10 rounded-full bg-success-bg text-success-fg flex items-center justify-center mx-auto">
                       <CircleCheck className="w-5 h-5" />
                     </div>
 
@@ -1654,7 +1654,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     </div>
 
                     {candidateError && (
-                      <div role="alert" className="p-3 rounded-md bg-danger-soft border border-danger-border text-danger-fg text-xs font-medium">
+                      <div role="alert" className="p-3 rounded-md bg-danger-bg border border-danger-bd text-danger-fg text-xs font-medium">
                         {candidateError}
                       </div>
                     )}

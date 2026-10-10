@@ -157,11 +157,11 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               }}
               aria-invalid={!!fieldErrors.name}
               className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                fieldErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                fieldErrors.name ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
               }`}
             />
             {fieldErrors.name && (
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                 <span>{fieldErrors.name}</span>
               </div>
@@ -218,11 +218,11 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
                 }}
                 aria-invalid={!!fieldErrors.accountId}
                 className={`w-full h-9 px-3 text-ui font-mono bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.accountId ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.accountId ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.accountId && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.accountId}</span>
                 </div>
@@ -268,7 +268,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               }}
             />
             {serverError && (
-              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+              <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{serverError}</span>
               </div>

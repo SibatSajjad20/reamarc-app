@@ -20,7 +20,7 @@ export const TeamWorkloadCard: React.FC<Props> = ({ workload, isLoading = false 
             Team Workload & Capacity
           </h3>
         </div>
-        <span className="font-mono text-xs text-fg-muted">
+        <span className="font-numeric text-xs text-fg-muted">
           {workload.length} contributors
         </span>
       </div>
@@ -77,31 +77,31 @@ export const TeamWorkloadCard: React.FC<Props> = ({ workload, isLoading = false 
                 </div>
 
                 {/* Col 2: Active Badge */}
-                <div className="text-center font-mono text-[10.5px]">
+                <div className="text-center font-numeric text-[10.5px]">
                   <span className="w-full inline-block px-1.5 py-0.5 rounded-md bg-subtle text-fg font-semibold border border-border">
                     {member.totalActive} active
                   </span>
                 </div>
 
                 {/* Col 3: Revisions Badge */}
-                <div className="text-center font-mono text-[10.5px]">
+                <div className="text-center font-numeric text-[10.5px]">
                   {member.revisions > 0 ? (
-                    <span className="w-full inline-block px-1.5 py-0.5 rounded-md bg-warning-subtle text-warning-fg font-semibold border border-warning-border">
+                    <span className="w-full inline-block px-1.5 py-0.5 rounded-md bg-warning-bg text-warning-fg font-semibold border border-warning-bd">
                       {member.revisions} rev
                     </span>
                   ) : (
-                    <span className="text-fg-subtle text-[10px]">—</span>
+                    <span className="text-fg-muted text-[10px]">—</span>
                   )}
                 </div>
 
                 {/* Col 4: Overdue Badge */}
-                <div className="text-center font-mono text-[10.5px]">
+                <div className="text-center font-numeric text-[10.5px]">
                   {member.overdue > 0 ? (
-                    <span className="w-full inline-block px-1.5 py-0.5 rounded-md bg-danger-subtle text-danger-fg font-semibold border border-danger-border">
+                    <span className="w-full inline-block px-1.5 py-0.5 rounded-md bg-danger-bg text-danger-fg font-semibold border border-danger-bd">
                       {member.overdue} overdue
                     </span>
                   ) : (
-                    <span className="text-fg-subtle text-[10px]">—</span>
+                    <span className="text-fg-muted text-[10px]">—</span>
                   )}
                 </div>
               </div>

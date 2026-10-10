@@ -241,7 +241,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                         Worked
                       </span>
                       <div className="mt-1 flex items-baseline gap-1">
-                        <span className="text-base font-semibold font-mono text-fg">
+                        <span className="text-base font-semibold font-numeric text-fg">
                           {formatHours(data.total_worked_hours)}
                         </span>
                         {data.days.some((d) => d.is_live) && (
@@ -258,7 +258,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                         Logged
                       </span>
                       <div className="mt-1">
-                        <span className="text-base font-semibold font-mono text-accent-text">
+                        <span className="text-base font-semibold font-numeric text-accent-text">
                           {formatHours(data.total_logged_hours)}
                         </span>
                       </div>
@@ -272,7 +272,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                       <div className="mt-1">
                         <span
                           className={cn(
-                            'text-base font-semibold font-mono',
+                            'text-base font-semibold font-numeric',
                             netGapTone === 'deficit'
                               ? 'text-danger-fg'
                               : netGapTone === 'surplus'
@@ -297,7 +297,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                         Submissions
                       </span>
                       <div className="mt-1">
-                        <span className="text-base font-semibold font-mono text-fg">
+                        <span className="text-base font-semibold font-numeric text-fg">
                           {data.days_logged}/{data.days_expected}
                         </span>
                       </div>
@@ -333,7 +333,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
 
                         let cellClass = 'bg-surface border-border text-fg-muted';
                         if (day.status === 'submitted') {
-                          cellClass = 'bg-success-bg border-success-bd text-success-fg hover:border-success-solid';
+                          cellClass = 'bg-success-bg border-success-bd text-success-fg hover:border-success-fg';
                         } else if (day.status === 'missing') {
                           cellClass = 'bg-danger-bg border-danger-bd text-danger-fg hover:border-danger-solid';
                         } else if (day.status === 'in_shift') {
@@ -358,7 +358,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                             <span className="text-[10px] font-medium block opacity-75">
                               {dayLetter}
                             </span>
-                            <span className="text-xs font-mono font-semibold tabular-nums leading-tight">
+                            <span className="text-xs font-numeric font-semibold tabular-nums leading-tight">
                               {dayNumber}
                             </span>
                           </button>
@@ -369,7 +369,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                     {/* Legend */}
                     <div className="flex items-center gap-3 flex-wrap pt-1 text-xs text-fg-muted">
                       <div className="flex items-center gap-1.5">
-                        <span className="w-2 h-2 rounded-full bg-success-solid" />
+                        <span className="w-2 h-2 rounded-full bg-success-dot" />
                         <span>Submitted</span>
                       </div>
                       <div className="flex items-center gap-1.5">
@@ -424,7 +424,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
 
                         let dotColor = 'bg-subtle border-border';
                         if (day.status === 'submitted') {
-                          dotColor = 'bg-success-solid border-success-bd';
+                          dotColor = 'bg-success-dot border-success-bd';
                         } else if (day.status === 'missing') {
                           dotColor = 'bg-danger-solid border-danger-bd';
                         } else if (day.status === 'in_shift') {
@@ -461,14 +461,14 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
 
                                 <div className="flex items-center gap-3 shrink-0">
                                   <div className="text-right">
-                                    <div className="text-xs font-mono font-medium text-fg tabular-nums">
+                                    <div className="text-xs font-numeric font-medium text-fg tabular-nums">
                                       {formatHours(day.logged_hours)}
                                       <span className="text-fg-muted font-normal"> / {formatHours(day.worked_hours)}</span>
                                     </div>
                                     {day.worked_hours > 0 && (
                                       <div
                                         className={cn(
-                                          'text-[10px] font-mono font-semibold tabular-nums',
+                                          'text-[10px] font-numeric font-semibold tabular-nums',
                                           tone === 'deficit'
                                             ? 'text-danger-fg'
                                             : tone === 'surplus'
@@ -498,19 +498,19 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                                   <div className="flex items-center gap-4 text-xs text-fg-muted flex-wrap">
                                     <span>
                                       Check in:{' '}
-                                      <strong className="text-fg font-mono">
+                                      <strong className="text-fg font-numeric">
                                         {day.check_in || '—'}
                                       </strong>
                                     </span>
                                     <span>
                                       Check out:{' '}
-                                      <strong className="text-fg font-mono">
+                                      <strong className="text-fg font-numeric">
                                         {day.check_out || '—'}
                                       </strong>
                                     </span>
                                     <span>
                                       Duration:{' '}
-                                      <strong className="text-fg font-mono">
+                                      <strong className="text-fg font-numeric">
                                         {formatHours(day.worked_hours)}
                                       </strong>
                                       {day.is_live && (
@@ -574,7 +574,7 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
                                                 </div>
                                               )}
                                             </div>
-                                            <div className="shrink-0 font-mono font-medium tabular-nums text-fg bg-subtle px-2 py-0.5 rounded text-xs">
+                                            <div className="shrink-0 font-numeric font-medium tabular-nums text-fg bg-subtle px-2 py-0.5 rounded text-xs">
                                               {formatHours(t.hours_utilized)}
                                             </div>
                                           </div>

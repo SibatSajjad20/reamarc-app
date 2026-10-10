@@ -42,7 +42,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-mono text-fg">
+            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
               {metrics.totalItems}
             </span>
           </div>
@@ -65,7 +65,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-mono text-fg">
+            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
               {metrics.postedCount}
             </span>
           </div>
@@ -73,7 +73,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
         <div className="mt-1">
           <div className="w-full bg-border rounded-full h-1 overflow-hidden">
             <div
-              className="bg-success-solid h-1 rounded-full transition-all duration-300"
+              className="bg-success-fg h-1 rounded-full transition-all duration-300"
               style={{ width: `${Math.min(metrics.completionRate, 100)}%` }}
             />
           </div>
@@ -96,7 +96,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-mono text-fg">
+            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
               {metrics.readyToPostCount}
             </span>
           </div>
@@ -119,7 +119,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-mono text-fg">
+            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
               {metrics.clientReviewCount}
             </span>
           </div>
@@ -142,7 +142,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
             </span>
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-mono text-fg">
+            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
               {metrics.revisionCount}
             </span>
           </div>
@@ -156,7 +156,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
       <div
         className={`rounded-xl p-2.5 sm:p-3 transition-colors flex flex-col justify-between ${
           metrics.overdueCount > 0
-            ? 'bg-danger-subtle border border-danger-border'
+            ? 'bg-danger-bg border border-danger-bd'
             : 'bg-surface border border-border'
         }`}
       >
@@ -172,7 +172,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
               Overdue
             </span>
             {metrics.overdueCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-danger-subtle text-danger-fg border border-danger-border shrink-0">
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-danger-bg text-danger-fg border border-danger-bd shrink-0">
                 <span className="w-1.5 h-1.5 rounded-full bg-danger-solid animate-pulse" />
                 <span>Action Req.</span>
               </span>
@@ -185,7 +185,7 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
           </div>
           <div className="mt-2 flex items-baseline gap-1.5">
             <span
-              className={`text-xl sm:text-2xl font-semibold font-mono ${
+              className={`text-xl sm:text-2xl font-semibold font-numeric ${
                 metrics.overdueCount > 0
                   ? 'text-danger-fg'
                   : 'text-fg'

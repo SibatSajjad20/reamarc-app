@@ -558,7 +558,7 @@ export const ContentCalendarView: React.FC = () => {
                     onClick={handleExportVisible}
                     className="flex items-start gap-2.5 p-2 cursor-pointer"
                   >
-                    <FileSpreadsheet className="w-4 h-4 text-status-success-fg shrink-0 mt-0.5" />
+                    <FileSpreadsheet className="w-4 h-4 text-success-fg shrink-0 mt-0.5" />
                     <div>
                       <div className="text-xs font-semibold text-fg">
                         Export visible view (.xlsx)

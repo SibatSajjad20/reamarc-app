@@ -23,6 +23,7 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
 import { Button } from '../ui/button';
+import { FormFooter } from '../ui/FormFooter';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
 import type { DailyLogEntry, DailyLogColumn } from '../../types/dailyLog';
 import {
@@ -992,34 +993,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         ))}
 
       {/* Form Action Buttons */}
-      <div
-        className={cn(
-          'sticky bottom-0 bg-surface/95 backdrop-blur-xs pt-3 pb-2 border-t border-border flex items-center gap-2 justify-between flex-wrap z-10',
-          isCard ? 'mt-4' : 'mt-6'
-        )}
-      >
-        <div className="flex items-center gap-3 min-w-0 flex-wrap">
-          {errorCount >= 2 && (
-            <button
-              type="button"
-              onClick={() => focusFirstError()}
-              aria-live="polite"
-              className="text-small text-danger-fg hover:underline cursor-pointer flex items-center gap-1.5 font-medium shrink-0"
-            >
-              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
-              <span>{errorCount} fields need attention</span>
-            </button>
-          )}
-
-          {serverError && (
-            <div
-              role="alert"
-              className={cn(
-                'text-small flex items-center gap-1.5 font-medium',
-                isOccConflict ? 'text-warning-fg' : 'text-danger-fg'
-              )}
-            >
-              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+      <FormFooter
+        errorCount={errorCount}
+        onFocusFirst={focusFirstError}
+        serverError={
+          serverError ? (
+            <span className={cn('inline-flex items-center gap-1.5', isOccConflict && 'text-warning-fg')}>
               <span>{serverError}</span>
               {isOccConflict && onRefreshRequired && (
                 <button
@@ -1034,57 +1013,53 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
                   <span>Refresh</span>
                 </button>
               )}
-            </div>
-          )}
-
-          {isUploadingFile && (
-            <span className="text-small text-fg-muted" aria-live="polite">
-              Wait for upload to finish
             </span>
-          )}
-        </div>
-
-        <div className="flex items-center gap-2 ml-auto">
-          {!isCard && onClose && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={onClose}
-              disabled={isSubmitting || isSubmittingAnother}
-            >
-              Cancel
-            </Button>
-          )}
-
-          {mode === 'create' && (
-            <Button
-              type="button"
-              variant="secondary"
-              size="md"
-              onClick={() => handleSave(true)}
-              disabled={isBusy || isDateInvalid}
-              loading={isSubmittingAnother}
-              loadingText="Saving…"
-            >
-              Save & add another
-            </Button>
-          )}
-
+          ) : undefined
+        }
+        uploading={isUploadingFile ? 'Wait for upload to finish' : false}
+        className={cn(
+          isCard ? '-mx-4 -mb-4 px-4 py-3 mt-4' : '-mx-6 -mb-6 px-6 py-3 mt-6'
+        )}
+      >
+        {!isCard && onClose && (
           <Button
             type="button"
-            variant="primary"
+            variant="secondary"
             size="md"
-            onClick={() => handleSave(false)}
-            disabled={isBusy || isDateInvalid}
-            loading={isSubmitting}
-            loadingText="Saving…"
-            icon={CheckCircle2}
+            onClick={onClose}
+            disabled={isSubmitting || isSubmittingAnother}
           >
-            {mode === 'create' ? 'Save entry' : 'Save changes'}
+            Cancel
           </Button>
-        </div>
-      </div>
+        )}
+
+        {mode === 'create' && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="md"
+            onClick={() => handleSave(true)}
+            disabled={isBusy || isDateInvalid}
+            loading={isSubmittingAnother}
+            loadingText="Saving…"
+          >
+            Save & add another
+          </Button>
+        )}
+
+        <Button
+          type="button"
+          variant="primary"
+          size="md"
+          onClick={() => handleSave(false)}
+          disabled={isBusy || isDateInvalid}
+          loading={isSubmitting}
+          loadingText="Saving…"
+          icon={CheckCircle2}
+        >
+          {mode === 'create' ? 'Save entry' : 'Save changes'}
+        </Button>
+      </FormFooter>
     </form>
   );
 };

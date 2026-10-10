@@ -249,7 +249,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-xs font-mono font-medium text-fg-muted hidden sm:inline">
+          <span className="text-xs font-numeric font-medium text-fg-muted hidden sm:inline">
             {item.serial}
           </span>
           <StatusPill status={item.stage} />
@@ -363,7 +363,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             {/* Ad Copy & Strategy Card */}
             <div className="bg-surface rounded-xl border border-border p-6 sm:p-7 space-y-5 shadow-xs">
               <div className="space-y-1">
-                <span className="text-xs font-mono font-medium text-fg-muted">
+                <span className="text-xs font-numeric font-medium text-fg-muted">
                   {item.serial}
                 </span>
                 <h2 className="text-base font-semibold text-fg">

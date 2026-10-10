@@ -759,7 +759,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       {item.badge !== undefined && item.badge > 0 && (
                         <span
                           className={cn(
-                            'ml-auto text-micro leading-4 px-1.5 rounded-full font-mono font-medium whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none',
+                            'ml-auto text-micro leading-4 px-1.5 rounded-full font-numeric font-medium whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none',
                             item.badgeAttention
                               ? 'bg-accent-soft-2 text-accent-text'
                               : 'bg-subtle text-fg-2'

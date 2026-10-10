@@ -454,7 +454,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
                 <div key={stage} className="p-3.5 rounded-xl border border-border bg-subtle/30 space-y-2">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-fg">{stage}</span>
-                    <span className="text-micro text-fg-muted font-mono">{statuses.length} statuses</span>
+                    <span className="text-micro text-fg-muted font-numeric">{statuses.length} statuses</span>
                   </div>
                   <div className="flex flex-wrap gap-1.5">
                     {statuses.map((status) => (

@@ -280,7 +280,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
         <div className="shrink-0">
           {timeInfo ? (
             <span
-              className={`inline-flex items-center gap-1 text-micro font-medium px-2 py-0.5 rounded font-mono ${
+              className={`inline-flex items-center gap-1 text-micro font-medium px-2 py-0.5 rounded font-numeric ${
                 timeInfo.isOverdue
                   ? 'bg-danger-bg text-danger-fg border border-danger-bd'
                   : timeInfo.isToday

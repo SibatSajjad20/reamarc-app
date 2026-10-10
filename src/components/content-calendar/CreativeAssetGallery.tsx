@@ -528,7 +528,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 type="button"
                 onClick={() => setShowUploadMenu((prev) => !prev)}
                 disabled={isUploading || isOpeningPicker}
-                className="px-1 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-contrast hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50"
+                className="px-1 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-fg hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50"
                 title="More upload options"
               >
                 <ChevronDown className="w-3 h-3" />
@@ -738,7 +738,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <h4 className="text-sm font-semibold text-white break-all">
                     {activeAsset.filename}
                   </h4>
-                  <p className="text-xs text-fg-subtle">
+                  <p className="text-xs text-fg-muted">
                     Document deliverable • {formatBytes(activeAsset.size_bytes)}
                   </p>
                 </div>
@@ -1060,7 +1060,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
         <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
           <div className="w-full max-w-sm rounded-xl bg-surface border border-border p-5 space-y-4 shadow-lg">
             <div className="flex items-start gap-3">
-              <div className="p-2 rounded-lg bg-danger-subtle text-danger-fg">
+              <div className="p-2 rounded-lg bg-danger-bg text-danger-fg">
                 <AlertCircle className="w-5 h-5" />
               </div>
               <div className="space-y-1">
@@ -1142,11 +1142,11 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-lg text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden focus:border-accent',
-                    linkError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                    linkError ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
                   )}
                 />
                 {linkError && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{linkError}</span>
                   </p>

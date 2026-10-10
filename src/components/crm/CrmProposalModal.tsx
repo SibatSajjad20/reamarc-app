@@ -713,11 +713,11 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                   aria-invalid={!!fieldErrors.workspaceName}
                   placeholder="e.g. Apex Corporation"
                   className={`w-full text-xs h-8 px-2.5 rounded-md border bg-surface text-fg focus:outline-none ${
-                    fieldErrors.workspaceName ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:ring-1 focus:ring-accent'
+                    fieldErrors.workspaceName ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:ring-1 focus:ring-accent'
                   }`}
                 />
                 {fieldErrors.workspaceName && (
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.workspaceName}</span>
                   </div>
@@ -766,7 +766,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                         onClick={() => handleToggleService(s)}
                         className={`px-2.5 py-1 rounded text-xs font-medium transition-colors cursor-pointer ${
                           isSelected
-                            ? 'bg-accent text-accent-contrast'
+                            ? 'bg-accent text-accent-fg'
                             : 'bg-subtle text-fg-muted hover:text-fg hover:bg-hover'
                         }`}
                       >
@@ -891,7 +891,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                 }}
               />
               {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{serverError}</span>
                 </div>

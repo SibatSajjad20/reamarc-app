@@ -158,7 +158,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
               onDrop={(e) => handleDrop(e, stageConf.id)}
               className={`min-w-[290px] w-[290px] max-w-[290px] flex-shrink-0 flex flex-col rounded-xl bg-surface border transition-all duration-200 ${
                 isOver
-                  ? 'border-accent ring-2 ring-accent/30 bg-accent-subtle'
+                  ? 'border-accent ring-2 ring-accent/30 bg-accent-soft'
                   : 'border-border'
               }`}
             >
@@ -213,7 +213,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                         <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-surface text-fg-muted truncate max-w-[150px] border border-border">
                           {project.client_name}
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text border border-accent-border">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-soft text-accent-text border border-accent-pill-bd">
                           {formatType(project.website_type)}
                         </span>
                       </div>
@@ -234,13 +234,13 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
 
                         {project.on_hold && (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-surface text-fg-muted border border-border">
-                            <PauseCircle className="w-3 h-3 text-fg-subtle" />
+                            <PauseCircle className="w-3 h-3 text-fg-muted" />
                             Paused
                           </span>
                         )}
 
                         {project.stage === 'development' && (
-                          <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-accent-subtle text-accent-text border border-accent-border">
+                          <span className="text-xs font-medium px-2 py-0.5 rounded-md bg-accent-soft text-accent-text border border-accent-pill-bd">
                             Parallel Assets
                           </span>
                         )}
@@ -256,7 +256,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                           <div
                             className={`h-full rounded-full transition-all duration-300 ${
                               project.stage === 'completed'
-                                ? 'bg-success-solid'
+                                ? 'bg-success-fg'
                                 : project.health === 'at_risk'
                                 ? 'bg-danger-solid'
                                 : 'bg-accent'
@@ -274,14 +274,14 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                             className={`w-3.5 h-3.5 ${
                               project.required_tasks_open === 0
                                 ? 'text-success-fg'
-                                : 'text-fg-subtle'
+                                : 'text-fg-muted'
                             }`}
                           />
                           <span>
                             {project.completed_tasks_count}/{project.total_tasks_count} tasks
                           </span>
                           {project.overdue_tasks_count > 0 && (
-                            <span className="px-1.5 py-0.5 rounded bg-danger-subtle text-danger-fg font-semibold text-[10px] border border-danger-border">
+                            <span className="px-1.5 py-0.5 rounded bg-danger-bg text-danger-fg font-semibold text-[10px] border border-danger-bd">
                               {project.overdue_tasks_count} overdue
                             </span>
                           )}
@@ -300,7 +300,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                             <span>{new Date(targetLaunch).toLocaleDateString([], { month: 'short', day: 'numeric' })}</span>
                           </div>
                         ) : (
-                          <span className="text-fg-subtle text-[10px]">No launch date</span>
+                          <span className="text-fg-muted text-[10px]">No launch date</span>
                         )}
                       </div>
 
@@ -338,7 +338,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                             <span className="text-[10px] text-fg-muted truncate max-w-[80px]">
                               {project.manager_name}
                             </span>
-                            <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text font-semibold text-[9px] flex items-center justify-center border border-accent-border">
+                            <div className="w-5 h-5 rounded-full bg-accent-soft text-accent-text font-semibold text-[9px] flex items-center justify-center border border-accent-pill-bd">
                               {project.manager_name.charAt(0).toUpperCase()}
                             </div>
                           </div>
@@ -349,7 +349,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
                 })}
 
                 {stageProjects.length === 0 && (
-                  <div className="h-32 flex flex-col items-center justify-center rounded-xl border border-dashed border-border text-fg-subtle text-xs">
+                  <div className="h-32 flex flex-col items-center justify-center rounded-xl border border-dashed border-border text-fg-muted text-xs">
                     <span>No projects</span>
                   </div>
                 )}

@@ -428,7 +428,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                         <div>
                           {/* Top Meta Line: Serial + Stage Status */}
                           <div className="flex items-center justify-between gap-2">
-                            <span className="text-xs font-mono font-medium text-fg-muted">
+                            <span className="text-xs font-numeric font-medium text-fg-muted">
                               {item.serial}
                             </span>
                             <span
@@ -571,7 +571,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                             className="hover:bg-subtle/50 transition-colors cursor-pointer"
                             onClick={() => openDetail(item)}
                           >
-                            <td className="py-2.5 px-4 font-mono font-medium text-fg-muted">
+                            <td className="py-2.5 px-4 font-numeric font-medium text-fg-muted">
                               {item.serial}
                             </td>
                             <td className="py-2.5 px-4 font-medium text-fg max-w-xs truncate">
@@ -634,7 +634,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                 <div className="flex items-center justify-between gap-3 pr-6">
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-mono font-medium text-fg-muted">
+                      <span className="text-xs font-numeric font-medium text-fg-muted">
                         {detailItem.serial}
                       </span>
                       <StatusPill status={detailItem.stage} />

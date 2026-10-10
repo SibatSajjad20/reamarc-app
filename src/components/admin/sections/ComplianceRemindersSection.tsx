@@ -411,7 +411,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                 >
                   <ChevronLeft className="w-3.5 h-3.5" />
                 </button>
-                <span className="text-xs font-mono font-medium px-1 text-fg tabular-nums">
+                <span className="text-xs font-numeric font-medium px-1 text-fg tabular-nums">
                   {weekLabel}
                 </span>
                 <button
@@ -665,7 +665,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                       <TD>
                         <span
                           className={cn(
-                            'font-mono tabular-nums text-small',
+                            'font-numeric tabular-nums text-small',
                             daysMissing > 0 ? 'text-danger-fg font-semibold' : 'text-fg-muted'
                           )}
                         >
@@ -695,7 +695,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                               }
                             />
                           </div>
-                          <span className="font-mono text-small tabular-nums text-fg-muted w-9">
+                          <span className="font-numeric text-small tabular-nums text-fg-muted w-9">
                             {compliancePct}%
                           </span>
                         </div>

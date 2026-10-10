@@ -394,7 +394,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 <span className="px-2.5 py-0.5 rounded-md text-xs font-semibold bg-subtle text-fg-muted border border-border">
                   {project.client_name}
                 </span>
-                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
+                <span className="px-2 py-0.5 rounded text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
                   {cleanLabel(project.website_type)}
                 </span>
                 {(() => {
@@ -456,7 +456,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-fg">Stage:</span>
-                <span className="px-2 py-0.5 rounded bg-accent-subtle text-accent-text font-semibold border border-accent-border">
+                <span className="px-2 py-0.5 rounded bg-accent-soft text-accent-text font-semibold border border-accent-pill-bd">
                   {cleanLabel(project.stage).toUpperCase()}
                 </span>
               </div>
@@ -539,7 +539,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                         onClick={() => setFilterMyTasks(!filterMyTasks)}
                         className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors cursor-pointer ${
                           filterMyTasks
-                            ? 'bg-accent-subtle border-accent-border text-accent-text font-semibold'
+                            ? 'bg-accent-soft border-accent-pill-bd text-accent-text font-semibold'
                             : 'border-border text-fg-muted hover:bg-hover'
                         }`}
                       >
@@ -623,7 +623,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                           </span>
                           <div className="w-16 h-1.5 bg-canvas border border-border rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-success-solid rounded-full transition-all duration-300"
+                              className="h-full bg-success-fg rounded-full transition-all duration-300"
                               style={{ width: `${progressPct}%` }}
                             />
                           </div>
@@ -653,7 +653,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     onClick={(e) => handleToggleTaskStatus(t.id, e)}
                                     className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center border transition-all cursor-pointer shrink-0 ${
                                       isDone
-                                        ? 'bg-success-solid border-success-solid text-white'
+                                        ? 'bg-success-fg border-success-fg text-white'
                                         : 'border-border hover:border-border-strong bg-surface'
                                     }`}
                                     title={isDone ? 'Mark as incomplete' : 'Mark as done'}
@@ -664,7 +664,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                   <div
                                     className={`mt-0.5 w-5 h-5 rounded-md flex items-center justify-center border shrink-0 cursor-default select-none ${
                                       isDone
-                                        ? 'bg-success-solid/80 border-success-solid/80 text-white'
+                                        ? 'bg-success-fg/80 border-success-fg/80 text-white'
                                         : 'border-border bg-surface'
                                     }`}
                                     title={isDone ? 'Completed' : 'Pending'}
@@ -678,7 +678,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                   {/* Task title */}
                                   <p
                                     className={`text-xs font-medium hover:text-accent-text transition-colors ${
-                                      isDone ? 'line-through text-fg-subtle' : 'text-fg'
+                                      isDone ? 'line-through text-fg-muted' : 'text-fg'
                                     }`}
                                     title="Click to view/edit task details"
                                   >
@@ -690,11 +690,11 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     <span
                                       className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
                                         t.status === 'completed'
-                                          ? 'bg-success-subtle text-success-fg border-success-border'
+                                          ? 'bg-success-bg text-success-fg border-success-bd'
                                           : t.status === 'in_progress'
-                                          ? 'bg-accent-subtle text-accent-text border-accent-border'
+                                          ? 'bg-accent-soft text-accent-text border-accent-pill-bd'
                                           : t.status === 'review'
-                                          ? 'bg-warning-subtle text-warning-fg border-warning-border'
+                                          ? 'bg-warning-bg text-warning-fg border-warning-bd'
                                           : 'bg-surface text-fg-muted border-border'
                                       }`}
                                     >
@@ -708,12 +708,12 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                     </span>
 
                                     {t.kind === 'revision' && (
-                                      <span className="px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text font-semibold text-[10px] border border-accent-border">
+                                      <span className="px-1.5 py-0.5 rounded bg-accent-soft text-accent-text font-semibold text-[10px] border border-accent-pill-bd">
                                         Revision
                                       </span>
                                     )}
                                     {t.kind === 'bug' && (
-                                      <span className="px-1.5 py-0.5 rounded bg-danger-subtle text-danger-fg font-semibold text-[10px] border border-danger-border">
+                                      <span className="px-1.5 py-0.5 rounded bg-danger-bg text-danger-fg font-semibold text-[10px] border border-danger-bd">
                                         Bug
                                       </span>
                                     )}
@@ -766,7 +766,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                         handleDeleteTask(t.id);
                                       }
                                     }}
-                                    className="p-1 rounded text-fg-muted hover:text-danger-fg hover:bg-danger-subtle transition-colors cursor-pointer"
+                                    className="p-1 rounded text-fg-muted hover:text-danger-fg hover:bg-danger-bg transition-colors cursor-pointer"
                                     title="Delete task"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
@@ -830,9 +830,9 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                         final: 'Final Website',
                       };
                       const statusColors: Record<string, string> = {
-                        approved: 'bg-success-subtle text-success-fg border-success-border',
-                        in_review: 'bg-warning-subtle text-warning-fg border-warning-border',
-                        changes_requested: 'bg-danger-subtle text-danger-fg border-danger-border',
+                        approved: 'bg-success-bg text-success-fg border-success-bd',
+                        in_review: 'bg-warning-bg text-warning-fg border-warning-bd',
+                        changes_requested: 'bg-danger-bg text-danger-fg border-danger-bd',
                         draft: 'bg-subtle text-fg-muted border-border',
                       };
 
@@ -906,7 +906,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                                       </p>
                                     )}
                                   </div>
-                                  <span className="text-[10px] text-fg-subtle">
+                                  <span className="text-[10px] text-fg-muted">
                                     {h.timestamp?.slice(0, 10)}
                                   </span>
                                 </div>
@@ -1017,7 +1017,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                           ))}
 
                           {folderFiles.length === 0 && (
-                            <p className="text-xs text-fg-subtle italic py-1">
+                            <p className="text-xs text-fg-muted italic py-1">
                               No files attached
                             </p>
                           )}
@@ -1047,14 +1047,14 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                       </span>{' '}
                       <span className="text-fg-muted">{act.body}</span>
                     </div>
-                    <span className="text-[10px] text-fg-subtle whitespace-nowrap">
+                    <span className="text-[10px] text-fg-muted whitespace-nowrap">
                       {act.created_at ? new Date(act.created_at).toLocaleDateString() : ''}
                     </span>
                   </div>
                 ))}
 
                 {activities.length === 0 && (
-                  <p className="text-xs text-fg-subtle text-center py-8">
+                  <p className="text-xs text-fg-muted text-center py-8">
                     No activity recorded yet.
                   </p>
                 )}
@@ -1110,7 +1110,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               value={submitNotes}
               onChange={(e) => setSubmitNotes(e.target.value)}
               rows={3}
-              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong"
+              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
             />
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -1214,7 +1214,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 placeholder="e.g. Sitemap Architecture v1 or Figma Prototype..."
                 value={fileName}
                 onChange={(e) => setFileName(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong shadow-2xs"
+                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong shadow-2xs"
               />
             </div>
 
@@ -1227,7 +1227,7 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
                 placeholder="https://figma.com/file/..."
                 value={fileLinkUrl}
                 onChange={(e) => setFileLinkUrl(e.target.value)}
-                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong shadow-2xs"
+                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong shadow-2xs"
               />
             </div>
 

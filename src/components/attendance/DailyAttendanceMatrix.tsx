@@ -358,7 +358,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               placeholder="Search employee..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full h-10 pl-8 pr-3 rounded-xl bg-subtle border border-border text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:border-border-strong"
+              className="w-full h-10 pl-8 pr-3 rounded-xl bg-subtle border border-border text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:border-border-strong"
             />
           </div>
         </div>
@@ -444,7 +444,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   ))
                 ) : filteredRows.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-12 text-center text-fg-subtle">
+                    <td colSpan={10} className="py-12 text-center text-fg-muted">
                       No employee records found matching your filters.
                     </td>
                   </tr>
@@ -506,7 +506,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               {row.punch_in}
                             </span>
                           ) : (
-                            <span className="text-fg-subtle font-normal">&mdash;</span>
+                            <span className="text-fg-muted font-normal">&mdash;</span>
                           )}
                         </td>
 
@@ -515,7 +515,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                           {row.punch_out ? (
                             <span>{row.punch_out}</span>
                           ) : (
-                            <span className="text-fg-subtle font-normal">&mdash;</span>
+                            <span className="text-fg-muted font-normal">&mdash;</span>
                           )}
                         </td>
 
@@ -538,7 +538,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                                 <span className="text-accent-text font-semibold">In Progress</span>
                               )
                             ) : (
-                              <span className="text-fg-subtle font-normal">&mdash;</span>
+                              <span className="text-fg-muted font-normal">&mdash;</span>
                             )}
                             {row.overtime_status === 'pending' && (row.pending_overtime_minutes || 0) > 0 && (
                               <p className="text-[10px] font-semibold text-warning-fg" title={row.overtime_reason || 'Pending overtime'}>
@@ -557,33 +557,33 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* Register Status */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           {row.status === 'missed_punch' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                               Missed Punch
                             </span>
                           ) : row.status === 'present' ? (
                             row.is_late ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                                 Late Arrival
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-success-subtle text-success-fg border border-success-border">
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-success-bg text-success-fg border border-success-bd">
                                 Present
                               </span>
                             )
                           ) : row.status === 'late' ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                                Late Arrival
                             </span>
                           ) : row.status === 'wfh' || row.is_wfh_approved ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
                               W.F.H
                             </span>
                           ) : ['sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'on_leave'].includes(row.status) ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-warning-subtle text-warning-fg border border-warning-border capitalize">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-warning-bg text-warning-fg border border-warning-bd capitalize">
                               {row.status.replace('_', ' ')}
                             </span>
                           ) : row.status === 'short_leave' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
                               Short Leave
                             </span>
                           ) : row.status === 'sunday_off' ? (
@@ -595,7 +595,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               1st Sat Off
                             </span>
                           ) : row.status === 'holiday' ? (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
                               Holiday
                             </span>
                           ) : row.status === 'awaiting_checkin' ? (
@@ -603,7 +603,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               Awaiting
                             </span>
                           ) : (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                               Absent
                             </span>
                           )}
@@ -724,7 +724,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   placeholder="Optional reason for manual adjustment (e.g. biometric machine glitch, client visit)..."
                   value={overrideReason}
                   onChange={(e) => setOverrideReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-subtle border border-border text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong"
+                  className="w-full px-3 py-2 rounded-xl bg-subtle border border-border text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
                 />
               </div>
 

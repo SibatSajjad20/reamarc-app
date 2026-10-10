@@ -549,11 +549,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
-                    fieldErrors.leaveReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                    fieldErrors.leaveReason ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
                   )}
                 />
                 {fieldErrors.leaveReason && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.leaveReason}</span>
                   </p>
@@ -753,11 +753,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
-                    fieldErrors.shortLeaveReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                    fieldErrors.shortLeaveReason ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
                   )}
                 />
                 {fieldErrors.shortLeaveReason && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.shortLeaveReason}</span>
                   </p>
@@ -816,11 +816,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
-                    fieldErrors.wfhReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                    fieldErrors.wfhReason ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
                   )}
                 />
                 {fieldErrors.wfhReason && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.wfhReason}</span>
                   </p>
@@ -927,11 +927,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   }}
                   className={cn(
                     'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
-                    fieldErrors.regularizeReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                    fieldErrors.regularizeReason ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
                   )}
                 />
                 {fieldErrors.regularizeReason && (
-                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.regularizeReason}</span>
                   </p>
@@ -950,7 +950,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 />
               )}
               {serverError && (
-                <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{serverError}</span>
                 </p>

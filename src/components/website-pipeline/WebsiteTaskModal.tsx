@@ -14,6 +14,7 @@ import {
   Plus,
 } from 'lucide-react';
 import { Button, IconButton } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import type {
   WebsiteTask,
   WebsiteProject,
@@ -409,7 +410,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
         {/* Header Bar */}
         <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between gap-3 bg-subtle">
           <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-            <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-subtle text-accent-text border border-accent-border">
+            <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
               {cleanLabel(activeStage)}
             </span>
             <span className="px-2 py-0.5 rounded text-xs font-semibold bg-surface text-fg-muted border border-border">
@@ -439,7 +440,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 onClick={handleDeleteTask}
                 loading={isDeleting}
                 label="Delete task"
-                className="text-fg-muted hover:text-danger-fg hover:bg-danger-subtle"
+                className="text-fg-muted hover:text-danger-fg hover:bg-danger-bg"
               />
             )}
             <button
@@ -490,12 +491,12 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 }}
                 placeholder="e.g. Sitemap & Information Architecture..."
                 className={cn(
-                  'w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong transition-all shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
-                  taskError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                  'w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong transition-all shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
+                  taskError ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
                 )}
               />
               {taskError && (
-                <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{taskError}</span>
                 </p>
@@ -596,18 +597,16 @@ export const WebsiteTaskModal: React.FC<Props> = ({
               </div>
 
               <div className="flex flex-col justify-end">
-                <label className={`flex items-center gap-2 h-9 px-2.5 rounded-lg border border-border bg-subtle text-xs font-medium text-fg select-none ${
-                  !effectiveCanManage ? 'cursor-default opacity-80' : 'cursor-pointer'
+                <div className={`flex items-center h-9 px-2.5 rounded-lg border border-border bg-subtle select-none ${
+                  !effectiveCanManage ? 'opacity-80' : ''
                 }`}>
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={required}
                     disabled={!effectiveCanManage}
-                    onChange={(e) => setRequired(e.target.checked)}
-                    className="rounded border-border text-accent focus:ring-0 outline-none disabled:cursor-not-allowed"
+                    onCheckedChange={(c) => setRequired(Boolean(c))}
+                    label="Required Gate"
                   />
-                  <span>Required Gate</span>
-                </label>
+                </div>
               </div>
             </div>
 
@@ -622,7 +621,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 disabled={!canEditTask}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Add task description, acceptance criteria, Figma links, or instructions..."
-                className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong custom-scrollbar shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+                className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong custom-scrollbar shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
               />
             </div>
           </div>
@@ -631,7 +630,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
           <div className="lg:col-span-5 space-y-5 flex flex-col min-h-0 border-t lg:border-t-0 lg:border-l border-border lg:pl-6">
             {isCreateMode ? (
               <div className="flex-1 flex flex-col items-center justify-center p-6 text-center rounded-xl border border-dashed border-border bg-subtle my-auto">
-                <div className="w-12 h-12 rounded-xl bg-accent-subtle flex items-center justify-center text-accent mb-3 shadow-2xs">
+                <div className="w-12 h-12 rounded-xl bg-accent-soft flex items-center justify-center text-accent mb-3 shadow-2xs">
                   <MessageSquare className="w-6 h-6" />
                 </div>
                 <h4 className="text-sm font-semibold text-fg mb-1.5">
@@ -663,7 +662,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
                   {/* Attach File Inline Form */}
                   {isAttachingFile && (
-                    <div className="p-3 rounded-xl border border-accent-border bg-accent-subtle space-y-2.5 animate-in fade-in duration-100">
+                    <div className="p-3 rounded-xl border border-accent-pill-bd bg-accent-soft space-y-2.5 animate-in fade-in duration-100">
                       <div>
                         <input
                           ref={deliverableInputRef}
@@ -676,12 +675,12 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                           }}
                           placeholder="File or link label (e.g. Wireframe v2)..."
                           className={cn(
-                            'w-full px-2.5 py-1.5 rounded-lg text-xs border bg-surface text-fg placeholder:text-fg-subtle outline-none',
-                            deliverableError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                            'w-full px-2.5 py-1.5 rounded-lg text-xs border bg-surface text-fg placeholder:text-fg-muted outline-none',
+                            deliverableError ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border'
                           )}
                         />
                         {deliverableError && (
-                          <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                          <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
                             <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                             <span>{deliverableError}</span>
                           </p>
@@ -692,7 +691,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                         value={newFileUrl}
                         onChange={(e) => setNewFileUrl(e.target.value)}
                         placeholder="URL (Figma, Loom, Google Drive)..."
-                        className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-border bg-surface text-fg placeholder:text-fg-subtle outline-none"
+                        className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-border bg-surface text-fg placeholder:text-fg-muted outline-none"
                       />
                       <div className="flex items-center justify-between gap-2">
                         <div className="w-36">
@@ -782,7 +781,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                         </div>
                       ))
                     ) : (
-                      <p className="text-xs text-fg-subtle italic py-1">No files or links attached yet.</p>
+                      <p className="text-xs text-fg-muted italic py-1">No files or links attached yet.</p>
                     )}
                   </div>
                 </div>
@@ -814,7 +813,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                               />
                               <span className="font-semibold text-fg">{c.user_name}</span>
                             </div>
-                            <span className="text-xs text-fg-subtle">
+                            <span className="text-xs text-fg-muted">
                               {c.created_at ? new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
                             </span>
                           </div>
@@ -822,7 +821,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                         </div>
                       ))
                     ) : (
-                      <p className="text-xs text-fg-subtle italic py-3 text-center">No comments yet. Start the conversation!</p>
+                      <p className="text-xs text-fg-muted italic py-3 text-center">No comments yet. Start the conversation!</p>
                     )}
                   </div>
 
@@ -839,7 +838,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                           handleAddComment();
                         }
                       }}
-                      className="flex-1 px-3 py-1.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong shadow-2xs"
+                      className="flex-1 px-3 py-1.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong shadow-2xs"
                     />
                     <Button
                       type="button"

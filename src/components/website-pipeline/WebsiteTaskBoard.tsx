@@ -38,23 +38,23 @@ function priorityBadge(priority: TaskPriority) {
   switch (priority) {
     case 'urgent':
       return {
-        bg: 'bg-danger-subtle',
+        bg: 'bg-danger-bg',
         text: 'text-danger-fg',
-        border: 'border-danger-border',
+        border: 'border-danger-bd',
         label: 'Urgent',
       };
     case 'high':
       return {
-        bg: 'bg-warning-subtle',
+        bg: 'bg-warning-bg',
         text: 'text-warning-fg',
-        border: 'border-warning-border',
+        border: 'border-warning-bd',
         label: 'High',
       };
     case 'medium':
       return {
-        bg: 'bg-accent-subtle',
+        bg: 'bg-accent-soft',
         text: 'text-accent-text',
-        border: 'border-accent-border',
+        border: 'border-accent-pill-bd',
         label: 'Medium',
       };
     default:
@@ -71,16 +71,16 @@ function kindBadge(kind: TaskKind) {
   switch (kind) {
     case 'bug':
       return {
-        bg: 'bg-danger-subtle',
+        bg: 'bg-danger-bg',
         text: 'text-danger-fg',
-        border: 'border-danger-border',
+        border: 'border-danger-bd',
         label: 'Bug Fix',
       };
     case 'revision':
       return {
-        bg: 'bg-accent-subtle',
+        bg: 'bg-accent-soft',
         text: 'text-accent-text',
-        border: 'border-accent-border',
+        border: 'border-accent-pill-bd',
         label: 'Revision',
       };
     default:
@@ -231,7 +231,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
               onDrop={(e) => handleDrop(e, col.id)}
               className={`min-w-[300px] w-[310px] max-w-[310px] flex-shrink-0 flex flex-col rounded-xl bg-surface border transition-all duration-200 ${
                 isOver
-                  ? 'border-accent ring-2 ring-accent/30 bg-accent-subtle'
+                  ? 'border-accent ring-2 ring-accent/30 bg-accent-soft'
                   : 'border-border'
               }`}
             >
@@ -291,7 +291,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                           <Globe className="w-3 h-3 text-accent shrink-0" />
                           <span className="truncate">{projectName}</span>
                         </span>
-                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-subtle text-accent-text border border-accent-border">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-accent-soft text-accent-text border border-accent-pill-bd">
                           {stageLabel(task.stage)}
                         </span>
                       </div>
@@ -318,7 +318,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                         )}
 
                         {task.required && (
-                          <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-warning-fg bg-warning-subtle px-1.5 py-0.5 rounded-md border border-warning-border">
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-warning-fg bg-warning-bg px-1.5 py-0.5 rounded-md border border-warning-bd">
                             <CheckCircle2 className="w-2.5 h-2.5" /> Required
                           </span>
                         )}
@@ -339,7 +339,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                               <span className="truncate max-w-[90px]">{task.assignee_name}</span>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-1 text-fg-subtle">
+                            <div className="flex items-center gap-1 text-fg-muted">
                               <User className="w-3.5 h-3.5" />
                               <span>Unassigned</span>
                             </div>
@@ -366,7 +366,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                               {isOverdue ? (
                                 <AlertCircle className="w-3 h-3 text-danger-fg" />
                               ) : (
-                                <Calendar className="w-3 h-3 text-fg-subtle" />
+                                <Calendar className="w-3 h-3 text-fg-muted" />
                               )}
                               <span>{task.due_date}</span>
                             </span>
@@ -378,7 +378,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                 })}
 
                 {colTasks.length === 0 && (
-                  <div className="py-8 text-center text-xs text-fg-subtle italic">
+                  <div className="py-8 text-center text-xs text-fg-muted italic">
                     No tasks in {col.title}
                   </div>
                 )}

@@ -152,7 +152,7 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
   }, [draggingItem, actor, runAction, addToast, prompt]);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-bg">
+    <div className="flex-1 min-h-0 flex flex-col bg-canvas">
       <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
       {stages.map((stage, stageIdx) => {
         const stageItems = byStage[stage] || [];
@@ -192,7 +192,7 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
                   {stage}
                 </h3>
               </div>
-              <span className="text-xs font-mono font-medium px-2 py-0.5 rounded-full bg-subtle text-fg-muted">
+              <span className="text-xs font-numeric font-medium px-2 py-0.5 rounded-full bg-subtle text-fg-muted">
                 {stageItems.length}
               </span>
             </div>
@@ -357,7 +357,7 @@ function StageCardList({
                 <div className="flex items-center justify-between gap-1.5 mb-2">
                   <div className="flex items-center gap-1.5 truncate min-w-0">
                     {renderPlatformIcon(item)}
-                    <span className="font-mono font-medium text-xs text-accent shrink-0">
+                    <span className="font-numeric font-medium text-xs text-accent shrink-0">
                       {item.serial}
                     </span>
                     {item.client_name && (
@@ -581,7 +581,7 @@ function StageCardList({
                       </span>
                       {counts.images > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-numeric text-fg-muted bg-subtle border border-border"
                           title={`${counts.images} image${counts.images > 1 ? 's' : ''}`}
                         >
                           <ImageIcon className="w-2.5 h-2.5" />
@@ -590,7 +590,7 @@ function StageCardList({
                       )}
                       {counts.videos > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-numeric text-fg-muted bg-subtle border border-border"
                           title={`${counts.videos} video${counts.videos > 1 ? 's' : ''}`}
                         >
                           <Film className="w-2.5 h-2.5" />
@@ -599,7 +599,7 @@ function StageCardList({
                       )}
                       {counts.links > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-numeric text-fg-muted bg-subtle border border-border"
                           title={`${counts.links} link${counts.links > 1 ? 's' : ''}`}
                         >
                           <Link2 className="w-2.5 h-2.5" />
@@ -608,7 +608,7 @@ function StageCardList({
                       )}
                       {counts.docs > 0 && (
                         <span
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-mono text-fg-muted bg-subtle border border-border"
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-sm text-caption font-numeric text-fg-muted bg-subtle border border-border"
                           title={`${counts.docs} document${counts.docs > 1 ? 's' : ''}`}
                         >
                           <FileText className="w-2.5 h-2.5" />
@@ -654,7 +654,7 @@ function StageCardList({
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
                           {dateStr ? (
                             <span
-                              className={`font-mono text-caption inline-flex items-center gap-1 font-medium shrink-0 ${
+                              className={`font-numeric text-caption inline-flex items-center gap-1 font-medium shrink-0 ${
                                 isOverdue
                                   ? 'text-danger-fg bg-danger-bg px-1.5 py-0.5 rounded-sm'
                                   : isToday

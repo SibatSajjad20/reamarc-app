@@ -583,7 +583,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   onClick={() => setStatus('active')}
                   className={`px-3 py-2 rounded-lg text-xs font-semibold border transition flex items-center justify-center gap-2 cursor-pointer select-none ${
                     status === 'active'
-                      ? 'bg-success-subtle border-success-border text-success-fg ring-2 ring-success-border/20'
+                      ? 'bg-success-bg border-success-bd text-success-fg ring-2 ring-success-bd/20'
                       : 'bg-subtle border-border text-fg-muted hover:border-border-strong'
                   }`}
                 >
@@ -708,7 +708,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 {selectedServices.length === 0 && (
-                  <span className="text-caption font-semibold text-danger-fg bg-danger-subtle px-2 py-0.5 rounded-full border border-danger-border">
+                  <span className="text-caption font-semibold text-danger-fg bg-danger-bg px-2 py-0.5 rounded-full border border-danger-bd">
                     At least 1 required
                   </span>
                 )}
@@ -756,7 +756,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             </div>
 
             {uploadError && (
-              <div className="p-2.5 rounded-lg bg-danger-subtle border border-danger-border text-danger-fg text-xs flex items-center gap-2">
+              <div className="p-2.5 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs flex items-center gap-2">
                 <X className="w-3.5 h-3.5 shrink-0" />
                 <span>{uploadError}</span>
               </div>
@@ -773,7 +773,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                       {proposalName || 'Client Proposal Document'}
                     </p>
                     {proposalSize && (
-                      <p className="text-caption text-fg-muted font-mono mt-0.5">
+                      <p className="text-caption text-fg-muted font-numeric mt-0.5">
                         {formatFileSize(proposalSize)}
                       </p>
                     )}

@@ -122,14 +122,14 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
                             : 'border-border-strong bg-transparent'
                         }`}
                       >
-                        {selected && <span className="w-1.5 h-1.5 rounded-full bg-accent-contrast" />}
+                        {selected && <span className="w-1.5 h-1.5 rounded-full bg-accent-fg" />}
                       </span>
                     </button>
                   );
                 })}
               </div>
               {reasonError && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{reasonError}</span>
                 </div>
@@ -152,7 +152,7 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
 
           <DialogFooter className="p-4 pt-3 border-t border-border flex items-center justify-between">
             {serverError ? (
-              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+              <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{serverError}</span>
               </div>

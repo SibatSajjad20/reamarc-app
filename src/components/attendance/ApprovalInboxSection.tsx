@@ -700,7 +700,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenReview(req, 'approved');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-success-fg hover:bg-success-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-success-fg hover:bg-success-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5 text-success-fg" />
                                     <span>Approve Request</span>
@@ -711,7 +711,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenReview(req, 'needs_info');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <HelpCircle className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Ask for Info</span>
@@ -722,7 +722,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenReview(req, 'rejected');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <XCircle className="w-3.5 h-3.5 text-danger-fg" />
                                     <span>Reject Request</span>
@@ -740,7 +740,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       handleOpenEditStatus(req);
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <Edit3 className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Edit Decision</span>
@@ -759,7 +759,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setClarifyingItem(req);
                                       setClarifyResponseText('');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <MessageSquare className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Reply to HR</span>
@@ -778,7 +778,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setAppealingItem(req);
                                       setAppealReasonText('');
                                     }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <CornerUpLeft className="w-3.5 h-3.5 text-accent-text" />
                                     <span>Appeal Rejection</span>
@@ -796,7 +796,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                                       setOpenDropdownId(null);
                                       setDeletingItem(req);
                                     }}
-                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-subtle flex items-center gap-2 font-semibold cursor-pointer transition-colors"
+                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
                                   >
                                     <Trash2 className="w-3.5 h-3.5 text-danger-fg" />
                                     <span>Delete Request</span>

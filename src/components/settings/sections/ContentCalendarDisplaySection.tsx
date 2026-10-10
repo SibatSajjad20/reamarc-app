@@ -105,7 +105,7 @@ export const ContentCalendarDisplaySection: React.FC = () => {
               <ZoomIn size={16} />
             </button>
 
-            <span className="text-xs font-mono font-medium text-fg min-w-12 text-right">
+            <span className="text-xs font-numeric font-medium text-fg min-w-12 text-right">
               {zoomLevel}%
             </span>
           </div>
@@ -139,7 +139,7 @@ export const ContentCalendarDisplaySection: React.FC = () => {
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold">{preset.label}</span>
-                    <span className="text-micro font-mono text-fg-muted">{preset.px}px</span>
+                    <span className="text-micro font-numeric text-fg-muted">{preset.px}px</span>
                   </div>
                   <p className="text-micro text-fg-muted mt-1 leading-normal">
                     {preset.desc}
@@ -150,7 +150,7 @@ export const ContentCalendarDisplaySection: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-3 pt-2">
-            <span className="text-micro font-mono text-fg-muted w-10 text-right">28px</span>
+            <span className="text-micro font-numeric text-fg-muted w-10 text-right">28px</span>
             <input
               type="range"
               min="28"
@@ -160,8 +160,8 @@ export const ContentCalendarDisplaySection: React.FC = () => {
               onChange={(e) => handleRowHeightChange(Number(e.target.value))}
               className="flex-1 accent-accent h-2 bg-subtle rounded-lg cursor-pointer"
             />
-            <span className="text-micro font-mono text-fg-muted w-10">80px</span>
-            <span className="text-xs font-mono font-medium text-fg min-w-12 text-right">
+            <span className="text-micro font-numeric text-fg-muted w-10">80px</span>
+            <span className="text-xs font-numeric font-medium text-fg min-w-12 text-right">
               {defaultRowHeight}px
             </span>
           </div>

@@ -607,7 +607,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         >
           <div
             ref={resizeTooltipRef}
-            className="absolute top-2 -left-6 px-1.5 py-0.5 bg-accent text-accent-contrast text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
+            className="absolute top-2 -left-6 px-1.5 py-0.5 bg-accent text-accent-fg text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
           />
         </div>
 
@@ -619,7 +619,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
         >
           <div
             ref={rowResizeTooltipRef}
-            className="absolute left-2 -top-6 px-1.5 py-0.5 bg-accent text-accent-contrast text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
+            className="absolute left-2 -top-6 px-1.5 py-0.5 bg-accent text-accent-fg text-[10px] font-medium rounded-sm shadow-xs pointer-events-none select-none"
           />
         </div>
 
@@ -631,7 +631,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
               {/* Row Index Header */}
               <th
                 style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
-                className="h-8 p-1.5 text-center font-mono text-xs font-medium border-b border-r border-border bg-subtle text-fg-muted z-30"
+                className="h-8 p-1.5 text-center font-numeric text-xs font-medium border-b border-r border-border bg-subtle text-fg-muted z-30"
               >
                 #
               </th>
@@ -682,7 +682,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                           }}
                           className={`p-1 rounded-sm transition-colors cursor-pointer shrink-0 ${
                             hasActiveFilter
-                              ? 'bg-accent text-accent-contrast font-medium shadow-xs'
+                              ? 'bg-accent text-accent-fg font-medium shadow-xs'
                               : 'text-fg-muted hover:text-fg hover:bg-hover'
                           }`}
                           title={`Filter by ${col.label}`}
@@ -885,7 +885,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                         onClick={() => onSelectItem(item)}
                         style={{ width: '44px', minWidth: '44px', maxWidth: '44px' }}
                         title="Click to view details in inspector"
-                        className="h-[var(--cc-row-height)] p-2 text-center font-mono text-xs font-medium text-fg-muted border-b border-r border-border bg-subtle/30 select-none group-hover:bg-subtle/60 overflow-hidden py-0 align-middle relative cursor-pointer"
+                        className="h-[var(--cc-row-height)] p-2 text-center font-numeric text-xs font-medium text-fg-muted border-b border-r border-border bg-subtle/30 select-none group-hover:bg-subtle/60 overflow-hidden py-0 align-middle relative cursor-pointer"
                       >
                         <span>{rowNumber}</span>
                         {/* Row Height Resize Handle */}
@@ -938,7 +938,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                             {col.key === 'serial' ? (
                               <div
                                 onClick={() => onSelectItem(item)}
-                                className="flex items-center justify-center gap-1.5 cursor-pointer font-mono text-xs font-medium text-accent hover:underline text-center"
+                                className="flex items-center justify-center gap-1.5 cursor-pointer font-numeric text-xs font-medium text-accent hover:underline text-center"
                                 title="Click to view details"
                               >
                                 {renderPlatformIcon(item)}
@@ -1065,7 +1065,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     if (e.key === 'Enter') commitCellEdit(item.id, col.key, cellEditValue);
                                     if (e.key === 'Escape') setEditingCell(null);
                                   }}
-                                  className="w-full h-[26px] text-xs font-mono bg-surface text-fg border border-accent rounded-sm px-1.5 focus:outline-hidden cursor-pointer"
+                                  className="w-full h-[26px] text-xs font-numeric bg-surface text-fg border border-accent rounded-sm px-1.5 focus:outline-hidden cursor-pointer"
                                 />
                               ) : col.key === 'design_owner' ? (
                                 <CustomSelect
@@ -1144,7 +1144,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                     {(() => {
                                       const counts = getAssetCounts(item.attachments);
                                       if (counts.total === 0) {
-                                        return <span className="text-fg-muted font-mono text-[10px]">—</span>;
+                                        return <span className="text-fg-muted font-numeric text-[10px]">—</span>;
                                       }
                                       return (
                                         <div className="flex items-center gap-1 overflow-hidden">
@@ -1153,22 +1153,22 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                             <span>{counts.total}</span>
                                           </span>
                                           {counts.images > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric">
                                               {counts.images} img
                                             </span>
                                           )}
                                           {counts.videos > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric">
                                               {counts.videos} vid
                                             </span>
                                           )}
                                           {counts.links > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric">
                                               {counts.links} link
                                             </span>
                                           )}
                                           {counts.docs > 0 && (
-                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono">
+                                            <span className="text-[9px] px-1 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric">
                                               {counts.docs} doc
                                             </span>
                                           )}

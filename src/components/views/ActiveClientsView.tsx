@@ -146,13 +146,13 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   }, [selectedClient]);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-bg p-6">
+    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-canvas p-6">
       {/* Page Header */}
       <PageHeader
         title={
           <div className="flex items-center gap-2.5">
             <span>Active clients</span>
-            <span className="px-2 py-0.5 text-xs font-mono font-medium rounded-full bg-subtle text-fg-muted border border-border">
+            <span className="px-2 py-0.5 text-xs font-numeric font-medium rounded-full bg-subtle text-fg-muted border border-border">
               {filteredWorkspaces.length}
             </span>
           </div>
@@ -293,7 +293,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       <PriorityBadge priority={ws.priority} />
                     </TD>
                     <TD>
-                      <span className="font-mono text-xs text-fg-muted">
+                      <span className="font-numeric text-xs text-fg-muted">
                         {ws.contract_end_date || 'Ongoing'}
                       </span>
                     </TD>
@@ -347,7 +347,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       <Calendar className="w-3.5 h-3.5 text-accent" />
                       <span>Contract</span>
                     </h3>
-                    <p className="text-xs font-mono text-fg-muted">
+                    <p className="text-xs font-numeric text-fg-muted">
                       {formatContractDate(selectedClient.contract_start_date) || 'Start'} →{' '}
                       {formatContractDate(selectedClient.contract_end_date) || 'Ongoing'}
                     </p>
@@ -401,7 +401,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       {selectedClient.poc_phone && (
                         <a
                           href={`tel:${selectedClient.poc_phone}`}
-                          className="text-fg-muted hover:text-fg flex items-center gap-1.5 text-xs font-mono"
+                          className="text-fg-muted hover:text-fg flex items-center gap-1.5 text-xs font-numeric"
                           title={selectedClient.poc_phone}
                         >
                           <Phone className="w-3.5 h-3.5 shrink-0 text-success-fg" />

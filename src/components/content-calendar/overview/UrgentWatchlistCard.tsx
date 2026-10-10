@@ -25,11 +25,11 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
             Action Needed / Escalation Watchlist
           </h3>
           {watchlist.length > 0 ? (
-            <span className="font-mono text-[10.5px] font-semibold px-1.5 py-0.5 rounded-md bg-danger-subtle text-danger-fg border border-danger-border">
+            <span className="font-numeric text-[10.5px] font-semibold px-1.5 py-0.5 rounded-md bg-danger-bg text-danger-fg border border-danger-bd">
               {watchlist.length} urgent
             </span>
           ) : (
-            <span className="font-mono text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-surface text-fg-muted border border-border">
+            <span className="font-numeric text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-surface text-fg-muted border border-border">
               0 urgent
             </span>
           )}
@@ -93,7 +93,7 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                           <span className="font-semibold text-xs text-fg truncate">
                             {item.client_name || 'No client'}
                           </span>
-                          <span className="font-mono text-[10px] font-medium text-fg-muted shrink-0">
+                          <span className="font-numeric text-[10px] font-medium text-fg-muted shrink-0">
                             #{item.serial}
                           </span>
                         </div>
@@ -113,12 +113,12 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                     {/* Urgency Badge (Semantic Rose/Amber) */}
                     <td className="py-2 px-2.5 text-center whitespace-nowrap">
                       {entry.severity === 'danger' ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-danger-subtle text-danger-fg border border-danger-border">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                           <span className="w-1.5 h-1.5 rounded-full bg-danger-solid" />
                           <span>{entry.reasonLabel}</span>
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-warning-subtle text-warning-fg border border-warning-border">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-warning-bg text-warning-fg border border-warning-bd">
                           <span className="w-1.5 h-1.5 rounded-full bg-warning-solid" />
                           <span>{entry.reasonLabel}</span>
                         </span>
@@ -126,7 +126,7 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                     </td>
 
                     {/* Target Date */}
-                    <td className="py-2 px-2.5 text-right font-mono text-fg-muted whitespace-nowrap text-xs">
+                    <td className="py-2 px-2.5 text-right font-numeric text-fg-muted whitespace-nowrap text-xs">
                       {dateStr ? dateStr.split('T')[0] : 'None'}
                     </td>
 

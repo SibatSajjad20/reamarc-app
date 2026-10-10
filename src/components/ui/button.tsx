@@ -72,6 +72,8 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     const isDisabled = disabled || loading;
     const iconSize = size === 'sm' ? 14 : 16;
 
+    const buttonType = Comp === 'button' ? (props.type ?? 'button') : props.type;
+
     return (
       <Comp
         className={cn(
@@ -82,6 +84,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         disabled={isDisabled}
         aria-busy={loading ? 'true' : undefined}
         {...props}
+        type={buttonType}
       >
         {loading ? (
           <LoaderCircle className="animate-spin" size={iconSize} aria-hidden="true" />

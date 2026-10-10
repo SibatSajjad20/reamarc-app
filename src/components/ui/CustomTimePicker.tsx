@@ -67,6 +67,17 @@ export const CustomTimePicker: React.FC<CustomTimePickerProps> = ({
             required={required}
             disabled={disabled}
             value={safeValue}
+            onClick={(e) => {
+              if (disabled) return;
+              const input = e.currentTarget;
+              if (typeof (input as any).showPicker === 'function') {
+                try {
+                  (input as any).showPicker();
+                } catch {
+                  // ignore
+                }
+              }
+            }}
             onChange={(e) => onChange(e.target.value.slice(0, 5))}
             aria-label={ariaLabel}
             aria-labelledby={ariaLabelledby}

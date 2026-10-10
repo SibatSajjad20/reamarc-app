@@ -637,7 +637,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
 
         {/* Rate limit notification */}
         {rateLimited && (
-          <div className="px-5 py-2 bg-warning-subtle border-b border-warning-border text-warning-fg text-xs flex items-center gap-2 shrink-0">
+          <div className="px-5 py-2 bg-warning-bg border-b border-warning-bd text-warning-fg text-xs flex items-center gap-2 shrink-0">
             <AlertCircle className="w-4 h-4 text-warning-fg shrink-0" />
             <span>Rate limit reached. Automatic sync paused briefly and will resume in 30 seconds.</span>
           </div>

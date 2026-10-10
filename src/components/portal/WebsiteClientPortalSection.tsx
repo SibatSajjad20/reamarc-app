@@ -257,9 +257,9 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 <Inbox className="w-3.5 h-3.5" />
                 <span>Pending Approvals</span>
                 <span
-                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-mono ${
+                  className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold font-numeric ${
                     pendingGates.length > 0
-                      ? 'bg-warning-subtle text-warning-fg border border-warning-border'
+                      ? 'bg-warning-bg text-warning-fg border border-warning-bd'
                       : 'bg-subtle text-fg-muted border border-border'
                   }`}
                 >
@@ -278,7 +278,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
               >
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>Website Pipeline</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted border border-border font-mono">
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted border border-border font-numeric">
                   {WEBSITE_STAGES_CONFIG.length}
                 </span>
               </button>
@@ -386,7 +386,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                           href={safeHttpUrl(activeProject.live_url)}
                           target="_blank"
                           rel="noreferrer"
-                          className="px-3 py-1.5 rounded-lg border border-success-border bg-success-subtle text-success-fg text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-colors"
+                          className="px-3 py-1.5 rounded-lg border border-success-bd bg-success-bg text-success-fg text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-colors"
                         >
                           <Globe className="w-3.5 h-3.5" /> Live Website
                         </a>
@@ -398,7 +398,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                   <div className="space-y-2 pt-1">
                     <div className="flex items-center justify-between text-xs text-fg-muted font-normal">
                       <span>Overall Delivery Progress</span>
-                      <span className="font-semibold text-fg font-mono">
+                      <span className="font-semibold text-fg font-numeric">
                         {activeProject.progress}%
                       </span>
                     </div>
@@ -442,7 +442,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                       {pendingGates.map((gate) => (
                         <div
                           key={gate.id}
-                          className="p-5 rounded-xl bg-warning-subtle border border-warning-border space-y-4"
+                          className="p-5 rounded-xl bg-warning-bg border border-warning-bd space-y-4"
                         >
                           <div className="flex flex-wrap items-start justify-between gap-3">
                             <div>
@@ -450,7 +450,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                                 <span className="px-2 py-0.5 rounded text-xs font-semibold bg-warning-solid text-white">
                                   Action Required
                                 </span>
-                                <span className="text-xs font-mono text-fg-muted">
+                                <span className="text-xs font-numeric text-fg-muted">
                                   Round {gate.round}
                                 </span>
                               </div>
@@ -505,7 +505,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                   </div>
                 ) : (
                   <div className="rounded-xl border border-dashed border-border bg-surface p-6 text-center space-y-2">
-                    <div className="inline-flex p-2.5 rounded-xl bg-success-subtle text-success-fg border border-success-border">
+                    <div className="inline-flex p-2.5 rounded-xl bg-success-bg text-success-fg border border-success-bd">
                       <CheckCircle2 className="w-5 h-5" />
                     </div>
                     <div className="max-w-md mx-auto space-y-1">
@@ -538,9 +538,9 @@ export const WebsiteClientPortalSection: React.FC = () => {
                           key={stageConf.id}
                           className={`p-3.5 rounded-xl border transition-all ${
                             isCurrent
-                              ? 'border-accent bg-accent-subtle'
+                              ? 'border-accent bg-accent-soft'
                               : isPassed
-                              ? 'border-success-border bg-success-subtle'
+                              ? 'border-success-bd bg-success-bg'
                               : 'border-border bg-subtle'
                           }`}
                         >
@@ -566,7 +566,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                                     ? 'text-success-fg'
                                     : stageGate.status === 'in_review'
                                     ? 'text-warning-fg'
-                                    : 'text-fg-subtle'
+                                    : 'text-fg-muted'
                                 }`}
                               >
                                 {cleanLabel(stageGate.status)}
@@ -632,9 +632,9 @@ export const WebsiteClientPortalSection: React.FC = () => {
 
                     {files.length === 0 && (
                       <div className="p-8 text-center rounded-xl border border-dashed border-border text-xs text-fg-muted col-span-full">
-                        <FileText className="w-6 h-6 mx-auto mb-2 text-fg-subtle stroke-1" />
+                        <FileText className="w-6 h-6 mx-auto mb-2 text-fg-muted stroke-1" />
                         <p className="font-medium text-fg">No deliverables shared yet</p>
-                        <p className="text-xs text-fg-subtle mt-0.5">Project files, prototypes, and asset links will be listed here as stages progress.</p>
+                        <p className="text-xs text-fg-muted mt-0.5">Project files, prototypes, and asset links will be listed here as stages progress.</p>
                       </div>
                     )}
                   </div>
@@ -730,7 +730,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
               }
               value={decisionComment}
               onChange={(e) => setDecisionComment(e.target.value)}
-              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle focus:outline-none focus:border-border-strong"
+              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted focus:outline-none focus:border-border-strong"
             />
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
@@ -747,7 +747,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 disabled={isSubmittingDecision}
                 className={`px-4 py-2 rounded-xl text-xs font-semibold transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 ${
                   decisionType === 'approved'
-                    ? 'bg-success-solid text-white hover:bg-success-solid/90'
+                    ? 'bg-success-fg text-white hover:bg-success-fg/90'
                     : 'bg-accent text-accent-fg hover:bg-accent/90'
                 }`}
               >

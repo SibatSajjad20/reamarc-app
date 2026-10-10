@@ -215,7 +215,7 @@ export const DrawerSkeleton: React.FC<{ className?: string }> = ({ className }) 
     <div className={cn('p-6 space-y-6', className)}>
       {/* Header */}
       <div className="space-y-2 border-b border-border pb-4">
-        <Skeleton className="w-24 h-3 rounded-sm font-mono" />
+        <Skeleton className="w-24 h-3 rounded-sm font-numeric" />
         <Skeleton className="w-3/4 h-6 rounded-sm" />
         <div className="flex gap-2 pt-1">
           <Skeleton className="w-16 h-5 rounded-full" />

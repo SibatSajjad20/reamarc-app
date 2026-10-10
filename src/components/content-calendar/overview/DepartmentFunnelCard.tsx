@@ -22,7 +22,7 @@ export const DepartmentFunnelCard: React.FC<Props> = ({
             Pipeline Bottleneck Funnel
           </h3>
         </div>
-        <span className="text-xs font-mono text-fg-muted">
+        <span className="text-xs font-numeric text-fg-muted">
           {totalItems} total
         </span>
       </div>
@@ -49,7 +49,7 @@ export const DepartmentFunnelCard: React.FC<Props> = ({
               barColor = 'bg-danger-solid';
               badgeColor = 'text-danger-fg';
             } else if (phase.key === 'ready_posted') {
-              barColor = 'bg-success-solid';
+              barColor = 'bg-success-fg';
               badgeColor = 'text-success-fg';
             }
 
@@ -65,7 +65,7 @@ export const DepartmentFunnelCard: React.FC<Props> = ({
                     <span className="font-medium text-fg text-xs">
                       {phase.name}
                     </span>
-                    <div className="flex items-center gap-1.5 font-mono text-xs">
+                    <div className="flex items-center gap-1.5 font-numeric text-xs">
                       <span className={`font-semibold ${badgeColor}`}>{phase.count}</span>
                       <span className="text-fg-muted font-normal">
                         ({phase.percentage}%)
@@ -77,7 +77,7 @@ export const DepartmentFunnelCard: React.FC<Props> = ({
                 {/* Sub-stages breakdown */}
                 <div className="flex flex-wrap items-center gap-x-2.5 px-1 text-[10px] text-fg-muted">
                   {phase.substages.map((sub) => (
-                    <span key={sub.stage} className="inline-flex items-center gap-0.5 font-mono">
+                    <span key={sub.stage} className="inline-flex items-center gap-0.5 font-numeric">
                       <span>{sub.stage}:</span>
                       <span className="font-semibold text-fg">
                         {sub.count}

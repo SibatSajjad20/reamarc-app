@@ -153,25 +153,25 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
       case 'Creative Approved':
       case 'Content Approved':
       case 'Posted':
-        return 'bg-status-success-soft text-status-success-fg border-status-success-border';
+        return 'bg-success-bg text-success-fg border-success-bd';
       case 'Changes Requested':
       case 'Rejected':
-        return 'bg-status-danger-soft text-status-danger-fg border-status-danger-border';
+        return 'bg-danger-bg text-danger-fg border-danger-bd';
       case 'Content Draft':
         return 'bg-subtle text-fg-muted border-border';
       default:
-        return 'bg-status-warning-soft text-status-warning-fg border-status-warning-border';
+        return 'bg-warning-bg text-warning-fg border-warning-bd';
     }
   };
 
   const getSetupStatusClass = (status: string) => {
     switch (status) {
       case 'Live':
-        return 'bg-status-success-soft text-status-success-fg border-status-success-border';
+        return 'bg-success-bg text-success-fg border-success-bd';
       case 'In Setup':
         return 'bg-status-info-soft text-status-info-fg border-status-info-border';
       case 'Paused':
-        return 'bg-status-warning-soft text-status-warning-fg border-status-warning-border';
+        return 'bg-warning-bg text-warning-fg border-warning-bd';
       default:
         return 'bg-subtle text-fg-muted border-border';
     }
@@ -185,7 +185,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
         {/* Drawer Header */}
         <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 bg-surface shrink-0">
           <div className="flex items-center gap-2.5 min-w-0 flex-wrap">
-            <span className="font-mono font-semibold text-xs px-2 py-0.5 rounded-md bg-accent-soft text-accent shrink-0">
+            <span className="font-numeric font-semibold text-xs px-2 py-0.5 rounded-md bg-accent-soft text-accent shrink-0">
               {currentItem.serial}
             </span>
             <span className={NEUTRAL_METADATA_BADGE_COMPACT_CLASS}>
@@ -196,8 +196,8 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
             </span>
             <span className={`text-micro px-1.5 py-0.5 rounded-md font-medium border shrink-0 ${
               isAdCreative(currentItem)
-                ? 'bg-status-warning-soft text-status-warning-fg border-status-warning-border'
-                : 'bg-status-success-soft text-status-success-fg border-status-success-border'
+                ? 'bg-warning-bg text-warning-fg border-warning-bd'
+                : 'bg-success-bg text-success-fg border-success-bd'
             }`}>
               {currentItem.creative_category || currentItem.posting_type || 'Organic Creative'}
             </span>
@@ -269,7 +269,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                 }}
                 disabled={isDeleting}
                 title="Delete item"
-                className="px-2 text-fg-muted hover:text-status-danger-fg"
+                className="px-2 text-fg-muted hover:text-danger-fg"
               >
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
@@ -306,7 +306,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
             </div>
           </div>
           {currentItem.revision_note && (
-            <p className="text-caption text-status-danger-fg">Revision note: {currentItem.revision_note}</p>
+            <p className="text-caption text-danger-fg">Revision note: {currentItem.revision_note}</p>
           )}
 
           {/* Ownership & Assignment Banner */}
@@ -487,13 +487,13 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
             </div>
             <div>
               <span className="text-caption text-fg-muted font-medium block">Production due</span>
-              <span className="font-medium text-fg font-mono block truncate mt-0.5">
+              <span className="font-medium text-fg font-numeric block truncate mt-0.5">
                 {currentItem.design_due || 'No due date'}
               </span>
             </div>
             <div>
               <span className="text-caption text-fg-muted font-medium block">Scheduled publish date</span>
-              <span className="font-medium text-fg font-mono block truncate mt-0.5">
+              <span className="font-medium text-fg font-numeric block truncate mt-0.5">
                 {currentItem.publish_date || 'Unscheduled'}
               </span>
             </div>
@@ -532,13 +532,13 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                       </span>
                     )}
                     {counts.links > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-status-success-soft text-status-success-fg border border-status-success-border">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-success-bg text-success-fg border border-success-bd">
                         <Link2 className="w-3 h-3" />
                         <span>{counts.links} {counts.links === 1 ? 'link' : 'links'}</span>
                       </span>
                     )}
                     {counts.docs > 0 && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-status-warning-soft text-status-warning-fg border border-status-warning-border">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-warning-bg text-warning-fg border border-warning-bd">
                         <FileText className="w-3 h-3" />
                         <span>{counts.docs} {counts.docs === 1 ? 'doc' : 'docs'}</span>
                       </span>
@@ -583,7 +583,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                         href={safeHttpUrl(currentItem.final_asset_link) || undefined}
                         target="_blank"
                         rel="noreferrer noopener"
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-status-success-soft text-status-success-fg border border-status-success-border transition font-medium"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-success-bg text-success-fg border border-success-bd transition font-medium"
                       >
                         <span>Final asset</span>
                         <ExternalLink className="w-3.5 h-3.5" />
@@ -607,7 +607,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   onClick={() => copyToClipboard(currentItem.primary_text || '', 'primary_text')}
                   className="inline-flex items-center gap-1 text-caption text-fg-muted hover:text-accent transition cursor-pointer"
                 >
-                  {copiedKey === 'primary_text' ? <Check className="w-3 h-3 text-status-success-fg" /> : <Copy className="w-3 h-3" />}
+                  {copiedKey === 'primary_text' ? <Check className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedKey === 'primary_text' ? 'Copied' : 'Copy text'}</span>
                 </button>
               </div>
@@ -629,7 +629,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   onClick={() => copyToClipboard(currentItem.headlines_hooks || '', 'hooks')}
                   className="inline-flex items-center gap-1 text-caption text-fg-muted hover:text-accent transition cursor-pointer"
                 >
-                  {copiedKey === 'hooks' ? <Check className="w-3 h-3 text-status-success-fg" /> : <Copy className="w-3 h-3" />}
+                  {copiedKey === 'hooks' ? <Check className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedKey === 'hooks' ? 'Copied' : 'Copy hooks'}</span>
                 </button>
               </div>
@@ -651,7 +651,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   onClick={() => copyToClipboard(currentItem.content_on_creative || '', 'creative_text')}
                   className="inline-flex items-center gap-1 text-caption text-fg-muted hover:text-accent transition cursor-pointer"
                 >
-                  {copiedKey === 'creative_text' ? <Check className="w-3 h-3 text-status-success-fg" /> : <Copy className="w-3 h-3" />}
+                  {copiedKey === 'creative_text' ? <Check className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedKey === 'creative_text' ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>
@@ -685,7 +685,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   onClick={() => copyToClipboard(currentItem.captions_hashtags || '', 'hashtags')}
                   className="inline-flex items-center gap-1 text-caption text-fg-muted hover:text-accent transition cursor-pointer"
                 >
-                  {copiedKey === 'hashtags' ? <Check className="w-3 h-3 text-status-success-fg" /> : <Copy className="w-3 h-3" />}
+                  {copiedKey === 'hashtags' ? <Check className="w-3 h-3 text-success-fg" /> : <Copy className="w-3 h-3" />}
                   <span>{copiedKey === 'hashtags' ? 'Copied' : 'Copy'}</span>
                 </button>
               </div>

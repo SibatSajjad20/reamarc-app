@@ -102,7 +102,7 @@ export const CustomDateTimePicker: React.FC<CustomDateTimePickerProps> = ({
           clearable={clearable}
         />
       </div>
-      <div className="w-[110px] shrink-0">
+      <div className="w-[120px] shrink-0">
         <CustomTimePicker
           value={timePart}
           onChange={handleTimeChange}

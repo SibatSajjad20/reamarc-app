@@ -482,11 +482,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
                 onChange={(e) => updateField('content_concept', e.target.value)}
                 aria-invalid={!!fieldErrors.content_concept}
                 className={`w-full px-3 py-1.5 rounded-md text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden ${
-                  fieldErrors.content_concept ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.content_concept ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.content_concept && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.content_concept}</span>
                 </div>
@@ -542,11 +542,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
                 onChange={(e) => updateField('primary_text', e.target.value)}
                 aria-invalid={!!fieldErrors.primary_text}
                 className={`w-full px-3 py-2 rounded-md text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden font-sans ${
-                  fieldErrors.primary_text ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.primary_text ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.primary_text && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.primary_text}</span>
                 </div>
@@ -579,11 +579,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
                 onChange={(e) => updateField('content_on_creative', e.target.value)}
                 aria-invalid={!!fieldErrors.content_on_creative}
                 className={`w-full px-3 py-2 rounded-md text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden font-sans ${
-                  fieldErrors.content_on_creative ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.content_on_creative ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.content_on_creative && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.content_on_creative}</span>
                 </div>
@@ -679,11 +679,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
                   onChange={(e) => updateField('draft_preview_link', e.target.value)}
                   aria-invalid={!!fieldErrors.draft_preview_link}
                   className={`w-full px-3 py-1.5 rounded-md text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden ${
-                    fieldErrors.draft_preview_link ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                    fieldErrors.draft_preview_link ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                   }`}
                 />
                 {fieldErrors.draft_preview_link && (
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.draft_preview_link}</span>
                   </div>
@@ -702,11 +702,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
                   onChange={(e) => updateField('final_asset_link', e.target.value)}
                   aria-invalid={!!fieldErrors.final_asset_link}
                   className={`w-full px-3 py-1.5 rounded-md text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden ${
-                    fieldErrors.final_asset_link ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                    fieldErrors.final_asset_link ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                   }`}
                 />
                 {fieldErrors.final_asset_link && (
-                  <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                     <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                     <span>{fieldErrors.final_asset_link}</span>
                   </div>
@@ -739,7 +739,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
                 }}
               />
               {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{serverError}</span>
                 </div>

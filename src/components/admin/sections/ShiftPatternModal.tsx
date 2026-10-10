@@ -202,7 +202,7 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
               <Button
                 type="button"
                 variant="secondary"
-                size="sm"
+                size="md"
                 onClick={addOverride}
                 disabled={!overrideDate}
                 icon={Plus}
@@ -218,7 +218,7 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
                   return (
                     <div
                       key={row.date}
-                      className="flex items-center justify-between rounded-md bg-surface border border-border px-3 py-1.5 text-caption font-mono"
+                      className="flex items-center justify-between rounded-md bg-surface border border-border px-3 py-1.5 text-caption font-numeric"
                     >
                       <span className="text-fg">
                         {row.date} · {shift?.name || 'Default shift'}

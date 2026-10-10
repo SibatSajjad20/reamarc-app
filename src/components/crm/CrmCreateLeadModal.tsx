@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Check, Plus, AlertCircle } from 'lucide-react';
+import { Plus, AlertCircle } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import {
   Dialog,
@@ -9,6 +9,7 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { focusFirstError } from '../../utils/formFocus';
 import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 import type { CrmAssignee, CrmLead, CrmLeadCreatePayload } from '../../types/crm';
@@ -268,15 +269,14 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
                 error={fieldErrors.website}
                 onChange={(v) => set('website', v)}
               />
-              <label className="mt-1.5 inline-flex items-center gap-2 text-micro text-fg-muted cursor-pointer">
-                <input
-                  type="checkbox"
+              <div className="mt-1.5">
+                <Checkbox
+                  id="no-website"
                   checked={form.noWebsite}
-                  onChange={(e) => set('noWebsite', e.target.checked)}
-                  className="rounded border-border text-accent focus:ring-accent"
+                  onCheckedChange={(c) => set('noWebsite', Boolean(c))}
+                  label="They don't have a website yet"
                 />
-                <span>They don't have a website yet</span>
-              </label>
+              </div>
             </div>
 
             <Section title="Qualification & Business Details" />
@@ -314,15 +314,11 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
                           : 'border-border bg-surface text-fg-muted hover:bg-hover hover:text-fg'
                       }`}
                     >
-                      <span
-                        className={`w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 ${
-                          checked
-                            ? 'bg-accent border-accent text-accent-contrast'
-                            : 'bg-surface border-border-strong'
-                        }`}
-                      >
-                        {checked && <Check className="w-2.5 h-2.5" />}
-                      </span>
+                      <Checkbox
+                        checked={checked}
+                        className="pointer-events-none"
+                        tabIndex={-1}
+                      />
                       <span>{item}</span>
                     </button>
                   );
@@ -404,7 +400,7 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
                 }}
               />
               {error && (
-                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{error}</span>
                 </div>

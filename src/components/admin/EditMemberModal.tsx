@@ -256,11 +256,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 }}
                 aria-invalid={!!fieldErrors.fullName}
                 className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.fullName ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.fullName ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.fullName && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.fullName}</span>
                 </div>
@@ -287,11 +287,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 }}
                 aria-invalid={!!fieldErrors.email}
                 className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.email ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.email ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.email && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.email}</span>
                 </div>
@@ -321,11 +321,11 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 }}
                 aria-invalid={!!fieldErrors.phone}
                 className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.phone ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                  fieldErrors.phone ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
                 }`}
               />
               {fieldErrors.phone && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.phone}</span>
                 </div>
@@ -366,7 +366,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                           : 'border-border-strong bg-surface'
                       }`}
                     >
-                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-accent-contrast" />}
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-accent-fg" />}
                     </span>
                     <div className="min-w-0">
                       <div className="text-ui font-medium">{r.label}</div>
@@ -407,7 +407,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 })}
               </div>
               {fieldErrors.workspaceIds && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.workspaceIds}</span>
                 </div>
@@ -447,7 +447,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 })}
               </div>
               {fieldErrors.departments && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                   <span>{fieldErrors.departments}</span>
                 </div>
@@ -541,7 +541,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               }}
             />
             {serverError && (
-              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+              <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                 <span>{serverError}</span>
               </div>

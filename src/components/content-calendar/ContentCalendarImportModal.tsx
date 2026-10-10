@@ -15,6 +15,7 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { Checkbox } from '../ui/checkbox';
 import { findMatchingClient } from './ContentCalendarModal';
 
 interface Props {
@@ -560,40 +561,20 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 />
               </div>
 
-              <div className="space-y-2 pt-1 sm:pt-2">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={overrideClient}
-                    onChange={(e) => handleOverrideClientChange(e.target.checked)}
-                    className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent"
-                  />
-                  <div>
-                    <div className="text-xs font-medium text-fg">
-                      Apply to all imported records
-                    </div>
-                    <div className="text-caption text-fg-muted">
-                      Standardize all campaigns and serial IDs to selected client
-                    </div>
-                  </div>
-                </label>
+              <div className="space-y-3 pt-1 sm:pt-2">
+                <Checkbox
+                  checked={overrideClient}
+                  onCheckedChange={(c) => handleOverrideClientChange(Boolean(c))}
+                  label="Apply to all imported records"
+                  description="Standardize all campaigns and serial IDs to selected client"
+                />
 
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={upsertBySerial}
-                    onChange={(e) => setUpsertBySerial(e.target.checked)}
-                    className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent"
-                  />
-                  <div>
-                    <div className="text-xs font-medium text-fg">
-                      Upsert by serial
-                    </div>
-                    <div className="text-caption text-fg-muted">
-                      Update existing campaigns if serial ID matches
-                    </div>
-                  </div>
-                </label>
+                <Checkbox
+                  checked={upsertBySerial}
+                  onCheckedChange={(c) => setUpsertBySerial(Boolean(c))}
+                  label="Upsert by serial"
+                  description="Update existing campaigns if serial ID matches"
+                />
               </div>
             </div>
           </div>
@@ -631,12 +612,12 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
           ) : (
             <div className="flex items-center justify-between p-3.5 rounded-md bg-subtle border border-border">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-md bg-status-success-soft text-status-success-fg border border-status-success-border flex items-center justify-center">
+                <div className="w-9 h-9 rounded-md bg-success-bg text-success-fg border border-success-bd flex items-center justify-center">
                   <FileText className="w-4.5 h-4.5" />
                 </div>
                 <div>
                   <div className="text-xs font-semibold text-fg">{file.name}</div>
-                  <div className="text-caption text-fg-muted font-mono">
+                  <div className="text-caption text-fg-muted font-numeric">
                     {isParsing
                       ? 'Reading file…'
                       : `${(file.size / 1024).toFixed(1)} KB \u2022 ${parsedItems.length} records detected`}
@@ -653,7 +634,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                   setParsedItems([]);
                   setErrorMsg(null);
                 }}
-                className="text-caption text-fg-muted hover:text-status-danger-fg"
+                className="text-caption text-fg-muted hover:text-danger-fg"
               >
                 Change file
               </Button>
@@ -662,7 +643,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-3 rounded-md bg-status-danger-soft border border-status-danger-border flex items-center gap-2.5 text-xs text-status-danger-fg">
+            <div className="p-3 rounded-md bg-danger-bg border border-danger-bd flex items-center gap-2.5 text-xs text-danger-fg">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -683,7 +664,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 <span className="text-caption font-semibold text-fg-muted uppercase tracking-wider">
                   Data preview (Showing {Math.min(10, parsedItems.length)} of {parsedItems.length} records)
                 </span>
-                <span className="text-caption text-status-success-fg font-medium flex items-center gap-1">
+                <span className="text-caption text-success-fg font-medium flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" /> Ready to import
                 </span>
               </div>
@@ -702,7 +683,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                   <tbody className="divide-y divide-border">
                     {parsedItems.slice(0, 10).map((it, idx) => (
                       <tr key={idx} className="hover:bg-subtle/50 transition-colors">
-                        <td className="p-2 font-mono font-medium text-accent">
+                        <td className="p-2 font-numeric font-medium text-accent">
                           {it.serial || '—'}
                         </td>
                         <td className="p-2 truncate max-w-[140px]" title={it.client_name || defaultClient}>

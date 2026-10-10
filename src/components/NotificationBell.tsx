@@ -287,7 +287,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
             >
               <span>Unread</span>
               {unreadCount > 0 && (
-                <span className="text-micro font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-2 font-mono">
+                <span className="text-micro font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-2 font-numeric">
                   {unreadCount}
                 </span>
               )}
@@ -371,7 +371,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                               >
                                 {item.title}
                               </span>
-                              <span className="text-xs text-fg-muted font-mono shrink-0">
+                              <span className="text-xs text-fg-muted font-numeric shrink-0">
                                 {getRelativeTime(item.created_at)}
                               </span>
                             </div>
@@ -418,7 +418,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
                               >
                                 {item.title}
                               </span>
-                              <span className="text-xs text-fg-muted font-mono shrink-0">
+                              <span className="text-xs text-fg-muted font-numeric shrink-0">
                                 {getRelativeTime(item.created_at)}
                               </span>
                             </div>

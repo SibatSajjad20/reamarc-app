@@ -374,7 +374,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                     className="px-2.5 py-1 rounded-md text-xs font-medium text-fg-muted flex items-center gap-1.5 opacity-60"
                   >
                     <span>{tab.label}</span>
-                    <span className="text-micro font-mono tabular-nums px-1.5 py-0.5 rounded-full bg-subtle">
+                    <span className="text-micro font-numeric tabular-nums px-1.5 py-0.5 rounded-full bg-subtle">
                       0
                     </span>
                   </button>
@@ -429,19 +429,19 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
             <div className="grid grid-cols-2 sm:grid-cols-4 border-t border-border bg-subtle/30 divide-x divide-border">
               <div className="p-4">
                 <p className="text-small text-fg-muted font-medium">Logs reviewed</p>
-                <p className="text-h2 font-semibold text-fg font-mono tabular-nums mt-1">236</p>
+                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">236</p>
               </div>
               <div className="p-4">
                 <p className="text-small text-fg-muted font-medium">Exceptions resolved</p>
-                <p className="text-h2 font-semibold text-fg font-mono tabular-nums mt-1">18</p>
+                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">18</p>
               </div>
               <div className="p-4">
                 <p className="text-small text-fg-muted font-medium">Average resolution</p>
-                <p className="text-h2 font-semibold text-fg font-mono tabular-nums mt-1">5h 40m</p>
+                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">5h 40m</p>
               </div>
               <div className="p-4">
                 <p className="text-small text-fg-muted font-medium">Escalated to HR</p>
-                <p className="text-h2 font-semibold text-fg font-mono tabular-nums mt-1">{counts.escalated}</p>
+                <p className="text-h2 font-semibold text-fg font-numeric tabular-nums mt-1">{counts.escalated}</p>
               </div>
             </div>
           </div>
@@ -485,7 +485,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                     <span>{tab.label}</span>
                     <span
                       className={cn(
-                        'text-micro font-mono tabular-nums px-1.5 py-0.2 rounded-full',
+                        'text-micro font-numeric tabular-nums px-1.5 py-0.2 rounded-full',
                         activeFilter === tab.id
                           ? 'bg-accent text-accent-fg font-medium'
                           : 'bg-subtle text-fg-muted',
@@ -573,7 +573,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                           >
                             {item.full_name}
                           </span>
-                          <span className="text-small text-fg-muted shrink-0 font-mono tabular-nums">
+                          <span className="text-small text-fg-muted shrink-0 font-numeric tabular-nums">
                             {formatItemDate(item.date)}
                           </span>
                         </div>
@@ -590,7 +590,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
 
                           <span
                             className={cn(
-                              'text-small font-mono tabular-nums shrink-0',
+                              'text-small font-numeric tabular-nums shrink-0',
                               missing
                                 ? 'text-danger-fg'
                                 : (item.signed_gap_hours || 0) < -0.01
@@ -678,7 +678,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       {/* At work */}
                       <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1">
                         <p className="text-small text-fg-muted font-medium">At work</p>
-                        <p className="text-h1 font-semibold text-fg font-mono tabular-nums">
+                        <p className="text-h1 font-semibold text-fg font-numeric tabular-nums">
                           {selectedDetailItem.has_checkout ||
                           (selectedDetailItem.worked_hours || 0) > 0
                             ? formatHours(selectedDetailItem.worked_hours || 0)
@@ -698,7 +698,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       {/* Logged */}
                       <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-1">
                         <p className="text-small text-fg-muted font-medium">Logged</p>
-                        <p className="text-h1 font-semibold text-fg font-mono tabular-nums">
+                        <p className="text-h1 font-semibold text-fg font-numeric tabular-nums">
                           {formatHours(selectedDetailItem.logged_hours || 0)}
                         </p>
                         <p className="text-small text-fg-muted">
@@ -711,7 +711,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         <p className="text-small text-fg-muted font-medium">Gap</p>
                         <p
                           className={cn(
-                            'text-h1 font-semibold font-mono tabular-nums',
+                            'text-h1 font-semibold font-numeric tabular-nums',
                             selectedDetailItem.is_missing_log
                               ? 'text-danger-fg'
                               : (selectedDetailItem.signed_gap_hours || 0) < -0.01
@@ -841,7 +841,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                                 <td className="px-3.5 py-2.5 text-fg-2 truncate max-w-[280px]">
                                   {entry.task_description || '—'}
                                 </td>
-                                <td className="px-3.5 py-2.5 font-mono tabular-nums text-fg">
+                                <td className="px-3.5 py-2.5 font-numeric tabular-nums text-fg">
                                   {formatHours(Number(entry.hours_utilized) || 0)}
                                 </td>
                                 <td className="px-3.5 py-2.5">

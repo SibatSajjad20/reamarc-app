@@ -15,17 +15,17 @@ export function healthBadge(health?: string | null): HealthBadgeInfo {
     case 'waiting_on_client':
       return {
         dot: 'bg-warning-solid',
-        bg: 'bg-warning-subtle',
+        bg: 'bg-warning-bg',
         text: 'text-warning-fg',
-        border: 'border-warning-border',
+        border: 'border-warning-bd',
         label: 'Waiting on Client',
       };
     case 'at_risk':
       return {
         dot: 'bg-danger-solid',
-        bg: 'bg-danger-subtle',
+        bg: 'bg-danger-bg',
         text: 'text-danger-fg',
-        border: 'border-danger-border',
+        border: 'border-danger-bd',
         label: 'At Risk',
       };
     case 'on_hold':
@@ -39,18 +39,18 @@ export function healthBadge(health?: string | null): HealthBadgeInfo {
     case 'completed':
       return {
         dot: 'bg-accent',
-        bg: 'bg-accent-subtle',
+        bg: 'bg-accent-soft',
         text: 'text-accent-text',
-        border: 'border-accent-border',
+        border: 'border-accent-pill-bd',
         label: 'Completed',
       };
     case 'on_track':
     default:
       return {
-        dot: 'bg-success-solid',
-        bg: 'bg-success-subtle',
+        dot: 'bg-success-dot',
+        bg: 'bg-success-bg',
         text: 'text-success-fg',
-        border: 'border-success-border',
+        border: 'border-success-bd',
         label: 'On Track',
       };
   }

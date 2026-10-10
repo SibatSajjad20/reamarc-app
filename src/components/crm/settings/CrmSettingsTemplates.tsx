@@ -3,6 +3,7 @@ import { Loader2, Plus, Trash2, MessageSquareText, Eye, Check, Copy } from 'luci
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
 import { Button, IconButton } from '../../ui/button';
+import { Checkbox } from '../../ui/checkbox';
 import type { CrmTemplate } from '../../../types/crm';
 
 const PLACEHOLDERS = [
@@ -279,7 +280,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                       key={tag}
                       type="button"
                       onClick={() => handleInsertTag(tag)}
-                      className="px-1.5 py-0.5 rounded text-micro font-mono border border-border bg-subtle text-fg-muted hover:text-fg hover:border-accent transition-colors cursor-pointer"
+                      className="px-1.5 py-0.5 rounded text-micro font-numeric border border-border bg-subtle text-fg-muted hover:text-fg hover:border-accent transition-colors cursor-pointer"
                       title={`Insert {{${tag}}}`}
                     >
                       +{label}
@@ -299,15 +300,11 @@ export const CrmSettingsTemplates: React.FC = () => {
               />
             </div>
 
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-normal text-fg select-none">
-              <input
-                type="checkbox"
-                checked={isDefault}
-                onChange={(e) => setIsDefault(e.target.checked)}
-                className="w-3.5 h-3.5 rounded text-accent border-input focus:ring-accent"
-              />
-              <span>Set as default template for new outreach</span>
-            </label>
+            <Checkbox
+              checked={isDefault}
+              onCheckedChange={(c) => setIsDefault(Boolean(c))}
+              label="Set as default template for new outreach"
+            />
 
             {/* Real-time Interactive Preview Box */}
             <div className="p-3 rounded-md bg-subtle border border-border space-y-1">

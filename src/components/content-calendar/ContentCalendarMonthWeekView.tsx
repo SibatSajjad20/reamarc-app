@@ -127,7 +127,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-bg overflow-hidden select-none">
+    <div className="flex-1 min-h-0 flex flex-col bg-canvas overflow-hidden select-none">
       {/* Calendar Navigation Bar */}
       <div className="px-5 py-2.5 border-b border-border bg-surface flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -276,7 +276,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                     </p>
                   </div>
                   <span
-                    className={`text-xs font-mono font-medium px-2 py-0.5 rounded-full ${
+                    className={`text-xs font-numeric font-medium px-2 py-0.5 rounded-full ${
                       dayItems.length > 0
                         ? 'bg-subtle text-fg'
                         : 'bg-subtle/50 text-fg-muted'
@@ -312,7 +312,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                         <div className="flex items-center justify-between gap-1 mb-1.5">
                           <div className="flex items-center gap-1.5 truncate min-w-0">
                             {renderPlatformIcon(item)}
-                            <span className="font-mono font-medium text-xs text-accent shrink-0">
+                            <span className="font-numeric font-medium text-xs text-accent shrink-0">
                               {item.serial}
                             </span>
                             {item.client_name && (
@@ -336,12 +336,12 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                           </span>
                           <div className="flex items-center gap-1.5 shrink-0">
                             {dateMode === 'publish' && item.design_due && item.design_due !== item.publish_date && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono" title={`Design Due: ${item.design_due}`}>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric" title={`Design Due: ${item.design_due}`}>
                                 Due: {item.design_due.slice(5)}
                               </span>
                             )}
                             {dateMode === 'design_due' && item.publish_date && item.publish_date !== item.design_due && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-mono" title={`Publish Date: ${item.publish_date}`}>
+                              <span className="text-[9px] px-1.5 py-0.5 rounded-sm bg-subtle border border-border text-fg-muted font-numeric" title={`Publish Date: ${item.publish_date}`}>
                                 Live: {item.publish_date.slice(5)}
                               </span>
                             )}
@@ -399,7 +399,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                 >
                   <div className="flex items-center justify-between mb-1.5">
                     {isToday ? (
-                      <span className="w-[22px] h-[22px] rounded-full bg-accent text-accent-contrast flex items-center justify-center text-xs font-medium">
+                      <span className="w-[22px] h-[22px] rounded-full bg-accent text-accent-fg flex items-center justify-center text-xs font-medium">
                         {cell.dayNum}
                       </span>
                     ) : (
@@ -408,7 +408,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                       </span>
                     )}
                     {cellItems.length > 0 && (
-                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted">
+                      <span className="text-[10px] font-numeric font-medium px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted">
                         {cellItems.length}
                       </span>
                     )}
@@ -484,7 +484,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {renderPlatformIcon(item)}
-                    <span className="font-mono text-xs font-medium text-accent shrink-0">
+                    <span className="font-numeric text-xs font-medium text-accent shrink-0">
                       {item.serial}
                     </span>
                     <span className="text-xs text-fg truncate">

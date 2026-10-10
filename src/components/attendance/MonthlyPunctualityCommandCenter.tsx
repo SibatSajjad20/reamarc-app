@@ -138,7 +138,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
       <div className="p-4 bg-surface rounded-xl border border-border shadow-xs flex flex-wrap items-end justify-between gap-4">
         {/* Month Selector */}
         <div>
-          <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
+          <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
             Month
           </span>
           <div className="flex items-center gap-2">
@@ -185,23 +185,23 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
           </div>
 
           <div>
-            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
               Search
             </span>
             <div className="relative">
-              <Search className="w-3.5 h-3.5 text-fg-subtle absolute left-3 top-1/2 -translate-y-1/2" />
+              <Search className="w-3.5 h-3.5 text-fg-muted absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Search staff..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="h-10 pl-8 pr-3 rounded-lg bg-subtle border border-border text-xs text-fg placeholder:text-fg-subtle focus:outline-none focus:border-border-strong w-44"
+                className="h-10 pl-8 pr-3 rounded-lg bg-subtle border border-border text-xs text-fg placeholder:text-fg-muted focus:outline-none focus:border-border-strong w-44"
               />
             </div>
           </div>
 
           <div>
-            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-subtle mb-1">
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
               Export
             </span>
             <button
@@ -255,7 +255,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 Array.from({ length: 8 }).map((_, idx) => (
                   <tr key={`punctuality-skeleton-${idx}`}>
                     {/* Index */}
-                    <td className="py-3.5 px-4 text-fg-subtle">
+                    <td className="py-3.5 px-4 text-fg-muted">
                       <div className="h-4 w-4 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Employee */}
@@ -312,7 +312,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 ))
               ) : filteredRows.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-fg-subtle">
+                  <td colSpan={12} className="py-12 text-center text-fg-muted">
                     No punctuality summary records match current filters.
                   </td>
                 </tr>
@@ -328,7 +328,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                     const hasUndertime = row.undertime_formatted && row.undertime_formatted !== '-00:00' && row.undertime_formatted !== '00:00';
                     const hasActivity = row.days_present > 0 || (row.total_work_hours ?? 0) > 0 || hasOvertime || hasUndertime;
                     const mutedDash = (
-                      <span className="text-fg-subtle font-normal">&mdash;</span>
+                      <span className="text-fg-muted font-normal">&mdash;</span>
                     );
 
                     return (
@@ -341,7 +341,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         title={onSelectEmployee ? 'Open this employee monthly timesheet' : undefined}
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-fg-subtle font-numeric">{idx + 1}</td>
+                        <td className="py-3 px-4 text-fg-muted font-numeric">{idx + 1}</td>
 
                         {/* Employee Name */}
                         <td className="py-3 px-4 whitespace-nowrap">
@@ -364,7 +364,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                             <span className={getDeptBadgeClass(row.department)}>
                               {row.department || 'General'}
                             </span>
-                            <span className="text-[10px] text-fg-subtle font-medium">
+                            <span className="text-[10px] text-fg-muted font-medium">
                               {row.shift_name}
                             </span>
                           </div>
@@ -375,13 +375,13 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                           <span className="font-semibold text-success-fg">
                             {row.days_present}
                           </span>
-                          <span className="text-fg-subtle"> / {workingDays}</span>
+                          <span className="text-fg-muted"> / {workingDays}</span>
                         </td>
 
                         {/* Leaves Taken */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {leavesTaken > 0 ? (
-                            <span className="px-2 py-0.5 rounded bg-warning-subtle text-warning-fg font-semibold text-xs">
+                            <span className="px-2 py-0.5 rounded bg-warning-bg text-warning-fg font-semibold text-xs">
                               {leavesTaken}d
                             </span>
                           ) : (
@@ -392,7 +392,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Late Strikes */}
                         <td className="py-3 px-4 text-center whitespace-nowrap font-numeric">
                           {lateStrikes > 0 ? (
-                            <span className="px-2 py-0.5 rounded bg-danger-subtle text-danger-fg font-semibold text-xs">
+                            <span className="px-2 py-0.5 rounded bg-danger-bg text-danger-fg font-semibold text-xs">
                               {lateStrikes}
                             </span>
                           ) : (
@@ -427,7 +427,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Net Variance */}
                         <td className="py-3 px-4 font-numeric font-semibold whitespace-nowrap">
                           {!hasActivity ? (
-                            <span className="text-fg-subtle font-normal">&mdash;</span>
+                            <span className="text-fg-muted font-normal">&mdash;</span>
                           ) : (
                             <span
                               className={
@@ -435,7 +435,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                                    ? 'text-success-fg'
                                   : row.net_variance_formatted.startsWith('-') && row.net_variance_formatted !== '-00:00'
                                   ? 'text-danger-fg'
-                                  : 'text-fg-subtle'
+                                  : 'text-fg-muted'
                               }
                             >
                               {row.net_variance_formatted}
@@ -445,7 +445,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
 
                         <td className="py-3 px-4 text-right whitespace-nowrap">
                           {onSelectEmployee && (
-                            <ChevronRight className="w-4 h-4 text-fg-subtle ml-auto" />
+                            <ChevronRight className="w-4 h-4 text-fg-muted ml-auto" />
                           )}
                         </td>
                       </tr>

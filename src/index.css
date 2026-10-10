@@ -470,11 +470,7 @@ body.dark .time-input {
   color-scheme: dark;
 }
 .time-input::-webkit-calendar-picker-indicator {
-  cursor: pointer;
-  opacity: 0.65;
-}
-.time-input::-webkit-calendar-picker-indicator:hover {
-  opacity: 1;
+  display: none;
 }
 .time-input::-webkit-inner-spin-button {
   display: block;

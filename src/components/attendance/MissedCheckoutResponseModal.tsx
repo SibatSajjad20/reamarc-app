@@ -242,11 +242,11 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
               placeholder="Briefly explain why you missed punching out..."
               rows={3}
               className={`w-full px-3 py-2 bg-surface border rounded-md text-xs text-fg placeholder:text-fg-faint focus-visible:focus-ring ${
-                fieldErrors.reason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                fieldErrors.reason ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
               }`}
             />
             {fieldErrors.reason && (
-              <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                 <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
                 <span>{fieldErrors.reason}</span>
               </div>
@@ -263,7 +263,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
                 }}
               />
               {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" />
                   <span>{serverError}</span>
                 </div>

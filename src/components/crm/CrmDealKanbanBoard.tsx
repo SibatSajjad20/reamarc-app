@@ -378,7 +378,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   void drop({ kind: 'stage', stage: stage.id });
                 }}
                 className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
-                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
+                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal, stageIndex))}
@@ -424,7 +424,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
                 className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
-                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
+                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal))}
@@ -470,7 +470,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
                 className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
-                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
+                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal))}
