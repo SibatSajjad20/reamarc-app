@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useRef } from 'react';
 import {
   Search,
-  Download,
   Calendar,
   ChevronLeft,
   ChevronRight,
@@ -12,7 +11,6 @@ import type {
   MonthlyPunctualityResponse,
 } from '../../types/attendance';
 import { CustomSelect } from '../ui/CustomSelect';
-import { getDeptBadgeClass } from '../../utils/badgeStyles';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
@@ -24,7 +22,7 @@ interface MonthlyPunctualityCommandCenterProps {
   selectedDepartment: string;
   onDepartmentChange: (dept: string) => void;
   isLoading: boolean;
-  onExportExcel: () => void;
+  onExportExcel?: () => void;
   isExporting?: boolean;
   onSelectEmployee?: (userId: string) => void;
 }
@@ -66,8 +64,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
   selectedDepartment,
   onDepartmentChange,
   isLoading,
-  onExportExcel,
-  isExporting = false,
   onSelectEmployee,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -199,21 +195,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
               />
             </div>
           </div>
-
-          <div>
-            <span className="block text-[10px] font-semibold uppercase tracking-wider text-fg-muted mb-1">
-              Export
-            </span>
-            <button
-              type="button"
-              onClick={onExportExcel}
-              disabled={isExporting || isLoading}
-              className="h-10 inline-flex items-center gap-1.5 px-3.5 rounded-lg text-xs font-semibold text-white bg-success-fg hover:opacity-90 shadow-xs transition-all cursor-pointer disabled:opacity-50"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>{isExporting ? 'Generating .XLSX...' : 'Export Excel (.xlsx)'}</span>
-            </button>
-          </div>
         </div>
       </div>
 
@@ -238,7 +219,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
               <tr className="bg-subtle text-fg-muted border-b border-border font-semibold">
                 <th className="py-3 px-4 w-10">#</th>
                 <th className="py-3 px-4">Employee</th>
-                <th className="py-3 px-4">Department & Shift</th>
                 <th className="py-3 px-4 text-center">Days (Pres/Work)</th>
                 <th className="py-3 px-4 text-center">Leaves</th>
                 <th className="py-3 px-4 text-center">Late Strikes</th>
@@ -263,13 +243,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-lg bg-skel animate-pulse shrink-0" />
                         <div className="h-4 w-28 bg-skel animate-pulse rounded" />
-                      </div>
-                    </td>
-                    {/* Department & Shift */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="space-y-1">
-                        <div className="h-4 w-20 bg-skel animate-pulse rounded-lg" />
-                        <div className="h-3 w-16 bg-skel animate-pulse rounded" />
                       </div>
                     </td>
                     {/* Days Pres / Work */}
@@ -343,7 +316,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Index */}
                         <td className="py-3 px-4 text-fg-muted font-numeric">{idx + 1}</td>
 
-                        {/* Employee Name */}
+                        {/* Employee Name & Role */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
                             <Avatar
@@ -352,21 +325,16 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                               size={28}
                               className="rounded-lg shrink-0"
                             />
-                            <span className="font-semibold text-fg leading-tight">
-                              {row.employee_name}
-                            </span>
-                          </div>
-                        </td>
-
-                        {/* Department & Shift */}
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <div className="flex flex-col gap-1">
-                            <span className={getDeptBadgeClass(row.department)}>
-                              {row.department || 'General'}
-                            </span>
-                            <span className="text-[10px] text-fg-muted font-medium">
-                              {row.shift_name}
-                            </span>
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-semibold text-fg leading-tight">
+                                {row.employee_name}
+                              </span>
+                              {((row as any).role || (row as any).designation || row.department) && (
+                                <span className="text-caption text-fg-muted truncate">
+                                  {(row as any).role || (row as any).designation || row.department}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
 
