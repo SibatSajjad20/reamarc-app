@@ -591,7 +591,9 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                           <span
                             className={cn(
                               'text-small font-numeric tabular-nums shrink-0',
-                              missing
+                              item.compare_ready === false
+                                ? 'text-fg-muted'
+                                : missing
                                 ? 'text-danger-fg'
                                 : (item.signed_gap_hours || 0) < -0.01
                                 ? 'text-danger-fg'
@@ -600,7 +602,9 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                                 : 'text-fg-muted',
                             )}
                           >
-                            {missing
+                            {item.compare_ready === false
+                              ? 'No punch-out'
+                              : missing
                               ? `No log · at work ${formatHours(item.worked_hours || 0)}`
                               : `Gap ${formatSignedHours(item.signed_gap_hours || 0)}`}
                           </span>
@@ -712,7 +716,9 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         <p
                           className={cn(
                             'text-h1 font-semibold font-numeric tabular-nums',
-                            selectedDetailItem.is_missing_log
+                            selectedDetailItem.compare_ready === false
+                              ? 'text-fg-muted'
+                              : selectedDetailItem.is_missing_log
                               ? 'text-danger-fg'
                               : (selectedDetailItem.signed_gap_hours || 0) < -0.01
                               ? 'text-danger-fg'
@@ -721,12 +727,16 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                               : 'text-fg-muted',
                           )}
                         >
-                          {selectedDetailItem.is_missing_log
+                          {selectedDetailItem.compare_ready === false
+                            ? '—'
+                            : selectedDetailItem.is_missing_log
                             ? 'No log'
                             : formatSignedHours(selectedDetailItem.signed_gap_hours || 0)}
                         </p>
                         <p className="text-small text-fg-muted">
-                          {selectedDetailItem.is_missing_log
+                          {selectedDetailItem.compare_ready === false
+                            ? 'No punch-out'
+                            : selectedDetailItem.is_missing_log
                             ? 'No entries submitted'
                             : selectedDetailItem.worked_hours &&
                               selectedDetailItem.worked_hours > 0
@@ -883,17 +893,6 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                         <span>Escalate to HR</span>
                       </Button>
                     )}
-
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      disabled={actingId === selectedDetailItem.id}
-                      onClick={() => handleAction(selectedDetailItem, 'review')}
-                      className="gap-1.5"
-                    >
-                      <Check className="w-3.5 h-3.5" />
-                      <span>Mark as looks fine</span>
-                    </Button>
                   </div>
 
                   {/* Right Actions */}

@@ -4,7 +4,6 @@ import {
   Plus,
   Filter,
   Search,
-  ListChecks,
   Trash2,
   Pencil,
   RotateCw,
@@ -49,7 +48,6 @@ import { DailyLogModal } from '../daily-log/DailyLogModal';
 import { DailyLogForm } from '../daily-log/DailyLogForm';
 import { ShiftTasksTracker } from '../daily-log/ShiftTasksTracker';
 import { DateRangeCalendarPicker } from '../daily-log/DateRangeCalendarPicker';
-import { useSystemConfig } from '../../hooks/useSystemConfig';
 import { downloadFileAttachment } from '../../utils/fileUrl';
 import { toSafeHttpsUrl } from '../../utils/safeUrl';
 import { CustomSelect } from '../ui/CustomSelect';
@@ -171,6 +169,19 @@ const getCurrentMonthSheet = (): string => {
   return `${monthNames[d.getMonth()]} - ${d.getFullYear()}`;
 };
 
+const DEFAULT_DEPARTMENTS = [
+  'website',
+  'creative',
+  'content',
+  'seo',
+  'performance marketing',
+  'AI',
+  'software development',
+  'operations',
+  'HR',
+  'sales',
+];
+
 export const DailyLogView: React.FC = () => {
   const { user } = useAuth();
   const { addToast } = useToast();
@@ -182,7 +193,7 @@ export const DailyLogView: React.FC = () => {
   const canSubmitLogs = user?.role === 'team_member' || user?.role === 'team_lead' || user?.role === 'hr';
   const canExportLogs = isAdmin || isHR || isOperations || isLead;
   const userDept = user?.department || '';
-  const { departments } = useSystemConfig();
+  const departments = DEFAULT_DEPARTMENTS;
 
   // Dual presentation: 'log' (mock 06 card & timeline) vs 'sheet' (configurable table)
   // Default to sheet view for admin/HR/operations who oversee the whole team; log view for everyone else
@@ -263,9 +274,7 @@ export const DailyLogView: React.FC = () => {
   // OCC Warning state
   const [occConflictMessage, setOccConflictMessage] = useState<string | null>(null);
 
-  const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
   const [isExporting, setIsExporting] = useState<boolean>(false);
-  const [aiSummary, setAiSummary] = useState<string | null>(null);
 
   // Per-Column Filters State
   const [columnFilters, setColumnFilters] = useState<Record<string, string>>({});
@@ -833,26 +842,6 @@ export const DailyLogView: React.FC = () => {
     addToast('Layout reset', 'Row heights restored to defaults.', 'info');
   };
 
-  // Summarize (uses ListChecks, restricted to Admin)
-  const handleAiSummarize = () => {
-    if (!isAdmin) return;
-    setIsSummarizing(true);
-    setTimeout(() => {
-      const totalHours = entries.reduce((acc, curr) => {
-        const val = Number(curr.hours_utilized) || 0;
-        return acc + val;
-      }, 0);
-      const completed = entries.filter((e) => e.task_status === 'Completed').length;
-      const blockers = entries.filter((e) => e.task_status === 'Blocker').length;
-      const uniquePeople = new Set(entries.map((e) => e.resource_name)).size;
-
-      setAiSummary(
-        `Department summary (${selectedDept}): ${entries.length} tasks recorded across ${uniquePeople} contributors. Total time logged: ${formatHours(totalHours)} · ${completed} completed, ${blockers} blockers flagged.`
-      );
-      setIsSummarizing(false);
-    }, 800);
-  };
-
   const getUniqueValuesForColumn = (colKey: string): string[] => {
     const set = new Set<string>();
     entries.forEach((e) => {
@@ -1290,7 +1279,7 @@ export const DailyLogView: React.FC = () => {
 
           {/* Right Card: Timeline of Entries */}
           <div className="flex-1 min-w-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
-            {/* Toolbar: Range SegmentedControl, Summarize, Export */}
+            {/* Toolbar: Range SegmentedControl, Export */}
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-3 flex-wrap shrink-0">
               <div className="flex items-center gap-2">
                 {/* Range SegmentedControl with Anchored Custom Range Popover */}
@@ -1337,21 +1326,8 @@ export const DailyLogView: React.FC = () => {
                 )}
               </div>
 
-              {/* Action Buttons: Summarize (Admin) & Export */}
+              {/* Action Buttons: Export */}
               <div className="flex items-center gap-2 ml-auto">
-                {isAdmin && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    icon={ListChecks}
-                    loading={isSummarizing}
-                    disabled={entries.length === 0}
-                    onClick={handleAiSummarize}
-                  >
-                    Summarize
-                  </Button>
-                )}
-
                 {canExportLogs && (
                   <Button
                     variant="secondary"
@@ -1368,22 +1344,6 @@ export const DailyLogView: React.FC = () => {
 
             {/* Timeline Entries Content */}
             <div className="p-4 overflow-y-auto flex-1">
-              {/* Neutral Callout for AI Summary */}
-              {isAdmin && aiSummary && (
-                <Callout
-                  variant="neutral"
-                  icon={ListChecks}
-                  title="Department summary"
-                  action={
-                    <Button variant="ghost" size="sm" onClick={() => setAiSummary(null)}>
-                      Dismiss
-                    </Button>
-                  }
-                  className="mb-4"
-                >
-                  {aiSummary}
-                </Callout>
-              )}
 
               {isLoading ? (
                 /* Skeleton loader for timeline: 3 day groups */
@@ -1597,17 +1557,8 @@ export const DailyLogView: React.FC = () => {
                   departmentOptions.filter((o) => o.value !== 'All').length > 1 ? 'grid-cols-2' : 'grid-cols-1'
                 )}
               >
-                <div className="w-full lg:w-[160px]">
-                  <CustomSelect
-                    value={datePreset === 'month' ? activeSheet : ''}
-                    onChange={handleSheetChange}
-                    options={sheetOptions}
-                    placeholder="Month"
-                    icon={CalendarIcon}
-                  />
-                </div>
                 {departmentOptions.filter((o) => o.value !== 'All').length > 1 && (
-                  <div className="w-full lg:w-[180px]">
+                  <div className="w-full lg:w-[180px] shrink-0">
                     <CustomSelect
                       value={selectedDept}
                       onChange={setSelectedDept}
@@ -1621,7 +1572,7 @@ export const DailyLogView: React.FC = () => {
             </div>
 
             {/* Right Tools in Sheet View / Row 4 at mobile: right-aligned actions */}
-            <div className="flex items-center gap-1.5 shrink-0 justify-end lg:ml-auto">
+            <div className="flex items-center gap-2 shrink-0 justify-end lg:ml-auto">
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <IconButton
@@ -1647,19 +1598,6 @@ export const DailyLogView: React.FC = () => {
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-
-              {isAdmin && (
-                <Button
-                  variant="ghost"
-                  size="md"
-                  icon={ListChecks}
-                  loading={isSummarizing}
-                  disabled={entries.length === 0}
-                  onClick={handleAiSummarize}
-                >
-                  Summarize
-                </Button>
-              )}
 
               {canExportLogs && (
                 <Button
@@ -1687,24 +1625,6 @@ export const DailyLogView: React.FC = () => {
               )}
             </div>
           </div>
-
-          {/* AI Summary Banner in Sheet View */}
-          {isAdmin && aiSummary && (
-            <div className="px-4 py-2 border-b border-border bg-subtle/40">
-              <Callout
-                variant="neutral"
-                icon={ListChecks}
-                title="Department summary"
-                action={
-                  <Button variant="ghost" size="sm" onClick={() => setAiSummary(null)}>
-                    Dismiss
-                  </Button>
-                }
-              >
-                {aiSummary}
-              </Callout>
-            </div>
-          )}
 
           {/* Virtualized Table Container */}
           <div
@@ -2231,8 +2151,21 @@ export const DailyLogView: React.FC = () => {
             </div>
           </div>
 
-          {/* Footer: Showing N entries */}
-          <div className="px-4 py-2 border-t border-border flex items-center justify-end text-small shrink-0 bg-surface">
+          {/* Footer: Month Sheet Picker & Showing N entries */}
+          <div className="px-4 py-2 border-t border-border flex items-center justify-between text-small shrink-0 bg-surface flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-micro text-fg-muted font-medium">Month sheet:</span>
+              <div className="w-[160px]">
+                <CustomSelect
+                  value={datePreset === 'month' ? activeSheet : ''}
+                  onChange={handleSheetChange}
+                  options={sheetOptions}
+                  placeholder="Month"
+                  icon={CalendarIcon}
+                  size="sm"
+                />
+              </div>
+            </div>
             <div className="text-micro text-fg-muted font-numeric tabular-nums">
               Showing {filteredEntries.length} entries
             </div>

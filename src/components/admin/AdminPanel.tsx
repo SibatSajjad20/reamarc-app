@@ -142,9 +142,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   // --- Member Handlers ---
   const handleCreateMember = async (payload: CreateMemberPayload) => {
     try {
-      await adminService.createMember(payload);
+      const created = await adminService.createMember(payload);
       addToast('Member Added', `${payload.full_name} was invited successfully.`, 'success');
       setIsAddModalOpen(false);
+      if (created) {
+        setMembers((prev) => [created, ...prev.filter((m) => m.id !== created.id)]);
+      }
       await fetchMembers();
     } catch (err: any) {
       addToast('Failed to Add Member', err.message || 'Please check the details.', 'error');
@@ -153,10 +156,13 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleUpdateMember = async (userId: string, payload: UpdateMemberPayload) => {
     try {
-      await adminService.updateMember(userId, payload);
+      const updated = await adminService.updateMember(userId, payload);
       addToast('Member Updated', 'Profile changes saved.', 'success');
       setIsEditModalOpen(false);
       setMemberToEdit(null);
+      if (updated) {
+        setMembers((prev) => prev.map((m) => (m.id === userId ? { ...m, ...updated } : m)));
+      }
       await fetchMembers();
     } catch (err: any) {
       addToast('Update Failed', err.message || 'Could not save member.', 'error');
@@ -165,6 +171,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   const handleToggleMemberStatus = async (member: AdminMember) => {
     const nextState = !member.is_active;
+    setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, is_active: nextState } : m)));
     try {
       await adminService.updateMember(member.id, { is_active: nextState });
       addToast(
@@ -174,6 +181,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
       );
       await fetchMembers();
     } catch (err: any) {
+      setMembers((prev) => prev.map((m) => (m.id === member.id ? { ...m, is_active: member.is_active } : m)));
       addToast('Status Change Failed', err.message, 'error');
     }
   };

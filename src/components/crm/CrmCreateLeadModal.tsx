@@ -220,6 +220,7 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
         email: form.email.trim(),
         phone: form.phone.trim(),
         website: form.noWebsite ? undefined : form.website.trim() || undefined,
+        no_website: form.noWebsite,
         city: form.city.trim() || undefined,
         brief: form.brief.trim(),
         budget: form.budget || undefined,

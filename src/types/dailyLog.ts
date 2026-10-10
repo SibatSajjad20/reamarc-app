@@ -182,6 +182,7 @@ export interface LogExceptionItem {
   member_reason?: string | null;
   previously_accepted_signed_gap_hours?: number | null;
   reopen_note?: string | null;
+  compare_ready?: boolean;
 }
 
 export interface SnapshotHighlight {

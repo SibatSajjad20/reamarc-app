@@ -40,7 +40,7 @@ export const CrmDeleteConfirmModal: React.FC<CrmDeleteConfirmModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[var(--z-overlay,50)] bg-overlay flex items-center justify-center p-4 animate-in fade-in-0 duration-150"
+      className="fixed inset-0 z-[var(--z-popover,100)] bg-overlay flex items-center justify-center p-4 animate-in fade-in-0 duration-150"
       onClick={(e) => {
         if (e.target === e.currentTarget && !isDeleting) onClose();
       }}

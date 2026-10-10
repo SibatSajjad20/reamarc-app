@@ -23,7 +23,6 @@ import { CustomSelect } from '../../ui/CustomSelect';
 import { PageHeader } from '../../ui/PageHeader';
 import { KpiCard } from '../../ui/KpiCard';
 import { SegmentedControl } from '../../ui/SegmentedControl';
-import { StatusPill } from '../../ui/StatusPill';
 import { Button, IconButton } from '../../ui/button';
 import { Avatar } from '../../ui/Avatar';
 import {
@@ -222,7 +221,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   }, []);
 
   const handleExportCsv = () => {
-    const headers = ['Name', 'Email', 'Role', 'Department', 'Contact', 'Employment Type', 'Status', 'Joining Date'];
+    const headers = ['Name', 'Email', 'Role', 'Department', 'Contact', 'Employment Type', 'Joining Date'];
     const rows = filteredMembers.map((m) => [
       `"${(m.full_name || '').replace(/"/g, '""')}"`,
       `"${(m.email || '').replace(/"/g, '""')}"`,
@@ -230,7 +229,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       `"${(m.department || (m.departments || []).join(', ') || '').replace(/"/g, '""')}"`,
       `"${(m.phone || '').replace(/"/g, '""')}"`,
       `"${m.employment_type || 'contract'}"`,
-      `"${m.is_active ? 'Active' : 'Deactivated'}"`,
       `"${m.joining_date || ''}"`,
     ]);
     const csvContent =
@@ -440,7 +438,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
               <TH>Contact</TH>
               {directoryTab === 'team' && <TH>Linked clients</TH>}
               <TH>Employment</TH>
-              <TH>Status</TH>
               {canManageMembers && <TH align="right" className="w-12"></TH>}
             </TR>
           </THead>
@@ -471,9 +468,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       <div className="w-12 h-5 rounded bg-subtle animate-pulse" />
                     </TD>
                   )}
-                  <TD>
-                    <div className="w-14 h-5 rounded bg-subtle animate-pulse" />
-                  </TD>
                   <TD>
                     <div className="w-14 h-5 rounded bg-subtle animate-pulse" />
                   </TD>
@@ -621,15 +615,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg-muted capitalize">
                         {m.employment_type || 'Contract'}
                       </span>
-                    </TD>
-
-                    {/* Status Pill */}
-                    <TD>
-                      <StatusPill
-                        variant={m.is_active ? 'success' : 'neutral'}
-                        label={m.is_active ? 'Active' : 'Deactivated'}
-                        dot
-                      />
                     </TD>
 
                     {/* Actions Menu */}

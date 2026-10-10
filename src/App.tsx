@@ -535,7 +535,7 @@ function AppInner() {
     adAccounts,
     selectedAdAccount,
     setSelectedAdAccount,
-  } = useAdAccounts(Boolean(user));
+  } = useAdAccounts(Boolean(isAdmin));
 
   // Modal State for Workspaces
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);

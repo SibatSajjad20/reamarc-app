@@ -27,6 +27,7 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { StatusPill } from '../ui/StatusPill';
 import { KanbanSkeleton, FollowUpSkeleton } from '../ui/Skeletons';
 import { Skeleton } from '../ui/skeleton';
+import { Sheet, SheetContent } from '../ui/sheet';
 import { TableCard, Table, THead, TH, TBody, TR, TD, TableSkeletonRows } from '../ui/DataTable';
 import { CrmCreateLeadModal } from '../crm/CrmCreateLeadModal';
 import { CrmKanbanBoard } from '../crm/CrmKanbanBoard';
@@ -410,6 +411,55 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       await refreshOpen(selectedId);
     } catch (err: any) {
       addToast('CRM action failed', err.message || 'Try again.', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleAssign = async (leadId: string, userId: string) => {
+    const targetAssignee = assignees.find((a) => a.id === userId);
+    const prevDetail = detail;
+    const prevLeads = leads;
+
+    // Optimistic update
+    const assigneeName = targetAssignee?.full_name || null;
+    if (detail && detail.id === leadId) {
+      setDetail({
+        ...detail,
+        assigned_to: userId,
+        assigned_to_name: assigneeName || undefined,
+      });
+    }
+    setLeads((prev) =>
+      prev.map((l) =>
+        l.id === leadId
+          ? {
+              ...l,
+              assigned_to: userId,
+              assigned_to_name: assigneeName,
+            }
+          : l
+      )
+    );
+
+    setBusy(true);
+    try {
+      await crmService.assignLead(leadId, userId);
+      // Refetch ONLY getLead(id) + getCounts()
+      const [freshLead, freshCounts] = await Promise.all([
+        crmService.getLead(leadId),
+        crmService.getCounts(),
+      ]);
+      if (selectedIdRef.current === leadId) {
+        setDetail(freshLead);
+      }
+      setCounts(freshCounts);
+      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...freshLead } : l)));
+    } catch (err: any) {
+      // Rollback on error
+      if (prevDetail) setDetail(prevDetail);
+      setLeads(prevLeads);
+      addToast('Failed to assign lead', err.message || 'Please try again.', 'error');
     } finally {
       setBusy(false);
     }
@@ -959,127 +1009,146 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         )}
       </div>
 
-      {showDrawerSkeleton && (
-        <CrmLeadDrawerSkeleton
-          onClose={() => {
+      <Sheet
+        open={Boolean(selectedId)}
+        onOpenChange={(open) => {
+          if (!open) {
             detailAbortRef.current?.abort();
             selectedIdRef.current = null;
             setSelectedId(null);
             setDetail(null);
-          }}
-        />
-      )}
-
-      {drawerReady && detail && (
-        <CrmLeadDrawer
-          lead={detail}
-          stages={stages}
-          assignees={assignees}
-          templates={templates}
-          canAssign={canAssign}
-          busy={busy}
-          onClose={() => {
-            detailAbortRef.current?.abort();
-            selectedIdRef.current = null;
-            setSelectedId(null);
-            setDetail(null);
-          }}
-          onDelete={handleDeleteLead}
-          onAssign={(userId) => run(() => crmService.assignLead(detail.id, userId))}
-          onStage={async (next) => {
-            await run(() => crmService.updateLead(detail.id, { stage: next }));
-          }}
-          onNote={(body) => run(() => crmService.addNote(detail.id, body))}
-          onWhatsApp={(templateId) =>
-            run(async () => {
-              const result = await crmService.logWhatsappOpened(detail.id, templateId);
-              const wa = toSafeWhatsAppUrl(result.wa_url);
-              if (wa) {
-                window.open(wa, '_blank', 'noopener,noreferrer');
-              }
-            })
           }
-          onContacted={() => run(() => crmService.markContacted(detail.id))}
-          onFollowUp={(iso) => run(() => crmService.setFollowUp(detail.id, iso))}
-          onClaim={() =>
-            run(async () => {
-              try {
-                await crmService.claimLead(detail.id);
-              } catch (err: any) {
-                if (err instanceof ApiError && err.status === 409) {
-                  const msg =
-                    (typeof err.details?.detail === 'object' && err.details.detail?.message) ||
-                    err.message ||
-                    'Already claimed';
-                  addToast('Already claimed', String(msg), 'warning');
-                  detailAbortRef.current?.abort();
-                  selectedIdRef.current = null;
-                  setSelectedId(null);
-                  setDetail(null);
+        }}
+      >
+        <SheetContent
+          side="right"
+          size="wide"
+          showClose={false}
+          className="p-0 sm:max-w-[640px] w-full max-w-full h-full flex flex-col outline-none border-l border-border bg-surface"
+        >
+          {showDrawerSkeleton && (
+            <CrmLeadDrawerSkeleton
+              onClose={() => {
+                detailAbortRef.current?.abort();
+                selectedIdRef.current = null;
+                setSelectedId(null);
+                setDetail(null);
+              }}
+            />
+          )}
+
+          {drawerReady && detail && (
+            <CrmLeadDrawer
+              lead={detail}
+              stages={stages}
+              assignees={assignees}
+              templates={templates}
+              canAssign={canAssign}
+              busy={busy}
+              onClose={() => {
+                detailAbortRef.current?.abort();
+                selectedIdRef.current = null;
+                setSelectedId(null);
+                setDetail(null);
+              }}
+              onDelete={handleDeleteLead}
+              onAssign={(userId) => handleAssign(detail.id, userId)}
+              onStage={async (next) => {
+                await run(() => crmService.updateLead(detail.id, { stage: next }));
+              }}
+              onNote={(body) => run(() => crmService.addNote(detail.id, body))}
+              onWhatsApp={(templateId) =>
+                run(async () => {
+                  const result = await crmService.logWhatsappOpened(detail.id, templateId);
+                  const wa = toSafeWhatsAppUrl(result.wa_url);
+                  if (wa) {
+                    window.open(wa, '_blank', 'noopener,noreferrer');
+                  }
+                })
+              }
+              onContacted={() => run(() => crmService.markContacted(detail.id))}
+              onFollowUp={(iso) => run(() => crmService.setFollowUp(detail.id, iso))}
+              onClaim={() =>
+                run(async () => {
+                  try {
+                    await crmService.claimLead(detail.id);
+                  } catch (err: any) {
+                    if (err instanceof ApiError && err.status === 409) {
+                      const msg =
+                        (typeof err.details?.detail === 'object' && err.details.detail?.message) ||
+                        err.message ||
+                        'Already claimed';
+                      addToast('Already claimed', String(msg), 'warning');
+                      detailAbortRef.current?.abort();
+                      selectedIdRef.current = null;
+                      setSelectedId(null);
+                      setDetail(null);
+                      await load();
+                      return;
+                    }
+                    throw err;
+                  }
+                })
+              }
+              onApplyRules={
+                canAssign
+                  ? () => run(() => crmService.applyRules(detail.id))
+                  : undefined
+              }
+              onSaveForm={(payload) =>
+                run(async () => {
+                  const updated = await crmService.updateLead(detail.id, payload);
+                  setDetail((prev) => (prev ? { ...prev, ...updated } : prev));
+                  setLeads((prev) => prev.map((lead) => (lead.id === updated.id ? { ...lead, ...updated } : lead)));
+                })
+              }
+              onTrash={(reason) =>
+                run(async () => {
+                  await crmService.trashLead(detail.id, reason);
+                  addToast('Moved to trash', detail.name, 'success');
                   await load();
+                })
+              }
+              onLost={async () => {
+                setLostTarget({ kind: 'lead', id: detail.id });
+              }}
+              onWon={() => openRegisterClient(detail)}
+              onReopen={async (leadId, stageName) => {
+                await run(async () => {
+                  await crmService.reopenLead(leadId, { stage: stageName });
+                  addToast('Lead Reopened', 'Lead has been restored to the active pipeline.', 'info');
+                });
+              }}
+              onReloadLead={async () => {
+                if (selectedId) await refreshOpen(selectedId);
+              }}
+              onEditProposal={() => {
+                if (detail.outcome !== 'won') {
+                  addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
                   return;
                 }
-                throw err;
-              }
-            })
-          }
-          onApplyRules={
-            canAssign
-              ? () => run(() => crmService.applyRules(detail.id))
-              : undefined
-          }
-          onSaveForm={(payload) =>
-            run(async () => {
-              const updated = await crmService.updateLead(detail.id, payload);
-              setDetail((prev) => (prev ? { ...prev, ...updated } : prev));
-              setLeads((prev) => prev.map((lead) => (lead.id === updated.id ? { ...lead, ...updated } : lead)));
-            })
-          }
-          onTrash={(reason) =>
-            run(async () => {
-              await crmService.trashLead(detail.id, reason);
-              addToast('Moved to trash', detail.name, 'success');
-              await load();
-            })
-          }
-          onLost={async () => {
-            setLostTarget({ kind: 'lead', id: detail.id });
-          }}
-          onWon={() => openRegisterClient(detail)}
-          onReopen={async (leadId, stageName) => {
-            await run(async () => {
-              await crmService.reopenLead(leadId, { stage: stageName });
-              addToast('Lead Reopened', 'Lead has been restored to the active pipeline.', 'info');
-            });
-          }}
-          onReloadLead={async () => {
-            if (selectedId) await refreshOpen(selectedId);
-          }}
-          onEditProposal={() => {
-            if (detail.outcome !== 'won') {
-              addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
-              return;
-            }
-            setEditingDeal(null);
-            setProposalModalLead(detail);
-          }}
-          onCreateDeal={() => {
-            if (detail.outcome !== 'won') {
-              addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
-              return;
-            }
-            setEditingDeal(null);
-            setNewDealFormKey((n) => n + 1);
-            setProposalModalLead(detail);
-            setDrawerInitialTab('deals');
-          }}
-          onEditDeal={(deal) => {
-            setEditingDeal(deal);
-            setProposalModalLead(detail);
-          }}
-          initialTab={drawerInitialTab}
-        />
-      )}
+                setEditingDeal(null);
+                setProposalModalLead(detail);
+              }}
+              onCreateDeal={() => {
+                if (detail.outcome !== 'won') {
+                  addToast('Lead is not won', 'Mark the lead as won before creating a deal.', 'warning');
+                  return;
+                }
+                setEditingDeal(null);
+                setNewDealFormKey((n) => n + 1);
+                setProposalModalLead(detail);
+                setDrawerInitialTab('deals');
+              }}
+              onEditDeal={(deal) => {
+                setEditingDeal(deal);
+                setProposalModalLead(detail);
+              }}
+              initialTab={drawerInitialTab}
+            />
+          )}
+        </SheetContent>
+      </Sheet>
 
 
 

@@ -121,7 +121,7 @@ function toLocalInputValue(iso?: string | null): string {
 }
 
 export const CrmLeadDrawerSkeleton: React.FC<{ onClose: () => void }> = ({ onClose }) => (
-  <aside className="w-full sm:max-w-[640px] xl:w-[640px] shrink-0 h-full border-l border-border bg-surface flex flex-col min-w-0 shadow-lg z-20">
+  <div className="w-full h-full flex flex-col min-w-0 bg-surface">
     <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
       <div className="space-y-1">
         <div className="h-5 w-44 bg-subtle rounded animate-pulse" />
@@ -139,7 +139,7 @@ export const CrmLeadDrawerSkeleton: React.FC<{ onClose: () => void }> = ({ onClo
     <div className="flex-1 overflow-y-auto">
       <DrawerSkeleton />
     </div>
-  </aside>
+  </div>
 );
 
 interface CrmLeadDrawerProps {
@@ -370,7 +370,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   };
 
   return (
-    <aside className="w-full sm:max-w-[640px] xl:w-[640px] shrink-0 h-full border-l border-border bg-surface flex flex-col min-w-0 shadow-lg z-20">
+    <div className="w-full h-full flex flex-col min-w-0 bg-surface">
       {/* Header */}
       <div className="px-5 py-3.5 border-b border-border bg-surface flex flex-col gap-2.5">
         <div className="flex items-start justify-between gap-3">
@@ -386,10 +386,21 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 >
                   {lead.outcome === 'won' ? 'Won' : lead.outcome}
                 </StatusPill>
-              ) : (
-                <span className="text-micro font-medium px-2 py-0.5 rounded bg-subtle text-fg-muted uppercase">
-                  {lead.stage.replace(/_/g, ' ')}
-                </span>
+              ) : null}
+              {!closed && (
+                <div className="w-[180px] max-w-[200px]">
+                  <CustomSelect
+                    value={lead.stage}
+                    onChange={(v) => {
+                      if (!v || v === lead.stage) return;
+                      const label = stages.find((s) => s.id === v)?.name || v;
+                      setStagePrompt(label + '\n' + v);
+                    }}
+                    options={stages.map((s) => ({ value: s.id, label: s.name }))}
+                    size="sm"
+                    disabled={busy}
+                  />
+                </div>
               )}
             </div>
             <p className="text-small text-fg-muted truncate mt-0.5">
@@ -431,26 +442,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             </button>
           </div>
         </div>
-
-        {/* Stage selection in header */}
-        {!closed && (
-          <div className="flex items-center gap-2 pt-1 border-t border-border/50">
-            <span className="text-micro font-medium text-fg-muted uppercase shrink-0">Stage</span>
-            <div className="flex-1 max-w-[240px]">
-              <CustomSelect
-                value={lead.stage}
-                onChange={(v) => {
-                  if (!v || v === lead.stage) return;
-                  const label = stages.find((s) => s.id === v)?.name || v;
-                  setStagePrompt(label + '\n' + v);
-                }}
-                options={stages.map((s) => ({ value: s.id, label: s.name }))}
-                size="sm"
-                disabled={busy}
-              />
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Hero Contact Action Bar (Persistent for open leads) */}
@@ -1172,7 +1163,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
       />
 
       {stagePrompt && (
-        <div className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center p-4 bg-overlay animate-in fade-in-0 duration-150">
+        <div className="fixed inset-0 z-[var(--z-popover,100)] flex items-center justify-center p-4 bg-overlay animate-in fade-in-0 duration-150">
           <div className="w-full max-w-[400px] rounded-lg bg-surface border border-border p-5 shadow-lg space-y-4">
             <h3 className="text-h2 font-semibold text-fg">
               Move {lead.name} to {stagePrompt.split('\n')[0]}?
@@ -1251,6 +1242,6 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           }}
         />
       )}
-    </aside>
+    </div>
   );
 };

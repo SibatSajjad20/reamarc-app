@@ -119,6 +119,7 @@ export const CrmWonLeadMenu: React.FC<CrmWonLeadMenuProps> = ({
       <Button
         ref={buttonRef}
         type="button"
+        size="sm"
         variant="primary"
         aria-haspopup="listbox"
         aria-expanded={open}
