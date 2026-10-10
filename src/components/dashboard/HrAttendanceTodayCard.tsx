@@ -11,7 +11,7 @@ import { cn } from '../../lib/utils';
 interface HrAttendanceTodayCardProps {
   matrixData: DailyMatrixResponse | null;
   isLoading?: boolean;
-  onNavigateView: (view: ViewType) => void;
+  onNavigateView: (view: ViewType, subSection?: string) => void;
   className?: string;
 }
 
@@ -40,7 +40,7 @@ export const HrAttendanceTodayCard: React.FC<HrAttendanceTodayCardProps> = ({
           <h3 className="text-ui font-semibold text-fg">Attendance today</h3>
           <button
             type="button"
-            onClick={() => onNavigateView('attendance')}
+            onClick={() => onNavigateView('attendance', 'daily-matrix')}
             className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
           >
             Open

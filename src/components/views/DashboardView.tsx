@@ -121,7 +121,7 @@ export function getDepartmentCategories(user?: any): DepartmentCategory[] {
 }
 
 interface DashboardViewProps {
-  onNavigateView: (view: ViewType) => void;
+  onNavigateView: (view: ViewType, subSection?: string) => void;
 }
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) => {
@@ -1027,7 +1027,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${pendingRequests.length} ${pendingRequests.length === 1 ? 'request' : 'requests'} awaiting approval`,
         subtitle: parts.length > 0 ? parts.join(' · ') : 'Review leave and attendance requests',
         actionLabel: 'Open',
-        onAction: () => onNavigateView('attendance'),
+        onAction: () => onNavigateView('attendance', isLead || isHR || isAdmin || isOps ? 'approvals' : 'requests'),
       });
     }
 
@@ -1039,7 +1039,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${missedInquiries.length} missed punch inquiries to review`,
         subtitle: missedInquiries[0]?.created_at ? `Oldest from ${missedInquiries[0].created_at.slice(5, 10)}` : 'Review pending employee inquiries',
         actionLabel: 'Review',
-        onAction: () => onNavigateView('attendance'),
+        onAction: () => onNavigateView('attendance', 'daily-matrix'),
       });
     }
 
@@ -1051,7 +1051,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${yesterdayMissingLogCount} people missing yesterday's log`,
         subtitle: yesterdayMissingSubtext || 'Unlogged working hours yesterday',
         actionLabel: 'Review',
-        onAction: () => onNavigateView('admin'),
+        onAction: () => onNavigateView('admin', 'compliance'),
       });
     }
 
@@ -1076,7 +1076,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `Your missed punch inquiry for ${inq.date || todayIso}`,
         subtitle: 'Waiting for HR response',
         actionLabel: 'View',
-        onAction: () => onNavigateView('attendance'),
+        onAction: () => onNavigateView('attendance', 'timesheet'),
       });
     }
 
@@ -1088,7 +1088,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${overdueFollowupsCount} follow-ups overdue`,
         subtitle: overdueFollowupsSubtext || 'Overdue CRM client follow-ups',
         actionLabel: 'Open',
-        onAction: () => onNavigateView('crm'),
+        onAction: () => onNavigateView('crm', 'followup'),
       });
     }
     if (uncontactedLeadsCount > 0) {
@@ -1098,7 +1098,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${uncontactedLeadsCount} uncontacted leads`,
         subtitle: uncontactedLeadsSubtext || 'New incoming leads waiting for touch',
         actionLabel: 'Open',
-        onAction: () => onNavigateView('crm'),
+        onAction: () => onNavigateView('crm', 'board'),
       });
     }
 
@@ -1122,7 +1122,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         title: `${websiteOverdueCount} website tasks overdue`,
         subtitle: 'Pending project milestones',
         actionLabel: 'Open',
-        onAction: () => onNavigateView('website-pipeline'),
+        onAction: () => onNavigateView('website-pipeline', 'tasks'),
       });
     }
 
@@ -1170,18 +1170,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // Gate Loading Skeleton
   if (!isGateReady) {
     return (
-      <div className="p-6 max-w-7xl mx-auto space-y-6">
-        <PageHeader
-          title={`${greeting}, ${firstName}`}
-          description={`${formattedHeaderDate} · ${roleSubtitle} · ${workingDaysLeft} of ${totalWorkingDaysInWeek} working days left this week`}
-        />
-        <DashboardSkeleton role={role} />
+      <div className="flex-1 min-h-0 overflow-y-auto w-full">
+        <div className="p-6 max-w-7xl mx-auto space-y-6">
+          <PageHeader
+            title={`${greeting}, ${firstName}`}
+            description={`${formattedHeaderDate} · ${roleSubtitle} · ${workingDaysLeft} of ${totalWorkingDaysInWeek} working days left this week`}
+          />
+          <DashboardSkeleton role={role} />
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
+    <div className="flex-1 min-h-0 overflow-y-auto w-full">
+      <div className="p-6 max-w-7xl mx-auto space-y-6">
       {/* Page Header */}
       <PageHeader
         title={`${greeting}, ${firstName}`}
@@ -1193,7 +1196,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onNavigateView('attendance')}
+                  onClick={() => onNavigateView('attendance', 'daily-matrix')}
                   icon={Clock}
                 >
                   Daily attendance
@@ -1201,7 +1204,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 <Button
                   variant="secondary"
                   size="sm"
-                  onClick={() => onNavigateView('admin')}
+                  onClick={() => onNavigateView('admin', 'compliance')}
                   icon={ShieldCheck}
                 >
                   Log compliance
@@ -1280,7 +1283,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Sales pipeline"
               subtitle="leads by stage"
               linkText="Open board"
-              onNavigate={() => onNavigateView('crm')}
+              onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
               isError={crmStagesError}
             />
@@ -1296,7 +1299,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Website pipeline"
               subtitle="projects by stage"
               linkText="Open pipeline"
-              onNavigate={() => onNavigateView('website-pipeline')}
+              onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
               isError={websiteStagesError}
             />
@@ -1516,7 +1519,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Sales pipeline"
               subtitle="team leads + unassigned"
               linkText="Open board"
-              onNavigate={() => onNavigateView('crm')}
+              onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
               isError={crmStagesError}
               layout="two-col"
@@ -1527,7 +1530,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Website pipeline"
               subtitle="your department's stages"
               linkText="Open pipeline"
-              onNavigate={() => onNavigateView('website-pipeline')}
+              onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
               isError={websiteStagesError}
               layout="two-col"
@@ -1599,7 +1602,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Sales pipeline"
               subtitle="my leads + unassigned"
               linkText="Open board"
-              onNavigate={() => onNavigateView('crm')}
+              onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
               isError={crmStagesError}
               layout="two-col"
@@ -1621,7 +1624,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               title="Website pipeline"
               subtitle="my projects & tasks"
               linkText="Open pipeline"
-              onNavigate={() => onNavigateView('website-pipeline')}
+              onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
               isError={websiteStagesError}
               layout="two-col"
@@ -1644,6 +1647,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           }}
         />
       )}
+      </div>
     </div>
   );
 };

@@ -17,7 +17,7 @@ import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 interface TeamDailyAttendanceCardProps {
   matrixData: DailyMatrixResponse | null;
   isLoading: boolean;
-  onNavigateView: (view: ViewType) => void;
+  onNavigateView: (view: ViewType, subSection?: string) => void;
   className?: string;
 }
 
@@ -165,7 +165,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
         </div>
         <button
           type="button"
-          onClick={() => onNavigateView('attendance')}
+          onClick={() => onNavigateView('attendance', 'daily-matrix')}
           className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
         >
           Open daily attendance

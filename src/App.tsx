@@ -220,8 +220,13 @@ function AppInner() {
           setCurrentView('dashboard');
           localStorage.setItem('reamarc_active_view', 'dashboard');
         }
-      } else if (currentPath === 'admin') {
+      } else if (currentPath === 'admin' || currentPath.startsWith('admin/')) {
         if (canSeeAdmin) {
+          const segments = currentPath.split('/');
+          const sub = segments[1];
+          if (sub && ['directory', 'compliance', 'workspaces'].includes(sub)) {
+            setActiveAdminSection(sub as AdminSectionType);
+          }
           setCurrentView('admin');
           localStorage.setItem('reamarc_active_view', 'admin');
         } else {
@@ -241,12 +246,17 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
-      } else if (currentPath === 'attendance') {
+      } else if (currentPath === 'attendance' || currentPath.startsWith('attendance/')) {
         if (isClient) {
           window.history.replaceState(null, '', '/portal');
           setCurrentView('portal');
           localStorage.setItem('reamarc_active_view', 'portal');
         } else {
+          const segments = currentPath.split('/');
+          const sub = segments[1];
+          if (sub && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals', 'timesheet', 'requests'].includes(sub)) {
+            setActiveAttendanceSection(sub as AttendanceSubSection);
+          }
           setCurrentView('attendance');
           localStorage.setItem('reamarc_active_view', 'attendance');
         }
@@ -269,8 +279,13 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
-      } else if (currentPath === 'crm' || currentPath === 'leads') {
+      } else if (currentPath === 'crm' || currentPath.startsWith('crm/') || currentPath === 'leads' || currentPath.startsWith('leads/')) {
         if (canSeeCrm) {
+          const segments = currentPath.split('/');
+          const sub = segments[1];
+          if (sub && ['board', 'deals', 'list', 'followup'].includes(sub)) {
+            setActiveCrmSection(sub as CrmSubSection);
+          }
           setCurrentView('crm');
           localStorage.setItem('reamarc_active_view', 'crm');
         } else {
@@ -299,8 +314,20 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
-      } else if (currentPath === 'website-pipeline' || currentPath === 'website_pipeline' || currentPath === 'website') {
+      } else if (
+        currentPath === 'website-pipeline' ||
+        currentPath.startsWith('website-pipeline/') ||
+        currentPath === 'website_pipeline' ||
+        currentPath.startsWith('website_pipeline/') ||
+        currentPath === 'website' ||
+        currentPath.startsWith('website/')
+      ) {
         if (canSeeWebsitePipeline) {
+          const segments = currentPath.split('/');
+          const sub = segments[1];
+          if (sub && ['board', 'tasks', 'table'].includes(sub)) {
+            setActiveWebsiteSection(sub as 'board' | 'tasks' | 'table');
+          }
           setCurrentView('website-pipeline');
           localStorage.setItem('reamarc_active_view', 'website-pipeline');
         } else {
@@ -404,7 +431,7 @@ function AppInner() {
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
   }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, isClient, isAdmin, getDefaultViewForUser]);
 
-  const handleSelectView = (view: ViewType) => {
+  const handleSelectView = (view: ViewType, subSection?: string) => {
     let allowedViews: ViewType[] = [];
     if (!isClient) {
       allowedViews.push('dashboard');
@@ -429,9 +456,30 @@ function AppInner() {
       setLastNonSettingsView(targetView);
     }
 
+    if (targetView === 'admin' && subSection && ['directory', 'compliance', 'workspaces'].includes(subSection)) {
+      setActiveAdminSection(subSection as AdminSectionType);
+    }
+    if (targetView === 'attendance' && subSection && ['daily-matrix', 'punctuality-hub', 'employee-timesheets', 'approvals', 'timesheet', 'requests'].includes(subSection)) {
+      setActiveAttendanceSection(subSection as AttendanceSubSection);
+    }
+    if (targetView === 'crm' && subSection && ['board', 'deals', 'list', 'followup'].includes(subSection)) {
+      setActiveCrmSection(subSection as CrmSubSection);
+    }
+    if (targetView === 'website-pipeline' && subSection && ['board', 'tasks', 'table'].includes(subSection)) {
+      setActiveWebsiteSection(subSection as 'board' | 'tasks' | 'table');
+    }
+
     try {
       if (targetView === 'settings') {
         window.history.pushState(null, '', `/settings/${activeSettingsSection || 'profile'}`);
+      } else if (targetView === 'admin' && subSection) {
+        window.history.pushState(null, '', `/admin/${subSection}`);
+      } else if (targetView === 'attendance' && subSection) {
+        window.history.pushState(null, '', `/attendance/${subSection}`);
+      } else if (targetView === 'crm' && subSection) {
+        window.history.pushState(null, '', `/crm/${subSection}`);
+      } else if (targetView === 'website-pipeline' && subSection) {
+        window.history.pushState(null, '', `/website-pipeline/${subSection}`);
       } else {
         window.history.pushState(null, '', `/${targetView}`);
       }
@@ -628,28 +676,28 @@ function AppInner() {
             onSelectCrmSection={(section) => {
               setActiveCrmSection(section);
               if (currentView !== 'crm') {
-                handleSelectView('crm');
+                handleSelectView('crm', section);
               }
             }}
             activeAttendanceSection={activeAttendanceSection}
             onSelectAttendanceSection={(section) => {
               setActiveAttendanceSection(section);
               if (currentView !== 'attendance') {
-                handleSelectView('attendance');
+                handleSelectView('attendance', section);
               }
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
               setActiveAdminSection(section);
               if (currentView !== 'admin') {
-                handleSelectView('admin');
+                handleSelectView('admin', section);
               }
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
               setActiveWebsiteSection(section);
               if (currentView !== 'website-pipeline') {
-                handleSelectView('website-pipeline');
+                handleSelectView('website-pipeline', section);
               }
             }}
             activePortalTab={activePortalTab}
@@ -683,7 +731,7 @@ function AppInner() {
             onSelectCrmSection={(section) => {
               setActiveCrmSection(section);
               if (currentView !== 'crm') {
-                handleSelectView('crm');
+                handleSelectView('crm', section);
               }
               setIsMobileNavOpen(false);
             }}
@@ -691,7 +739,7 @@ function AppInner() {
             onSelectAttendanceSection={(section) => {
               setActiveAttendanceSection(section);
               if (currentView !== 'attendance') {
-                handleSelectView('attendance');
+                handleSelectView('attendance', section);
               }
               setIsMobileNavOpen(false);
             }}
@@ -699,7 +747,7 @@ function AppInner() {
             onSelectAdminSection={(section) => {
               setActiveAdminSection(section);
               if (currentView !== 'admin') {
-                handleSelectView('admin');
+                handleSelectView('admin', section);
               }
               setIsMobileNavOpen(false);
             }}
@@ -707,7 +755,7 @@ function AppInner() {
             onSelectWebsiteSection={(section) => {
               setActiveWebsiteSection(section);
               if (currentView !== 'website-pipeline') {
-                handleSelectView('website-pipeline');
+                handleSelectView('website-pipeline', section);
               }
               setIsMobileNavOpen(false);
             }}
@@ -739,28 +787,28 @@ function AppInner() {
             onSelectCrmSection={(section) => {
               setActiveCrmSection(section);
               if (currentView !== 'crm') {
-                handleSelectView('crm');
+                handleSelectView('crm', section);
               }
             }}
             activeAttendanceSection={activeAttendanceSection}
             onSelectAttendanceSection={(section) => {
               setActiveAttendanceSection(section);
               if (currentView !== 'attendance') {
-                handleSelectView('attendance');
+                handleSelectView('attendance', section);
               }
             }}
             activeAdminSection={activeAdminSection}
             onSelectAdminSection={(section) => {
               setActiveAdminSection(section);
               if (currentView !== 'admin') {
-                handleSelectView('admin');
+                handleSelectView('admin', section);
               }
             }}
             activeWebsiteSection={activeWebsiteSection}
             onSelectWebsiteSection={(section) => {
               setActiveWebsiteSection(section);
               if (currentView !== 'website-pipeline') {
-                handleSelectView('website-pipeline');
+                handleSelectView('website-pipeline', section);
               }
             }}
             activePortalTab={activePortalTab}

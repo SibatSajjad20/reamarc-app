@@ -9,7 +9,7 @@ import { cn } from '../../lib/utils';
 interface HrApprovalInboxCardProps {
   requests: AttendanceRequest[];
   isLoading?: boolean;
-  onNavigateView: (view: ViewType) => void;
+  onNavigateView: (view: ViewType, subSection?: string) => void;
   onOpenReview: (request: AttendanceRequest) => void;
   className?: string;
 }
@@ -51,7 +51,7 @@ export const HrApprovalInboxCard: React.FC<HrApprovalInboxCardProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => onNavigateView('attendance')}
+            onClick={() => onNavigateView('attendance', 'approvals')}
             className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
           >
             Open approvals

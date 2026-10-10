@@ -69,7 +69,7 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
   }, [workspaces, searchQuery, statusFilter]);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 space-y-6">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto p-6 space-y-6">
       {/* Page Header */}
       <PageHeader
         title="Client workspaces"

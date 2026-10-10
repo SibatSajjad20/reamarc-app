@@ -8,7 +8,7 @@ import { cn } from '../../lib/utils';
 interface LogComplianceCardProps {
   snapshot: OperatingSnapshot | null;
   isLoading: boolean;
-  onNavigateView: (view: ViewType) => void;
+  onNavigateView: (view: ViewType, subSection?: string) => void;
   className?: string;
 }
 
@@ -40,7 +40,7 @@ export const LogComplianceCard: React.FC<LogComplianceCardProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => onNavigateView('admin')}
+            onClick={() => onNavigateView('admin', 'compliance')}
             className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
           >
             Open

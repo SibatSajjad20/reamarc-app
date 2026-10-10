@@ -59,6 +59,14 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
     return 'board';
   });
 
+  useEffect(() => {
+    if (activeSection === 'tasks') {
+      setViewMode('tasks');
+    } else if (activeSection === 'board' || activeSection === 'table') {
+      setViewMode('board');
+    }
+  }, [activeSection]);
+
   const handleViewModeChange = (mode: string) => {
     const nextMode = mode === 'tasks' ? 'tasks' : 'board';
     setViewMode(nextMode);

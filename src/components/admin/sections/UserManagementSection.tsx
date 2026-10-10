@@ -245,7 +245,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 space-y-6">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto p-6 space-y-6">
       {/* Page Header matching Mock 08 */}
       <PageHeader
         title="Team directory"
