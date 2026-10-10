@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   Building2,
-  AlertCircle,
   Table,
   Kanban,
   Search,
@@ -45,7 +44,6 @@ export const ClientHealthMatrix: React.FC<Props> = ({
     };
 
     const handleScroll = (e: Event) => {
-      // Close on window or scroll events outside menu
       const target = e.target as HTMLElement;
       if (!target?.closest?.('[data-client-actions-menu]')) {
         setActiveMenu(null);
@@ -83,21 +81,21 @@ export const ClientHealthMatrix: React.FC<Props> = ({
   };
 
   return (
-    <div className="w-full h-[235px] rounded-xl bg-surface border border-border shadow-xs overflow-hidden flex flex-col">
+    <div className="w-full rounded-lg bg-surface border border-border shadow-xs overflow-hidden flex flex-col">
       {/* Table Header / Sub-toolbar */}
-      <div className="px-3.5 py-2 flex items-center justify-between gap-2 shrink-0 bg-subtle border-b border-border">
+      <div className="px-4 py-3 flex items-center justify-between gap-2 shrink-0 bg-subtle border-b border-border">
         <div>
           <div className="flex items-center gap-2">
             <Building2 className="w-3.5 h-3.5 text-accent" />
-            <h2 className="text-xs font-semibold text-fg">
-              Client Portfolio Health
-            </h2>
-            <span className="font-numeric text-xs font-medium px-2 py-0.5 rounded-md bg-surface text-fg-muted border border-border">
+            <h3 className="text-ui font-semibold text-fg">
+              Client Portfolio
+            </h3>
+            <span className="font-numeric text-xs font-medium px-2 py-0.5 rounded-full bg-surface text-fg-muted border border-border">
               {filteredMatrix.length} {filteredMatrix.length === 1 ? 'client' : 'clients'}
             </span>
           </div>
-          <p className="text-caption text-fg-muted mt-0.5 hidden 2xl:block">
-            Stage distribution, completion rate, and deadline health per client
+          <p className="text-caption text-fg-muted mt-0.5 hidden sm:block">
+            Production volume, approval status, and upcoming deadlines per client
           </p>
         </div>
 
@@ -109,27 +107,25 @@ export const ClientHealthMatrix: React.FC<Props> = ({
             value={filterSearch}
             onChange={(e) => setFilterSearch(e.target.value)}
             placeholder="Filter clients..."
-            className="w-full pl-8 pr-2.5 py-1 text-xs rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-1 focus:ring-accent"
+            className="w-full pl-8 pr-2.5 py-1 text-xs rounded-md bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent"
           />
         </div>
       </div>
 
-      {/* Table Scroll Area with Internal Scroll Wheel */}
+      {/* Table Scroll Area */}
       <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0 min-w-0 divide-y divide-border">
         <table className="w-full text-left text-xs border-collapse">
           <thead className="sticky top-0 z-10 bg-subtle border-b border-border shadow-xs">
-            <tr className="text-fg-muted border-b border-border font-medium text-caption">
-              <th className="py-2 px-2.5">Client</th>
-              <th className="py-2 px-2.5 text-center">Total</th>
-              <th className="py-2 px-2.5 text-center">Content</th>
-              <th className="py-2 px-2.5 text-center">Creative</th>
-              <th className="py-2 px-2.5 text-center">Client Review</th>
-              <th className="py-2 px-2.5 text-center">Ready</th>
-              <th className="py-2 px-2.5 text-center">Posted</th>
-              <th className="py-2 px-2.5 text-center">Progress</th>
-              <th className="py-2 px-2.5 text-center">Alerts</th>
-              <th className="py-2 px-2.5 text-right">Next Post</th>
-              <th className="py-2 px-2.5 text-right w-8">
+            <tr className="text-fg-muted font-medium text-caption">
+              <th className="py-2.5 px-3">Client</th>
+              <th className="py-2.5 px-3 text-center">Posts</th>
+              <th className="py-2.5 px-3 text-center">In production</th>
+              <th className="py-2.5 px-3 text-center">Client review</th>
+              <th className="py-2.5 px-3 text-center">Ready</th>
+              <th className="py-2.5 px-3 text-center">Posted</th>
+              <th className="py-2.5 px-3 text-center">Progress</th>
+              <th className="py-2.5 px-3 text-right">Next post</th>
+              <th className="py-2.5 px-3 text-right w-8">
                 <span className="sr-only">Actions</span>
               </th>
             </tr>
@@ -137,11 +133,11 @@ export const ClientHealthMatrix: React.FC<Props> = ({
 
           <tbody className="divide-y divide-border font-medium">
             {isLoading ? (
-              Array.from({ length: 6 }).map((_, i) => (
+              Array.from({ length: 5 }).map((_, i) => (
                 <tr key={`skeleton-${i}`} className="animate-pulse">
                   <td className="py-2.5 px-3">
                     <div className="flex items-center gap-2">
-                      <div className="w-6 h-6 rounded-md bg-skel" />
+                      <div className="w-5 h-5 rounded-md bg-skel" />
                       <div className="h-4 w-28 bg-skel rounded" />
                     </div>
                   </td>
@@ -150,17 +146,15 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                   <td className="py-2.5 px-3 text-center"><div className="h-4 w-8 bg-skel rounded mx-auto" /></td>
                   <td className="py-2.5 px-3 text-center"><div className="h-4 w-8 bg-skel rounded mx-auto" /></td>
                   <td className="py-2.5 px-3 text-center"><div className="h-4 w-8 bg-skel rounded mx-auto" /></td>
-                  <td className="py-2.5 px-3 text-center"><div className="h-4 w-8 bg-skel rounded mx-auto" /></td>
-                  <td className="py-2.5 px-3 text-center"><div className="h-2 w-20 bg-skel rounded-full mx-auto" /></td>
-                  <td className="py-2.5 px-3 text-center"><div className="h-4 w-12 bg-skel rounded mx-auto" /></td>
+                  <td className="py-2.5 px-3 text-center"><div className="h-2 w-16 bg-skel rounded-full mx-auto" /></td>
                   <td className="py-2.5 px-3 text-right"><div className="h-4 w-16 bg-skel rounded ml-auto" /></td>
                   <td className="py-2.5 px-3 text-right"><div className="h-6 w-6 bg-skel rounded-md ml-auto" /></td>
                 </tr>
               ))
             ) : filteredMatrix.length === 0 ? (
               <tr>
-                <td colSpan={11} className="py-12 text-center text-fg-muted">
-                  <p className="text-sm font-semibold">No clients match the active filter</p>
+                <td colSpan={9} className="py-12 text-center text-fg-muted">
+                  <p className="text-sm font-semibold text-fg">No clients match the active filter</p>
                   <p className="text-xs mt-1">Try clearing your search query or adjusting your filters.</p>
                 </td>
               </tr>
@@ -168,47 +162,42 @@ export const ClientHealthMatrix: React.FC<Props> = ({
               filteredMatrix.map((row) => {
                 const initials = getInitials(row.clientName);
                 const isMenuOpen = activeMenu?.clientName === row.clientName;
+                const inProduction = row.contentPhase + row.creativePhase;
 
                 return (
                   <tr
                     key={row.clientName}
-                    className="group hover:bg-hover transition-colors"
+                    className="group hover:bg-hover transition-colors cursor-pointer"
+                    onClick={() => onOpenClient(row.clientName, 'table')}
                   >
                     {/* Client Name + Avatar */}
-                    <td className="py-1.5 px-2.5 whitespace-nowrap">
+                    <td className="py-2 px-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <div className="w-5 h-5 rounded-md bg-subtle border border-border flex items-center justify-center text-[9px] font-medium text-fg-2 shrink-0">
                           {initials}
                         </div>
-                        <span className="font-semibold text-fg text-xs">
+                        <span className="font-semibold text-fg text-xs group-hover:text-accent transition-colors">
                           {row.clientName}
                         </span>
                       </div>
                     </td>
 
-                    {/* Total Posts */}
-                    <td className="py-1.5 px-2.5 text-center font-numeric font-semibold text-fg whitespace-nowrap">
+                    {/* 1. Posts */}
+                    <td className="py-2 px-3 text-center font-numeric font-semibold text-fg whitespace-nowrap">
                       {row.total}
                     </td>
 
-                    {/* Content Phase */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                      <span className={`font-numeric ${row.contentPhase > 0 ? 'font-medium text-fg' : 'text-fg-muted'}`}>
-                        {row.contentPhase}
+                    {/* 2. In production */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
+                      <span className={`font-numeric ${inProduction > 0 ? 'font-medium text-fg' : 'text-fg-muted'}`}>
+                        {inProduction}
                       </span>
                     </td>
 
-                    {/* Creative Phase */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                      <span className={`font-numeric ${row.creativePhase > 0 ? 'font-medium text-fg' : 'text-fg-muted'}`}>
-                        {row.creativePhase}
-                      </span>
-                    </td>
-
-                    {/* Client Review (Semantic Warning) */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                    {/* 3. Client review */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
                       {row.clientReview > 0 ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-numeric font-medium bg-warning-bg text-warning-fg border border-warning-bd">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-numeric font-medium bg-warning-bg text-warning-fg border border-warning-bd">
                           {row.clientReview}
                         </span>
                       ) : (
@@ -216,10 +205,10 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Ready to Post (Semantic Info) */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                    {/* 4. Ready */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
                       {row.readyToPost > 0 ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-numeric font-medium bg-info-bg text-info-fg border border-info-bd">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-numeric font-medium bg-info-bg text-info-fg border border-info-bd">
                           {row.readyToPost}
                         </span>
                       ) : (
@@ -227,10 +216,10 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Posted (Semantic Success) */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                    {/* 5. Posted */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
                       {row.posted > 0 ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-numeric font-medium bg-success-bg text-success-fg border border-success-bd">
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10.5px] font-numeric font-medium bg-success-bg text-success-fg border border-success-bd">
                           {row.posted}
                         </span>
                       ) : (
@@ -238,12 +227,12 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                       )}
                     </td>
 
-                    {/* Progress Bar & % */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
+                    {/* 6. Progress */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
                       <div className="inline-flex items-center gap-1.5">
                         <div className="w-14 bg-subtle rounded-full h-1 overflow-hidden">
                           <div
-                            className="bg-success-dot h-1 rounded-full"
+                            className="bg-success-dot h-1 rounded-full transition-all duration-300"
                             style={{ width: `${Math.min(row.completionRate, 100)}%` }}
                           />
                         </div>
@@ -253,39 +242,22 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                       </div>
                     </td>
 
-                    {/* Alerts (Overdue / Revision) */}
-                    <td className="py-1.5 px-2.5 text-center whitespace-nowrap">
-                      {row.overdueCount > 0 ? (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10.5px] font-numeric font-medium bg-danger-bg text-danger-fg border border-danger-bd">
-                          <AlertCircle className="w-3 h-3 text-danger-fg" />
-                          <span>{row.overdueCount} overdue</span>
-                        </span>
-                      ) : row.revisionCount > 0 ? (
-                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10.5px] font-numeric font-medium bg-warning-bg text-warning-fg border border-warning-bd">
-                          {row.revisionCount} rev
-                        </span>
-                      ) : (
-                        <span className="text-[10.5px] text-fg-muted font-medium font-numeric">0</span>
-                      )}
+                    {/* 7. Next post */}
+                    <td className="py-2 px-3 text-right font-numeric text-fg-muted whitespace-nowrap text-xs">
+                      {row.nextScheduledDate ? row.nextScheduledDate.split('T')[0] : '—'}
                     </td>
 
-                    {/* Next Scheduled Date */}
-                    <td className="py-1.5 px-2.5 text-right font-numeric text-fg-muted whitespace-nowrap text-xs">
-                      {row.nextScheduledDate || 'None set'}
-                    </td>
-
-                    {/* 3-Dots Action Menu (Visible on Row Hover or when Menu is Open) */}
-                    <td className="py-1.5 px-2.5 text-right whitespace-nowrap">
+                    {/* Actions Menu */}
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
                       <button
                         type="button"
                         data-client-menu-btn
                         onClick={(e) => handleToggleMenu(e, row.clientName)}
-                        title={`Actions for ${row.clientName}`}
-                        className={`p-1 rounded-md transition-all cursor-pointer ${
-                          isMenuOpen
-                            ? 'opacity-100 bg-hover text-fg'
-                            : 'opacity-0 group-hover:opacity-100 focus:opacity-100 text-fg-muted hover:text-fg hover:bg-hover'
+                        aria-expanded={isMenuOpen}
+                        className={`p-1 rounded-md text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer ${
+                          isMenuOpen ? 'bg-hover text-fg' : ''
                         }`}
+                        title="Open client views"
                       >
                         <MoreHorizontal className="w-4 h-4" />
                       </button>
@@ -298,7 +270,7 @@ export const ClientHealthMatrix: React.FC<Props> = ({
         </table>
       </div>
 
-      {/* Portaled Actions Dropdown (Positioned Fixed to Prevent Table Scroll Clipping) */}
+      {/* Floating Actions Menu Portal */}
       {activeMenu &&
         createPortal(
           <div
@@ -307,34 +279,34 @@ export const ClientHealthMatrix: React.FC<Props> = ({
               position: 'fixed',
               top: `${activeMenu.top}px`,
               right: `${activeMenu.right}px`,
+              zIndex: 100,
             }}
-            className="z-9999 w-36 bg-surface border border-border rounded-xl shadow-md p-1 space-y-0.5 animate-in fade-in zoom-in-95 duration-100 select-none text-left"
-            onClick={(e) => e.stopPropagation()}
+            className="w-44 bg-surface border border-border rounded-lg shadow-md py-1 text-xs animate-in fade-in-0 zoom-in-95 duration-100"
           >
+            <div className="px-2.5 py-1 text-[10.5px] font-semibold text-fg-muted border-b border-border/50 truncate">
+              {activeMenu.clientName}
+            </div>
             <button
               type="button"
               onClick={() => {
-                const name = activeMenu.clientName;
+                onOpenClient(activeMenu.clientName, 'table');
                 setActiveMenu(null);
-                onOpenClient(name, 'table');
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium text-fg-2 hover:bg-hover hover:text-fg transition-colors cursor-pointer"
+              className="w-full px-2.5 py-1.5 flex items-center gap-2 text-fg hover:bg-hover transition-colors text-left cursor-pointer"
             >
               <Table className="w-3.5 h-3.5 text-fg-muted" />
-              <span>Open Sheet</span>
+              <span>Open in Table view</span>
             </button>
-
             <button
               type="button"
               onClick={() => {
-                const name = activeMenu.clientName;
+                onOpenClient(activeMenu.clientName, 'pipeline');
                 setActiveMenu(null);
-                onOpenClient(name, 'pipeline');
               }}
-              className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-xs font-medium text-fg-2 hover:bg-hover hover:text-fg transition-colors cursor-pointer"
+              className="w-full px-2.5 py-1.5 flex items-center gap-2 text-fg hover:bg-hover transition-colors text-left cursor-pointer"
             >
               <Kanban className="w-3.5 h-3.5 text-fg-muted" />
-              <span>Open Pipeline</span>
+              <span>Open in Pipeline view</span>
             </button>
           </div>,
           document.body

@@ -9,18 +9,18 @@ interface Props {
 export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }) => {
   if (isLoading) {
     return (
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+        {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 space-y-2 animate-pulse"
+            className="bg-surface border border-border rounded-lg shadow-xs p-4 space-y-2 animate-pulse"
           >
             <div className="flex items-center justify-between">
-              <div className="h-2.5 w-16 bg-skel rounded" />
-              <div className="h-4 w-12 bg-skel rounded-full" />
+              <div className="h-3 w-16 bg-skel rounded" />
+              <div className="h-4 w-10 bg-skel rounded-full" />
             </div>
-            <div className="h-6 w-12 bg-skel rounded" />
-            <div className="h-2 w-20 bg-skel rounded" />
+            <div className="h-7 w-12 bg-skel rounded" />
+            <div className="h-3 w-28 bg-skel rounded" />
           </div>
         ))}
       </div>
@@ -28,181 +28,114 @@ export const OverviewKpiCards: React.FC<Props> = ({ metrics, isLoading = false }
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
-      {/* 1. Total Campaigns */}
-      <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
+    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {/* 1. Total */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between">
         <div>
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
             <span className="text-xs font-medium text-fg-muted truncate">
-              Total Posts
+              Total
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
-              <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-              <span>Total</span>
-            </span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
-              {metrics.totalItems}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border">
+              Scope
             </span>
           </div>
-        </div>
-        <div className="mt-1 text-[10.5px] text-fg-muted truncate">
-          Across filtered clients
+          <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
+            {metrics.totalItems}
+          </div>
+          <p className="text-xs text-fg-muted mt-1 font-numeric truncate">
+            Across filtered clients
+          </p>
         </div>
       </div>
 
-      {/* 2. Completion / Velocity */}
-      <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
+      {/* 2. In production */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between">
         <div>
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
             <span className="text-xs font-medium text-fg-muted truncate">
-              Posted (Done)
+              In production
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
-              <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-              <span>{metrics.completionRate}%</span>
-            </span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
-              {metrics.postedCount}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-info-bg text-info-fg border border-info-bd">
+              Active
             </span>
           </div>
-        </div>
-        <div className="mt-1">
-          <div className="w-full bg-border rounded-full h-1 overflow-hidden">
-            <div
-              className="bg-success-fg h-1 rounded-full transition-all duration-300"
-              style={{ width: `${Math.min(metrics.completionRate, 100)}%` }}
-            />
+          <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
+            {metrics.inProductionCount}
           </div>
-          <div className="mt-1 text-[10.5px] text-fg-muted truncate">
-            Delivered & verified
-          </div>
+          <p className="text-xs text-fg-muted mt-1 font-numeric truncate">
+            Drafting, creative & internal review
+          </p>
         </div>
       </div>
 
-      {/* 3. Ready to Post */}
-      <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
+      {/* 3. Awaiting client */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between">
         <div>
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
             <span className="text-xs font-medium text-fg-muted truncate">
-              Ready to Post
+              Awaiting client
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
-              <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-              <span>Queued</span>
-            </span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
-              {metrics.readyToPostCount}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-warning-bg text-warning-fg border border-warning-bd">
+              Review
             </span>
           </div>
-        </div>
-        <div className="mt-1 text-[10.5px] text-fg-muted truncate">
-          Approved for release
+          <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
+            {metrics.clientReviewCount}
+          </div>
+          <p className="text-xs text-fg-muted mt-1 font-numeric truncate">
+            Pending external signoff
+          </p>
         </div>
       </div>
 
-      {/* 4. Client Review Gate */}
-      <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
+      {/* 4. Ready */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between">
         <div>
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
             <span className="text-xs font-medium text-fg-muted truncate">
-              In Review
+              Ready
             </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
-              <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-              <span>Waiting</span>
-            </span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
-              {metrics.clientReviewCount}
+            <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-success-bg text-success-fg border border-success-bd">
+              Queued
             </span>
           </div>
-        </div>
-        <div className="mt-1 text-[10.5px] text-fg-muted truncate">
-          Awaiting client feedback
+          <div className="text-kpi font-semibold text-fg font-numeric tracking-tight">
+            {metrics.readyToPostCount}
+          </div>
+          <p className="text-xs text-fg-muted mt-1 font-numeric truncate">
+            Approved & queued to post
+          </p>
         </div>
       </div>
 
-      {/* 5. In Revision */}
-      <div className="rounded-xl bg-surface border border-border p-2.5 sm:p-3 flex flex-col justify-between">
+      {/* 5. Overdue */}
+      <div className="bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between">
         <div>
-          <div className="flex items-center justify-between gap-1.5">
+          <div className="flex items-center justify-between gap-1.5 mb-1.5">
             <span className="text-xs font-medium text-fg-muted truncate">
-              Revisions
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted shrink-0 border border-border">
-              <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-              <span>Feedback</span>
-            </span>
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
-            <span className="text-xl sm:text-2xl font-semibold font-numeric text-fg">
-              {metrics.revisionCount}
-            </span>
-          </div>
-        </div>
-        <div className="mt-1 text-[10.5px] text-fg-muted truncate">
-          Changes requested
-        </div>
-      </div>
-
-      {/* 6. Overdue / SLA Breaches (Critical Red Alert) */}
-      <div
-        className={`rounded-xl p-2.5 sm:p-3 transition-colors flex flex-col justify-between ${
-          metrics.overdueCount > 0
-            ? 'bg-danger-bg border border-danger-bd'
-            : 'bg-surface border border-border'
-        }`}
-      >
-        <div>
-          <div className="flex items-center justify-between gap-1.5">
-            <span
-              className={`text-xs font-medium truncate ${
-                metrics.overdueCount > 0
-                  ? 'text-danger-fg font-semibold'
-                  : 'text-fg-muted'
-              }`}
-            >
               Overdue
             </span>
-            {metrics.overdueCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-danger-bg text-danger-fg border border-danger-bd shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-danger-solid animate-pulse" />
-                <span>Action Req.</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-medium bg-subtle text-fg-muted border border-border shrink-0">
-                <span className="w-1.5 h-1.5 rounded-full bg-fg-muted" />
-                <span>On Track</span>
-              </span>
-            )}
-          </div>
-          <div className="mt-2 flex items-baseline gap-1.5">
             <span
-              className={`text-xl sm:text-2xl font-semibold font-numeric ${
+              className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${
                 metrics.overdueCount > 0
-                  ? 'text-danger-fg'
-                  : 'text-fg'
+                  ? 'bg-danger-bg text-danger-fg border-danger-bd'
+                  : 'bg-subtle text-fg-muted border-border'
               }`}
             >
-              {metrics.overdueCount}
+              Action
             </span>
           </div>
-        </div>
-        <div
-          className={`mt-1 text-[10.5px] truncate ${
-            metrics.overdueCount > 0
-              ? 'text-danger-fg font-medium'
-              : 'text-fg-muted'
-          }`}
-        >
-          {metrics.overdueCount > 0 ? 'Past SLA deadline' : 'All deliverables on schedule'}
+          <div
+            className={`text-kpi font-semibold font-numeric tracking-tight ${
+              metrics.overdueCount > 0 ? 'text-danger-fg' : 'text-fg'
+            }`}
+          >
+            {metrics.overdueCount}
+          </div>
+          <p className="text-xs text-fg-muted mt-1 font-numeric truncate">
+            {metrics.overdueCount > 0 ? 'Past target publish or design date' : 'All deliverables on schedule'}
+          </p>
         </div>
       </div>
     </div>

@@ -31,6 +31,7 @@ import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
 import { getStatusMapping } from '../../lib/statusMap';
@@ -97,6 +98,44 @@ export const NO_FILTER_COLUMNS = new Set([
   'primary_text',
   'content_concept',
 ]);
+
+const InlineDateCellEditor: React.FC<{
+  value: string;
+  onCommit: (val: string) => void;
+  onCancel: () => void;
+}> = ({ value, onCommit, onCancel }) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const btn = containerRef.current?.querySelector('button');
+    if (btn) {
+      btn.focus();
+      btn.click();
+    }
+  }, []);
+
+  return (
+    <div
+      ref={containerRef}
+      className="w-full min-w-[130px] relative"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+    >
+      <CustomDatePicker
+        value={value}
+        onChange={(val) => {
+          onCommit(val);
+        }}
+        clearable={false}
+        className="w-full text-xs [&_button]:h-[26px] [&_button]:min-h-[26px] [&_button]:py-0 [&_button]:px-1.5 [&_button]:text-xs [&_svg]:w-3.5 [&_svg]:h-3.5"
+      />
+    </div>
+  );
+};
 
 const DEFAULT_ROW_HEIGHT = 36;
 
@@ -1048,24 +1087,14 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                   className="w-full"
                                 />
                               ) : col.key === 'design_due' || col.key === 'publish_date' ? (
-                                <input
-                                  type="date"
-                                  autoFocus
-                                  ref={(el) => {
-                                    if (el) {
-                                      try {
-                                        el.showPicker?.();
-                                      } catch (e) {}
-                                    }
-                                  }}
+                                <InlineDateCellEditor
                                   value={cellEditValue}
-                                  onChange={(e) => setCellEditValue(e.target.value)}
-                                  onBlur={() => commitCellEdit(item.id, col.key, cellEditValue)}
-                                  onKeyDown={(e) => {
-                                    if (e.key === 'Enter') commitCellEdit(item.id, col.key, cellEditValue);
-                                    if (e.key === 'Escape') setEditingCell(null);
+                                  onCommit={(val) => {
+                                    setCellEditValue(val);
+                                    commitCellEdit(item.id, col.key, val);
+                                    setEditingCell(null);
                                   }}
-                                  className="w-full h-[26px] text-xs font-numeric bg-surface text-fg border border-accent rounded-sm px-1.5 focus:outline-hidden cursor-pointer"
+                                  onCancel={() => setEditingCell(null)}
                                 />
                               ) : col.key === 'design_owner' ? (
                                 <CustomSelect

@@ -7,7 +7,6 @@ import type {
 import {
   calculateOverviewMetrics,
   calculateClientHealthMatrix,
-  calculateDepartmentFunnel,
   calculateUrgentWatchlist,
   calculateTeamWorkload,
   filterItemsByTimeRange,
@@ -16,6 +15,7 @@ import {
 import { OverviewKpiCards } from './OverviewKpiCards';
 import { ClientHealthMatrix } from './ClientHealthMatrix';
 import { DepartmentFunnelCard } from './DepartmentFunnelCard';
+import { NextSevenDaysStripCard } from './NextSevenDaysStripCard';
 import { UrgentWatchlistCard } from './UrgentWatchlistCard';
 import { TeamWorkloadCard } from './TeamWorkloadCard';
 import { CustomSelect } from '../../ui/CustomSelect';
@@ -92,7 +92,6 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
     () => calculateClientHealthMatrix(filterItemsByTimeRange(items, timeRange), activeClients),
     [items, timeRange, activeClients]
   );
-  const departmentFunnel = useMemo(() => calculateDepartmentFunnel(scopedItems), [scopedItems]);
   const urgentWatchlist = useMemo(() => calculateUrgentWatchlist(scopedItems), [scopedItems]);
   const teamWorkload = useMemo(() => calculateTeamWorkload(scopedItems), [scopedItems]);
 
@@ -211,31 +210,38 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
         </div>
       ) : (
         <>
-          {/* Row 1: Executive KPI Cards */}
+          {/* Row 1: Executive 5-KPI Strip */}
           <OverviewKpiCards metrics={overviewMetrics} isLoading={isLoading} />
 
-          {/* Row 2: Balanced Bento Command Center (Left Data Tables + Right Visual Analytics) */}
+          {/* Row 2: Pipeline Distribution + Next 7 Days Strip */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+            <DepartmentFunnelCard
+              items={scopedItems}
+              isLoading={isLoading}
+              onOpenPipeline={() => onSwitchViewMode('pipeline')}
+            />
+            <NextSevenDaysStripCard
+              items={scopedItems}
+              isLoading={isLoading}
+              onOpenCalendar={() => onSwitchViewMode('calendar')}
+            />
+          </div>
+
+          {/* Row 3: Clients Table (7 Columns) + Needs Attention & Team Workload */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-            {/* Left Column (7 cols): Client Health Matrix & Escalation Watchlist */}
             <div className="lg:col-span-7 flex flex-col gap-3">
               <ClientHealthMatrix
                 matrix={clientHealthMatrix}
                 isLoading={isLoading}
                 onOpenClient={handleOpenClient}
               />
+            </div>
+
+            <div className="lg:col-span-5 flex flex-col gap-3">
               <UrgentWatchlistCard
                 watchlist={urgentWatchlist}
                 isLoading={isLoading}
                 onSelectItem={onSelectItem}
-              />
-            </div>
-
-            {/* Right Column (5 cols): Pipeline Funnel and Team Workload */}
-            <div className="lg:col-span-5 flex flex-col gap-3">
-              <DepartmentFunnelCard
-                funnel={departmentFunnel}
-                totalItems={scopedItems.length}
-                isLoading={isLoading}
               />
               <TeamWorkloadCard
                 workload={teamWorkload}

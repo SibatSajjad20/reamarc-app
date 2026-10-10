@@ -15,26 +15,28 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
   isLoading = false,
   onSelectItem,
 }) => {
+  const itemsToShow = watchlist.slice(0, 5);
+
   return (
-    <div className="w-full h-[235px] rounded-xl bg-surface border border-border overflow-hidden flex flex-col">
+    <div className="w-full rounded-lg bg-surface border border-border shadow-xs overflow-hidden flex flex-col">
       {/* Header */}
-      <div className="px-3.5 py-2 flex items-center justify-between shrink-0 bg-subtle border-b border-border">
+      <div className="px-4 py-3 flex items-center justify-between shrink-0 bg-subtle border-b border-border">
         <div className="flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 text-danger-fg" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-fg">
-            Action Needed / Escalation Watchlist
+          <h3 className="text-ui font-semibold text-fg">
+            Needs Attention
           </h3>
           {watchlist.length > 0 ? (
-            <span className="font-numeric text-[10.5px] font-semibold px-1.5 py-0.5 rounded-md bg-danger-bg text-danger-fg border border-danger-bd">
+            <span className="font-numeric text-[10.5px] font-semibold px-1.5 py-0.5 rounded-full bg-danger-bg text-danger-fg border border-danger-bd">
               {watchlist.length} urgent
             </span>
           ) : (
-            <span className="font-numeric text-[10.5px] font-medium px-1.5 py-0.5 rounded-md bg-surface text-fg-muted border border-border">
+            <span className="font-numeric text-[10.5px] font-medium px-1.5 py-0.5 rounded-full bg-surface text-fg-muted border border-border">
               0 urgent
             </span>
           )}
         </div>
-        <p className="text-[10px] text-fg-muted hidden sm:block">
+        <p className="text-xs text-fg-muted hidden sm:block">
           Overdue posts, revisions, and unassigned work
         </p>
       </div>
@@ -42,13 +44,13 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
       {/* Table / List */}
       <div className="overflow-x-auto overflow-y-auto flex-1 min-h-0 min-w-0 divide-y divide-border">
         <table className="w-full text-left text-xs border-collapse">
-          <thead className="sticky top-0 z-10 bg-subtle">
-            <tr className="text-fg-muted border-b border-border font-semibold uppercase tracking-wider text-[10px]">
-              <th className="py-2 px-2.5">Client & Deliverable</th>
-              <th className="py-2 px-2.5">Stage</th>
-              <th className="py-2 px-2.5 text-center">Urgency</th>
-              <th className="py-2 px-2.5 text-right">Target Date</th>
-              <th className="py-2 px-2.5 text-right">Action</th>
+          <thead className="bg-subtle">
+            <tr className="text-fg-muted border-b border-border font-medium text-caption">
+              <th className="py-2 px-3">Client & Deliverable</th>
+              <th className="py-2 px-3">Stage</th>
+              <th className="py-2 px-3 text-center">Urgency</th>
+              <th className="py-2 px-3 text-right">Target Date</th>
+              <th className="py-2 px-3 text-right">Action</th>
             </tr>
           </thead>
 
@@ -68,15 +70,15 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                   <td className="py-2.5 px-3 text-right"><div className="h-6 w-12 bg-skel rounded ml-auto" /></td>
                 </tr>
               ))
-            ) : watchlist.length === 0 ? (
+            ) : itemsToShow.length === 0 ? (
               <tr>
-                <td colSpan={5} className="py-10 text-center text-fg-muted">
+                <td colSpan={5} className="py-8 text-center text-fg-muted">
                   <p className="text-sm font-semibold text-fg">Zero urgent items detected</p>
                   <p className="text-xs mt-0.5 text-fg-muted">All scheduled deliverables are currently on track.</p>
                 </td>
               </tr>
             ) : (
-              watchlist.map((entry) => {
+              itemsToShow.map((entry) => {
                 const { item } = entry;
                 const dateStr = item.publish_date || item.design_due;
 
@@ -86,8 +88,8 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                     className="hover:bg-hover transition-colors cursor-pointer"
                     onClick={() => onSelectItem(item)}
                   >
-                    {/* Client & Headline / Concept (Stacked Two-Line Layout to Prevent Truncation) */}
-                    <td className="py-2 px-2.5">
+                    {/* Client & Headline / Concept */}
+                    <td className="py-2 px-3">
                       <div className="flex flex-col min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
                           <span className="font-semibold text-xs text-fg truncate">
@@ -97,21 +99,21 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                             #{item.serial}
                           </span>
                         </div>
-                        <div className="text-xs text-fg-muted font-normal line-clamp-2 leading-tight mt-0.5">
+                        <div className="text-xs text-fg-muted font-normal line-clamp-1 leading-tight mt-0.5">
                           {item.content_concept || 'Untitled Campaign'}
                         </div>
                       </div>
                     </td>
 
-                    {/* Stage - Strict neutral badge */}
-                    <td className="py-2 px-2.5 whitespace-nowrap">
+                    {/* Stage */}
+                    <td className="py-2 px-3 whitespace-nowrap">
                       <span className={NEUTRAL_METADATA_BADGE_COMPACT_CLASS}>
                         {item.stage}
                       </span>
                     </td>
 
-                    {/* Urgency Badge (Semantic Rose/Amber) */}
-                    <td className="py-2 px-2.5 text-center whitespace-nowrap">
+                    {/* Urgency Badge */}
+                    <td className="py-2 px-3 text-center whitespace-nowrap">
                       {entry.severity === 'danger' ? (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10.5px] font-semibold bg-danger-bg text-danger-fg border border-danger-bd">
                           <span className="w-1.5 h-1.5 rounded-full bg-danger-solid" />
@@ -126,12 +128,12 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                     </td>
 
                     {/* Target Date */}
-                    <td className="py-2 px-2.5 text-right font-numeric text-fg-muted whitespace-nowrap text-xs">
+                    <td className="py-2 px-3 text-right font-numeric text-fg-muted whitespace-nowrap text-xs">
                       {dateStr ? dateStr.split('T')[0] : 'None'}
                     </td>
 
                     {/* Action */}
-                    <td className="py-2 px-2.5 text-right whitespace-nowrap">
+                    <td className="py-2 px-3 text-right whitespace-nowrap">
                       <button
                         type="button"
                         onClick={(e) => {

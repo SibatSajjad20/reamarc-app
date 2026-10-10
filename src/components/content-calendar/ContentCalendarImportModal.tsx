@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import * as XLSX from 'xlsx';
 import {
   Upload,
@@ -149,8 +149,14 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
   const [upsertBySerial, setUpsertBySerial] = useState(true);
   const [overrideClient, setOverrideClient] = useState(true);
   const [defaultClient, setDefaultClient] = useState(
-    activeClients.length > 0 ? activeClients[0].name : 'Apex Transfers LLC'
+    activeClients.length > 0 ? activeClients[0].name : ''
   );
+
+  useEffect(() => {
+    if (!defaultClient && activeClients.length > 0) {
+      setDefaultClient(activeClients[0].name);
+    }
+  }, [activeClients, defaultClient]);
 
   if (!isOpen) return null;
 
@@ -529,10 +535,10 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
               <FileSpreadsheet className="w-4.5 h-4.5" />
             </div>
             <div>
-              <DialogTitle className="text-ui font-semibold text-fg">
+              <DialogTitle className="text-h3 font-semibold text-fg">
                 Import content calendar from Excel
               </DialogTitle>
-              <DialogDescription className="text-caption text-fg-muted mt-0.5">
+              <DialogDescription className="text-small text-fg-muted mt-0.5">
                 Upload campaign plan spreadsheets to populate your content schedule
               </DialogDescription>
             </div>
@@ -542,58 +548,77 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
         {/* Modal Body */}
         <div className="p-6 flex-1 overflow-y-auto space-y-4">
           {/* Target Client & Import Settings */}
-          <div className="p-4 rounded-md bg-subtle border border-border space-y-3">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+          {activeClients.length === 0 ? (
+            <div className="p-4 rounded-md bg-subtle border border-border flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-warning-fg shrink-0 mt-0.5" />
               <div>
-                <label className="text-caption font-medium text-fg block mb-1">
-                  Target client
-                </label>
-                <CustomSelect
-                  size="sm"
-                  value={defaultClient}
-                  onChange={handleClientChange}
-                  options={[
-                    ...activeClients.map((c) => ({ value: c.name, label: c.name })),
-                    ...(!activeClients.some((c) => c.name === 'Apex Transfers LLC')
-                      ? [{ value: 'Apex Transfers LLC', label: 'Apex Transfers LLC' }]
-                      : []),
-                  ]}
-                />
-              </div>
-
-              <div className="space-y-3 pt-1 sm:pt-2">
-                <Checkbox
-                  checked={overrideClient}
-                  onCheckedChange={(c) => handleOverrideClientChange(Boolean(c))}
-                  label="Apply to all imported records"
-                  description="Standardize all campaigns and serial IDs to selected client"
-                />
-
-                <Checkbox
-                  checked={upsertBySerial}
-                  onCheckedChange={(c) => setUpsertBySerial(Boolean(c))}
-                  label="Upsert by serial"
-                  description="Update existing campaigns if serial ID matches"
-                />
+                <p className="text-label font-medium text-fg">No active clients found</p>
+                <p className="text-small text-fg-muted mt-0.5">
+                  An active client is required to import content calendar records. Please create or activate a client before importing.
+                </p>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-4 rounded-md bg-subtle border border-border space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                <div>
+                  <label className="text-label font-medium text-fg block mb-1">
+                    Target client
+                  </label>
+                  <CustomSelect
+                    size="sm"
+                    value={defaultClient}
+                    onChange={handleClientChange}
+                    options={activeClients.map((c) => ({ value: c.name, label: c.name }))}
+                  />
+                </div>
+
+                <div className="space-y-3 pt-1 sm:pt-2">
+                  <Checkbox
+                    checked={overrideClient}
+                    onCheckedChange={(c) => handleOverrideClientChange(Boolean(c))}
+                    label="Apply to all imported records"
+                    description="Standardize all campaigns and serial IDs to selected client"
+                  />
+
+                  <Checkbox
+                    checked={upsertBySerial}
+                    onCheckedChange={(c) => setUpsertBySerial(Boolean(c))}
+                    label="Upsert by serial"
+                    description="Update existing campaigns if serial ID matches"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* File Upload Zone */}
           {!file ? (
             <div
               onDragOver={(e) => {
+                if (activeClients.length === 0) return;
                 e.preventDefault();
                 e.stopPropagation();
               }}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="border border-dashed border-border hover:border-accent rounded-md p-8 flex flex-col items-center justify-center gap-3 cursor-pointer bg-subtle transition-colors group"
+              onDrop={(e) => {
+                if (activeClients.length === 0) return;
+                handleDrop(e);
+              }}
+              onClick={() => {
+                if (activeClients.length === 0) return;
+                fileInputRef.current?.click();
+              }}
+              className={`border border-dashed border-border rounded-md p-8 flex flex-col items-center justify-center gap-3 transition-colors ${
+                activeClients.length === 0
+                  ? 'opacity-50 cursor-not-allowed bg-subtle'
+                  : 'hover:border-accent cursor-pointer bg-subtle group'
+              }`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.xls,.csv"
+                disabled={activeClients.length === 0}
                 onChange={handleFileChange}
                 className="hidden"
               />
@@ -601,11 +626,19 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 <Upload className="w-5 h-5" />
               </div>
               <div className="text-center">
-                <p className="text-xs font-medium text-fg">
-                  {isParsing ? 'Reading file…' : 'Click to select file or drag and drop here'}
+                <p className="text-small font-medium text-fg">
+                  {activeClients.length === 0
+                    ? 'Import disabled: no active clients available'
+                    : isParsing
+                    ? 'Reading file…'
+                    : 'Click to select file or drag and drop here'}
                 </p>
                 <p className="text-caption text-fg-muted mt-0.5">
-                  {isParsing ? 'Parsing spreadsheet data…' : 'Supports .xlsx, .xls, .csv (Max 10MB)'}
+                  {activeClients.length === 0
+                    ? 'Active clients are required to assign imported campaigns'
+                    : isParsing
+                    ? 'Parsing spreadsheet data…'
+                    : 'Supports .xlsx, .xls, .csv (Max 10MB)'}
                 </p>
               </div>
             </div>
@@ -616,7 +649,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                   <FileText className="w-4.5 h-4.5" />
                 </div>
                 <div>
-                  <div className="text-xs font-semibold text-fg">{file.name}</div>
+                  <div className="text-small font-semibold text-fg">{file.name}</div>
                   <div className="text-caption text-fg-muted font-numeric">
                     {isParsing
                       ? 'Reading file…'
@@ -643,7 +676,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
           {/* Error Message */}
           {errorMsg && (
-            <div className="p-3 rounded-md bg-danger-bg border border-danger-bd flex items-center gap-2.5 text-xs text-danger-fg">
+            <div className="p-3 rounded-md bg-danger-bg border border-danger-bd flex items-center gap-2.5 text-small text-danger-fg">
               <AlertTriangle className="w-4 h-4 shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -651,7 +684,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
           {/* Parsing Spinner */}
           {isParsing && (
-            <div className="py-6 flex items-center justify-center gap-2 text-xs text-fg-muted">
+            <div className="py-6 flex items-center justify-center gap-2 text-small text-fg-muted">
               <RefreshCw className="w-4 h-4 animate-spin text-accent" />
               <span>Analyzing spreadsheet columns and rows...</span>
             </div>
@@ -669,9 +702,9 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 </span>
               </div>
 
-              <div className="border border-border rounded-md overflow-hidden text-xs">
+              <div className="border border-border rounded-md overflow-hidden text-small">
                 <table className="w-full divide-y divide-border text-left">
-                  <thead className="bg-subtle font-medium text-fg-muted">
+                  <thead className="bg-subtle font-medium text-fg-muted text-label">
                     <tr>
                       <th className="p-2">Serial</th>
                       <th className="p-2">Client</th>
@@ -723,7 +756,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
             <Button
               type="button"
               variant="primary"
-              disabled={parsedItems.length === 0 || isSubmitting || isParsing}
+              disabled={activeClients.length === 0 || parsedItems.length === 0 || isSubmitting || isParsing}
               onClick={handleConfirmImport}
             >
               {isSubmitting ? (
@@ -732,7 +765,9 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                   <span>Importing...</span>
                 </>
               ) : (
-                <span>Import {parsedItems.length} records</span>
+                <span>
+                  Import <span className="font-numeric">{parsedItems.length}</span> records
+                </span>
               )}
             </Button>
           </div>

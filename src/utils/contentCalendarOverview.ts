@@ -3,6 +3,7 @@ import { getContentCalendarBucket } from './contentCalendarWorkflow';
 
 export interface OverviewMetrics {
   totalItems: number;
+  inProductionCount: number;
   postedCount: number;
   completionRate: number;
   readyToPostCount: number;
@@ -11,6 +12,13 @@ export interface OverviewMetrics {
   overdueCount: number;
   unassignedCount: number;
   missingAssetsCount: number;
+}
+
+export interface DailyPublishDay {
+  dayLabel: string;
+  dateStr: string;
+  isoDate: string;
+  count: number;
 }
 
 export interface ClientHealthItem {
@@ -125,6 +133,7 @@ export function filterItemsByTimeRange(
  */
 export function calculateOverviewMetrics(items: ContentCalendarItem[], now: Date = new Date()): OverviewMetrics {
   const totalItems = items.length;
+  let inProductionCount = 0;
   let postedCount = 0;
   let readyToPostCount = 0;
   let clientReviewCount = 0;
@@ -142,6 +151,14 @@ export function calculateOverviewMetrics(items: ContentCalendarItem[], now: Date
       clientReviewCount++;
     } else if (it.stage === 'Content Revision' || it.stage === 'Creative Revision') {
       revisionCount++;
+      inProductionCount++;
+    } else if (
+      it.stage === 'Content' ||
+      it.stage === 'Content Internal Review' ||
+      it.stage === 'Creative Production' ||
+      it.stage === 'Creative Internal Review'
+    ) {
+      inProductionCount++;
     }
 
     if (getContentCalendarBucket(it, now) === 'overdue') {
@@ -168,6 +185,7 @@ export function calculateOverviewMetrics(items: ContentCalendarItem[], now: Date
 
   return {
     totalItems,
+    inProductionCount,
     postedCount,
     completionRate,
     readyToPostCount,
@@ -177,6 +195,40 @@ export function calculateOverviewMetrics(items: ContentCalendarItem[], now: Date
     unassignedCount,
     missingAssetsCount,
   };
+}
+
+/**
+ * Calculates next 7 days daily publish counts starting from reference date (today).
+ */
+export function calculateNextSevenDays(items: ContentCalendarItem[], now: Date = new Date()): DailyPublishDay[] {
+  const days: DailyPublishDay[] = [];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayNum = String(d.getDate()).padStart(2, '0');
+    const isoDate = `${y}-${m}-${dayNum}`;
+    const dayLabel = i === 0 ? 'Today' : dayNames[d.getDay()];
+    const dateStr = `${monthNames[d.getMonth()]} ${d.getDate()}`;
+
+    const count = items.filter((it) => {
+      if (it.stage === 'Rejected') return false;
+      const pubDate = it.publish_date?.split('T')[0];
+      return pubDate === isoDate;
+    }).length;
+
+    days.push({
+      dayLabel,
+      dateStr,
+      isoDate,
+      count,
+    });
+  }
+
+  return days;
 }
 
 /**

@@ -1,95 +1,169 @@
-import React from 'react';
-import { Layers } from 'lucide-react';
-import type { FunnelPhaseItem } from '../../../utils/contentCalendarOverview';
+import React, { useMemo } from 'react';
+import { Layers, ArrowRight } from 'lucide-react';
+import type { ContentCalendarItem } from '../../../types/contentCalendar';
 
 interface Props {
-  funnel: FunnelPhaseItem[];
-  totalItems: number;
+  items: ContentCalendarItem[];
   isLoading?: boolean;
+  onOpenPipeline: () => void;
 }
 
 export const DepartmentFunnelCard: React.FC<Props> = ({
-  funnel,
-  totalItems,
+  items,
   isLoading = false,
+  onOpenPipeline,
 }) => {
+  const stageData = useMemo(() => {
+    let contentCount = 0;
+    let creativeCount = 0;
+    let clientReviewCount = 0;
+    let revisionCount = 0;
+    let readyCount = 0;
+
+    for (const it of items) {
+      if (it.stage === 'Posted' || it.stage === 'Rejected') continue;
+
+      if (it.stage === 'Content' || it.stage === 'Content Internal Review') {
+        contentCount++;
+      } else if (it.stage === 'Creative Production' || it.stage === 'Creative Internal Review') {
+        creativeCount++;
+      } else if (it.stage === 'Content Client Review' || it.stage === 'Creative Client Review') {
+        clientReviewCount++;
+      } else if (it.stage === 'Content Revision' || it.stage === 'Creative Revision') {
+        revisionCount++;
+      } else if (it.stage === 'Ready to Post') {
+        readyCount++;
+      }
+    }
+
+    const activeTotal = contentCount + creativeCount + clientReviewCount + revisionCount + readyCount;
+
+    const stages = [
+      {
+        key: 'content',
+        label: 'Content',
+        count: contentCount,
+        pct: activeTotal > 0 ? Math.round((contentCount / activeTotal) * 100) : 0,
+        colorClass: 'bg-accent',
+        dotClass: 'bg-accent',
+      },
+      {
+        key: 'creative',
+        label: 'Creative',
+        count: creativeCount,
+        pct: activeTotal > 0 ? Math.round((creativeCount / activeTotal) * 100) : 0,
+        colorClass: 'bg-info-dot',
+        dotClass: 'bg-info-dot',
+      },
+      {
+        key: 'client_review',
+        label: 'Client Review',
+        count: clientReviewCount,
+        pct: activeTotal > 0 ? Math.round((clientReviewCount / activeTotal) * 100) : 0,
+        colorClass: 'bg-warning-dot',
+        dotClass: 'bg-warning-dot',
+      },
+      {
+        key: 'revisions',
+        label: 'Revisions',
+        count: revisionCount,
+        pct: activeTotal > 0 ? Math.round((revisionCount / activeTotal) * 100) : 0,
+        colorClass: 'bg-danger-dot',
+        dotClass: 'bg-danger-dot',
+      },
+      {
+        key: 'ready',
+        label: 'Ready to Post',
+        count: readyCount,
+        pct: activeTotal > 0 ? Math.round((readyCount / activeTotal) * 100) : 0,
+        colorClass: 'bg-success-dot',
+        dotClass: 'bg-success-dot',
+      },
+    ];
+
+    return { activeTotal, stages };
+  }, [items]);
+
   return (
-    <div className="w-full h-[235px] rounded-xl bg-surface border border-border p-3 sm:p-3.5 flex flex-col overflow-hidden">
-      <div className="flex items-center justify-between gap-2 border-b border-border pb-2 shrink-0">
-        <div className="flex items-center gap-1.5">
-          <Layers className="w-3.5 h-3.5 text-fg-muted" />
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-fg">
-            Pipeline Bottleneck Funnel
-          </h3>
+    <div className="w-full rounded-lg bg-surface border border-border shadow-xs p-4 flex flex-col justify-between">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-3 border-b border-border">
+        <div>
+          <div className="flex items-center gap-2">
+            <Layers className="w-3.5 h-3.5 text-accent" />
+            <h3 className="text-ui font-semibold text-fg">
+              Pipeline Distribution
+            </h3>
+          </div>
+          <p className="text-xs text-fg-muted mt-0.5 font-numeric">
+            {stageData.activeTotal} active campaigns · Posted & Rejected excluded
+          </p>
         </div>
-        <span className="text-xs font-numeric text-fg-muted">
-          {totalItems} total
-        </span>
+        <button
+          type="button"
+          onClick={onOpenPipeline}
+          className="text-xs text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
+        >
+          <span>Open pipeline</span>
+          <ArrowRight className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* Phase List */}
-      <div className="mt-2 space-y-1.5 flex-1 overflow-y-auto pr-0.5">
-        {isLoading ? (
-          Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="space-y-1">
-              <div className="h-7 w-full bg-skel rounded-md animate-pulse" />
-              <div className="h-2.5 w-32 bg-skel rounded animate-pulse" />
-            </div>
-          ))
-        ) : (
-          funnel.map((phase) => {
-            // Strict semantic styling based on phase
-            let barColor = 'bg-border-strong';
-            let badgeColor = 'text-fg-muted';
-
-            if (phase.key === 'client_review') {
-              barColor = 'bg-warning-solid';
-              badgeColor = 'text-warning-fg';
-            } else if (phase.key === 'revision') {
-              barColor = 'bg-danger-solid';
-              badgeColor = 'text-danger-fg';
-            } else if (phase.key === 'ready_posted') {
-              barColor = 'bg-success-fg';
-              badgeColor = 'text-success-fg';
-            }
-
-            return (
-              <div key={phase.key} className="space-y-0.5">
-                {/* Text Row with Embedded Horizontal Background Fill */}
-                <div className="relative rounded-md px-2.5 py-1.5 overflow-hidden bg-subtle">
+      {isLoading ? (
+        <div className="py-4 space-y-3 animate-pulse">
+          <div className="h-3 w-full bg-skel rounded-full" />
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-14 bg-skel rounded-md" />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="py-3 space-y-3">
+          {/* Single Stacked Bar */}
+          <div className="w-full h-3 rounded-full overflow-hidden flex bg-subtle border border-border/50">
+            {stageData.activeTotal === 0 ? (
+              <div className="w-full h-full bg-subtle" />
+            ) : (
+              stageData.stages.map((st) =>
+                st.count > 0 ? (
                   <div
-                    className={`absolute inset-y-0 left-0 ${barColor} opacity-20 transition-all duration-300`}
-                    style={{ width: `${Math.min(phase.percentage, 100)}%` }}
+                    key={st.key}
+                    className={`${st.colorClass} h-full transition-all duration-300`}
+                    style={{ width: `${(st.count / stageData.activeTotal) * 100}%` }}
+                    title={`${st.label}: ${st.count} (${st.pct}%)`}
                   />
-                  <div className="relative z-10 flex items-center justify-between text-xs">
-                    <span className="font-medium text-fg text-xs">
-                      {phase.name}
-                    </span>
-                    <div className="flex items-center gap-1.5 font-numeric text-xs">
-                      <span className={`font-semibold ${badgeColor}`}>{phase.count}</span>
-                      <span className="text-fg-muted font-normal">
-                        ({phase.percentage}%)
-                      </span>
-                    </div>
-                  </div>
-                </div>
+                ) : null
+              )
+            )}
+          </div>
 
-                {/* Sub-stages breakdown */}
-                <div className="flex flex-wrap items-center gap-x-2.5 px-1 text-[10px] text-fg-muted">
-                  {phase.substages.map((sub) => (
-                    <span key={sub.stage} className="inline-flex items-center gap-0.5 font-numeric">
-                      <span>{sub.stage}:</span>
-                      <span className="font-semibold text-fg">
-                        {sub.count}
-                      </span>
-                    </span>
-                  ))}
+          {/* 5-Stage Legend */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            {stageData.stages.map((st) => (
+              <div
+                key={st.key}
+                className="flex flex-col p-2 rounded-md bg-subtle/50 border border-border/40 transition hover:bg-subtle"
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${st.dotClass}`} />
+                  <span className="text-xs text-fg-muted font-medium truncate" title={st.label}>
+                    {st.label}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-sm font-semibold font-numeric text-fg">
+                    {st.count}
+                  </span>
+                  <span className="text-[10.5px] font-numeric text-fg-muted">
+                    ({st.pct}%)
+                  </span>
                 </div>
               </div>
-            );
-          })
-        )}
-      </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
