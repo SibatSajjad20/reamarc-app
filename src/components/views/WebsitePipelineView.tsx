@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   LayoutGrid,
   CheckSquare,
+  Table2,
   Plus,
   Search,
   X,
@@ -35,6 +36,7 @@ import {
   WebsiteTaskBoard,
   WebsiteTaskBoardSkeleton,
 } from '../website-pipeline/WebsiteTaskBoard';
+import { WebsiteProjectsTable } from '../website-pipeline/WebsiteProjectsTable';
 import { WebsiteProjectDrawer } from '../website-pipeline/WebsiteProjectDrawer';
 import { WebsiteCreateProjectModal } from '../website-pipeline/WebsiteCreateProjectModal';
 import { WebsiteTaskModal } from '../website-pipeline/WebsiteTaskModal';
@@ -53,22 +55,25 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
   const { user } = useAuth();
   const { addToast } = useToast();
 
-  // View mode: 'board' | 'tasks'
-  const [viewMode, setViewMode] = useState<'board' | 'tasks'>(() => {
+  // View mode: 'board' | 'table' | 'tasks'
+  const [viewMode, setViewMode] = useState<'board' | 'table' | 'tasks'>(() => {
     if (activeSection === 'tasks') return 'tasks';
+    if (activeSection === 'table') return 'table';
     return 'board';
   });
 
   useEffect(() => {
     if (activeSection === 'tasks') {
       setViewMode('tasks');
-    } else if (activeSection === 'board' || activeSection === 'table') {
+    } else if (activeSection === 'table') {
+      setViewMode('table');
+    } else if (activeSection === 'board') {
       setViewMode('board');
     }
   }, [activeSection]);
 
   const handleViewModeChange = (mode: string) => {
-    const nextMode = mode === 'tasks' ? 'tasks' : 'board';
+    const nextMode = (mode === 'tasks' || mode === 'table') ? (mode as 'tasks' | 'table') : 'board';
     setViewMode(nextMode);
     onSectionChange?.(nextMode);
   };
@@ -293,60 +298,63 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 bg-canvas overflow-hidden">
       {/* Header */}
-      <PageHeader
-        title={
-          <span className="flex items-center gap-2">
-            Website Pipeline
-            <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-subtle text-fg-muted font-numeric">
-              {projects.length}
+      <div className="px-5 py-3 border-b border-border bg-surface shrink-0">
+        <PageHeader
+          title={
+            <span className="flex items-center gap-2">
+              Website Pipeline
+              <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-subtle text-fg-muted font-numeric">
+                {projects.length}
+              </span>
             </span>
-          </span>
-        }
-        description="Delivery stages, client review gates, and production tasks for web projects."
-        actions={
-          <div className="flex items-center gap-2">
-            <SegmentedControl
-              value={viewMode}
-              onValueChange={handleViewModeChange}
-              options={[
-                { value: 'board', label: 'Pipeline Board', icon: LayoutGrid },
-                { value: 'tasks', label: 'Task Board', icon: CheckSquare },
-              ]}
-              size="default"
-            />
-            {canManage && (
-              <Button
-                variant="primary"
-                size="md"
-                onClick={() => setIsCreateProjectOpen(true)}
-                icon={Plus}
-              >
-                New Project
-              </Button>
-            )}
-            {viewMode === 'tasks' && (
-              <Button
-                variant="secondary"
-                size="md"
-                onClick={() => handleCreateTaskForStatus('todo')}
-                icon={Plus}
-              >
-                New Task
-              </Button>
-            )}
-          </div>
-        }
-      />
+          }
+          description="Delivery stages, client review gates, and production tasks for web projects."
+          actions={
+            <div className="flex items-center gap-2">
+              <SegmentedControl
+                value={viewMode}
+                onValueChange={handleViewModeChange}
+                options={[
+                  { value: 'board', label: 'Pipeline Board', icon: LayoutGrid },
+                  { value: 'table', label: 'Table', icon: Table2 },
+                  { value: 'tasks', label: 'Task Board', icon: CheckSquare },
+                ]}
+                size="default"
+              />
+              {canManage && (
+                <Button
+                  variant="primary"
+                  size="md"
+                  onClick={() => setIsCreateProjectOpen(true)}
+                  icon={Plus}
+                >
+                  New Project
+                </Button>
+              )}
+              {viewMode === 'tasks' && (
+                <Button
+                  variant="secondary"
+                  size="md"
+                  onClick={() => handleCreateTaskForStatus('todo')}
+                  icon={Plus}
+                >
+                  New Task
+                </Button>
+              )}
+            </div>
+          }
+        />
+      </div>
 
       {/* Toolbar / Filters */}
-      <div className="px-6 py-2.5 border-b border-border bg-surface flex flex-wrap items-center gap-2.5 shrink-0">
+      <div className="px-5 py-2.5 border-b border-border bg-surface flex flex-wrap items-center gap-2.5 shrink-0">
         <div className="relative flex-1 min-w-[200px] max-w-[320px]">
           <Search className="w-3.5 h-3.5 text-fg-muted absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={viewMode === 'board' ? 'Search projects or clients…' : 'Search tasks…'}
+            placeholder={viewMode === 'tasks' ? 'Search tasks…' : 'Search projects or clients…'}
             className="w-full h-8 pl-8 pr-3 text-xs rounded-md bg-subtle border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent"
           />
         </div>
@@ -417,6 +425,12 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
           </div>
         ) : viewMode === 'board' ? (
           <WebsitePipelineBoard
+            projects={filteredProjects}
+            onSelectProject={handleSelectProject}
+            onRefresh={loadAllData}
+          />
+        ) : viewMode === 'table' ? (
+          <WebsiteProjectsTable
             projects={filteredProjects}
             onSelectProject={handleSelectProject}
             onRefresh={loadAllData}
