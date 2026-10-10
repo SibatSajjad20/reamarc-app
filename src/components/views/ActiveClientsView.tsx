@@ -29,6 +29,7 @@ import {
   TableEmpty,
   TableSkeletonRows,
 } from '../ui/DataTable';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Sheet, SheetContent } from '../ui/sheet';
 import { Button } from '../ui/button';
 
@@ -218,10 +219,10 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               />
             ) : (
               filteredWorkspaces.map((ws) => {
-                const serviceCount = ws.services?.length ?? 0;
+                const services = ws.services || [];
+                const firstService = services[0];
+                const extraServices = services.slice(1);
                 const isOpen = selectedId === ws.id;
-                const firstTwoServices = (ws.services || []).slice(0, 2);
-                const extraServices = serviceCount - 2;
 
                 return (
                   <TR
@@ -252,21 +253,32 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                     </TD>
                     <TD>
                       <div className="flex items-center gap-1 flex-wrap">
-                        {firstTwoServices.map((s) => (
-                          <span
-                            key={s}
-                            className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted"
-                          >
-                            {s}
+                        {firstService ? (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
+                            {firstService}
                           </span>
-                        ))}
-                        {extraServices > 0 && (
-                          <span className="text-[10px] text-fg-muted font-medium">
-                            +{extraServices}
-                          </span>
-                        )}
-                        {serviceCount === 0 && (
+                        ) : (
                           <span className="text-fg-muted text-xs">—</span>
+                        )}
+                        {extraServices.length > 0 && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                onClick={(e) => e.stopPropagation()}
+                                className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted hover:text-fg hover:border-border-strong cursor-default"
+                              >
+                                +{extraServices.length}
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="flex flex-col gap-1 p-2">
+                              <span className="font-semibold text-caption mb-0.5">Additional Services:</span>
+                              {extraServices.map((service) => (
+                                <span key={service} className="text-caption">
+                                  • {service}
+                                </span>
+                              ))}
+                            </TooltipContent>
+                          </Tooltip>
                         )}
                       </div>
                     </TD>
