@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { AuthUser, LoginPayload, UserRole } from '../types/auth';
 import { authService } from '../services/authService';
 import { apiClient } from '../services/apiClient';
 import { disableWebPush, syncWebPushSubscription } from '../services/webPushService';
+import { clearAllAppCaches } from '../utils/cacheBus';
 
 interface AuthContextType {
   user: AuthUser | null;
@@ -14,6 +15,7 @@ interface AuthContextType {
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  updateUser: (updated: Partial<AuthUser> | AuthUser) => void;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
   isAuthModalOpen: boolean;
@@ -83,6 +85,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     void syncWebPushSubscription();
   }, [user?.id, user?.role]);
 
+  const lastUserIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentId = user?.id || null;
+    if (lastUserIdRef.current && lastUserIdRef.current !== currentId) {
+      clearAllAppCaches();
+    }
+    lastUserIdRef.current = currentId;
+  }, [user?.id]);
+
   const login = async (payload: LoginPayload) => {
     const res = await authService.login(payload);
     // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
@@ -106,6 +117,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch {
       // Ignore network errors on logout
     } finally {
+      clearAllAppCaches();
       apiClient.setToken(null);
       setUser(null);
       if (typeof window !== 'undefined') {
@@ -125,6 +137,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
+  const updateUser = useCallback((updated: Partial<AuthUser> | AuthUser) => {
+    setUser((prev) => (prev ? { ...prev, ...updated } : (updated as AuthUser)));
+  }, []);
+
   return (
     <AuthContext.Provider
       value={{
@@ -137,6 +153,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         refreshUser,
+        updateUser,
         openAuthModal,
         closeAuthModal,
         isAuthModalOpen,

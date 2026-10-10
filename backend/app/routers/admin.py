@@ -99,6 +99,7 @@ def _format_member_resp(doc: dict) -> dict:
         "is_active": doc.get("is_active", True),
         "created_at": doc.get("created_at"),
         "workspace_ids": [str(value) for value in (doc.get("workspace_ids") or []) if value],
+        "avatar_url": doc.get("avatar_url"),
     }
 
 

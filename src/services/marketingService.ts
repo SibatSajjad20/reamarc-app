@@ -5,6 +5,7 @@
 
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type { MarketingMatrixRow } from '../types';
 
 const marketingDailyCache = new BoundedCache<{ rows: MarketingMatrixRow[]; hiddenCount: number }>(10);
@@ -63,23 +64,39 @@ export const marketingService = {
 
   /** Create a new marketing campaign. */
   async createCampaign(payload: MarketingCampaignCreatePayload): Promise<MarketingCampaignResponse> {
-    return apiClient.post<MarketingCampaignResponse>('/marketing/campaigns', payload);
+    const res = await apiClient.post<MarketingCampaignResponse>('/marketing/campaigns', payload);
+    marketingDailyCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   /** Upsert daily metrics for a campaign on a specific date. */
   async upsertMetric(payload: MetricUpsertPayload): Promise<any> {
-    return apiClient.post('/marketing/daily/upsert', payload);
+    const res = await apiClient.post('/marketing/daily/upsert', payload);
+    marketingDailyCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   /** Update campaign static fields (name, budget, status, etc.). */
   async updateCampaign(id: string, payload: Partial<MarketingCampaignResponse>): Promise<MarketingCampaignResponse> {
-    return apiClient.patch<MarketingCampaignResponse>(`/marketing/campaigns/${id}`, payload);
+    const res = await apiClient.patch<MarketingCampaignResponse>(`/marketing/campaigns/${id}`, payload);
+    marketingDailyCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   /** Manually trigger immediate API sync for Meta & Google Ads. */
   async syncNow(date?: string, workspace_id?: string, includeInactive: boolean = false): Promise<{ message: string; synced_campaigns_count: number; synced_metrics_count: number; date: string; errors: string[]; rows?: MarketingMatrixRow[]; hidden_count?: number }> {
     const params = includeInactive ? '?include_inactive=true' : '';
-    return apiClient.post(`/marketing/sync-now${params}`, { date, workspace_id, include_inactive: includeInactive }, { timeout: 120000 });
+    const res = await apiClient.post<{ message: string; synced_campaigns_count: number; synced_metrics_count: number; date: string; errors: string[]; rows?: MarketingMatrixRow[]; hidden_count?: number }>(
+      `/marketing/sync-now${params}`,
+      { date, workspace_id, include_inactive: includeInactive },
+      { timeout: 120000 }
+    );
+    marketingDailyCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   /** Query real-time background sync job status. */
@@ -114,12 +131,16 @@ export const marketingService = {
     client_secret?: string;
     is_active?: boolean;
   }): Promise<any> {
-    return apiClient.post('/marketing/credentials', payload);
+    const res = await apiClient.post('/marketing/credentials', payload);
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   /** Delete an ad account credential. */
   async deleteCredential(credentialId: string): Promise<any> {
-    return apiClient.delete(`/marketing/credentials/${credentialId}`);
+    const res = await apiClient.delete(`/marketing/credentials/${credentialId}`);
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   getCachedDaily(key: string): CacheEntry<{ rows: MarketingMatrixRow[]; hiddenCount: number }> | undefined {
@@ -132,3 +153,6 @@ export const marketingService = {
     marketingDailyCache.clear();
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => marketingService.clearAllCaches());

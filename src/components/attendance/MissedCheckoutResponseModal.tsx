@@ -1,16 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   Clock,
   Calendar,
   UserCheck,
+  AlertCircle,
 } from 'lucide-react';
 import type { MissedPunchInquiry } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { Button } from '../ui/button';
-import { Callout } from '../ui/Callout';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 interface MissedCheckoutResponseModalProps {
   isOpen: boolean;
@@ -33,35 +35,52 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
   onSuccess,
 }) => {
   const { addToast } = useToast();
+  const formRef = useRef<HTMLFormElement>(null);
   const [checkOut, setCheckOut] = useState<string>('04:30');
   const [reason, setReason] = useState<string>('');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState<boolean>(false);
 
   useEffect(() => {
     if (!isOpen || !inquiry) return;
-    setErrorMessage(null);
+    setFieldErrors({});
+    setServerError(null);
+    setHasSubmitted(false);
     setCheckOut('04:30');
     setReason('');
   }, [isOpen, inquiry]);
 
   if (!isOpen || !inquiry) return null;
 
+  const validate = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
+    if (!checkOut.trim()) {
+      errs.checkOut = 'Please provide a valid check-out time.';
+    }
+    if (!reason.trim() || reason.trim().length < 3) {
+      errs.reason = 'Please provide a reason explaining why you missed punching out.';
+    }
+    return errs;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isSubmitting) return;
+    setHasSubmitted(true);
+    setServerError(null);
 
-    if (!checkOut.trim()) {
-      setErrorMessage('Please provide a valid check-out time.');
+    const errs = validate();
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
       return;
     }
 
-    if (!reason.trim() || reason.trim().length < 3) {
-      setErrorMessage('Please provide a reason explaining why you missed punching out.');
-      return;
-    }
-
-    setErrorMessage(null);
     setIsSubmitting(true);
 
     try {
@@ -78,7 +97,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
       onClose();
     } catch (err: any) {
       const msg = err.response?.data?.detail || err.message || 'Failed to submit check-out time.';
-      setErrorMessage(msg);
+      setServerError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -117,13 +136,7 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
         </div>
 
         {/* Content */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4">
-          {errorMessage && (
-            <Callout variant="danger">
-              {errorMessage}
-            </Callout>
-          )}
-
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-5 overflow-y-auto space-y-4">
           {/* Shift Details Banner */}
           <div className="p-3.5 bg-subtle rounded-md border border-border space-y-2 text-xs">
             <div className="flex items-center justify-between">
@@ -176,7 +189,13 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
             </label>
             <CustomTimePicker
               value={checkOut}
-              onChange={(val) => setCheckOut(val)}
+              onChange={(val) => {
+                setCheckOut(val);
+                if (hasSubmitted && val.trim()) {
+                  setFieldErrors((prev) => { const n = { ...prev }; delete n.checkOut; return n; });
+                }
+              }}
+              error={fieldErrors.checkOut}
               placeholder="e.g. 04:30 AM"
             />
           </div>
@@ -191,7 +210,12 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
                 <button
                   key={qr}
                   type="button"
-                  onClick={() => setReason(qr)}
+                  onClick={() => {
+                    setReason(qr);
+                    if (hasSubmitted) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.reason; return n; });
+                    }
+                  }}
                   className="text-micro px-2 py-1 rounded-md border border-border bg-surface hover:bg-hover text-fg-2 transition-colors cursor-pointer"
                 >
                   {qr}
@@ -206,31 +230,62 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
               <span>Reason for missed checkout *</span>
             </label>
             <textarea
+              name="reason"
               value={reason}
-              onChange={(e) => setReason(e.target.value)}
+              onChange={(e) => {
+                setReason(e.target.value);
+                if (hasSubmitted && e.target.value.trim().length >= 3) {
+                  setFieldErrors((prev) => { const n = { ...prev }; delete n.reason; return n; });
+                }
+              }}
+              aria-invalid={!!fieldErrors.reason}
               placeholder="Briefly explain why you missed punching out..."
               rows={3}
-              className="w-full px-3 py-2 bg-surface border border-border-strong rounded-md text-xs text-fg placeholder:text-fg-faint focus-visible:focus-ring"
+              className={`w-full px-3 py-2 bg-surface border rounded-md text-xs text-fg placeholder:text-fg-faint focus-visible:focus-ring ${
+                fieldErrors.reason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+              }`}
             />
+            {fieldErrors.reason && (
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>{fieldErrors.reason}</span>
+              </div>
+            )}
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={isSubmitting}
-            >
-              Submit checkout
-            </Button>
+          <div className="flex items-center justify-between gap-2 pt-3 border-t border-border">
+            <div className="flex items-center gap-3">
+              <FormErrorSummaryButton
+                count={Object.keys(fieldErrors).length}
+                onClick={() => {
+                  if (formRef.current) focusFirstError(formRef.current);
+                }}
+              />
+              {serverError && (
+                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{serverError}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSubmitting}
+              >
+                Submit checkout
+              </Button>
+            </div>
           </div>
         </form>
       </div>

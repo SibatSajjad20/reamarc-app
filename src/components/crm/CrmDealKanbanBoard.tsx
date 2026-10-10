@@ -9,7 +9,8 @@ import {
 } from 'lucide-react';
 import type { CrmDeal, CrmPipelineStage } from '../../types/crm';
 import { formatDealMoney } from '../../utils/money';
-import { getInitials } from '../../utils/badgeStyles';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
 
@@ -68,6 +69,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
   onReopen,
   onApproveWon,
 }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -159,9 +161,9 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
         onClick={() => onOpen(deal)}
         className={`group relative rounded-lg border bg-surface p-3 transition-all cursor-grab active:cursor-grabbing select-none ${
           isWon
-            ? 'border-success/30'
+            ? 'border-success-bd'
             : isLost
-              ? 'border-danger/30 opacity-85'
+              ? 'border-danger-bd opacity-85'
               : 'border-border hover:border-border-strong hover:shadow-xs'
         } ${isSelected ? 'ring-2 ring-accent border-accent' : ''} ${
           busyId === deal.id ? 'opacity-50' : ''
@@ -179,12 +181,12 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
             </p>
           </div>
           {assignee ? (
-            <span
-              className="w-5 h-5 rounded-full bg-subtle border border-border text-fg-muted font-medium flex items-center justify-center text-[10px] uppercase shrink-0"
-              title={assignee}
-            >
-              {getInitials(assignee)}
-            </span>
+            <Avatar
+              name={assignee}
+              src={getAvatarUrl(deal.lead?.assigned_to, assignee)}
+              size={20}
+              className="rounded-full shrink-0 text-[10px]"
+            />
           ) : (
             <Briefcase className="w-3.5 h-3.5 text-fg-muted shrink-0 mt-0.5" />
           )}
@@ -305,8 +307,8 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
             }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border border-dashed transition cursor-pointer ${
               overKey === 'outcome:won'
-                ? 'border-success bg-success-bg text-success-fg font-semibold'
-                : 'border-success/40 text-success-fg hover:bg-success-bg/20'
+                ? 'border-success-bd bg-success-bg text-success-fg font-semibold'
+                : 'border-success-bd text-success-fg hover:bg-success-bg/20'
             }`}
           >
             <CheckCircle2 className="w-4 h-4 text-success-fg" />
@@ -324,8 +326,8 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
             }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border border-dashed transition cursor-pointer ${
               overKey === 'outcome:lost'
-                ? 'border-danger bg-danger-bg text-danger-fg font-semibold'
-                : 'border-danger/40 text-danger-fg hover:bg-danger-bg/20'
+                ? 'border-danger-bd bg-danger-bg text-danger-fg font-semibold'
+                : 'border-danger-bd text-danger-fg hover:bg-danger-bg/20'
             }`}
           >
             <XCircle className="w-4 h-4 text-danger-fg" />
@@ -421,7 +423,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >
@@ -467,7 +469,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >

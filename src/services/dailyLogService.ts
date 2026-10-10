@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 
 const dlColumnsCache = new BoundedCache<DailyLogColumn[]>(2);
 const dlSheetsCache = new BoundedCache<string[]>(2);
@@ -24,7 +25,10 @@ export const dailyLogService = {
   },
 
   async updateColumns(columns: DailyLogColumn[]): Promise<DailyLogColumn[]> {
-    return apiClient.put<DailyLogColumn[]>('/daily-log/columns', columns);
+    const res = await apiClient.put<DailyLogColumn[]>('/daily-log/columns', columns);
+    dlColumnsCache.clear();
+    emitInvalidation(['daily-log', 'dashboard', 'settings']);
+    return res;
   },
 
   async getSheets(options?: { signal?: AbortSignal }): Promise<string[]> {
@@ -79,15 +83,27 @@ export const dailyLogService = {
   },
 
   async createEntry(payload: CreateDailyLogEntryPayload): Promise<DailyLogEntry> {
-    return apiClient.post<DailyLogEntry>('/daily-log/entries', payload);
+    const res = await apiClient.post<DailyLogEntry>('/daily-log/entries', payload);
+    dailyLogService.invalidateEntries();
+    dlActivityCache.clear();
+    emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
+    return res;
   },
 
   async updateEntry(id: string, payload: UpdateDailyLogEntryPayload): Promise<DailyLogEntry> {
-    return apiClient.put<DailyLogEntry>(`/daily-log/entries/${id}`, payload);
+    const res = await apiClient.put<DailyLogEntry>(`/daily-log/entries/${id}`, payload);
+    dailyLogService.invalidateEntries();
+    dlActivityCache.clear();
+    emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
+    return res;
   },
 
   async deleteEntry(id: string): Promise<{ message: string }> {
-    return apiClient.delete<{ message: string }>(`/daily-log/entries/${id}`);
+    const res = await apiClient.delete<{ message: string }>(`/daily-log/entries/${id}`);
+    dailyLogService.invalidateEntries();
+    dlActivityCache.clear();
+    emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
+    return res;
   },
 
   async getMyLogActivity(days: number = 7, options?: { signal?: AbortSignal }): Promise<import('../types/dailyLog').UserLogActivity> {
@@ -168,6 +184,9 @@ export const dailyLogService = {
     dlActivityCache.clear();
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => dailyLogService.clearAllCaches());
 
 
 

@@ -22,6 +22,8 @@ import { Button } from '../../ui/button';
 import { Input } from '../../ui/input';
 import { Textarea } from '../../ui/textarea';
 import { StatusPill } from '../../ui/StatusPill';
+import { CustomSelect } from '../../ui/CustomSelect';
+import { CustomTimePicker } from '../../ui/CustomTimePicker';
 import { API_BASE_URL } from '../../../services/apiClient';
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
@@ -940,35 +942,36 @@ export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart 
                   <label className="text-label text-fg block mb-1">
                     Duration (minutes)
                   </label>
-                  <select
-                    value={schedulerConfig.duration_minutes}
-                    onChange={(e) => setSchedulerConfig({ ...schedulerConfig, duration_minutes: Number(e.target.value) })}
-                    className="w-full h-8.5 px-2.5 rounded-md border border-border bg-surface text-small text-fg outline-none cursor-pointer focus:border-border-strong"
-                  >
-                    <option value={15}>15 mins</option>
-                    <option value={30}>30 mins</option>
-                    <option value={45}>45 mins</option>
-                    <option value={60}>60 mins</option>
-                  </select>
+                  <CustomSelect
+                    value={String(schedulerConfig.duration_minutes)}
+                    onChange={(val) =>
+                      setSchedulerConfig({ ...schedulerConfig, duration_minutes: Number(val) })
+                    }
+                    options={[
+                      { value: '15', label: '15 mins' },
+                      { value: '30', label: '30 mins' },
+                      { value: '45', label: '45 mins' },
+                      { value: '60', label: '60 mins' },
+                    ]}
+                    size="sm"
+                  />
                 </div>
                 <div>
                   <label className="text-label text-fg block mb-1">
                     Start hour
                   </label>
-                  <Input
-                    type="time"
+                  <CustomTimePicker
                     value={schedulerConfig.start_hour}
-                    onChange={(e) => setSchedulerConfig({ ...schedulerConfig, start_hour: e.target.value })}
+                    onChange={(val) => setSchedulerConfig({ ...schedulerConfig, start_hour: val })}
                   />
                 </div>
                 <div>
                   <label className="text-label text-fg block mb-1">
                     End hour
                   </label>
-                  <Input
-                    type="time"
+                  <CustomTimePicker
                     value={schedulerConfig.end_hour}
-                    onChange={(e) => setSchedulerConfig({ ...schedulerConfig, end_hour: e.target.value })}
+                    onChange={(val) => setSchedulerConfig({ ...schedulerConfig, end_hour: val })}
                   />
                 </div>
               </div>

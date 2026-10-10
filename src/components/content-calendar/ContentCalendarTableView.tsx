@@ -40,19 +40,19 @@ import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/content
 export const renderPlatformIcon = (item: ContentCalendarItem) => {
   const combined = `${item.channels?.join(' ') || ''} ${item.campaign_type || ''} ${item.captions_hashtags || ''}`.toLowerCase();
   if (combined.includes('instagram') || combined.includes('ig') || combined.includes('#instagram')) {
-    return <InstagramIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+    return <InstagramIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
   }
   if (combined.includes('facebook') || combined.includes('fb') || combined.includes('#facebook')) {
-    return <FacebookIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+    return <FacebookIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
   }
   if (combined.includes('tiktok') || combined.includes('#tiktok')) {
-    return <TikTokIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+    return <TikTokIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
   }
   if (combined.includes('linkedin') || combined.includes('#linkedin')) {
-    return <LinkedInIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+    return <LinkedInIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
   }
   if (combined.includes('meta')) {
-    return <MetaIcon size={14} className="text-fg-muted shrink-0 mr-1 inline-block" />;
+    return <MetaIcon size={14} variant="brand" className="shrink-0 mr-1 inline-block" />;
   }
   return null;
 };
@@ -719,7 +719,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                                 });
                                 setOpenFilterColKey(null);
                               }}
-                              className="text-[10px] text-danger hover:underline font-medium cursor-pointer"
+                              className="text-[10px] text-danger-fg hover:underline font-medium cursor-pointer"
                             >
                               Clear
                             </button>
@@ -1307,7 +1307,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                 </span>
               )}
               {saveStatus === 'error' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-danger-soft text-danger border border-danger/30">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-danger-bg text-danger-fg border border-danger-bd">
                   <AlertCircle className="w-3 h-3" /> Save failed (retrying...)
                 </span>
               )}

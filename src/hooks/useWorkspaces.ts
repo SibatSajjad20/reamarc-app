@@ -3,6 +3,7 @@ import type { Workspace } from '../types';
 import { workspaceService, type WorkspaceCreatePayload, type WorkspaceUpdatePayload } from '../services/workspaceService';
 import { useAsync } from './useAsync';
 import { apiClient } from '../services/apiClient';
+import { useCacheInvalidation } from '../utils/cacheBus';
 
 export function useWorkspaces(enabled: boolean = true) {
   const cachedWorkspaces = workspaceService.getCachedWorkspaces();
@@ -73,6 +74,8 @@ export function useWorkspaces(enabled: boolean = true) {
       }
     };
   }, [fetchWorkspaces]);
+
+  useCacheInvalidation(['workspaces'], fetchWorkspaces);
 
   const saveWorkspace = async (
     workspaceToEdit: Workspace | null,

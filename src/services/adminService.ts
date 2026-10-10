@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 
 const adminMembersCache = new BoundedCache<AdminMember[]>(2);
 const adminActivityCache = new BoundedCache<import('../types/admin').MemberActivity[]>(2);
@@ -30,19 +31,32 @@ export const adminService = {
       const str = sp.toString();
       if (str) query = `?${str}`;
     }
-    return apiClient.get<AdminMember[]>(`/admin/members${query}`);
+    const res = await apiClient.get<AdminMember[]>(`/admin/members${query}`);
+    if (!params || (Object.keys(params).length === 1 && params.is_active !== undefined)) {
+      adminMembersCache.set('members', res);
+    }
+    return res;
   },
 
   async createMember(payload: CreateMemberPayload): Promise<AdminMember> {
-    return apiClient.post<AdminMember>('/admin/members', payload);
+    const res = await apiClient.post<AdminMember>('/admin/members', payload);
+    adminMembersCache.clear();
+    emitInvalidation(['admin.members', 'dashboard', 'attendance']);
+    return res;
   },
 
   async updateMember(userId: string, payload: UpdateMemberPayload): Promise<AdminMember> {
-    return apiClient.patch<AdminMember>(`/admin/members/${userId}`, payload);
+    const res = await apiClient.patch<AdminMember>(`/admin/members/${userId}`, payload);
+    adminMembersCache.clear();
+    emitInvalidation(['admin.members', 'dashboard', 'attendance']);
+    return res;
   },
 
   async deleteMember(userId: string): Promise<any> {
-    return apiClient.delete(`/admin/members/${userId}`);
+    const res = await apiClient.delete(`/admin/members/${userId}`);
+    adminMembersCache.clear();
+    emitInvalidation(['admin.members', 'dashboard', 'attendance']);
+    return res;
   },
 
   async deleteUser(userId: string): Promise<any> {
@@ -63,15 +77,21 @@ export const adminService = {
   },
 
   async createWorkspace(payload: CreateWorkspacePayload): Promise<Workspace> {
-    return apiClient.post<Workspace>('/admin/workspaces', payload);
+    const res = await apiClient.post<Workspace>('/admin/workspaces', payload);
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 
   async updateWorkspace(workspaceId: string, payload: UpdateWorkspacePayload): Promise<Workspace> {
-    return apiClient.patch<Workspace>(`/admin/workspaces/${workspaceId}`, payload);
+    const res = await apiClient.patch<Workspace>(`/admin/workspaces/${workspaceId}`, payload);
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 
   async deleteWorkspace(workspaceId: string): Promise<any> {
-    return apiClient.delete(`/admin/workspaces/${workspaceId}`);
+    const res = await apiClient.delete(`/admin/workspaces/${workspaceId}`);
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 
   // --- Ad Accounts Management ---
@@ -80,15 +100,24 @@ export const adminService = {
   },
 
   async createAdAccount(payload: CreateAdAccountPayload): Promise<AdAccount> {
-    return apiClient.post<AdAccount>('/admin/ad-accounts', payload);
+    const res = await apiClient.post<AdAccount>('/admin/ad-accounts', payload);
+    adminAdAccountsCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   async updateAdAccount(accountId: string, payload: UpdateAdAccountPayload): Promise<AdAccount> {
-    return apiClient.patch<AdAccount>(`/admin/ad-accounts/${accountId}`, payload);
+    const res = await apiClient.patch<AdAccount>(`/admin/ad-accounts/${accountId}`, payload);
+    adminAdAccountsCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   async deleteAdAccount(accountId: string): Promise<any> {
-    return apiClient.delete(`/admin/ad-accounts/${accountId}`);
+    const res = await apiClient.delete(`/admin/ad-accounts/${accountId}`);
+    adminAdAccountsCache.clear();
+    emitInvalidation(['marketing', 'dashboard']);
+    return res;
   },
 
   // Compatibility aliases
@@ -148,3 +177,6 @@ export const adminService = {
     adminAdAccountsCache.clear();
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => adminService.clearAllCaches());

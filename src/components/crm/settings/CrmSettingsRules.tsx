@@ -8,6 +8,8 @@ import { Table, THead, TH, TBody, TR, TD } from '../../ui/DataTable';
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
 import { useConfirm } from '../../ui/ConfirmProvider';
+import { Avatar } from '../../ui/Avatar';
+import { useMemberAvatars } from '../../../hooks/useMemberAvatars';
 import type { CrmAssignee, CrmAssignmentRule } from '../../../types/crm';
 
 const METHODS = [
@@ -32,14 +34,8 @@ interface CrmSettingsRulesProps {
   assignees?: CrmAssignee[];
 }
 
-function getInitials(name?: string | null): string {
-  if (!name) return 'U';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 export const CrmSettingsRules: React.FC<CrmSettingsRulesProps> = ({ assignees: initialAssignees }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const { addToast } = useToast();
   const confirm = useConfirm();
   const [rules, setRules] = useState<CrmAssignmentRule[]>([]);
@@ -279,9 +275,12 @@ export const CrmSettingsRules: React.FC<CrmSettingsRulesProps> = ({ assignees: i
                   key={a.id}
                   className="p-3 rounded-md bg-surface border border-border flex items-center gap-3 shadow-xs"
                 >
-                  <div className="w-8 h-8 rounded-full bg-accent-soft text-accent font-semibold text-caption flex items-center justify-center shrink-0">
-                    {getInitials(a.full_name)}
-                  </div>
+                  <Avatar
+                    name={a.full_name}
+                    src={a.avatar_url || getAvatarUrl(a.id, a.full_name)}
+                    size={32}
+                    className="rounded-full shrink-0"
+                  />
                   <div className="min-w-0 flex-1">
                     <div className="text-ui font-medium text-fg truncate">{a.full_name}</div>
                     <div className="text-caption text-fg-muted truncate">{a.email}</div>

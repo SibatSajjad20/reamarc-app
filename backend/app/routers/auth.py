@@ -108,6 +108,7 @@ def _build_user_response(user_doc: dict) -> dict:
         "workspace_ids": user_doc.get("workspace_ids", []),
         "crm_enabled": user_doc.get("crm_enabled"),
         "crm_paused": user_doc.get("crm_paused"),
+        "avatar_url": user_doc.get("avatar_url"),
     }
 
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import {
   X,
@@ -21,6 +21,7 @@ import {
   ExternalLink,
   Download,
   CreditCard,
+  AlertCircle,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
 import type { WorkspaceCreatePayload, WorkspaceUpdatePayload } from '../../services/workspaceService';
@@ -28,7 +29,10 @@ import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { Button } from '../ui/button';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
+import { cn } from '../../lib/utils';
 
 export interface WorkspaceFormSeed {
   name?: string;
@@ -161,7 +165,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   const [billingPhone, setBillingPhone] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string | undefined>>({});
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+
+  const errorCount = useMemo(() => {
+    return Object.values(fieldErrors).filter(Boolean).length;
+  }, [fieldErrors]);
 
   // Lock body scroll
   useEffect(() => {
@@ -189,7 +199,7 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
   // Load existing or reset
   useEffect(() => {
     if (isOpen) {
-      setErrorMessage(null);
+      setServerError(null);
       setUploadError(null);
       if (workspaceToEdit) {
         setName(workspaceToEdit.name || '');
@@ -244,10 +254,17 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   // Toggle service tag
   const toggleService = (service: string) => {
-    setSelectedServices((prev) =>
-      prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service]
-    );
-    setErrorMessage(null);
+    setSelectedServices((prev) => {
+      const next = prev.includes(service) ? prev.filter((s) => s !== service) : [...prev, service];
+      if (hasAttemptedSubmit && next.length > 0) {
+        setFieldErrors((e) => {
+          const copy = { ...e };
+          delete copy.services;
+          return copy;
+        });
+      }
+      return next;
+    });
   };
 
   // Handle Proposal File Upload
@@ -266,7 +283,6 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     }
 
     setUploadError(null);
-    setErrorMessage(null);
     setIsUploadingProposal(true);
 
     try {
@@ -279,7 +295,6 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
       setProposalUrl(res.file_url);
       setProposalName(res.file_name || file.name);
       setProposalSize(res.file_size || file.size);
-      setErrorMessage(null);
     } catch (err: any) {
       console.error('Proposal upload error:', err);
       setUploadError(err.message || 'Failed to upload proposal attachment.');
@@ -305,38 +320,37 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    const errors: Record<string, string | undefined> = {};
     if (!name.trim()) {
-      setErrorMessage('Client / Brand name is required.');
-      return;
+      errors.name = 'Client / Brand name is required.';
     }
-
     if (!contractStartDate.trim()) {
-      setErrorMessage('Contract start date is required.');
-      return;
+      errors.contractStartDate = 'Contract start date is required.';
     }
-
     if (!contractEndDate.trim()) {
-      setErrorMessage('Contract end date is required.');
-      return;
+      errors.contractEndDate = 'Contract end date is required.';
+    } else if (contractEndDate.trim() < contractStartDate.trim()) {
+      errors.contractEndDate = 'Contract end date cannot be earlier than contract start date.';
     }
-
-    if (contractEndDate.trim() < contractStartDate.trim()) {
-      setErrorMessage('Contract end date cannot be earlier than contract start date.');
-      return;
-    }
-
     if (!selectedServices || selectedServices.length === 0) {
-      setErrorMessage('Please select at least one service.');
+      errors.services = 'Please select at least one service.';
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setHasAttemptedSubmit(true);
+      setTimeout(() => focusFirstError(), 10);
       return;
     }
 
     if (isUploadingProposal) {
-      setErrorMessage('Please wait for the proposal file to finish uploading.');
       return;
     }
 
     setIsSubmitting(true);
-    setErrorMessage(null);
+    setFieldErrors({});
+    setServerError(null);
     try {
       const computedInitials = initials.trim()
         ? initials.trim().toUpperCase()
@@ -368,7 +382,8 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
       onClose();
     } catch (error: any) {
       console.error('Failed to save workspace:', error);
-      setErrorMessage(error.message || 'Failed to save workspace.');
+      const msg = error.message || 'Failed to save workspace.';
+      setServerError(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -378,13 +393,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[9999] flex items-center justify-center w-screen h-screen bg-overlay animate-fadeIn p-4 select-none"
+      className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center w-screen h-screen bg-overlay animate-fadeIn p-4 select-none"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
-        className="relative w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-surface border border-border rounded-xl p-6 sm:p-7 shadow-xl space-y-6 animate-scaleIn"
+        className="relative z-[var(--z-dialog,51)] w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-surface border border-border rounded-xl p-6 sm:p-7 shadow-xl space-y-6 animate-scaleIn"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -417,13 +432,6 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="space-y-6">
-          {errorMessage && (
-            <div className="p-3 rounded-lg bg-danger-subtle border border-danger-border text-danger-fg text-xs flex items-center gap-2">
-              <X className="w-4 h-4 shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-          )}
-
           {/* SECTION 1: Client & Brand Basics */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
@@ -435,23 +443,42 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="sm:col-span-2">
-                <label className="block text-xs font-medium text-fg mb-1.5">
+                <label htmlFor="workspace-name" className="block text-xs font-medium text-fg mb-1.5">
                   Client Name / Brand Name <span className="text-danger-fg">*</span>
                 </label>
                 <input
+                  id="workspace-name"
                   type="text"
                   placeholder="e.g. Apex Transfers, ED&C, Sukoon Vista"
                   value={name}
                   onChange={(e) => {
-                    setName(e.target.value);
-                    if (!workspaceToEdit && e.target.value.length >= 2) {
-                      setInitials(e.target.value.slice(0, 2).toUpperCase());
+                    const val = e.target.value;
+                    setName(val);
+                    if (hasAttemptedSubmit && val.trim()) {
+                      setFieldErrors((prev) => {
+                        const copy = { ...prev };
+                        delete copy.name;
+                        return copy;
+                      });
+                    }
+                    if (!workspaceToEdit && val.length >= 2) {
+                      setInitials(val.slice(0, 2).toUpperCase());
                     }
                   }}
-                  className="w-full bg-subtle border border-border focus:border-accent rounded-lg px-3.5 py-2.5 text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors"
-                  required
+                  aria-invalid={Boolean(fieldErrors.name)}
+                  aria-describedby={fieldErrors.name ? 'workspace-name-error' : undefined}
+                  className={cn(
+                    'w-full bg-subtle border rounded-lg px-3.5 py-2.5 text-xs font-semibold text-fg placeholder:text-fg-muted focus:outline-hidden transition-colors',
+                    fieldErrors.name ? 'border-danger-dot focus:border-danger-fg' : 'border-border focus:border-accent'
+                  )}
                   autoComplete="off"
                 />
+                {fieldErrors.name && (
+                  <p id="workspace-name-error" role="alert" className="text-small text-danger-fg flex items-center gap-1.5 mt-1">
+                    <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.name}</span>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -630,8 +657,15 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   value={contractStartDate}
                   onChange={(val) => {
                     setContractStartDate(val);
-                    setErrorMessage(null);
+                    if (hasAttemptedSubmit && val.trim()) {
+                      setFieldErrors((prev) => {
+                        const copy = { ...prev };
+                        delete copy.contractStartDate;
+                        return copy;
+                      });
+                    }
                   }}
+                  error={fieldErrors.contractStartDate}
                   placeholder="Select start date..."
                 />
               </div>
@@ -646,8 +680,15 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                   value={contractEndDate}
                   onChange={(val) => {
                     setContractEndDate(val);
-                    setErrorMessage(null);
+                    if (hasAttemptedSubmit && val.trim()) {
+                      setFieldErrors((prev) => {
+                        const copy = { ...prev };
+                        delete copy.contractEndDate;
+                        return copy;
+                      });
+                    }
                   }}
+                  error={fieldErrors.contractEndDate}
                   minDate={contractStartDate}
                   placeholder="Select end date..."
                 />
@@ -697,6 +738,12 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
                 );
               })}
             </div>
+            {fieldErrors.services && (
+              <p role="alert" className="text-small text-danger-fg flex items-center gap-1.5 mt-1.5">
+                <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+                <span>{fieldErrors.services}</span>
+              </p>
+            )}
           </div>
 
           {/* SECTION 4: Proposal Document Upload */}
@@ -911,24 +958,44 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
           </div>
 
           {/* Actions */}
-          <div className="pt-4 border-t border-border flex items-center justify-end gap-2.5">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-fg bg-subtle hover:bg-hover transition-colors cursor-pointer disabled:opacity-50"
-            >
-              Cancel
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={isSubmitting || isUploadingProposal}
-              loadingText={isSubmitting ? 'Saving Workspace…' : 'Uploading Document…'}
-              icon={CheckCircle2}
-            >
-              {workspaceToEdit ? 'Save Changes' : 'Create Workspace'}
-            </Button>
+          <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs pt-4 pb-2 border-t border-border flex items-center justify-between gap-2.5 flex-wrap z-10">
+            <div className="flex items-center gap-3 min-w-0 flex-wrap">
+              <FormErrorSummaryButton
+                errorCount={errorCount}
+                onClick={() => focusFirstError()}
+              />
+              {serverError && (
+                <div role="alert" className="text-small text-danger-fg flex items-center gap-1.5 font-medium">
+                  <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+                  <span>{serverError}</span>
+                </div>
+              )}
+              {isUploadingProposal && (
+                <span className="text-small text-fg-muted" aria-live="polite">
+                  Wait for upload to finish
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2.5 ml-auto">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={isSubmitting}
+                className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-fg bg-subtle hover:bg-hover transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSubmitting}
+                loadingText="Saving Workspace…"
+                disabled={isSubmitting || isUploadingProposal}
+                icon={CheckCircle2}
+              >
+                {workspaceToEdit ? 'Save Changes' : 'Create Workspace'}
+              </Button>
+            </div>
           </div>
         </form>
       </div>

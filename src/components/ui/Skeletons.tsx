@@ -496,3 +496,65 @@ export const DashboardSkeleton: React.FC<{ role?: string; className?: string }> 
     </div>
   );
 };
+
+/**
+ * Follow-ups View Skeleton: mirrors CrmFollowUpView layout
+ * 3 sections (Overdue, Today, Scheduled) with headers, count chips, and 48px rows
+ */
+export const FollowUpSkeleton: React.FC<{ className?: string }> = ({ className }) => {
+  const sections = [
+    { rowCount: 3 },
+    { rowCount: 1 },
+    { rowCount: 2 },
+  ];
+
+  return (
+    <div className={cn('flex-1 overflow-y-auto p-4 space-y-4', className)}>
+      {sections.map((sec, secIdx) => (
+        <section key={secIdx} className="space-y-2">
+          {/* Header: 64px h3 bar + 20x16 count chip */}
+          <div className="flex items-center gap-2">
+            <Skeleton className="w-2 h-2 rounded-full" />
+            <Skeleton className="w-16 h-4 rounded-sm" />
+            <Skeleton className="w-5 h-4 rounded-full" />
+          </div>
+
+          {/* Bordered card of rows */}
+          <div className="rounded-lg border border-border overflow-hidden bg-surface divide-y divide-border">
+            {Array.from({ length: sec.rowCount }).map((_, rowIdx) => (
+              <div
+                key={rowIdx}
+                className="flex items-center gap-3 px-3.5 py-2.5 h-12 bg-surface"
+              >
+                {/* Left: name bar (140px) over sub-bar (200px) */}
+                <div className="min-w-0 flex-1 space-y-1">
+                  <Skeleton className="w-36 h-3 rounded-sm" />
+                  <Skeleton className="w-52 h-2.5 rounded-sm" />
+                </div>
+
+                {/* Right: stage chip (56px), owner (70px), time pill (90px), Reschedule (86x28), check (28x28) */}
+                <div className="hidden sm:flex items-center gap-1.5 shrink-0">
+                  <Skeleton className="w-14 h-5 rounded" />
+                  <div className="inline-flex items-center gap-1.5">
+                    <Skeleton className="w-5 h-5 rounded-full" />
+                    <Skeleton className="w-16 h-3.5 rounded-sm" />
+                  </div>
+                </div>
+
+                <div className="shrink-0">
+                  <Skeleton className="w-24 h-5 rounded" />
+                </div>
+
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <Skeleton className="w-[86px] h-7 rounded-md" />
+                  <Skeleton className="w-7 h-7 rounded-md" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+};
+

@@ -19,6 +19,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { emitInvalidation, useCacheInvalidation } from '@/utils/cacheBus';
 
 interface InboxItem {
   id: string;
@@ -149,6 +150,10 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     };
   }, [load]);
 
+  useCacheInvalidation(['notifications', 'requests', 'approvals'], () => {
+    void load();
+  });
+
   useEffect(() => {
     if (!open) return;
     setPermission(notificationPermission());
@@ -165,6 +170,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
     try {
       await apiClient.post('/mobile/notifications/read-all');
       setItems((current) => current.map((item) => ({ ...item, read: true })));
+      emitInvalidation(['notifications']);
     } catch {
       // Badge stays
     }
@@ -190,6 +196,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       setItems((current) =>
         current.map((item) => (item.id === id ? { ...item, read: true } : item))
       );
+      emitInvalidation(['notifications']);
     } catch {
       // Keep state as is on error
     }

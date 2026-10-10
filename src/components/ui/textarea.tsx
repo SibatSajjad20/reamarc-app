@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface TextareaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -25,7 +26,8 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     ref
   ) => {
     const generatedId = React.useId();
-    const textareaId = id || (label ? generatedId : undefined);
+    const textareaId = id || (label || error ? generatedId : undefined);
+    const errorId = error && textareaId ? `${textareaId}-error` : undefined;
 
     const [currentLength, setCurrentLength] = React.useState(() => {
       if (typeof value === 'string') return value.length;
@@ -52,19 +54,32 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
           value={value}
           defaultValue={defaultValue}
           onChange={handleChange}
+          aria-invalid={Boolean(error) || props['aria-invalid']}
+          aria-describedby={error ? errorId : props['aria-describedby']}
           className={cn(
             'w-full min-h-[76px] rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-faint leading-5 resize-y transition-colors duration-120 outline-none',
             'hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]',
             'aria-invalid:border-danger-dot aria-invalid:focus:shadow-[0_0_0_3px_rgba(240,68,56,0.2)]',
             'disabled:bg-subtle disabled:text-fg-faint disabled:cursor-not-allowed',
             'read-only:bg-subtle read-only:focus:shadow-none read-only:focus:border-border-strong',
-            error && 'border-danger-bd focus:border-danger-fg',
+            error && 'border-danger-dot focus:border-danger-fg',
             className
           )}
           {...props}
         />
         <div className="flex items-center justify-between text-xs">
-          {error ? <p className="text-danger-fg">{error}</p> : <span />}
+          {error ? (
+            <p
+              id={errorId}
+              role="alert"
+              className="text-small text-danger-fg flex items-center gap-1.5 mt-1"
+            >
+              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+              <span>{error}</span>
+            </p>
+          ) : (
+            <span />
+          )}
           {showCount && maxLength && (
             <div className="text-right text-fg-muted font-numeric">
               {currentLength} / {maxLength}

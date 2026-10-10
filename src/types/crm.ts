@@ -171,6 +171,7 @@ export interface CrmAssignee {
   email: string;
   role: string;
   department?: string | null;
+  avatar_url?: string | null;
 }
 
 export interface CrmLeadCreatePayload {

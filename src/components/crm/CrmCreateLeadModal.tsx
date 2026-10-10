@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { Check, Plus } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Check, Plus, AlertCircle } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import {
   Dialog,
@@ -9,6 +9,8 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 import type { CrmAssignee, CrmLead, CrmLeadCreatePayload } from '../../types/crm';
 import {
   LEAD_BUDGETS,
@@ -198,9 +200,16 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
     return Object.keys(errs).length === 0;
   };
 
+  const formRef = useRef<HTMLFormElement>(null);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!validate()) return;
+    if (!validate()) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -238,7 +247,7 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
       <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
-        <form onSubmit={handleSubmit} className="flex flex-col max-h-[calc(100vh-64px)]">
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col max-h-[calc(100vh-64px)]">
           <DialogHeader className="p-5 pb-3 border-b border-border">
             <DialogTitle className="text-h2 font-semibold text-fg">
               {mode === 'edit' ? 'Edit Lead Brief & Info' : 'New Lead'}
@@ -384,28 +393,43 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
               </div>
             )}
 
-            {error && <p className="md:col-span-2 text-xs text-danger-fg bg-danger-bg p-2.5 rounded border border-danger/30">{error}</p>}
           </div>
 
-          <DialogFooter className="p-4 border-t border-border">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={saving}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              disabled={saving}
-              loading={saving}
-              loadingText="Saving…"
-              icon={Plus}
-            >
-              {mode === 'edit' ? 'Save form' : 'Create lead'}
-            </Button>
+          <DialogFooter className="p-4 border-t border-border flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FormErrorSummaryButton
+                count={Object.keys(fieldErrors).length}
+                onClick={() => {
+                  if (formRef.current) focusFirstError(formRef.current);
+                }}
+              />
+              {error && (
+                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{error}</span>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={saving}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={saving}
+                loading={saving}
+                loadingText="Saving…"
+                icon={Plus}
+              >
+                {mode === 'edit' ? 'Save form' : 'Create lead'}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

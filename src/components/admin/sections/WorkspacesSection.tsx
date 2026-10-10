@@ -7,11 +7,12 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { Workspace } from '../../../types';
-import type { AdAccount, AdminMember } from '../../../types/admin';
+import type { AdminMember } from '../../../types/admin';
 import { PageHeader } from '../../ui/PageHeader';
 import { Button, IconButton } from '../../ui/button';
 import { StatusPill } from '../../ui/StatusPill';
 import { HealthBadge, PriorityBadge } from '../../ui/WorkspaceBadges';
+import { SegmentedControl } from '../../ui/SegmentedControl';
 import {
   TableCard,
   TableToolbar,
@@ -27,7 +28,6 @@ import {
 interface WorkspacesSectionProps {
   workspaces: Workspace[];
   members?: AdminMember[];
-  adAccounts?: AdAccount[];
   onAddWorkspace: () => void;
   onEditWorkspace: (workspace: Workspace) => void;
   onToggleStatus?: (workspace: Workspace) => void;
@@ -37,7 +37,6 @@ interface WorkspacesSectionProps {
 export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
   workspaces,
   members = [],
-  adAccounts = [],
   onAddWorkspace,
   onEditWorkspace,
   onToggleStatus,
@@ -45,17 +44,6 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
-
-  // Ad accounts lookup by workspace id
-  const adAccountsCountByWorkspace = useMemo(() => {
-    const map: Record<string, number> = {};
-    adAccounts.forEach((acc) => {
-      if (acc.workspace_id) {
-        map[acc.workspace_id] = (map[acc.workspace_id] || 0) + 1;
-      }
-    });
-    return map;
-  }, [adAccounts]);
 
   const filteredWorkspaces = useMemo(() => {
     return workspaces.filter((w) => {
@@ -115,22 +103,16 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
             />
           </div>
 
-          <div className="flex items-center gap-1.5">
-            {(['all', 'active', 'inactive'] as const).map((filter) => (
-              <button
-                key={filter}
-                type="button"
-                onClick={() => setStatusFilter(filter)}
-                className={`px-2.5 py-1 text-xs rounded-md transition-colors capitalize cursor-pointer font-medium ${
-                  statusFilter === filter
-                    ? 'bg-accent-soft text-accent-text font-semibold'
-                    : 'text-fg-muted hover:text-fg hover:bg-hover'
-                }`}
-              >
-                {filter}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            value={statusFilter}
+            onValueChange={(v: string) => setStatusFilter(v as 'all' | 'active' | 'inactive')}
+            size="sm"
+            options={[
+              { value: 'all', label: 'All', count: workspaces.length },
+              { value: 'active', label: 'Active', count: workspaces.filter((w) => w.status !== 'inactive').length },
+              { value: 'inactive', label: 'Inactive', count: workspaces.filter((w) => w.status === 'inactive').length },
+            ]}
+          />
 
           <div className="ml-auto text-caption text-fg-muted tabular-nums">
             {filteredWorkspaces.length} of {workspaces.length}
@@ -146,7 +128,6 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
               <TH>Engagement</TH>
               <TH>Health & Priority</TH>
               <TH>Members</TH>
-              <TH>Ad accounts</TH>
               <TH>Status</TH>
               {canManageWorkspaces && <TH align="right" className="w-20">Actions</TH>}
             </TR>
@@ -154,7 +135,7 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
           <TBody>
             {filteredWorkspaces.length === 0 ? (
               <TableEmptyRow
-                colSpan={canManageWorkspaces ? 8 : 7}
+                colSpan={canManageWorkspaces ? 7 : 6}
                 title="No workspaces yet"
                 description={
                   searchQuery || statusFilter !== 'all'
@@ -165,7 +146,6 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
             ) : (
               filteredWorkspaces.map((ws) => {
                 const isInactive = ws.status === 'inactive';
-                const adCount = adAccountsCountByWorkspace[ws.id] || 0;
                 const membersCount = members.filter((m) => (m.workspace_ids || []).includes(ws.id)).length;
                 const initials = ws.initials || ws.name.slice(0, 2).toUpperCase();
                 const brandColor = ws.brandColor?.startsWith('#') ? ws.brandColor : '#6847E0';
@@ -196,31 +176,34 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
 
                     {/* Industry / Services */}
                     <TD>
+                      {ws.industry && (
+                        <div className="text-ui text-fg mb-1">{ws.industry}</div>
+                      )}
                       {ws.services && ws.services.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-w-xs">
                           {ws.services.slice(0, 2).map((s) => (
                             <span
                               key={s}
-                              className="inline-flex items-center px-1.5 py-0.5 rounded text-xs border border-border bg-surface text-fg-muted"
+                              className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs bg-subtle text-fg-2"
                             >
                               {s}
                             </span>
                           ))}
                           {ws.services.length > 2 && (
-                            <span className="text-[10px] text-fg-faint self-center">
+                            <span className="text-micro text-fg-muted self-center">
                               +{ws.services.length - 2}
                             </span>
                           )}
                         </div>
-                      ) : (
-                        <span className="text-fg-muted text-caption">Retainer Scope</span>
-                      )}
+                      ) : !ws.industry ? (
+                        <span className="text-fg-muted text-caption">—</span>
+                      ) : null}
                     </TD>
 
                     {/* Engagement / Cycle */}
                     <TD>
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg">
-                        {ws.project_cycle || 'Retainer'}
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-sm text-xs font-medium bg-subtle text-fg-2">
+                        {ws.project_cycle || '—'}
                       </span>
                     </TD>
 
@@ -235,11 +218,6 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
                     {/* Members */}
                     <TD className="tabular-nums text-caption text-fg-muted">
                       {membersCount > 0 ? `${membersCount} assigned` : '—'}
-                    </TD>
-
-                    {/* Ad Accounts */}
-                    <TD className="tabular-nums text-caption text-fg-muted">
-                      {adCount > 0 ? `${adCount} linked` : '—'}
                     </TD>
 
                     {/* Status */}

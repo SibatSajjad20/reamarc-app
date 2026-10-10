@@ -23,11 +23,13 @@ import {
 } from 'lucide-react';
 import type { CreativeAsset, ContentCalendarItem, AssetRole } from '../../types/contentCalendar';
 import { Button } from '../ui/button';
+import { CustomSelect } from '../ui/CustomSelect';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { openGoogleDrivePicker } from '../../services/googlePickerService';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { cn } from '../../lib/utils';
 
 const GoogleDriveIcon: React.FC<{ className?: string }> = ({ className = 'w-3.5 h-3.5' }) => (
   <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -42,6 +44,7 @@ interface CreativeAssetGalleryProps {
   attachments?: CreativeAsset[];
   readOnly?: boolean;
   onAssetsUpdated?: (updatedItem: ContentCalendarItem) => void;
+  onUploadingChange?: (uploading: boolean) => void;
   className?: string;
   compact?: boolean;
 }
@@ -75,6 +78,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   attachments = [],
   readOnly = false,
   onAssetsUpdated,
+  onUploadingChange,
   className = '',
   compact = false,
 }) => {
@@ -115,6 +119,11 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+
+  useEffect(() => {
+    onUploadingChange?.(isUploading);
+  }, [isUploading, onUploadingChange]);
+
   const [uploadProgressText, setUploadProgressText] = useState('');
   const [uploadRole, setUploadRole] = useState<AssetRole>('primary');
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -130,6 +139,8 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const [linkTitle, setLinkTitle] = useState('');
   const [linkRole, setLinkRole] = useState<AssetRole>('primary');
   const [isSubmittingLink, setIsSubmittingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const linkInputRef = useRef<HTMLInputElement>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -370,13 +381,16 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
   const handleAddLinkSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLinkError(null);
     const clean = linkUrl.trim();
     if (!clean) {
-      addToast('URL required', 'Please provide a valid web URL.', 'warning');
+      setLinkError('Please provide a valid web URL.');
+      if (linkInputRef.current) linkInputRef.current.focus();
       return;
     }
     if (!safeHttpUrl(clean)) {
-      addToast('Invalid URL', 'Link must start with http:// or https://', 'error');
+      setLinkError('Link must start with http:// or https://');
+      if (linkInputRef.current) linkInputRef.current.focus();
       return;
     }
     setIsSubmittingLink(true);
@@ -393,11 +407,12 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
       setIsAddLinkOpen(false);
       setLinkUrl('');
       setLinkTitle('');
+      setLinkError(null);
       if (updated.attachments && updated.attachments.length > 0) {
         setSelectedIndex(updated.attachments.length - 1);
       }
     } catch (err: any) {
-      addToast('Failed to add link', err?.message || 'Could not attach link.', 'error');
+      setLinkError(err?.message || 'Could not attach link.');
     } finally {
       setIsSubmittingLink(false);
     }
@@ -468,18 +483,20 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
         {!readOnly && (
           <div className="flex items-center gap-2">
-            <select
-              value={uploadRole}
-              onChange={(e) => setUploadRole(e.target.value as AssetRole)}
-              className="text-xs font-medium py-1 px-2 rounded-lg bg-subtle text-fg border border-border focus:outline-hidden cursor-pointer"
-              title="Target role for uploads"
-            >
-              <option value="primary">Primary Deliverable</option>
-              <option value="carousel_slide">Carousel Slide</option>
-              <option value="reference">Reference / Brief</option>
-              <option value="copy_doc">Blog / Copy Doc</option>
-              <option value="script">Video Script</option>
-            </select>
+            <div className="w-44">
+              <CustomSelect
+                value={uploadRole}
+                onChange={(val) => setUploadRole(val as AssetRole)}
+                options={[
+                  { value: 'primary', label: 'Primary Deliverable' },
+                  { value: 'carousel_slide', label: 'Carousel Slide' },
+                  { value: 'reference', label: 'Reference / Brief' },
+                  { value: 'copy_doc', label: 'Blog / Copy Doc' },
+                  { value: 'script', label: 'Video Script' },
+                ]}
+                size="sm"
+              />
+            </div>
 
             <button
               type="button"
@@ -1113,13 +1130,27 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   URL / Web Address <span className="text-danger-fg">*</span>
                 </label>
                 <input
+                  ref={linkInputRef}
                   type="url"
                   required
+                  aria-invalid={!!linkError}
                   placeholder="https://www.figma.com/file/... or https://drive.google.com/..."
                   value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg text-xs bg-subtle border border-border text-fg placeholder:text-fg-muted focus:outline-hidden focus:border-accent"
+                  onChange={(e) => {
+                    setLinkUrl(e.target.value);
+                    if (linkError) setLinkError(null);
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-lg text-xs bg-subtle border text-fg placeholder:text-fg-muted focus:outline-hidden focus:border-accent',
+                    linkError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                  )}
                 />
+                {linkError && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{linkError}</span>
+                  </p>
+                )}
               </div>
 
               <div>
@@ -1139,17 +1170,18 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 <label className="block text-xs font-medium text-fg mb-1">
                   Deliverable Role
                 </label>
-                <select
+                <CustomSelect
                   value={linkRole}
-                  onChange={(e) => setLinkRole(e.target.value as AssetRole)}
-                  className="w-full px-3 py-2 rounded-lg text-xs bg-subtle border border-border text-fg focus:outline-hidden focus:border-accent cursor-pointer"
-                >
-                  <option value="primary">Primary Deliverable</option>
-                  <option value="reference">Reference / Brief</option>
-                  <option value="copy_doc">Blog / Copy Doc</option>
-                  <option value="script">Video Script</option>
-                  <option value="carousel_slide">Carousel Slide</option>
-                </select>
+                  onChange={(val) => setLinkRole(val as AssetRole)}
+                  options={[
+                    { value: 'primary', label: 'Primary Deliverable' },
+                    { value: 'reference', label: 'Reference / Brief' },
+                    { value: 'copy_doc', label: 'Blog / Copy Doc' },
+                    { value: 'script', label: 'Video Script' },
+                    { value: 'carousel_slide', label: 'Carousel Slide' },
+                  ]}
+                  size="sm"
+                />
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -1167,7 +1199,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   size="sm"
                   loading={isSubmittingLink}
                   loadingText="Adding link…"
-                  disabled={!linkUrl.trim()}
+                  disabled={!linkUrl.trim() || isUploading}
                 >
                   Add Link
                 </Button>

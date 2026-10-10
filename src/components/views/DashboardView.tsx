@@ -3,7 +3,7 @@
  * Role-based dashboard: Admin, Operations, HR, Team Lead, and Team Member.
  */
 
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ViewType } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
@@ -13,6 +13,7 @@ import { crmService } from '../../services/crmService';
 import { logExceptionService } from '../../services/logExceptionService';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import { canAccessCrm } from '../../utils/crmAccess';
 import { canAccessContentCalendar } from '../../utils/contentCalendarAccess';
 import { canAccessWebsitePipeline } from '../../utils/websiteProjectAccess';
@@ -70,6 +71,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { useOffDays } from '../../hooks/useOffDays';
+import { getDashboardCache, setDashboardCache } from '../../utils/dashboardCache';
 
 export type DepartmentCategory = 'sales' | 'website' | 'content' | 'marketing' | 'hr' | 'ai' | 'general';
 
@@ -154,76 +156,124 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const currentMonth = today.getMonth() + 1;
   const monthName = today.toLocaleDateString('en-US', { month: 'long' });
 
+  // Dashboard cache lookup
+  const cacheKey = `${user?.id || 'anon'}-${todayIso}`;
+  const initialCache = useMemo(() => getDashboardCache(cacheKey), [cacheKey]);
+
   // Module load gating
-  const [isGateReady, setIsGateReady] = useState(false);
+  const [isGateReady, setIsGateReady] = useState(() => Boolean(initialCache));
   useModuleLoadGate(!isGateReady);
 
   // General state
-  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(null);
-  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(true);
-  const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(null);
-  const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(null);
-  const [dayTarget, setDayTarget] = useState<DayTarget | null>(null);
+  const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(() => initialCache?.todayAttendance ?? null);
+  const [isLoadingAttendance, setIsLoadingAttendance] = useState<boolean>(() => !initialCache?.todayAttendance);
+  const [matrixData, setMatrixData] = useState<DailyMatrixResponse | null>(() => initialCache?.matrixData ?? null);
+  const [timesheetData, setTimesheetData] = useState<PersonalTimesheetResponse | null>(() => initialCache?.timesheetData ?? null);
+  const [dayTarget, setDayTarget] = useState<DayTarget | null>(() => initialCache?.dayTarget ?? null);
 
   // Admin snapshots & lists
-  const [weekSnapshot, setWeekSnapshot] = useState<OperatingSnapshot | null>(null);
-  const [pendingRequests, setPendingRequests] = useState<AttendanceRequest[]>([]);
-  const [missedInquiries, setMissedInquiries] = useState<any[]>([]);
-  const [yesterdayMissingLogCount, setYesterdayMissingLogCount] = useState<number>(0);
-  const [yesterdayMissingSubtext, setYesterdayMissingSubtext] = useState<string>('');
+  const [weekSnapshot, setWeekSnapshot] = useState<OperatingSnapshot | null>(() => initialCache?.weekSnapshot ?? null);
+  const [pendingRequests, setPendingRequests] = useState<AttendanceRequest[]>(() => initialCache?.pendingRequests ?? []);
+  const [missedInquiries, setMissedInquiries] = useState<any[]>(() => initialCache?.missedInquiries ?? []);
+  const [yesterdayMissingLogCount, setYesterdayMissingLogCount] = useState<number>(() => initialCache?.yesterdayMissingLogCount ?? 0);
+  const [yesterdayMissingSubtext, setYesterdayMissingSubtext] = useState<string>(() => initialCache?.yesterdayMissingSubtext ?? '');
 
   // Team lead / Member / HR states
   const [teamHoursRange, setTeamHoursRange] = useState<'7D' | '14D' | '30D'>('7D');
-  const [teamHoursMembers, setTeamHoursMembers] = useState<TeamHoursMember[]>([]);
+  const [teamHoursMembers, setTeamHoursMembers] = useState<TeamHoursMember[]>(() => initialCache?.teamHoursMembers ?? []);
   const [isLoadingTeamHours, setIsLoadingTeamHours] = useState(false);
   const [hasTeamHours404, setHasTeamHours404] = useState(false);
 
   const [myHoursRange, setMyHoursRange] = useState<'7D' | '14D' | '30D'>('7D');
-  const [myHoursDays, setMyHoursDays] = useState<MyHoursDay[]>([]);
+  const [myHoursDays, setMyHoursDays] = useState<MyHoursDay[]>(() => initialCache?.myHoursDays ?? []);
   const [isLoadingMyHours, setIsLoadingMyHours] = useState(false);
 
-  const [logExceptionsInboxCount, setLogExceptionsInboxCount] = useState(0);
-  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(null);
-  const [myPendingInquiries, setMyPendingInquiries] = useState<any[]>([]);
+  const [logExceptionsInboxCount, setLogExceptionsInboxCount] = useState(() => initialCache?.logExceptionsInboxCount ?? 0);
+  const [myActivity, setMyActivity] = useState<UserLogActivity | null>(() => initialCache?.myActivity ?? null);
+  const [myPendingInquiries, setMyPendingInquiries] = useState<any[]>(() => initialCache?.myPendingInquiries ?? []);
 
   // Pipeline stage cards state
-  const [crmStages, setCrmStages] = useState<StageItem[]>([]);
-  const [contentStages, setContentStages] = useState<StageItem[]>([]);
-  const [websiteStages, setWebsiteStages] = useState<StageItem[]>([]);
+  const [crmStages, setCrmStages] = useState<StageItem[]>(() => initialCache?.crmStages ?? []);
+  const [crmStagesError, setCrmStagesError] = useState(false);
+  const [contentStages, setContentStages] = useState<StageItem[]>(() => initialCache?.contentStages ?? []);
+  const [contentStagesError, setContentStagesError] = useState(false);
+  const [websiteStages, setWebsiteStages] = useState<StageItem[]>(() => initialCache?.websiteStages ?? []);
+  const [websiteStagesError, setWebsiteStagesError] = useState(false);
 
   // CRM follow-ups / uncontacted
-  const [overdueFollowupsCount, setOverdueFollowupsCount] = useState(0);
-  const [overdueFollowupsSubtext, setOverdueFollowupsSubtext] = useState('');
-  const [uncontactedLeadsCount, setUncontactedLeadsCount] = useState(0);
-  const [uncontactedLeadsSubtext, setUncontactedLeadsSubtext] = useState('');
+  const [overdueFollowupsCount, setOverdueFollowupsCount] = useState(() => initialCache?.overdueFollowupsCount ?? 0);
+  const [overdueFollowupsSubtext, setOverdueFollowupsSubtext] = useState(() => initialCache?.overdueFollowupsSubtext ?? '');
+  const [uncontactedLeadsCount, setUncontactedLeadsCount] = useState(() => initialCache?.uncontactedLeadsCount ?? 0);
+  const [uncontactedLeadsSubtext, setUncontactedLeadsSubtext] = useState(() => initialCache?.uncontactedLeadsSubtext ?? '');
 
   // Calendar overdue items
-  const [calendarOverdueCount, setCalendarOverdueCount] = useState(0);
-  const [calendarOverdueSubtext, setCalendarOverdueSubtext] = useState('');
+  const [calendarOverdueCount, setCalendarOverdueCount] = useState(() => initialCache?.calendarOverdueCount ?? 0);
+  const [calendarOverdueSubtext, setCalendarOverdueSubtext] = useState(() => initialCache?.calendarOverdueSubtext ?? '');
 
   // Website tasks overdue
-  const [websiteOverdueCount, setWebsiteOverdueCount] = useState(0);
+  const [websiteOverdueCount, setWebsiteOverdueCount] = useState(() => initialCache?.websiteOverdueCount ?? 0);
 
   // Weekly stats
-  const [weeklyLoggedHours, setWeeklyLoggedHours] = useState(0);
-  const [weeklyLoggedDays, setWeeklyLoggedDays] = useState<DailyStripDay[]>([]);
-  const [pastDaysLoggedCount, setPastDaysLoggedCount] = useState(0);
+  const [weeklyLoggedHours, setWeeklyLoggedHours] = useState(() => initialCache?.weeklyLoggedHours ?? 0);
+  const [weeklyLoggedDays, setWeeklyLoggedDays] = useState<DailyStripDay[]>(() => initialCache?.weeklyLoggedDays ?? []);
+  const [pastDaysLoggedCount, setPastDaysLoggedCount] = useState(() => initialCache?.pastDaysLoggedCount ?? 0);
 
-  const [weeklyWorkedHours, setWeeklyWorkedHours] = useState(0);
-  const [weeklyWorkedDays, setWeeklyWorkedDays] = useState<DailyStripDay[]>([]);
-  const [pastDaysWorkedCount, setPastDaysWorkedCount] = useState(0);
+  const [weeklyWorkedHours, setWeeklyWorkedHours] = useState(() => initialCache?.weeklyWorkedHours ?? 0);
+  const [weeklyWorkedDays, setWeeklyWorkedDays] = useState<DailyStripDay[]>(() => initialCache?.weeklyWorkedDays ?? []);
+  const [pastDaysWorkedCount, setPastDaysWorkedCount] = useState(() => initialCache?.pastDaysWorkedCount ?? 0);
 
   // Month dots
-  const [monthDots, setMonthDots] = useState<MonthDot[]>([]);
-  const [workingDaysElapsed, setWorkingDaysElapsed] = useState(0);
-  const [lateStrikes, setLateStrikes] = useState(0);
+  const [monthDots, setMonthDots] = useState<MonthDot[]>(() => initialCache?.monthDots ?? []);
+  const [workingDaysElapsed, setWorkingDaysElapsed] = useState(() => initialCache?.workingDaysElapsed ?? 0);
+  const [lateStrikes, setLateStrikes] = useState(() => initialCache?.lateStrikes ?? 0);
 
   // Request Management Modal
   const [isRequestModalOpen, setIsRequestModalOpen] = useState(false);
   const [requestModalTab, setRequestModalTab] = useState<'leave' | 'short_leave' | 'wfh' | 'regularization'>('leave');
 
   // Off days hook
-  const { isOffDay: isDateOff } = useOffDays();
+  const { isOffDay } = useOffDays();
+  const isDateOffRef = useRef(isOffDay);
+  useEffect(() => {
+    isDateOffRef.current = isOffDay;
+  }, [isOffDay]);
+  const stableIsDateOff = useCallback((iso?: string | null) => isDateOffRef.current(iso), []);
+
+  // Stable weekDates for Monday through Saturday
+  const weekDates = useMemo(() => {
+    const currentDay = today.getDay(); // 0 = Sun
+    const monOffset = (currentDay + 6) % 7;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - monOffset);
+
+    const list: { label: string; date: string; isFuture: boolean; isToday: boolean }[] = [];
+    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const isToday = iso === todayIso;
+      const isFuture = d > today && !isToday;
+      list.push({ label: dayLabels[i], date: iso, isFuture, isToday });
+    }
+    return list;
+  }, [today, todayIso]);
+
+  // Working days elapsed before today in current week
+  const pastDaysTotal = useMemo(() => {
+    return weekDates.filter((wd) => !wd.isFuture && !wd.isToday && !stableIsDateOff(wd.date)).length;
+  }, [weekDates, stableIsDateOff]);
+
+  const teamHoursMembersRef = useRef(teamHoursMembers);
+  useEffect(() => {
+    teamHoursMembersRef.current = teamHoursMembers;
+  }, [teamHoursMembers]);
+
+  const hasTeamHours404Ref = useRef(hasTeamHours404);
+  useEffect(() => {
+    hasTeamHours404Ref.current = hasTeamHours404;
+  }, [hasTeamHours404]);
 
   // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
@@ -327,150 +377,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     // Missing logs via my activity
     if (isLogger) {
       try {
-        const act = await dailyLogService.getMyLogActivity(7);
+        const [act, dt] = await Promise.all([
+          dailyLogService.getMyLogActivity(7),
+          dailyLogService.getDayTarget(todayIso),
+        ]);
         setMyActivity(act);
-      } catch {}
-
-      // Day target
-      try {
-        const dt = await dailyLogService.getDayTarget(todayIso);
         setDayTarget(dt);
       } catch {}
     }
+  }, [isAdmin, isHR, isLead, isLogger, todayIso]);
 
-    // Sales CRM Leads
-    if (canAccessCrm(user)) {
-      try {
-        const leadsRes = await crmService.listLeads({ limit: 50 });
-        const items = leadsRes?.items || [];
-        const now = Date.now();
-        const overdue = items.filter(
-          (l) => !l.outcome && l.next_follow_up_at && new Date(l.next_follow_up_at).getTime() < now
-        );
-        setOverdueFollowupsCount(overdue.length);
-        if (overdue.length > 0) {
-          setOverdueFollowupsSubtext(
-            overdue
-              .slice(0, 2)
-              .map((l) => l.name || l.company || 'Lead')
-              .join(' · ')
-          );
-        }
-
-        const uncontacted = items.filter((l) => !l.outcome && !l.contacted);
-        setUncontactedLeadsCount(uncontacted.length);
-        setUncontactedLeadsSubtext(uncontacted.length > 0 ? `${uncontacted.length} awaiting first contact` : '');
-      } catch {}
-    }
-
-    // Content Calendar Overdue
-    if (canAccessContentCalendar(user)) {
-      try {
-        const itemsRes = await contentCalendarService.getItems();
-        const items = itemsRes?.items || [];
-        const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
-        setCalendarOverdueCount(overdue.length);
-        if (overdue.length > 0) {
-          const first = overdue[0];
-          const dateStr = first.publish_date || first.design_due || '';
-          setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
-        }
-      } catch {}
-    }
-
-    // Website Tasks Overdue
-    if (canAccessWebsitePipeline(user)) {
-      try {
-        const tasks = await websiteProjectService.getAllTasks({
-          assignee_id: isLead ? undefined : user?.id,
-        });
-        const overdue = (tasks || []).filter((t: any) => {
-          return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
-        });
-        setWebsiteOverdueCount(overdue.length);
-      } catch {}
-    }
-  }, [isAdmin, isHR, isLead, isLogger, user, todayIso]);
-
-  // 5. Load Weekly Stat Strips (Logged & Worked)
+  // 5. Load Weekly Stat Strips (Logged)
   const loadWeeklyStats = useCallback(async () => {
-    if (isAdmin) return;
+    if (isAdmin || !isLogger || !user?.id) return;
 
-    // Current week Monday through Saturday
-    const currentDay = today.getDay(); // 0 = Sun
-    const monOffset = (currentDay + 6) % 7;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - monOffset);
-
-    const weekDates: { label: string; date: string; isFuture: boolean; isToday: boolean }[] = [];
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-    for (let i = 0; i < 6; i++) {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const isToday = iso === todayIso;
-      const isFuture = d > today && !isToday;
-      weekDates.push({ label: dayLabels[i], date: iso, isFuture, isToday });
-    }
-
-    const startIso = weekDates[0].date;
+    const startIso = weekDates[0]?.date;
     const endIso = todayIso;
+    if (!startIso) return;
 
-    // Loggers: fetch logged entries
-    if (isLogger && user?.id) {
-      try {
-        const entries = await dailyLogService.getEntries({
-          user_id: user.id,
-          start_date: startIso,
-          end_date: endIso,
-          limit: 500,
-        });
+    try {
+      const entries = await dailyLogService.getEntries({
+        user_id: user.id,
+        start_date: startIso,
+        end_date: endIso,
+        limit: 500,
+      });
 
-        const perDayMap: Record<string, number> = {};
-        let total = 0;
-        let pastLoggedCount = 0;
-
-        (entries || []).forEach((e) => {
-          const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
-          perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
-        });
-
-        const stripDays: DailyStripDay[] = weekDates.map((wd) => {
-          const hrs = perDayMap[wd.date] || 0;
-          total += hrs;
-          if (!wd.isFuture && hrs > 0) pastLoggedCount++;
-          return {
-            label: wd.label,
-            date: wd.date,
-            hours: hrs,
-            isFuture: wd.isFuture,
-            isToday: wd.isToday,
-          };
-        });
-
-        setWeeklyLoggedHours(total);
-        setWeeklyLoggedDays(stripDays);
-        setPastDaysLoggedCount(pastLoggedCount);
-      } catch {}
-    }
-
-    // Operations: fetch worked timesheet records
-    if (isOps) {
-      const records = timesheetData?.records || [];
       const perDayMap: Record<string, number> = {};
       let total = 0;
-      let pastWorkedCount = 0;
+      let pastLoggedCount = 0;
 
-      records.forEach((r) => {
-        const hrs = (r.working_hours_minutes || 0) / 60;
-        perDayMap[r.date] = hrs;
+      (entries || []).forEach((e) => {
+        const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+        perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
       });
 
       const stripDays: DailyStripDay[] = weekDates.map((wd) => {
         const hrs = perDayMap[wd.date] || 0;
         total += hrs;
-        if (!wd.isFuture && hrs > 0) pastWorkedCount++;
+        if (!wd.isFuture && hrs > 0) pastLoggedCount++;
         return {
           label: wd.label,
           date: wd.date,
@@ -480,11 +425,42 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         };
       });
 
-      setWeeklyWorkedHours(total);
-      setWeeklyWorkedDays(stripDays);
-      setPastDaysWorkedCount(pastWorkedCount);
-    }
-  }, [isAdmin, isLogger, isOps, user?.id, today, todayIso, timesheetData]);
+      setWeeklyLoggedHours(total);
+      setWeeklyLoggedDays(stripDays);
+      setPastDaysLoggedCount(pastLoggedCount);
+    } catch {}
+  }, [isAdmin, isLogger, user?.id, weekDates, todayIso]);
+
+  // Operations: derive worked timesheet records from timesheetData
+  useEffect(() => {
+    if (!isOps) return;
+    const records = timesheetData?.records || [];
+    const perDayMap: Record<string, number> = {};
+    let total = 0;
+    let pastWorkedCount = 0;
+
+    records.forEach((r) => {
+      const hrs = (r.working_hours_minutes || 0) / 60;
+      perDayMap[r.date] = hrs;
+    });
+
+    const stripDays: DailyStripDay[] = weekDates.map((wd) => {
+      const hrs = perDayMap[wd.date] || 0;
+      total += hrs;
+      if (!wd.isFuture && hrs > 0) pastWorkedCount++;
+      return {
+        label: wd.label,
+        date: wd.date,
+        hours: hrs,
+        isFuture: wd.isFuture,
+        isToday: wd.isToday,
+      };
+    });
+
+    setWeeklyWorkedHours(total);
+    setWeeklyWorkedDays(stripDays);
+    setPastDaysWorkedCount(pastWorkedCount);
+  }, [isOps, timesheetData, weekDates]);
 
   // 6. Calculate Month Dots & Present in Month
   useEffect(() => {
@@ -503,7 +479,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${currentYear}-${String(currentMonth).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const isPastOrToday = day <= todayNum;
-      const off = isDateOff(dateStr);
+      const off = stableIsDateOff(dateStr);
 
       if (isPastOrToday) {
         if (!off) elapsedWorking++;
@@ -528,7 +504,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     setMonthDots(dots);
     setWorkingDaysElapsed(elapsedWorking);
     setLateStrikes(timesheetData?.summary?.late_count ?? lateCount);
-  }, [isAdmin, currentYear, currentMonth, today, timesheetData, isDateOff]);
+  }, [isAdmin, currentYear, currentMonth, today, timesheetData, stableIsDateOff]);
 
   // 7. Team Hours (Team lead only, §3b)
   const loadTeamHours = useCallback(async () => {
@@ -557,7 +533,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // 8. My Hours Chart (HR, Members, or Leads with no team, §3c)
   const loadMyHours = useCallback(async () => {
     if (isAdmin || isOps) return;
-    if (isLead && !hasTeamHours404 && teamHoursMembers.length > 0) return;
+    if (isLead && !hasTeamHours404Ref.current && teamHoursMembersRef.current.length > 0) return;
 
     setIsLoadingMyHours(true);
     const daysCount = myHoursRange === '7D' ? 7 : myHoursRange === '14D' ? 14 : 30;
@@ -604,7 +580,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       let iter = new Date(start);
       while (iter <= today) {
         const iso = `${iter.getFullYear()}-${String(iter.getMonth() + 1).padStart(2, '0')}-${String(iter.getDate()).padStart(2, '0')}`;
-        const isOff = isDateOff(iso);
+        const isOff = stableIsDateOff(iso);
         const dayLabel = iter.toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' }) + (isOff ? ' off' : '');
 
         daysList.push({
@@ -622,14 +598,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     } catch {} finally {
       setIsLoadingMyHours(false);
     }
-  }, [isAdmin, isOps, isLead, hasTeamHours404, teamHoursMembers.length, myHoursRange, today, todayIso, user?.id, isDateOff]);
+  }, [isAdmin, isOps, isLead, myHoursRange, today, todayIso, user?.id, stableIsDateOff]);
 
-  // 9. Load Pipeline Stage Cards (§5)
+  // 9. Load Pipeline Stage Cards & Pipeline Needs Attention items
   const loadPipelineStageCards = useCallback(async () => {
     // 1. Sales Pipeline
     if (isAdmin || canAccessCrm(user)) {
+      setCrmStagesError(false);
       try {
-        const pipeRes = await crmService.getPipeline();
+        const [pipeRes, leadsRes] = await Promise.all([
+          crmService.getPipeline(),
+          crmService.listLeads({ limit: 500 }),
+        ]);
+
         const stagesList = pipeRes?.stages && pipeRes.stages.length > 0 ? pipeRes.stages : [
           { id: 'new', name: 'New' },
           { id: 'contacted', name: 'Contacted' },
@@ -638,24 +619,47 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           { id: 'session_done', name: 'Meeting Completed' },
         ];
 
-        const counts = await Promise.all(
-          stagesList.map(async (st: any) => {
-            try {
-              const res = await crmService.listLeads({ stage: st.id, limit: 1 });
-              return { label: st.name, count: res?.total || 0 };
-            } catch {
-              return { label: st.name, count: 0 };
-            }
-          })
-        );
+        const leads = leadsRes?.items || [];
+        const stageCountsMap: Record<string, number> = {};
+        leads.forEach((l) => {
+          if (l.stage) stageCountsMap[l.stage] = (stageCountsMap[l.stage] || 0) + 1;
+        });
+
+        const counts: StageItem[] = stagesList.map((st: any) => ({
+          label: st.name,
+          count: stageCountsMap[st.id] || 0,
+        }));
         setCrmStages(counts);
-      } catch {}
+
+        // Overdue & Uncontacted leads
+        const now = Date.now();
+        const overdue = leads.filter(
+          (l) => !l.outcome && l.next_follow_up_at && new Date(l.next_follow_up_at).getTime() < now
+        );
+        setOverdueFollowupsCount(overdue.length);
+        if (overdue.length > 0) {
+          setOverdueFollowupsSubtext(
+            overdue
+              .slice(0, 2)
+              .map((l) => l.name || l.company || 'Lead')
+              .join(' · ')
+          );
+        }
+
+        const uncontacted = leads.filter((l) => !l.outcome && !l.contacted);
+        setUncontactedLeadsCount(uncontacted.length);
+        setUncontactedLeadsSubtext(uncontacted.length > 0 ? `${uncontacted.length} awaiting first contact` : '');
+      } catch {
+        setCrmStagesError(true);
+        setCrmStages([]);
+      }
     }
 
     // 2. Content Calendar
     if (isAdmin || canAccessContentCalendar(user)) {
+      setContentStagesError(false);
       try {
-        const visibleStages = visiblePipelineStages(user).filter((s) => s !== 'Posted');
+        const visibleStages = visiblePipelineStages(user).filter((s) => s !== 'Posted' && s !== 'Rejected');
         const calRes = await contentCalendarService.getItems();
 
         if (isAdmin || isLead) {
@@ -676,11 +680,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           }));
           setContentStages(counts);
         }
-      } catch {}
+
+        // Calendar Overdue
+        const items = calRes?.items || [];
+        const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
+        setCalendarOverdueCount(overdue.length);
+        if (overdue.length > 0) {
+          const first = overdue[0];
+          const dateStr = first.publish_date || first.design_due || '';
+          setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+        }
+      } catch {
+        setContentStagesError(true);
+        setContentStages([]);
+      }
     }
 
     // 3. Website Pipeline
     if (isAdmin || canAccessWebsitePipeline(user)) {
+      setWebsiteStagesError(false);
       try {
         const allStages: { id: string; name: string }[] = [
           { id: 'strategy', name: 'Strategy' },
@@ -693,13 +711,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           { id: 'production', name: 'Production' },
         ];
 
-        const projectsRes = await websiteProjectService.getProjects();
+        const [projectsRes, tasksRes] = await Promise.all([
+          websiteProjectService.getProjects(),
+          websiteProjectService.getAllTasks({
+            assignee_id: isLead ? undefined : user?.id,
+          }),
+        ]);
 
         let scopedProjects: WebsiteProject[] = projectsRes?.items || [];
         if (isMember) {
           // Member: manager or assigned tasks
-          const tasks = await websiteProjectService.getAllTasks({ assignee_id: user?.id });
-          const taskProjectIds = new Set((tasks || []).map((t: any) => t.project_id));
+          const taskProjectIds = new Set((tasksRes || []).map((t: any) => t.project_id));
           scopedProjects = scopedProjects.filter(
             (p: WebsiteProject) => p.manager_id === user?.id || taskProjectIds.has(p.id)
           );
@@ -715,40 +737,209 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           count: countsMap[st.id] || 0,
         }));
         setWebsiteStages(counts);
-      } catch {}
-    }
-  }, [isAdmin, user, isLead, isMember]);
 
-  // Initial trigger effects
+        // Website tasks overdue
+        const overdue = (tasksRes || []).filter((t: any) => {
+          return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
+        });
+        setWebsiteOverdueCount(overdue.length);
+      } catch {
+        setWebsiteStagesError(true);
+        setWebsiteStages([]);
+      }
+    }
+  }, [isAdmin, user, isLead, isMember, todayIso]);
+
+  // 1. Initial Mount Load (fires once when user/role is established)
   useEffect(() => {
     let active = true;
-    Promise.allSettled([
-      loadAttendance(),
-      loadMatrix(),
-      loadManagementData(),
-      loadLoggerNeedsAttention(),
-      loadWeeklyStats(),
-      loadPipelineStageCards(),
-      isLead ? loadTeamHours() : Promise.resolve(),
-      loadMyHours(),
-    ]).finally(() => {
-      if (active) {
-        setIsGateReady(true);
+    if (!user?.id) return;
+
+    async function init() {
+      const promises: Promise<any>[] = [
+        loadAttendance(),
+        loadMatrix(),
+        loadManagementData(),
+        loadLoggerNeedsAttention(),
+        loadWeeklyStats(),
+        loadPipelineStageCards(),
+      ];
+
+      if (isLead) {
+        promises.push(loadTeamHours());
+      } else if (!isAdmin && !isOps) {
+        promises.push(loadMyHours());
       }
-    });
+
+      try {
+        await Promise.allSettled(promises);
+      } finally {
+        if (active) {
+          setIsGateReady(true);
+        }
+      }
+    }
+
+    void init();
+
     return () => {
       active = false;
     };
+  // Only re-run if the active user or role changes, NEVER on internal state updates
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, role]);
+
+  // 2. Range change for Team Hours (§3b)
+  const isFirstMountTeamRange = useRef(true);
+  useEffect(() => {
+    if (isFirstMountTeamRange.current) {
+      isFirstMountTeamRange.current = false;
+      return;
+    }
+    if (isLead) {
+      void loadTeamHours();
+    }
+  }, [isLead, teamHoursRange, loadTeamHours]);
+
+  // 3. Range change for My Hours (§3c)
+  const isFirstMountMyRange = useRef(true);
+  useEffect(() => {
+    if (isFirstMountMyRange.current) {
+      isFirstMountMyRange.current = false;
+      return;
+    }
+    if (!isAdmin && !isOps && (!isLead || hasTeamHours404)) {
+      void loadMyHours();
+    }
+  }, [isAdmin, isOps, isLead, hasTeamHours404, myHoursRange, loadMyHours]);
+
+  // 4. Team Lead fallback to My Hours if team-hours 404s
+  useEffect(() => {
+    if (isLead && hasTeamHours404) {
+      void loadMyHours();
+    }
+  }, [isLead, hasTeamHours404, loadMyHours]);
+
+  // 5. Invalidation bus listener: revalidates cards quietly in the background without layout shifts
+  useCacheInvalidation(
+    [
+      'attendance',
+      'requests',
+      'approvals',
+      'daily-log',
+      'exceptions',
+      'crm',
+      'crm.leads',
+      'crm.deals',
+      'crm.counts',
+      'content-calendar',
+      'website-pipeline',
+      'workspaces',
+      'admin.members',
+      'dashboard',
+    ],
+    (key) => {
+      if (key === 'attendance' || key === 'dashboard') {
+        void loadAttendance();
+        void loadMatrix();
+      }
+      if (key === 'requests' || key === 'approvals' || key === 'exceptions' || key === 'dashboard') {
+        void loadManagementData();
+        void loadLoggerNeedsAttention();
+      }
+      if (key === 'daily-log' || key === 'dashboard') {
+        void loadWeeklyStats();
+        if (isLead) void loadTeamHours();
+        else if (!isAdmin && !isOps) void loadMyHours();
+      }
+      if (
+        key === 'crm' ||
+        key === 'crm.leads' ||
+        key === 'crm.deals' ||
+        key === 'crm.counts' ||
+        key === 'content-calendar' ||
+        key === 'website-pipeline' ||
+        key === 'dashboard'
+      ) {
+        void loadPipelineStageCards();
+      }
+    }
+  );
+
+  // 5. Synchronize with dashboard cache on state updates
+  useEffect(() => {
+    if (!user?.id) return;
+    setDashboardCache(cacheKey, {
+      todayAttendance,
+      matrixData,
+      timesheetData,
+      dayTarget,
+      weekSnapshot,
+      pendingRequests,
+      missedInquiries,
+      yesterdayMissingLogCount,
+      yesterdayMissingSubtext,
+      teamHoursMembers,
+      myHoursDays,
+      logExceptionsInboxCount,
+      myActivity,
+      myPendingInquiries,
+      crmStages,
+      contentStages,
+      websiteStages,
+      overdueFollowupsCount,
+      overdueFollowupsSubtext,
+      uncontactedLeadsCount,
+      uncontactedLeadsSubtext,
+      calendarOverdueCount,
+      calendarOverdueSubtext,
+      websiteOverdueCount,
+      weeklyLoggedHours,
+      weeklyLoggedDays,
+      pastDaysLoggedCount,
+      weeklyWorkedHours,
+      weeklyWorkedDays,
+      pastDaysWorkedCount,
+      monthDots,
+      workingDaysElapsed,
+      lateStrikes,
+    });
   }, [
-    loadAttendance,
-    loadMatrix,
-    loadManagementData,
-    loadLoggerNeedsAttention,
-    loadWeeklyStats,
-    loadPipelineStageCards,
-    isLead,
-    loadTeamHours,
-    loadMyHours,
+    cacheKey,
+    user?.id,
+    todayAttendance,
+    matrixData,
+    timesheetData,
+    dayTarget,
+    weekSnapshot,
+    pendingRequests,
+    missedInquiries,
+    yesterdayMissingLogCount,
+    yesterdayMissingSubtext,
+    teamHoursMembers,
+    myHoursDays,
+    logExceptionsInboxCount,
+    myActivity,
+    myPendingInquiries,
+    crmStages,
+    contentStages,
+    websiteStages,
+    overdueFollowupsCount,
+    overdueFollowupsSubtext,
+    uncontactedLeadsCount,
+    uncontactedLeadsSubtext,
+    calendarOverdueCount,
+    calendarOverdueSubtext,
+    websiteOverdueCount,
+    weeklyLoggedHours,
+    weeklyLoggedDays,
+    pastDaysLoggedCount,
+    weeklyWorkedHours,
+    weeklyWorkedDays,
+    pastDaysWorkedCount,
+    monthDots,
+    workingDaysElapsed,
+    lateStrikes,
   ]);
 
   // Working days left calculation for header
@@ -765,7 +956,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      const off = isDateOff(iso);
+      const off = stableIsDateOff(iso);
       if (!off) {
         total++;
         if (d >= today || iso === todayIso) {
@@ -775,7 +966,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     return { workingDaysLeft: left, totalWorkingDaysInWeek: total || 6 };
-  }, [today, todayIso, isDateOff]);
+  }, [today, todayIso, stableIsDateOff]);
 
   // Greeting
   const greeting = useMemo(() => {
@@ -833,7 +1024,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       list.push({
         id: 'pending_requests',
         icon: ClipboardList,
-        title: `${pendingRequests.length} requests awaiting approval`,
+        title: `${pendingRequests.length} ${pendingRequests.length === 1 ? 'request' : 'requests'} awaiting approval`,
         subtitle: parts.length > 0 ? parts.join(' · ') : 'Review leave and attendance requests',
         actionLabel: 'Open',
         onAction: () => onNavigateView('attendance'),
@@ -1091,6 +1282,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm')}
               stages={crmStages}
+              isError={crmStagesError}
             />
             <StageCountCard
               title="Content calendar"
@@ -1098,6 +1290,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isError={contentStagesError}
             />
             <StageCountCard
               title="Website pipeline"
@@ -1105,6 +1298,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline')}
               stages={websiteStages}
+              isError={websiteStagesError}
             />
           </div>
         </div>
@@ -1122,7 +1316,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             <AtWorkThisWeekCard
               totalHours={weeklyWorkedHours}
               pastDaysAtWork={pastDaysWorkedCount}
-              pastDaysTotal={4}
+              pastDaysTotal={pastDaysTotal}
               todayInProgress={Boolean(todayAttendance?.record?.check_in && !todayAttendance?.record?.check_out)}
               days={weeklyWorkedDays}
               isLoading={isLoadingAttendance}
@@ -1171,7 +1365,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             <LoggedThisWeekCard
               totalHours={weeklyLoggedHours}
               pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={4}
+              pastDaysTotal={pastDaysTotal}
               days={weeklyLoggedDays}
               isLoading={isLoadingAttendance}
             />
@@ -1249,7 +1443,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             <LoggedThisWeekCard
               totalHours={weeklyLoggedHours}
               pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={4}
+              pastDaysTotal={pastDaysTotal}
               days={weeklyLoggedDays}
               isLoading={isLoadingAttendance}
             />
@@ -1313,6 +1507,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isError={contentStagesError}
               layout="two-col"
             />
           )}
@@ -1323,6 +1518,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm')}
               stages={crmStages}
+              isError={crmStagesError}
               layout="two-col"
             />
           )}
@@ -1333,6 +1529,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline')}
               stages={websiteStages}
+              isError={websiteStagesError}
               layout="two-col"
             />
           )}
@@ -1352,7 +1549,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             <LoggedThisWeekCard
               totalHours={weeklyLoggedHours}
               pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={4}
+              pastDaysTotal={pastDaysTotal}
               days={weeklyLoggedDays}
               isLoading={isLoadingAttendance}
             />
@@ -1404,6 +1601,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm')}
               stages={crmStages}
+              isError={crmStagesError}
               layout="two-col"
             />
           )}
@@ -1414,6 +1612,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isError={contentStagesError}
               layout="two-col"
             />
           )}
@@ -1424,6 +1623,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline')}
               stages={websiteStages}
+              isError={websiteStagesError}
               layout="two-col"
             />
           )}

@@ -1,10 +1,11 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useId } from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
 import {
   CalendarDays,
   ChevronLeft,
   ChevronRight,
   X,
+  AlertCircle,
 } from 'lucide-react';
 import { useOffDays } from '../../hooks/useOffDays';
 import { cn } from '../../lib/utils';
@@ -15,6 +16,9 @@ export interface CustomDatePickerProps {
   onChange: (isoDate: string) => void;
   label?: string;
   placeholder?: string;
+  id?: string;
+  name?: string;
+  error?: React.ReactNode;
   disabled?: boolean;
   minDate?: string;
   maxDate?: string;
@@ -23,6 +27,10 @@ export interface CustomDatePickerProps {
   clearable?: boolean;
   /** disable = cannot pick off days (logging). mark = still selectable, styled as holiday (viewing / appeals). */
   offDayMode?: 'none' | 'disable' | 'mark';
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-invalid'?: boolean | 'true' | 'false';
+  'aria-describedby'?: string;
 }
 
 const MONTH_NAMES = [
@@ -66,6 +74,9 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   onChange,
   label,
   placeholder = 'Select date...',
+  id,
+  name,
+  error,
   disabled = false,
   minDate,
   maxDate,
@@ -73,7 +84,14 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   className = '',
   clearable = true,
   offDayMode = 'none',
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedby,
 }) => {
+  const generatedId = useId();
+  const pickerId = id || (label || error ? generatedId : undefined);
+  const errorId = error && pickerId ? `${pickerId}-error` : undefined;
   const { getOffDay } = useOffDays();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -210,11 +228,21 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
       <PopoverPrimitive.Root open={isOpen} onOpenChange={setIsOpen}>
         <PopoverPrimitive.Trigger asChild>
           <button
+            id={pickerId}
+            name={name}
             type="button"
             disabled={disabled}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledby}
+            aria-invalid={Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'}
+            aria-describedby={error ? errorId : ariaDescribedby}
             className={cn(
-              'w-full h-9 px-3 flex items-center justify-between gap-2 border border-border-strong bg-surface rounded-md text-ui text-fg shadow-xs transition-colors cursor-pointer select-none outline-none disabled:opacity-50 disabled:cursor-not-allowed hover:border-fg-muted/60 focus-visible:outline-none focus-visible:border-border-strong',
-              isOpen && 'border-border-strong bg-subtle/50'
+              'w-full h-9 px-3 flex items-center justify-between gap-2 border bg-surface rounded-md text-ui text-fg shadow-xs transition-colors cursor-pointer select-none outline-none disabled:opacity-50 disabled:cursor-not-allowed',
+              error
+                ? 'border-danger-dot focus-visible:border-danger-fg'
+                : 'border-border-strong hover:border-fg-muted/60 focus-visible:border-border-strong',
+              'aria-invalid:border-danger-dot',
+              isOpen && 'bg-subtle/50'
             )}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -358,6 +386,17 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
           </PopoverPrimitive.Content>
         </PopoverPrimitive.Portal>
       </PopoverPrimitive.Root>
+
+      {error && (
+        <p
+          id={errorId}
+          role="alert"
+          className="text-small text-danger-fg flex items-center gap-1.5 mt-1"
+        >
+          <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </p>
+      )}
     </div>
   );
 };

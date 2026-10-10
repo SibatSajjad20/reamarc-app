@@ -27,13 +27,8 @@ import { useToast } from '../../context/ToastContext';
 import { usePrompt } from '../ui/ConfirmProvider';
 import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { renderPlatformIcon } from './ContentCalendarTableView';
-
-function getInitials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-  return name.slice(0, 2).toUpperCase();
-}
-
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 function parseDateScore(dateStr?: string | null): number {
   if (!dateStr || !dateStr.trim()) return Infinity;
   const time = new Date(dateStr.trim()).getTime();
@@ -257,6 +252,7 @@ function StageCardList({
   onCardDragStart,
   onCardDragEnd,
 }: StageCardListProps) {
+  const { getAvatarUrl } = useMemberAvatars();
   const parentRef = useRef<HTMLDivElement>(null);
   const count = isLoading ? SKELETON_CARD_COUNT : items.length;
   const { addToast } = useToast();
@@ -660,9 +656,9 @@ function StageCardList({
                             <span
                               className={`font-mono text-caption inline-flex items-center gap-1 font-medium shrink-0 ${
                                 isOverdue
-                                  ? 'text-danger bg-danger-soft px-1.5 py-0.5 rounded-sm'
+                                  ? 'text-danger-fg bg-danger-bg px-1.5 py-0.5 rounded-sm'
                                   : isToday
-                                  ? 'text-warning bg-warning-soft px-1.5 py-0.5 rounded-sm'
+                                  ? 'text-warning-fg bg-warning-bg px-1.5 py-0.5 rounded-sm'
                                   : 'text-fg-muted'
                               }`}
                               title={`${label}: ${formattedDate}${isOverdue ? ' (Overdue)' : isToday ? ' (Due today)' : ''}`}
@@ -676,12 +672,12 @@ function StageCardList({
                         </div>
 
                         {item.assignee_name && (
-                          <div
-                            className="w-5 h-5 rounded-full bg-accent-soft text-accent text-caption font-medium flex items-center justify-center shrink-0 border border-accent/20"
-                            title={`Assigned to ${item.assignee_name}`}
-                          >
-                            {getInitials(item.assignee_name)}
-                          </div>
+                          <Avatar
+                            name={item.assignee_name}
+                            src={getAvatarUrl(item.assignee_id, item.assignee_name)}
+                            size={20}
+                            className="rounded-full shrink-0 text-caption"
+                          />
                         )}
                       </div>
 

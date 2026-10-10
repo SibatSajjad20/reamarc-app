@@ -5,6 +5,7 @@ import type { DailyLogColumn } from '@/types/dailyLog';
 import { useToast } from '@/context/ToastContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { SettingsCard } from '../SettingsCard';
 import { StickySaveBar } from '../StickySaveBar';
 
@@ -144,17 +145,11 @@ export const DailyLogFieldsSection: React.FC = () => {
               <label className="block text-xs font-medium text-fg mb-1">
                 Field type
               </label>
-              <select
+              <CustomSelect
                 value={newFieldType}
-                onChange={(e) => setNewFieldType(e.target.value as any)}
-                className="w-full px-2.5 py-1.5 h-9 bg-surface border border-border-strong rounded-md text-xs text-fg focus-visible:focus-ring"
-              >
-                {FIELD_TYPE_OPTIONS.map((opt) => (
-                  <option key={opt.id} value={opt.id}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
+                onChange={(val) => setNewFieldType(val as any)}
+                options={FIELD_TYPE_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }))}
+              />
             </div>
 
             <Button

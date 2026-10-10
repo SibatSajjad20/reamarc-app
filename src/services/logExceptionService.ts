@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type { LogExceptionItem, OperatingSnapshot, EmployeeComplianceDetailResponse } from '../types/dailyLog';
 
 const exceptionsCache = new BoundedCache<LogExceptionItem[]>(5);
@@ -30,11 +31,23 @@ export const logExceptionService = {
     scoreId: string,
     action: 'explain' | 'correct' | 'review' | 'escalate' | 'accept' | 'ask_again',
   ): Promise<{ success: boolean; action_status: string; notified: boolean; emailed: boolean; already_requested: boolean }> {
-    return apiClient.post(`/log-exceptions/inbox/${encodeURIComponent(scoreId)}/actions`, { action });
+    const res = await apiClient.post<{ success: boolean; action_status: string; notified: boolean; emailed: boolean; already_requested: boolean }>(
+      `/log-exceptions/inbox/${encodeURIComponent(scoreId)}/actions`,
+      { action }
+    );
+    exceptionsCache.clear();
+    emitInvalidation(['exceptions', 'dashboard', 'daily-log']);
+    return res;
   },
 
   async submitReason(date: string, reason: string): Promise<{ success: boolean; action_status: string; date: string }> {
-    return apiClient.post('/log-exceptions/my-reason', { date, reason });
+    const res = await apiClient.post<{ success: boolean; action_status: string; date: string }>(
+      '/log-exceptions/my-reason',
+      { date, reason }
+    );
+    exceptionsCache.clear();
+    emitInvalidation(['exceptions', 'dashboard', 'daily-log']);
+    return res;
   },
 
   async getSnapshot(
@@ -66,3 +79,5 @@ export const logExceptionService = {
   },
 };
 
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => logExceptionService.clearAllCaches());

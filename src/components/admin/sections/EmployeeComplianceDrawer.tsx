@@ -21,6 +21,7 @@ import {
 import { Button } from '../../ui/button';
 import { StatusPill } from '../../ui/StatusPill';
 import { Callout } from '../../ui/Callout';
+import { Avatar } from '../../ui/Avatar';
 import { cn } from '../../../lib/utils';
 
 interface EmployeeComplianceDrawerProps {
@@ -115,15 +116,6 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
 
   const netGapTone = data ? gapTone(data.total_signed_gap_hours, true) : 'neutral';
 
-  const initials = member?.full_name
-    ? member.full_name
-        .split(' ')
-        .map((n) => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-    : 'U';
-
   return (
     <Sheet
       open={isOpen}
@@ -141,9 +133,12 @@ export const EmployeeComplianceDrawer: React.FC<EmployeeComplianceDrawerProps> =
             <SheetHeader className="p-6 border-b border-border bg-canvas/40 space-y-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
-                  <div className="w-10 h-10 rounded-full bg-accent-soft text-accent-text border border-accent-200 font-semibold text-sm flex items-center justify-center shrink-0">
-                    {initials}
-                  </div>
+                  <Avatar
+                    name={member.full_name}
+                    src={(member as any).avatar_url}
+                    size={40}
+                    className="rounded-full shrink-0"
+                  />
                   <div className="min-w-0">
                     <SheetTitle className="text-base font-semibold truncate">
                       {member.full_name}

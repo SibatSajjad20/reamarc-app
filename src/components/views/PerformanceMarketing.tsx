@@ -171,7 +171,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     try {
       const saved = localStorage.getItem('reamarc_perf_col_widths');
       if (saved) return JSON.parse(saved);
-    } catch (e) {}
+    } catch {}
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
       initial[col.key] = col.width;
@@ -183,7 +183,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     try {
       const saved = localStorage.getItem('reamarc_perf_def_row_height');
       if (saved) return Number(saved);
-    } catch (e) {}
+    } catch {}
     return DEFAULT_ROW_HEIGHT;
   });
 
@@ -246,7 +246,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
         const next = { ...prev, [colKey]: finalWidth };
         try {
           localStorage.setItem('reamarc_perf_col_widths', JSON.stringify(next));
-        } catch (err) {}
+        } catch {}
         return next;
       });
     };
@@ -267,7 +267,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
       localStorage.removeItem('reamarc_perf_col_widths');
       localStorage.removeItem('reamarc_perf_def_row_height');
       localStorage.setItem('reamarc_perf_zoom', String(DEFAULT_ZOOM));
-    } catch (e) {}
+    } catch {}
     addToast('Layout reset', 'Column widths, row heights, and zoom reset to default.', 'info');
   };
 
@@ -449,7 +449,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
             refetch();
             addToast('Sync warning', statusRes.message || 'Sync finished with warnings.', 'warning');
           }
-        } catch (e) {
+        } catch {
           if (syncPollIntervalRef.current) {
             clearInterval(syncPollIntervalRef.current);
             syncPollIntervalRef.current = null;
@@ -496,16 +496,16 @@ export const PerformanceMarketing: React.FC<Props> = ({
   const renderPlatformIcon = (platform: string) => {
     const p = (platform || '').toLowerCase();
     if (p.includes('meta') || p.includes('facebook') || p.includes('instagram')) {
-      return <MetaIcon size={14} className="text-fg-muted" />;
+      return <MetaIcon size={14} variant="brand" />;
     }
     if (p.includes('google')) {
-      return <GoogleAdsIcon size={14} className="text-fg-muted" />;
+      return <GoogleAdsIcon size={14} variant="brand" />;
     }
     if (p.includes('tiktok')) {
-      return <TikTokIcon size={14} className="text-fg-muted" />;
+      return <TikTokIcon size={14} variant="brand" />;
     }
     if (p.includes('whatsapp')) {
-      return <WhatsAppIcon size={14} className="text-fg-muted" />;
+      return <WhatsAppIcon size={14} variant="brand" />;
     }
     return <span className="text-small text-fg-muted">{platform || '—'}</span>;
   };
@@ -786,7 +786,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           setDefaultRowHeight(next);
                           try {
                             localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                          } catch (e) {}
+                          } catch {}
                         }}
                         className="w-6 h-6 flex items-center justify-center text-small font-semibold text-fg-2 hover:bg-hover rounded transition-colors cursor-pointer"
                         title="Decrease row height"
@@ -803,7 +803,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           setDefaultRowHeight(next);
                           try {
                             localStorage.setItem('reamarc_perf_def_row_height', String(next));
-                          } catch (e) {}
+                          } catch {}
                         }}
                         className="w-6 h-6 flex items-center justify-center text-small font-semibold text-fg-2 hover:bg-hover rounded transition-colors cursor-pointer"
                         title="Increase row height"
@@ -827,7 +827,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           setZoomLevel(next);
                           try {
                             localStorage.setItem('reamarc_perf_zoom', String(next));
-                          } catch (e) {}
+                          } catch {}
                         }}
                         disabled={zoomLevel <= MIN_ZOOM}
                         className="w-6 h-6 flex items-center justify-center rounded hover:bg-hover text-fg-2 disabled:opacity-40 transition-colors cursor-pointer"
@@ -845,7 +845,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
                           setZoomLevel(next);
                           try {
                             localStorage.setItem('reamarc_perf_zoom', String(next));
-                          } catch (e) {}
+                          } catch {}
                         }}
                         disabled={zoomLevel >= MAX_ZOOM}
                         className="w-6 h-6 flex items-center justify-center rounded hover:bg-hover text-fg-2 disabled:opacity-40 transition-colors cursor-pointer"

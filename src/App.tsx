@@ -787,7 +787,7 @@ function AppInner() {
 
           {currentView === 'active-clients' && canSeeActiveClients && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-              <ActiveClientsView workspaces={workspaces} adAccounts={adAccounts} />
+              <ActiveClientsView workspaces={workspaces} />
             </div>
           )}
 

@@ -621,9 +621,11 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
               </div>
               <div className="text-center">
                 <p className="text-xs font-medium text-fg">
-                  Click to select file or drag and drop here
+                  {isParsing ? 'Reading file…' : 'Click to select file or drag and drop here'}
                 </p>
-                <p className="text-caption text-fg-muted mt-0.5">Supports .xlsx, .xls, .csv (Max 10MB)</p>
+                <p className="text-caption text-fg-muted mt-0.5">
+                  {isParsing ? 'Parsing spreadsheet data…' : 'Supports .xlsx, .xls, .csv (Max 10MB)'}
+                </p>
               </div>
             </div>
           ) : (
@@ -635,7 +637,9 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
                 <div>
                   <div className="text-xs font-semibold text-fg">{file.name}</div>
                   <div className="text-caption text-fg-muted font-mono">
-                    {(file.size / 1024).toFixed(1)} KB &bull; {parsedItems.length} records detected
+                    {isParsing
+                      ? 'Reading file…'
+                      : `${(file.size / 1024).toFixed(1)} KB \u2022 ${parsedItems.length} records detected`}
                   </div>
                 </div>
               </div>
@@ -719,31 +723,38 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-6 py-4 border-t border-border bg-surface flex items-center justify-end gap-2.5">
-          <Button
-            type="button"
-            variant="secondary"
-            onClick={onClose}
-            disabled={isSubmitting}
-          >
-            Cancel
-          </Button>
+        <div className="px-6 py-4 border-t border-border bg-surface flex items-center justify-between gap-2.5">
+          {isParsing && (
+            <span className="text-small text-fg-muted" aria-live="polite">
+              Reading file…
+            </span>
+          )}
+          <div className="flex items-center gap-2.5 ml-auto">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
 
-          <Button
-            type="button"
-            variant="primary"
-            disabled={parsedItems.length === 0 || isSubmitting}
-            onClick={handleConfirmImport}
-          >
-            {isSubmitting ? (
-              <>
-                <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                <span>Importing...</span>
-              </>
-            ) : (
-              <span>Import {parsedItems.length} records</span>
-            )}
-          </Button>
+            <Button
+              type="button"
+              variant="primary"
+              disabled={parsedItems.length === 0 || isSubmitting || isParsing}
+              onClick={handleConfirmImport}
+            >
+              {isSubmitting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin mr-1.5" />
+                  <span>Importing...</span>
+                </>
+              ) : (
+                <span>Import {parsedItems.length} records</span>
+              )}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

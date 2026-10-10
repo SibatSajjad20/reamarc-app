@@ -7,12 +7,13 @@ import {
   XCircle,
   Globe,
 } from 'lucide-react';
-import { getInitials } from '../../utils/badgeStyles';
 import type { CrmLead, CrmPipelineStage } from '../../types/crm';
 import { CrmStatusBadge, CrmStatusDot } from './CrmStatusBadge';
 import { formatLeadOpenValue } from '../../utils/money';
-import { MetaIcon, GoogleIcon } from '../ui/brand-icons';
+import { MetaIcon, GoogleIcon, FacebookIcon, InstagramIcon } from '../ui/brand-icons';
 import { Button } from '../ui/button';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
 
@@ -57,17 +58,31 @@ function formatStageMoney(stageLeads: CrmLead[]): string | null {
 function SourceIcon({ source }: { source?: string | null }) {
   if (!source) return null;
   const s = source.toLowerCase();
-  if (s.includes('meta') || s.includes('facebook') || s.includes('instagram')) {
+  if (s.includes('instagram')) {
     return (
-      <span className="text-fg-muted inline-flex items-center" title={source}>
-        <MetaIcon size={12} />
+      <span className="inline-flex items-center" title={source}>
+        <InstagramIcon size={12} variant="brand" />
+      </span>
+    );
+  }
+  if (s.includes('facebook') || s.includes('fb')) {
+    return (
+      <span className="inline-flex items-center" title={source}>
+        <FacebookIcon size={12} variant="brand" />
+      </span>
+    );
+  }
+  if (s.includes('meta')) {
+    return (
+      <span className="inline-flex items-center" title={source}>
+        <MetaIcon size={12} variant="brand" />
       </span>
     );
   }
   if (s.includes('google')) {
     return (
-      <span className="text-fg-muted inline-flex items-center" title={source}>
-        <GoogleIcon size={12} />
+      <span className="inline-flex items-center" title={source}>
+        <GoogleIcon size={12} variant="brand" />
       </span>
     );
   }
@@ -96,6 +111,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   onLost,
   onReopen,
 }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -195,9 +211,9 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         onClick={() => onOpen(lead.id)}
         className={`group relative rounded-lg border bg-surface p-3 transition-all cursor-grab active:cursor-grabbing select-none ${
           isWon
-            ? 'border-success/30'
+            ? 'border-success-bd'
             : isLost || isTrash
-              ? 'border-danger/30 opacity-85'
+              ? 'border-danger-bd opacity-85'
               : 'border-border hover:border-border-strong hover:shadow-xs'
         } ${isSelected ? 'ring-2 ring-accent border-accent' : ''} ${
           busyId === lead.id ? 'opacity-50' : ''
@@ -214,12 +230,12 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             </p>
           </div>
           {lead.assigned_to_name ? (
-            <span
-              className="w-5 h-5 rounded-full bg-subtle border border-border text-fg-muted font-medium flex items-center justify-center text-[10px] uppercase shrink-0"
-              title={lead.assigned_to_name}
-            >
-              {getInitials(lead.assigned_to_name)}
-            </span>
+            <Avatar
+              name={lead.assigned_to_name}
+              src={getAvatarUrl(lead.assigned_to, lead.assigned_to_name)}
+              size={20}
+              className="rounded-full shrink-0 text-[10px]"
+            />
           ) : (
             <CrmStatusDot lead={lead} />
           )}
@@ -349,8 +365,8 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border border-dashed transition-all cursor-pointer ${
               overKey === 'outcome:won'
-                ? 'border-success bg-success-bg text-success-fg font-semibold'
-                : 'border-success/40 text-success-fg hover:bg-success-bg/20'
+                ? 'border-success-bd bg-success-bg text-success-fg font-semibold'
+                : 'border-success-bd text-success-fg hover:bg-success-bg/20'
             }`}
           >
             <CheckCircle2 className="w-4 h-4 text-success-fg" />
@@ -369,8 +385,8 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             }}
             className={`flex items-center gap-2 px-3.5 py-2 rounded-lg border border-dashed transition-all cursor-pointer ${
               overKey === 'outcome:lost'
-                ? 'border-danger bg-danger-bg text-danger-fg font-semibold'
-                : 'border-danger/40 text-danger-fg hover:bg-danger-bg/20'
+                ? 'border-danger-bd bg-danger-bg text-danger-fg font-semibold'
+                : 'border-danger-bd text-danger-fg hover:bg-danger-bg/20'
             }`}
           >
             <XCircle className="w-4 h-4 text-danger-fg" />
@@ -456,7 +472,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >
@@ -495,7 +511,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger/20 transition-colors ${
+                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent-ring' : ''
                 }`}
               >

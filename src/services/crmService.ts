@@ -1,4 +1,6 @@
 import { apiClient } from './apiClient';
+import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type { WorkspaceCreatePayload } from './workspaceService';
 import type {
   CrmApproveWonPayload,
@@ -50,83 +52,241 @@ function toQuery(params?: CrmLeadQuery): string {
   return q ? `?${q}` : '';
 }
 
+// Bounded in-memory caches for CRM module SWR persistence
+const crmLeadsCache = new BoundedCache<CrmLeadList>(20);
+const crmLeadDetailCache = new BoundedCache<CrmLeadDetail>(50);
+const crmCountsCache = new BoundedCache<CrmCounts>(5);
+const crmPipelineCache = new BoundedCache<{ stages: CrmPipelineStage[]; outcomes: string[] }>(5);
+const crmAssigneesCache = new BoundedCache<CrmAssignee[]>(5);
+const crmTemplatesCache = new BoundedCache<CrmTemplate[]>(5);
+const crmDealsCache = new BoundedCache<CrmDealList>(10);
+const crmDealPipelineCache = new BoundedCache<{ stages: CrmPipelineStage[]; statuses: string[] }>(5);
+
 export const crmService = {
-  getPipeline(options?: { signal?: AbortSignal }): Promise<{ stages: CrmPipelineStage[]; outcomes: string[] }> {
-    return apiClient.get('/crm/pipeline', { signal: options?.signal });
+  // --- Cached accessors for instant paint ---
+  getCachedPipeline(): CacheEntry<{ stages: CrmPipelineStage[]; outcomes: string[] }> | undefined {
+    return crmPipelineCache.get('pipeline');
+  },
+  setCachedPipeline(data: { stages: CrmPipelineStage[]; outcomes: string[] }): void {
+    crmPipelineCache.set('pipeline', data);
   },
 
-  getAssignees(options?: { signal?: AbortSignal }): Promise<CrmAssignee[]> {
-    return apiClient.get('/crm/assignees', { signal: options?.signal });
+  getCachedAssignees(): CacheEntry<CrmAssignee[]> | undefined {
+    return crmAssigneesCache.get('assignees');
+  },
+  setCachedAssignees(data: CrmAssignee[]): void {
+    crmAssigneesCache.set('assignees', data);
   },
 
-  getCounts(options?: { signal?: AbortSignal }): Promise<CrmCounts> {
-    return apiClient.get('/crm/counts', { signal: options?.signal });
+  getCachedCounts(): CacheEntry<CrmCounts> | undefined {
+    return crmCountsCache.get('counts');
+  },
+  setCachedCounts(data: CrmCounts): void {
+    crmCountsCache.set('counts', data);
   },
 
-  listLeads(params?: CrmLeadQuery, options?: { signal?: AbortSignal }): Promise<CrmLeadList> {
-    return apiClient.get(`/crm/leads${toQuery(params)}`, { signal: options?.signal });
+  getCachedLeads(params?: CrmLeadQuery): CacheEntry<CrmLeadList> | undefined {
+    return crmLeadsCache.get(toQuery(params) || 'default');
+  },
+  setCachedLeads(data: CrmLeadList, params?: CrmLeadQuery): void {
+    crmLeadsCache.set(toQuery(params) || 'default', data);
   },
 
-  getLead(id: string, options?: { signal?: AbortSignal }): Promise<CrmLeadDetail> {
-    return apiClient.get(`/crm/leads/${encodeURIComponent(id)}`, { signal: options?.signal });
+  getCachedLead(id: string): CacheEntry<CrmLeadDetail> | undefined {
+    return crmLeadDetailCache.get(id);
+  },
+  setCachedLead(id: string, data: CrmLeadDetail): void {
+    crmLeadDetailCache.set(id, data);
   },
 
-  createLead(payload: CrmLeadCreatePayload): Promise<CrmLead> {
-    return apiClient.post('/crm/leads', payload);
+  getCachedTemplates(): CacheEntry<CrmTemplate[]> | undefined {
+    return crmTemplatesCache.get('templates');
+  },
+  setCachedTemplates(data: CrmTemplate[]): void {
+    crmTemplatesCache.set('templates', data);
   },
 
-  updateLead(id: string, payload: CrmLeadUpdatePayload): Promise<CrmLead> {
-    return apiClient.patch(`/crm/leads/${encodeURIComponent(id)}`, payload);
+  getCachedDeals(key: string = 'default'): CacheEntry<CrmDealList> | undefined {
+    return crmDealsCache.get(key);
+  },
+  setCachedDeals(key: string = 'default', data: CrmDealList): void {
+    crmDealsCache.set(key, data);
   },
 
-  deleteLead(id: string): Promise<void> {
-    return apiClient.delete(`/crm/leads/${encodeURIComponent(id)}`);
+  getCachedDealPipeline(): CacheEntry<{ stages: CrmPipelineStage[]; statuses: string[] }> | undefined {
+    return crmDealPipelineCache.get('deal_pipeline');
+  },
+  setCachedDealPipeline(data: { stages: CrmPipelineStage[]; statuses: string[] }): void {
+    crmDealPipelineCache.set('deal_pipeline', data);
   },
 
-
-  assignLead(id: string, userId: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/assign`, { user_id: userId });
+  hasCache(): boolean {
+    return crmLeadsCache.size() > 0 || crmCountsCache.size() > 0 || crmPipelineCache.size() > 0;
   },
 
-  trashLead(id: string, reason: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/trash`, { reason });
+  // --- API Read Methods ---
+  async getPipeline(options?: { signal?: AbortSignal }): Promise<{ stages: CrmPipelineStage[]; outcomes: string[] }> {
+    const cached = crmPipelineCache.get('pipeline');
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<{ stages: CrmPipelineStage[]; outcomes: string[] }>('/crm/pipeline', { signal: options?.signal });
+    crmPipelineCache.set('pipeline', res);
+    return res;
   },
 
-  disqualifyLead(id: string, reason: string, note?: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/disqualify`, { reason, note });
+  async getAssignees(options?: { signal?: AbortSignal }): Promise<CrmAssignee[]> {
+    const cached = crmAssigneesCache.get('assignees');
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmAssignee[]>('/crm/assignees', { signal: options?.signal });
+    crmAssigneesCache.set('assignees', res);
+    return res;
   },
 
-  setOutcome(id: string, outcome: 'won' | 'lost', note?: string, reason?: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/outcome`, {
+  async getCounts(options?: { signal?: AbortSignal }): Promise<CrmCounts> {
+    const cached = crmCountsCache.get('counts');
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 30_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmCounts>('/crm/counts', { signal: options?.signal });
+    crmCountsCache.set('counts', res);
+    return res;
+  },
+
+  async listLeads(params?: CrmLeadQuery, options?: { signal?: AbortSignal }): Promise<CrmLeadList> {
+    const key = toQuery(params) || 'default';
+    const cached = crmLeadsCache.get(key);
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 30_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmLeadList>(`/crm/leads${toQuery(params)}`, { signal: options?.signal });
+    crmLeadsCache.set(key, res);
+    return res;
+  },
+
+  async getLead(id: string, options?: { signal?: AbortSignal }): Promise<CrmLeadDetail> {
+    const cached = crmLeadDetailCache.get(id);
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 30_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmLeadDetail>(`/crm/leads/${encodeURIComponent(id)}`, { signal: options?.signal });
+    crmLeadDetailCache.set(id, res);
+    return res;
+  },
+
+  // --- API Write Methods (with cache invalidation + invalidation bus) ---
+  async createLead(payload: CrmLeadCreatePayload): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>('/crm/leads', payload);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
+  },
+
+  async updateLead(id: string, payload: CrmLeadUpdatePayload): Promise<CrmLead> {
+    const res = await apiClient.patch<CrmLead>(`/crm/leads/${encodeURIComponent(id)}`, payload);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
+  },
+
+  async deleteLead(id: string): Promise<void> {
+    await apiClient.delete(`/crm/leads/${encodeURIComponent(id)}`);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+  },
+
+  async assignLead(id: string, userId: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/assign`, { user_id: userId });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
+  },
+
+  async trashLead(id: string, reason: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/trash`, { reason });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
+  },
+
+  async disqualifyLead(id: string, reason: string, note?: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/disqualify`, { reason, note });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
+  },
+
+  async setOutcome(id: string, outcome: 'won' | 'lost', note?: string, reason?: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/outcome`, {
       outcome,
       note: note || null,
       reason: reason || null,
     });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  convertLead(id: string, workspaceId?: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/convert`, {
+  async convertLead(id: string, workspaceId?: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/convert`, {
       workspace_id: workspaceId || null,
     });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmDealsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
+    return res;
   },
 
-  registerClient(id: string, payload: WorkspaceCreatePayload): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/register-client`, payload);
+  async registerClient(id: string, payload: WorkspaceCreatePayload): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/register-client`, payload);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmDealsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
+    return res;
   },
 
-  approveWonLead(id: string, payload?: CrmApproveWonPayload): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/approve-won`, payload || {});
+  async approveWonLead(id: string, payload?: CrmApproveWonPayload): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/approve-won`, payload || {});
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  reopenLead(id: string, payload?: CrmReopenPayload): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/reopen`, payload || {});
+  async reopenLead(id: string, payload?: CrmReopenPayload): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/reopen`, payload || {});
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  listDeals(leadId: string, options?: { signal?: AbortSignal }): Promise<CrmDealList> {
+  async listDeals(leadId: string, options?: { signal?: AbortSignal }): Promise<CrmDealList> {
     return apiClient.get(`/crm/leads/${encodeURIComponent(leadId)}/deals`, { signal: options?.signal });
   },
 
-  listAllDeals(
+  async listAllDeals(
     params?: {
       search?: string;
       stage?: string;
@@ -141,37 +301,70 @@ export const crmService = {
     if (params?.status) sp.set('status', params.status);
     if (params?.lead_id) sp.set('lead_id', params.lead_id);
     const q = sp.toString();
-    return apiClient.get(`/crm/deals${q ? `?${q}` : ''}`, { signal: options?.signal });
+    const key = q || 'default';
+    const cached = crmDealsCache.get(key);
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 30_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmDealList>(`/crm/deals${q ? `?${q}` : ''}`, { signal: options?.signal });
+    crmDealsCache.set(key, res);
+    return res;
   },
 
-  getDealPipeline(options?: { signal?: AbortSignal }): Promise<{ stages: CrmPipelineStage[]; statuses: string[] }> {
-    return apiClient.get('/crm/deal-pipeline', { signal: options?.signal });
+  async getDealPipeline(options?: { signal?: AbortSignal }): Promise<{ stages: CrmPipelineStage[]; statuses: string[] }> {
+    const cached = crmDealPipelineCache.get('deal_pipeline');
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<{ stages: CrmPipelineStage[]; statuses: string[] }>('/crm/deal-pipeline', { signal: options?.signal });
+    crmDealPipelineCache.set('deal_pipeline', res);
+    return res;
   },
 
-  createDeal(leadId: string, payload: CrmDealCreatePayload): Promise<CrmDeal> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(leadId)}/deals`, payload);
+  async createDeal(leadId: string, payload: CrmDealCreatePayload): Promise<CrmDeal> {
+    const res = await apiClient.post<CrmDeal>(`/crm/leads/${encodeURIComponent(leadId)}/deals`, payload);
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  updateDeal(dealId: string, payload: CrmDealUpdatePayload): Promise<CrmDeal> {
-    return apiClient.patch(`/crm/deals/${encodeURIComponent(dealId)}`, payload);
+  async updateDeal(dealId: string, payload: CrmDealUpdatePayload): Promise<CrmDeal> {
+    const res = await apiClient.patch<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}`, payload);
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  markDealWon(dealId: string, note?: string): Promise<CrmDeal> {
-    return apiClient.post(`/crm/deals/${encodeURIComponent(dealId)}/won`, { note: note || null });
+  async markDealWon(dealId: string, note?: string): Promise<CrmDeal> {
+    const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/won`, { note: note || null });
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  markDealLost(dealId: string, reason: string, note?: string): Promise<CrmDeal> {
-    return apiClient.post(`/crm/deals/${encodeURIComponent(dealId)}/lost`, {
+  async markDealLost(dealId: string, reason: string, note?: string): Promise<CrmDeal> {
+    const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/lost`, {
       reason,
       note: note || null,
     });
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  reopenDeal(dealId: string, payload?: { target_stage?: string; note?: string }): Promise<CrmDeal> {
-    return apiClient.post(`/crm/deals/${encodeURIComponent(dealId)}/reopen`, payload || {});
+  async reopenDeal(dealId: string, payload?: { target_stage?: string; note?: string }): Promise<CrmDeal> {
+    const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/reopen`, payload || {});
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  approveWonDeal(
+  async approveWonDeal(
     dealId: string,
     payload?: {
       payment_cleared?: boolean;
@@ -183,101 +376,163 @@ export const crmService = {
       workspace_id?: string;
     }
   ): Promise<CrmDeal> {
-    return apiClient.post(`/crm/deals/${encodeURIComponent(dealId)}/approve-won`, payload || {});
+    const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/approve-won`, payload || {});
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard', 'workspaces']);
+    return res;
   },
 
-  deleteDeal(dealId: string): Promise<void> {
-    return apiClient.delete(`/crm/deals/${encodeURIComponent(dealId)}`);
+  async deleteDeal(dealId: string): Promise<void> {
+    await apiClient.delete(`/crm/deals/${encodeURIComponent(dealId)}`);
+    crmDealsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
   },
 
-  addNote(id: string, body: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/notes`, { body });
+  async addNote(id: string, body: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/notes`, { body });
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'dashboard']);
+    return res;
   },
 
-  logWhatsappOpened(id: string, templateId?: string): Promise<CrmWhatsAppOpenResult> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/whatsapp-opened`, {
+  async logWhatsappOpened(id: string, templateId?: string): Promise<CrmWhatsAppOpenResult> {
+    const res = await apiClient.post<CrmWhatsAppOpenResult>(`/crm/leads/${encodeURIComponent(id)}/whatsapp-opened`, {
       template_id: templateId || null,
     });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  setFollowUp(id: string, nextFollowUpAt: string | null): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/follow-up`, {
+  async setFollowUp(id: string, nextFollowUpAt: string | null): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/follow-up`, {
       next_follow_up_at: nextFollowUpAt,
     });
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  markContacted(id: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/contacted`);
+  async markContacted(id: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/contacted`);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  claimLead(id: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/claim`);
+  async claimLead(id: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/claim`);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  applyRules(id: string): Promise<CrmLead> {
-    return apiClient.post(`/crm/leads/${encodeURIComponent(id)}/apply-rules`);
+  async applyRules(id: string): Promise<CrmLead> {
+    const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/apply-rules`);
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    crmLeadDetailCache.delete(id);
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  listRules(): Promise<CrmAssignmentRule[]> {
+  async listRules(): Promise<CrmAssignmentRule[]> {
     return apiClient.get('/crm/rules');
   },
 
-  createRule(payload: CrmRulePayload): Promise<CrmAssignmentRule> {
-    return apiClient.post('/crm/rules', payload);
+  async createRule(payload: CrmRulePayload): Promise<CrmAssignmentRule> {
+    const res = await apiClient.post<CrmAssignmentRule>('/crm/rules', payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  updateRule(id: string, payload: Partial<CrmRulePayload>): Promise<CrmAssignmentRule> {
-    return apiClient.patch(`/crm/rules/${encodeURIComponent(id)}`, payload);
+  async updateRule(id: string, payload: Partial<CrmRulePayload>): Promise<CrmAssignmentRule> {
+    const res = await apiClient.patch<CrmAssignmentRule>(`/crm/rules/${encodeURIComponent(id)}`, payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  deleteRule(id: string): Promise<void> {
-    return apiClient.delete(`/crm/rules/${encodeURIComponent(id)}`);
+  async deleteRule(id: string): Promise<void> {
+    await apiClient.delete(`/crm/rules/${encodeURIComponent(id)}`);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
   },
 
-  listTemplates(options?: { signal?: AbortSignal }): Promise<CrmTemplate[]> {
-    return apiClient.get('/crm/templates', { signal: options?.signal });
+  async listTemplates(options?: { signal?: AbortSignal }): Promise<CrmTemplate[]> {
+    const cached = crmTemplatesCache.get('templates');
+    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+    const res = await apiClient.get<CrmTemplate[]>('/crm/templates', { signal: options?.signal });
+    crmTemplatesCache.set('templates', res);
+    return res;
   },
 
-  createTemplate(payload: CrmTemplatePayload): Promise<CrmTemplate> {
-    return apiClient.post('/crm/templates', payload);
+  async createTemplate(payload: CrmTemplatePayload): Promise<CrmTemplate> {
+    const res = await apiClient.post<CrmTemplate>('/crm/templates', payload);
+    crmTemplatesCache.clear();
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  updateTemplate(id: string, payload: Partial<CrmTemplatePayload>): Promise<CrmTemplate> {
-    return apiClient.patch(`/crm/templates/${encodeURIComponent(id)}`, payload);
+  async updateTemplate(id: string, payload: Partial<CrmTemplatePayload>): Promise<CrmTemplate> {
+    const res = await apiClient.patch<CrmTemplate>(`/crm/templates/${encodeURIComponent(id)}`, payload);
+    crmTemplatesCache.clear();
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  deleteTemplate(id: string): Promise<void> {
-    return apiClient.delete(`/crm/templates/${encodeURIComponent(id)}`);
+  async deleteTemplate(id: string): Promise<void> {
+    await apiClient.delete(`/crm/templates/${encodeURIComponent(id)}`);
+    crmTemplatesCache.clear();
+    emitInvalidation(['crm', 'settings', 'dashboard']);
   },
 
-  listIngestSources(): Promise<CrmIngestSource[]> {
+  async listIngestSources(): Promise<CrmIngestSource[]> {
     return apiClient.get('/crm/ingest-sources');
   },
 
-  createIngestSource(payload: CrmIngestSourcePayload): Promise<CrmIngestSource> {
-    return apiClient.post('/crm/ingest-sources', payload);
+  async createIngestSource(payload: CrmIngestSourcePayload): Promise<CrmIngestSource> {
+    const res = await apiClient.post<CrmIngestSource>('/crm/ingest-sources', payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  updateIngestSource(
+  async updateIngestSource(
     id: string,
     payload: Partial<CrmIngestSourcePayload> & { enabled?: boolean }
   ): Promise<CrmIngestSource> {
-    return apiClient.patch(`/crm/ingest-sources/${encodeURIComponent(id)}`, payload);
+    const res = await apiClient.patch<CrmIngestSource>(`/crm/ingest-sources/${encodeURIComponent(id)}`, payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  deleteIngestSource(id: string): Promise<void> {
-    return apiClient.delete(`/crm/ingest-sources/${encodeURIComponent(id)}`);
+  async deleteIngestSource(id: string): Promise<void> {
+    await apiClient.delete(`/crm/ingest-sources/${encodeURIComponent(id)}`);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
   },
 
-  pollMetaForms(): Promise<{ forms: Array<{ form_id: string; created: number; duplicates: number }> }> {
-    return apiClient.post('/crm/meta/poll');
+  async pollMetaForms(): Promise<{ forms: Array<{ form_id: string; created: number; duplicates: number }> }> {
+    const res = await apiClient.post<{ forms: Array<{ form_id: string; created: number; duplicates: number }> }>('/crm/meta/poll');
+    crmLeadsCache.clear();
+    crmCountsCache.clear();
+    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    return res;
   },
 
-  listMetaPages(): Promise<CrmMetaPage[]> {
+  async listMetaPages(): Promise<CrmMetaPage[]> {
     return apiClient.get('/crm/meta/pages');
   },
 
-  connectMetaPage(payload: {
+  async connectMetaPage(payload: {
     page_id: string;
     page_name: string;
     access_token: string;
@@ -285,24 +540,41 @@ export const crmService = {
     workspace_id?: string | null;
     default_campaign?: string | null;
   }): Promise<CrmMetaPage> {
-    return apiClient.post('/crm/meta/pages', payload);
+    const res = await apiClient.post<CrmMetaPage>('/crm/meta/pages', payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  disconnectMetaPage(pageId: string): Promise<void> {
-    return apiClient.delete(`/crm/meta/pages/${encodeURIComponent(pageId)}`);
+  async disconnectMetaPage(pageId: string): Promise<void> {
+    await apiClient.delete(`/crm/meta/pages/${encodeURIComponent(pageId)}`);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
   },
 
-  getQueueStats(): Promise<CrmQueueStats> {
+  async getQueueStats(): Promise<CrmQueueStats> {
     return apiClient.get('/crm/ingest/queue-stats');
   },
 
-  getSchedulerSettings(): Promise<any> {
+  async getSchedulerSettings(): Promise<any> {
     return apiClient.get('/crm/scheduler/settings');
   },
 
-  updateSchedulerSettings(payload: Record<string, any>): Promise<any> {
-    return apiClient.patch('/crm/scheduler/settings', payload);
+  async updateSchedulerSettings(payload: Record<string, any>): Promise<any> {
+    const res = await apiClient.patch('/crm/scheduler/settings', payload);
+    emitInvalidation(['crm', 'settings', 'dashboard']);
+    return res;
   },
 
-  clearAllCaches(): void {},
+  clearAllCaches(): void {
+    crmLeadsCache.clear();
+    crmLeadDetailCache.clear();
+    crmCountsCache.clear();
+    crmPipelineCache.clear();
+    crmAssigneesCache.clear();
+    crmTemplatesCache.clear();
+    crmDealsCache.clear();
+    crmDealPipelineCache.clear();
+  },
 };
+
+// Register for app-wide cache sweeps on logout and user switch
+registerCacheClearer(() => crmService.clearAllCaches());

@@ -155,8 +155,8 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
                 'relative z-10 inline-flex items-center justify-center font-medium whitespace-nowrap transition-colors duration-150 cursor-pointer outline-none select-none border-0 focus:outline-none focus-visible:outline-none focus:ring-0 focus-visible:ring-0',
                 block && 'flex-1 min-w-fit',
                 size === 'sm'
-                  ? 'h-[24px] px-2 text-xs rounded-[5px] gap-1'
-                  : 'h-[28px] px-2.5 text-[13px] rounded-[6px] gap-1.5',
+                  ? 'h-[28px] px-2.5 text-xs rounded-[5px] gap-1'
+                  : 'h-[32px] px-3 text-[13px] rounded-[6px] gap-1.5',
                 isSelected
                   ? 'text-fg'
                   : 'text-fg-muted hover:text-fg',
@@ -165,7 +165,7 @@ export const SegmentedControl: React.FC<SegmentedControlProps> = ({
                 (option.disabled || disabled) && 'opacity-50 cursor-not-allowed'
               )}
             >
-              {Icon && <Icon size={size === 'sm' ? 12 : 14} className="shrink-0" />}
+              {Icon && <Icon size={size === 'sm' ? 14 : 16} className="shrink-0" />}
               <span>{option.label}</span>
               {option.count !== undefined && (
                 <span

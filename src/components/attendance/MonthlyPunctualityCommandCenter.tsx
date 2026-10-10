@@ -13,6 +13,8 @@ import type {
 } from '../../types/attendance';
 import { CustomSelect } from '../ui/CustomSelect';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 interface MonthlyPunctualityCommandCenterProps {
   summaryData: MonthlyPunctualityResponse | null;
@@ -69,6 +71,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
   onSelectEmployee,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const { getAvatarUrl } = useMemberAvatars();
   const lastSwitchTimeRef = useRef<number>(0);
 
   const now = new Date();
@@ -315,13 +318,6 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 </tr>
               ) : (
                   filteredRows.map((row, idx) => {
-                    const initials = row.employee_name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')
-                      .substring(0, 2)
-                      .toUpperCase();
-
                     const workingDays = row.total_working_days ?? row.working_days ?? 22;
                     const leavesTaken = row.leave_count ?? row.leaves_taken ?? 0;
                     const lateStrikes = row.late_count ?? row.late_strikes ?? 0;
@@ -350,9 +346,12 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         {/* Employee Name */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center">
-                              {initials}
-                            </div>
+                            <Avatar
+                              name={row.employee_name}
+                              src={(row as any).avatar_url || getAvatarUrl(row.user_id, row.employee_name)}
+                              size={28}
+                              className="rounded-lg shrink-0"
+                            />
                             <span className="font-semibold text-fg leading-tight">
                               {row.employee_name}
                             </span>

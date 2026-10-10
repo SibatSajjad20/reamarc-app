@@ -33,9 +33,11 @@ import { useConfirm } from '../ui/ConfirmProvider';
 import { useAuth } from '../../context/AuthContext';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { getBackendFileUrl } from '../../utils/fileUrl';
-import { getInitials } from '../../utils/badgeStyles';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { cleanLabel } from '../../utils/websiteProjectStyles';
+import { cn } from '../../lib/utils';
 
 interface Props {
   task?: WebsiteTask | null;
@@ -116,6 +118,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
 
   const { addToast } = useToast();
   const confirm = useConfirm();
+  const { getAvatarUrl } = useMemberAvatars();
   const activeStage: WebsiteStage = task?.stage || stage || effectiveProject.stage || 'strategy';
 
   // Form Fields
@@ -149,8 +152,15 @@ export const WebsiteTaskModal: React.FC<Props> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const saveCooldownRef = useRef(false);
 
+  const [taskError, setTaskError] = useState<string | null>(null);
+  const titleInputRef = useRef<HTMLInputElement>(null);
+  const [deliverableError, setDeliverableError] = useState<string | null>(null);
+  const deliverableInputRef = useRef<HTMLInputElement>(null);
+
   // Synchronize when task prop changes
   useEffect(() => {
+    setTaskError(null);
+    setDeliverableError(null);
     if (task) {
       setSelectedProjectId(task.project_id);
       setName(task.name);
@@ -224,7 +234,8 @@ export const WebsiteTaskModal: React.FC<Props> = ({
     if (isCreateMode ? !effectiveCanManage : !canEditTask) return;
     if (saveCooldownRef.current || isSaving) return;
     if (!name.trim()) {
-      addToast('Validation', 'Task title cannot be empty', 'warning');
+      setTaskError('Task title cannot be empty');
+      if (titleInputRef.current) titleInputRef.current.focus();
       return;
     }
 
@@ -329,7 +340,8 @@ export const WebsiteTaskModal: React.FC<Props> = ({
   const handleAttachFile = async () => {
     if (!task?.id) return;
     if (!newFileName.trim()) {
-      addToast('Validation', 'Deliverable name is required', 'warning');
+      setDeliverableError('Deliverable name is required');
+      if (deliverableInputRef.current) deliverableInputRef.current.focus();
       return;
     }
     setIsSavingFile(true);
@@ -467,13 +479,27 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 Task Title *
               </label>
               <input
+                ref={titleInputRef}
                 type="text"
                 value={name}
+                aria-invalid={!!taskError}
                 disabled={isCreateMode ? !effectiveCanManage : !canEditTask}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (taskError) setTaskError(null);
+                }}
                 placeholder="e.g. Sitemap & Information Architecture..."
-                className="w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong transition-all shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+                className={cn(
+                  'w-full px-3.5 py-2.5 rounded-xl text-sm font-semibold border bg-subtle text-fg placeholder:text-fg-subtle outline-none focus:border-border-strong transition-all shadow-2xs disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
+                  taskError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                )}
               />
+              {taskError && (
+                <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{taskError}</span>
+                </p>
+              )}
             </div>
 
             {/* Grid of 4 Selectors: Status, Priority, Assigned Person, Department */}
@@ -638,13 +664,29 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                   {/* Attach File Inline Form */}
                   {isAttachingFile && (
                     <div className="p-3 rounded-xl border border-accent-border bg-accent-subtle space-y-2.5 animate-in fade-in duration-100">
-                      <input
-                        type="text"
-                        value={newFileName}
-                        onChange={(e) => setNewFileName(e.target.value)}
-                        placeholder="File or link label (e.g. Wireframe v2)..."
-                        className="w-full px-2.5 py-1.5 rounded-lg text-xs border border-border bg-surface text-fg placeholder:text-fg-subtle outline-none"
-                      />
+                      <div>
+                        <input
+                          ref={deliverableInputRef}
+                          type="text"
+                          value={newFileName}
+                          aria-invalid={!!deliverableError}
+                          onChange={(e) => {
+                            setNewFileName(e.target.value);
+                            if (deliverableError) setDeliverableError(null);
+                          }}
+                          placeholder="File or link label (e.g. Wireframe v2)..."
+                          className={cn(
+                            'w-full px-2.5 py-1.5 rounded-lg text-xs border bg-surface text-fg placeholder:text-fg-subtle outline-none',
+                            deliverableError ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                          )}
+                        />
+                        {deliverableError && (
+                          <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                            <span>{deliverableError}</span>
+                          </p>
+                        )}
+                      </div>
                       <input
                         type="url"
                         value={newFileUrl}
@@ -764,9 +806,12 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                         >
                           <div className="flex items-center justify-between text-fg">
                             <div className="flex items-center gap-1.5">
-                              <div className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center border border-accent-border">
-                                {getInitials(c.user_name)}
-                              </div>
+                              <Avatar
+                                name={c.user_name}
+                                src={getAvatarUrl(c.user_id, c.user_name)}
+                                size={20}
+                                className="rounded-full shrink-0"
+                              />
                               <span className="font-semibold text-fg">{c.user_name}</span>
                             </div>
                             <span className="text-xs text-fg-subtle">

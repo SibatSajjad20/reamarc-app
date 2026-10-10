@@ -4,6 +4,7 @@
  */
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 
 const ccItemsCache = new BoundedCache<ContentCalendarListResponse>(10);
 const ccConstantsCache = new BoundedCache<ContentCalendarConstants>(2);
@@ -22,6 +23,12 @@ import type {
 
 export const contentCalendarService = {
   async getItems(filter?: ContentCalendarFilter): Promise<ContentCalendarListResponse> {
+    const filterKey = JSON.stringify(filter || {});
+    const cached = ccItemsCache.get(filterKey);
+    if (cached && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+
     const pageSize = 1000;
     const maxRows = 20000;
     const items: ContentCalendarListResponse['items'] = [];
@@ -51,7 +58,9 @@ export const contentCalendarService = {
       skip += page.items.length;
     }
 
-    return { items, total, stages_count: stagesCount };
+    const result = { items, total, stages_count: stagesCount };
+    ccItemsCache.set(filterKey, result);
+    return result;
   },
 
   async getItem(id: string): Promise<ContentCalendarItem> {
@@ -60,6 +69,8 @@ export const contentCalendarService = {
 
   async createItem(payload: Partial<ContentCalendarItem>): Promise<ContentCalendarItem> {
     const res = await apiClient.post<ContentCalendarItem>('/content-calendar', payload);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
     }
@@ -68,6 +79,8 @@ export const contentCalendarService = {
 
   async updateItem(id: string, payload: Partial<ContentCalendarItem>): Promise<ContentCalendarItem> {
     const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}`, payload);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
     }
@@ -76,6 +89,8 @@ export const contentCalendarService = {
 
   async batchUpdate(updates: BatchUpdateItem[]): Promise<BatchUpdateResponse> {
     const res = await apiClient.patch<BatchUpdateResponse>('/content-calendar/batch', { updates });
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
     }
@@ -84,6 +99,8 @@ export const contentCalendarService = {
 
   async bulkImport(payload: BulkImportRequest): Promise<BulkImportResponse> {
     const res = await apiClient.post<BulkImportResponse>('/content-calendar/bulk-import', payload);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
     }
@@ -95,6 +112,8 @@ export const contentCalendarService = {
     payload: { action: string; note?: string; assignee_id?: string; assignee_name?: string; target_stage?: string },
   ): Promise<ContentCalendarItem> {
     const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${id}/stage`, payload);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('reamarc-notification-refresh'));
     }
@@ -110,7 +129,10 @@ export const contentCalendarService = {
   },
 
   async deleteItem(id: string): Promise<{ message: string; id: string }> {
-    return apiClient.delete<{ message: string; id: string }>(`/content-calendar/${id}`);
+    const res = await apiClient.delete<{ message: string; id: string }>(`/content-calendar/${id}`);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
+    return res;
   },
 
   async getConstants(): Promise<ContentCalendarConstants> {
@@ -118,7 +140,10 @@ export const contentCalendarService = {
   },
 
   async updateConstants(payload: Partial<ContentCalendarConstants>): Promise<ContentCalendarConstants> {
-    return apiClient.patch<ContentCalendarConstants>('/content-calendar/constants', payload);
+    const res = await apiClient.patch<ContentCalendarConstants>('/content-calendar/constants', payload);
+    ccConstantsCache.clear();
+    emitInvalidation(['content-calendar', 'settings']);
+    return res;
   },
 
   async getNextSerial(clientName?: string): Promise<{ serial: string }> {
@@ -128,7 +153,10 @@ export const contentCalendarService = {
 
 
   async seedFromExcel(force: boolean = false): Promise<{ message: string; count: number }> {
-    return apiClient.post<{ message: string; count: number }>(`/content-calendar/seed-excel?force=${force}`, {});
+    const res = await apiClient.post<{ message: string; count: number }>(`/content-calendar/seed-excel?force=${force}`, {});
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard', 'notifications']);
+    return res;
   },
 
   async uploadAssets(itemId: string, files: File[], role: string = 'primary'): Promise<ContentCalendarItem> {
@@ -137,22 +165,34 @@ export const contentCalendarService = {
       formData.append('files', file);
     }
     formData.append('role', role);
-    return apiClient.upload<ContentCalendarItem>(`/content-calendar/${itemId}/assets`, formData);
+    const res = await apiClient.upload<ContentCalendarItem>(`/content-calendar/${itemId}/assets`, formData);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
   },
 
   async deleteAsset(itemId: string, assetId: string): Promise<ContentCalendarItem> {
-    return apiClient.delete<ContentCalendarItem>(`/content-calendar/${itemId}/assets/${assetId}`);
+    const res = await apiClient.delete<ContentCalendarItem>(`/content-calendar/${itemId}/assets/${assetId}`);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
   },
 
   async reorderAssets(itemId: string, assetIds: string[]): Promise<ContentCalendarItem> {
-    return apiClient.patch<ContentCalendarItem>(`/content-calendar/${itemId}/assets/reorder`, { asset_ids: assetIds });
+    const res = await apiClient.patch<ContentCalendarItem>(`/content-calendar/${itemId}/assets/reorder`, { asset_ids: assetIds });
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
   },
 
   async addLinkAsset(
     itemId: string,
     payload: { url: string; title: string; role?: string },
   ): Promise<ContentCalendarItem> {
-    return apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/links`, payload);
+    const res = await apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/links`, payload);
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
   },
 
   async getDrivePickerConfig(itemId: string): Promise<DrivePickerConfig> {
@@ -164,10 +204,13 @@ export const contentCalendarService = {
     files: DrivePickedFile[],
     role: string = 'primary',
   ): Promise<ContentCalendarItem> {
-    return apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/assets/from-drive`, {
+    const res = await apiClient.post<ContentCalendarItem>(`/content-calendar/${itemId}/assets/from-drive`, {
       files,
       role,
     });
+    ccItemsCache.clear();
+    emitInvalidation(['content-calendar', 'dashboard']);
+    return res;
   },
 
   getCachedItems(filterKey: string): CacheEntry<ContentCalendarListResponse> | undefined {
@@ -190,4 +233,7 @@ export const contentCalendarService = {
     ccConstantsCache.clear();
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => contentCalendarService.clearAllCaches());
 

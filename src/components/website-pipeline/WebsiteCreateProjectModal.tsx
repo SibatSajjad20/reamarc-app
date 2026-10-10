@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { Globe } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { Globe, AlertCircle } from 'lucide-react';
 import { Button } from '../ui/button';
 import type { Workspace } from '../../types';
 import type { WebsiteProject, WebsiteType } from '../../types/websiteProject';
@@ -11,6 +11,9 @@ import { Modal } from '../ui/Modal';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { canManageWebsiteProject } from '../../utils/websiteProjectAccess';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
+import { cn } from '../../lib/utils';
 
 interface Props {
   isOpen: boolean;
@@ -58,6 +61,9 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
   const [description, setDescription] = useState(project?.description || '');
   const [users, setUsers] = useState<TeamUser[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const isDirty = useMemo(() => {
     if (!project) return true;
@@ -98,6 +104,8 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
 
   useEffect(() => {
     if (isOpen) {
+      setFieldErrors({});
+      setServerError(null);
       if (project) {
         setName(project.name || '');
         setWorkspaceId(project.workspace_id || '');
@@ -139,12 +147,21 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (effectiveReadOnly) return;
+    setServerError(null);
+
+    const errs: Record<string, string> = {};
     if (!name.trim()) {
-      addToast('Validation', 'Project name is required', 'warning');
-      return;
+      errs.name = 'Project name is required';
     }
     if (!workspaceId) {
-      addToast('Validation', 'Client Workspace is required', 'warning');
+      errs.workspaceId = 'Client Workspace is required';
+    }
+
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
       return;
     }
 
@@ -194,7 +211,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
         onClose();
       }
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to save project', 'error');
+      setServerError(err.message || 'Failed to save project');
     } finally {
       setIsSubmitting(false);
     }
@@ -232,7 +249,7 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
       }
       maxWidth="xl"
     >
-      <form onSubmit={handleSubmit} className="space-y-4 pt-2">
+      <form ref={formRef} noValidate onSubmit={handleSubmit} className="space-y-4 pt-2">
         <div>
           <label className="block text-xs font-semibold text-fg mb-1">
             Project Name *
@@ -240,12 +257,25 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
           <input
             type="text"
             required
+            aria-invalid={!!fieldErrors.name}
             disabled={effectiveReadOnly}
             placeholder="e.g. Apex Redesign & E-Commerce Build"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="w-full px-3.5 py-2.5 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
+            onChange={(e) => {
+              setName(e.target.value);
+              if (fieldErrors.name) setFieldErrors((prev) => { const n = { ...prev }; delete n.name; return n; });
+            }}
+            className={cn(
+              'w-full px-3.5 py-2.5 rounded-xl text-xs border bg-subtle text-fg placeholder:text-fg-subtle outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted',
+              fieldErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+            )}
           />
+          {fieldErrors.name && (
+            <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+              <span>{fieldErrors.name}</span>
+            </p>
+          )}
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -255,10 +285,14 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
             </label>
             <CustomSelect
               value={workspaceId}
-              onChange={setWorkspaceId}
+              onChange={(val) => {
+                setWorkspaceId(val);
+                if (fieldErrors.workspaceId) setFieldErrors((prev) => { const n = { ...prev }; delete n.workspaceId; return n; });
+              }}
               options={workspaces.map((ws) => ({ value: ws.id, label: ws.name }))}
               placeholder="Select workspace..."
               disabled={effectiveReadOnly}
+              error={fieldErrors.workspaceId}
             />
           </div>
 
@@ -366,35 +400,51 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
         </div>
 
         {/* Buttons */}
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-          {effectiveReadOnly ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-5 py-2 rounded-xl bg-hover hover:bg-subtle text-fg text-xs font-semibold transition-colors cursor-pointer border border-border"
-            >
-              Close
-            </button>
-          ) : (
-            <>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-border">
+          <div className="flex items-center gap-2">
+            {Object.keys(fieldErrors).length > 1 && (
+              <FormErrorSummaryButton
+                count={Object.keys(fieldErrors).length}
+                onClick={() => formRef.current && focusFirstError(formRef.current)}
+              />
+            )}
+            {serverError && (
+              <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>{serverError}</span>
+              </p>
+            )}
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            {effectiveReadOnly ? (
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-fg-muted hover:bg-hover transition-colors cursor-pointer"
+                className="px-5 py-2 rounded-xl bg-hover hover:bg-subtle text-fg text-xs font-semibold transition-colors cursor-pointer border border-border"
               >
-                Cancel
+                Close
               </button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isSubmitting}
-                loadingText={project ? 'Saving Changes…' : 'Creating Project…'}
-                disabled={Boolean(project) && !isDirty}
-              >
-                {project ? 'Save Changes' : 'Create Project'}
-              </Button>
-            </>
-          )}
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="px-4 py-2 rounded-xl text-xs font-semibold text-fg-muted hover:bg-hover transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={isSubmitting}
+                  loadingText={project ? 'Saving Changes…' : 'Creating Project…'}
+                  disabled={Boolean(project) && !isDirty}
+                >
+                  {project ? 'Save Changes' : 'Create Project'}
+                </Button>
+              </>
+            )}
+          </div>
         </div>
       </form>
     </Modal>

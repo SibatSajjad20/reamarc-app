@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { ViewType, ThemeMode, ThemePreference } from '@/types';
 import { useAuth } from '@/context/AuthContext';
 import { dailyLogService } from '@/services/dailyLogService';
-import { getInitials } from '@/utils/badgeStyles';
+import { useCacheInvalidation } from '@/utils/cacheBus';
 import { getRoleDisplayName } from '@/lib/roleLabel';
 import { canAccessCrm } from '@/utils/crmAccess';
 import { canAccessContentCalendar } from '@/utils/contentCalendarAccess';
@@ -11,6 +11,7 @@ import type { CrmSubSection } from '@/types/crm';
 import type { AttendanceSubSection } from '@/types/attendance';
 import type { AdminSectionType } from '@/types/admin';
 import { BrandMark } from '@/components/ui/BrandMark';
+import { Avatar } from '@/components/ui/Avatar';
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import {
   DropdownMenu,
@@ -192,29 +193,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
     if (currentView === 'portal') setIsPortalExpanded(true);
   }, [currentView]);
 
-  useEffect(() => {
+  const fetchBadge = useCallback(() => {
     const role = user?.role;
     if (!role || !['team_member', 'team_lead', 'hr'].includes(role)) {
       setRequestCount(0);
       return;
     }
-    let cancelled = false;
     dailyLogService
       .getDayTarget()
       .then((t) => {
-        if (!cancelled) setRequestCount((t.follow_ups || []).length);
+        setRequestCount((t.follow_ups || []).length);
       })
       .catch(() => {
-        if (!cancelled) setRequestCount(0);
+        setRequestCount(0);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, user?.role, currentView]);
+  }, [user?.role]);
+
+  useEffect(() => {
+    fetchBadge();
+  }, [fetchBadge, currentView, user?.id]);
+
+  useCacheInvalidation(['daily-log', 'exceptions'], () => {
+    fetchBadge();
+  });
 
   const displayName = user?.full_name || user?.name || 'Guest Contributor';
   const displayEmail = user?.email || '';
-  const displayInitials = getInitials(user?.full_name || user?.name, user?.email);
   const displayRole = getRoleDisplayName(user?.role);
 
   const isAdmin = user?.role === 'admin';
@@ -1004,9 +1008,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   type="button"
                   className="w-full flex items-center gap-2.5 p-1 rounded-md hover:bg-hover transition-colors cursor-pointer select-none text-left focus-visible:focus-ring"
                 >
-                  <div className="w-8 h-8 rounded-full bg-accent-soft-2 text-accent-text border border-accent-200 flex items-center justify-center text-xs font-medium shrink-0">
-                    {displayInitials}
-                  </div>
+                  <Avatar
+                    name={displayName}
+                    src={user?.avatar_url}
+                    size={32}
+                    className="rounded-full shrink-0"
+                  />
                   <div className="min-w-0 flex-1 whitespace-nowrap overflow-hidden transition-opacity duration-100 delay-200 ease-out motion-reduce:transition-none">
                     <span className="block text-[13px] font-medium text-fg leading-4 truncate">
                       {displayName}
@@ -1023,9 +1030,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   className="w-10 h-10 mx-auto rounded-full flex items-center justify-center hover:opacity-90 transition-opacity cursor-pointer select-none focus-visible:focus-ring"
                   aria-label="User menu"
                 >
-                  <div className="w-8 h-8 rounded-full bg-accent-soft-2 text-accent-text border border-accent-200 flex items-center justify-center text-xs font-medium shrink-0">
-                    {displayInitials}
-                  </div>
+                  <Avatar
+                    name={displayName}
+                    src={user?.avatar_url}
+                    size={32}
+                    className="rounded-full shrink-0"
+                  />
                 </button>
               )}
             </DropdownMenuTrigger>

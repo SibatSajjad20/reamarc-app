@@ -44,16 +44,16 @@ type ReviewFilter = 'pending' | 'approved' | 'revision';
 
 function renderChannelIcons(channels?: string[]) {
   if (!channels || channels.length === 0) {
-    return <InstagramIcon size={14} className="text-fg-muted" />;
+    return <InstagramIcon size={14} variant="brand" />;
   }
   return (
     <div className="flex items-center gap-1.5">
       {channels.map((ch) => {
         const lower = ch.toLowerCase();
-        if (lower.includes('insta')) return <InstagramIcon key={ch} size={14} className="text-fg-muted" />;
-        if (lower.includes('fb') || lower.includes('face')) return <FacebookIcon key={ch} size={14} className="text-fg-muted" />;
-        if (lower.includes('google')) return <GoogleIcon key={ch} size={14} className="text-fg-muted" />;
-        return <span key={ch} className="text-[10px] text-fg-muted uppercase font-mono">{ch}</span>;
+        if (lower.includes('insta')) return <InstagramIcon key={ch} size={14} variant="brand" />;
+        if (lower.includes('fb') || lower.includes('face')) return <FacebookIcon key={ch} size={14} variant="brand" />;
+        if (lower.includes('google')) return <GoogleIcon key={ch} size={14} variant="brand" />;
+        return <span key={ch} className="text-micro text-fg-muted uppercase font-mono">{ch}</span>;
       })}
     </div>
   );

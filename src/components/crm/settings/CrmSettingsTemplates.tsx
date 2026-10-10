@@ -191,7 +191,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                           {tpl.name}
                         </span>
                         {tpl.is_default && (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-micro font-medium bg-success-bg text-success-fg border border-success/30">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.2 rounded-full text-micro font-medium bg-success-bg text-success-fg border border-success-bd">
                             <Check className="w-2.5 h-2.5" />
                             Default
                           </span>
@@ -321,7 +321,7 @@ export const CrmSettingsTemplates: React.FC = () => {
             </div>
 
             {error && (
-              <div className="p-2.5 rounded-md bg-danger-bg border border-danger/30 text-xs text-danger-fg">
+              <div className="p-2.5 rounded-md bg-danger-bg border border-danger-bd text-xs text-danger-fg">
                 {error}
               </div>
             )}

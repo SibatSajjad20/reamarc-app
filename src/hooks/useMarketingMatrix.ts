@@ -9,6 +9,7 @@ import type { MarketingMatrixRow } from '../types';
 import { marketingService, type MetricUpsertPayload, type MarketingCampaignCreatePayload } from '../services/marketingService';
 import { apiClient } from '../services/apiClient';
 import { useDebounce } from './useDebounce';
+import { useCacheInvalidation } from '../utils/cacheBus';
 
 export function useMarketingMatrix(workspaceId?: string) {
   const [selectedDate, setSelectedDate] = useState<string>(() => {
@@ -88,6 +89,10 @@ export function useMarketingMatrix(workspaceId?: string) {
       }
     };
   }, [debouncedDate, workspaceId, fetchDaily]);
+
+  useCacheInvalidation(['marketing'], () => {
+    fetchDaily(debouncedDate);
+  });
 
   const toggleShowInactive = useCallback(() => {
     setShowInactive((prev) => {

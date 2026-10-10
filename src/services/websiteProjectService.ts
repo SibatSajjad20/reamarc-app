@@ -4,6 +4,7 @@
  */
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 
 const wpProjectsCache = new BoundedCache<{ items: WebsiteProject[]; total: number }>(10);
 const wpMetricsCache = new BoundedCache<WebsiteSummaryMetrics>(2);
@@ -40,7 +41,14 @@ export const websiteProjectService = {
     params.set('limit', '500');
 
     const queryStr = params.toString() ? `?${params.toString()}` : '';
-    return apiClient.get<{ items: WebsiteProject[]; total: number }>(`/website-projects${queryStr}`);
+    const cached = wpProjectsCache.get(queryStr);
+    if (cached && Date.now() - cached.fetchedAt < 60_000) {
+      return cached.data;
+    }
+
+    const res = await apiClient.get<{ items: WebsiteProject[]; total: number }>(`/website-projects${queryStr}`);
+    wpProjectsCache.set(queryStr, res);
+    return res;
   },
 
   async getSummaryMetrics(): Promise<WebsiteSummaryMetrics> {
@@ -68,28 +76,44 @@ export const websiteProjectService = {
     live_url?: string;
     description?: string;
   }): Promise<WebsiteProject> {
-    return apiClient.post<WebsiteProject>('/website-projects', payload);
+    const res = await apiClient.post<WebsiteProject>('/website-projects', payload);
+    wpProjectsCache.clear();
+    wpMetricsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async updateProject(
     id: string,
     payload: Partial<Omit<WebsiteProject, 'stage' | 'health' | 'gates' | 'progress'>>,
   ): Promise<WebsiteProject> {
-    return apiClient.patch<WebsiteProject>(`/website-projects/${id}`, payload);
+    const res = await apiClient.patch<WebsiteProject>(`/website-projects/${id}`, payload);
+    wpProjectsCache.clear();
+    wpMetricsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async transitionStage(id: string, targetStage: string, note?: string): Promise<WebsiteProject> {
-    return apiClient.post<WebsiteProject>(`/website-projects/${id}/transition`, {
+    const res = await apiClient.post<WebsiteProject>(`/website-projects/${id}/transition`, {
       target_stage: targetStage,
       note,
     });
+    wpProjectsCache.clear();
+    wpMetricsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async forceTransitionStage(id: string, targetStage: string, reason: string): Promise<WebsiteProject> {
-    return apiClient.post<WebsiteProject>(`/website-projects/${id}/force-transition`, {
+    const res = await apiClient.post<WebsiteProject>(`/website-projects/${id}/force-transition`, {
       target_stage: targetStage,
       reason,
     });
+    wpProjectsCache.clear();
+    wpMetricsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   // Task operations
@@ -119,15 +143,26 @@ export const websiteProjectService = {
   },
 
   async createTask(projectId: string, payload: Partial<WebsiteTask>): Promise<WebsiteTask> {
-    return apiClient.post<WebsiteTask>(`/website-projects/${projectId}/tasks`, payload);
+    const res = await apiClient.post<WebsiteTask>(`/website-projects/${projectId}/tasks`, payload);
+    wpTasksCache.clear();
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async updateTask(projectId: string, taskId: string, payload: Partial<WebsiteTask>): Promise<WebsiteTask> {
-    return apiClient.patch<WebsiteTask>(`/website-projects/${projectId}/tasks/${taskId}`, payload);
+    const res = await apiClient.patch<WebsiteTask>(`/website-projects/${projectId}/tasks/${taskId}`, payload);
+    wpTasksCache.clear();
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async deleteTask(projectId: string, taskId: string): Promise<void> {
-    return apiClient.delete<void>(`/website-projects/${projectId}/tasks/${taskId}`);
+    await apiClient.delete<void>(`/website-projects/${projectId}/tasks/${taskId}`);
+    wpTasksCache.clear();
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
   },
 
   async addTaskComment(projectId: string, taskId: string, text: string): Promise<TaskComment[]> {
@@ -144,7 +179,10 @@ export const websiteProjectService = {
     gateKey: string,
     payload: { notes?: string; file_ids?: string[] },
   ): Promise<WebsiteGate> {
-    return apiClient.post<WebsiteGate>(`/website-projects/${projectId}/gates/${gateKey}/submit`, payload);
+    const res = await apiClient.post<WebsiteGate>(`/website-projects/${projectId}/gates/${gateKey}/submit`, payload);
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async recordGateDecision(
@@ -152,7 +190,10 @@ export const websiteProjectService = {
     gateKey: string,
     payload: { decision: 'approved' | 'changes_requested'; comment?: string; file_ids?: string[] },
   ): Promise<WebsiteGate> {
-    return apiClient.post<WebsiteGate>(`/website-projects/${projectId}/gates/${gateKey}/decision`, payload);
+    const res = await apiClient.post<WebsiteGate>(`/website-projects/${projectId}/gates/${gateKey}/decision`, payload);
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async createRevisionTask(
@@ -167,7 +208,11 @@ export const websiteProjectService = {
       priority?: string;
     },
   ): Promise<WebsiteTask> {
-    return apiClient.post<WebsiteTask>(`/website-projects/${projectId}/gates/${gateKey}/revision-task`, payload);
+    const res = await apiClient.post<WebsiteTask>(`/website-projects/${projectId}/gates/${gateKey}/revision-task`, payload);
+    wpTasksCache.clear();
+    wpProjectsCache.clear();
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   // File operations
@@ -179,11 +224,14 @@ export const websiteProjectService = {
   },
 
   async createFile(projectId: string, payload: Partial<WebsiteFile>): Promise<WebsiteFile> {
-    return apiClient.post<WebsiteFile>(`/website-projects/${projectId}/files`, payload);
+    const res = await apiClient.post<WebsiteFile>(`/website-projects/${projectId}/files`, payload);
+    emitInvalidation(['website-pipeline', 'dashboard']);
+    return res;
   },
 
   async deleteFile(projectId: string, fileId: string): Promise<void> {
-    return apiClient.delete<void>(`/website-projects/${projectId}/files/${fileId}`);
+    await apiClient.delete<void>(`/website-projects/${projectId}/files/${fileId}`);
+    emitInvalidation(['website-pipeline', 'dashboard']);
   },
 
   // Activities
@@ -191,11 +239,11 @@ export const websiteProjectService = {
     return apiClient.get<WebsiteActivity[]>(`/website-projects/${projectId}/activities?limit=${limit}`);
   },
 
-  getCachedProjects(filterKey: string): CacheEntry<{ items: WebsiteProject[]; total: number }> | undefined {
+  getCachedProjects(filterKey: string = '?limit=500'): CacheEntry<{ items: WebsiteProject[]; total: number }> | undefined {
     return wpProjectsCache.get(filterKey);
   },
-  setCachedProjects(filterKey: string, data: { items: WebsiteProject[]; total: number }): void {
-    wpProjectsCache.set(filterKey, data);
+  setCachedProjects(filterKey: string = '?limit=500', data?: { items: WebsiteProject[]; total: number }): void {
+    if (data) wpProjectsCache.set(filterKey, data);
   },
   getCachedMetrics(): CacheEntry<WebsiteSummaryMetrics> | undefined {
     return wpMetricsCache.get('metrics');
@@ -225,3 +273,6 @@ export const websiteProjectService = {
     wpTeamMembersCache.clear();
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => websiteProjectService.clearAllCaches());

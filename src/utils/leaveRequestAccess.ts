@@ -39,8 +39,12 @@ export function canDeleteLeaveRequest(
   request: Pick<AttendanceRequest, 'user_id' | 'status'>,
 ): boolean {
   const role = normalizeRole(actorRole);
-  if (role === 'admin' || role === 'hr' || role === 'operations') return true;
-  return Boolean(actorId && request.user_id && actorId === request.user_id);
+  const isApplicant = Boolean(actorId && request.user_id && String(actorId) === String(request.user_id));
+  const isInFlight = ['pending', 'needs_info', 'appealed'].includes(request.status);
+  if (isInFlight) {
+    return role === 'admin' || isApplicant;
+  }
+  return role === 'admin' || role === 'hr' || role === 'operations' || isApplicant;
 }
 
 export function reviewScopeHint(

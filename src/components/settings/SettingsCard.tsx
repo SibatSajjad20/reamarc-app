@@ -27,7 +27,7 @@ export const SettingsCard: React.FC<SettingsCardProps> = ({
       {title ? (
         <div className="grid grid-cols-1 md:grid-cols-[232px_1fr] gap-6 items-start">
           <div>
-            <h2 className={cn('text-sm font-semibold leading-tight', isDanger ? 'text-danger' : 'text-fg')}>
+            <h2 className={cn('text-sm font-semibold leading-tight', isDanger ? 'text-danger-fg' : 'text-fg')}>
               {title}
             </h2>
             {description && (

@@ -10,6 +10,7 @@ import { WorkspacesSection } from './sections/WorkspacesSection';
 import { AddMemberModal } from './AddMemberModal';
 import { EditMemberModal } from './EditMemberModal';
 import { WorkspaceModal } from '../modals/WorkspaceModal';
+import { Button } from '../ui/button';
 import type { UserRole } from '../../types/auth';
 import type {
   AdminMember,
@@ -257,7 +258,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {activeSection === 'workspaces' && (isAdmin || isOperations) && (
           <WorkspacesSection
             workspaces={workspaces}
-            adAccounts={adAccounts}
             onAddWorkspace={() => {
               setWorkspaceToEdit(null);
               setIsWorkspaceModalOpen(true);
@@ -322,20 +322,22 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               attendance punches, and leave records. This cannot be undone.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
-              <button
+              <Button
                 type="button"
+                variant="secondary"
+                size="sm"
                 onClick={() => setMemberToDelete(null)}
-                className="px-3 py-1.5 rounded-md border border-border text-xs font-medium text-fg hover:bg-hover transition cursor-pointer"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="danger"
+                size="sm"
                 onClick={handleDeleteMember}
-                className="px-3 py-1.5 rounded-md bg-danger text-white text-xs font-medium hover:bg-danger/90 transition cursor-pointer shadow-xs"
               >
                 Delete member
-              </button>
+              </Button>
             </div>
           </div>
         </div>

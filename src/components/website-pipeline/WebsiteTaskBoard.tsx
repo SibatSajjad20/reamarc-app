@@ -21,7 +21,8 @@ import {
 } from '../../types/websiteProject';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
-import { getInitials } from '../../utils/badgeStyles';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 interface Props {
   tasks: WebsiteTask[];
@@ -143,6 +144,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
   onCreateTaskForStatus,
   isClientUser = false,
 }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const { user } = useAuth();
   const effectiveIsClient = isClientUser || user?.role === 'client';
   const { addToast } = useToast();
@@ -328,9 +330,12 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                         <div className="flex items-center gap-1.5 min-w-0">
                           {task.assignee_name ? (
                             <div className="flex items-center gap-1.5 truncate">
-                              <span className="w-5 h-5 rounded-full bg-accent-subtle text-accent-text flex items-center justify-center font-semibold text-[10px] shrink-0 border border-accent-border">
-                                {getInitials(task.assignee_name)}
-                              </span>
+                              <Avatar
+                                name={task.assignee_name}
+                                src={getAvatarUrl(task.assignee_id, task.assignee_name)}
+                                size={20}
+                                className="rounded-full shrink-0 text-[10px]"
+                              />
                               <span className="truncate max-w-[90px]">{task.assignee_name}</span>
                             </div>
                           ) : (

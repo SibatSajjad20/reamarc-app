@@ -26,7 +26,7 @@ export const StickySaveBar: React.FC<StickySaveBarProps> = ({
         <span className="w-2 h-2 rounded-full bg-accent animate-pulse shrink-0" />
         <span>You have unsaved changes</span>
         {errorMessage && (
-          <span className="text-danger ml-2 font-normal">({errorMessage})</span>
+          <span className="text-danger-fg ml-2 font-normal">({errorMessage})</span>
         )}
       </div>
 

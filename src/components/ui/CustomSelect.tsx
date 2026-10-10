@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useId } from 'react';
 import { Popover as PopoverPrimitive } from 'radix-ui';
-import { ChevronDown, Check } from 'lucide-react';
+import { ChevronDown, Check, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
 export interface SelectOption {
@@ -16,6 +16,9 @@ export interface CustomSelectProps {
   options: SelectOption[];
   placeholder?: string;
   label?: string;
+  id?: string;
+  name?: string;
+  error?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string; size?: number }>;
   className?: string;
   disabled?: boolean;
@@ -24,6 +27,10 @@ export interface CustomSelectProps {
   size?: 'default' | 'sm' | 'xs';
   autoOpen?: boolean;
   onClose?: () => void;
+  'aria-label'?: string;
+  'aria-labelledby'?: string;
+  'aria-invalid'?: boolean | 'true' | 'false';
+  'aria-describedby'?: string;
 }
 
 export const CustomSelect: React.FC<CustomSelectProps> = ({
@@ -32,6 +39,9 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   options,
   placeholder = 'Select option...',
   label,
+  id,
+  name,
+  error,
   icon: LeadingIcon,
   className = '',
   disabled = false,
@@ -40,7 +50,14 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   size = 'default',
   autoOpen = false,
   onClose,
+  'aria-label': ariaLabel,
+  'aria-labelledby': ariaLabelledby,
+  'aria-invalid': ariaInvalid,
+  'aria-describedby': ariaDescribedby,
 }) => {
+  const generatedId = useId();
+  const selectId = id || (label || error ? generatedId : undefined);
+  const errorId = error && selectId ? `${selectId}-error` : undefined;
   const [open, setOpen] = useState(autoOpen);
 
   const selectedOption = options.find((opt) => opt.value === value);
@@ -62,7 +79,7 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
   return (
     <div className={cn('relative w-full text-left', className)}>
       {label && (
-        <label className="block text-label font-medium text-fg mb-1.5 flex items-center gap-1.5">
+        <label htmlFor={selectId} className="block text-label font-medium text-fg mb-1.5 flex items-center gap-1.5">
           {LeadingIcon && <LeadingIcon size={14} className="text-fg-muted" />}
           <span>{label}</span>
         </label>
@@ -71,12 +88,22 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
       <PopoverPrimitive.Root open={open} onOpenChange={handleOpenChange}>
         <PopoverPrimitive.Trigger asChild>
           <button
+            id={selectId}
+            name={name}
             type="button"
             disabled={disabled}
+            aria-label={ariaLabel}
+            aria-labelledby={ariaLabelledby}
+            aria-invalid={Boolean(error) || ariaInvalid === true || ariaInvalid === 'true'}
+            aria-describedby={error ? errorId : ariaDescribedby}
             className={cn(
-              'w-full flex items-center justify-between gap-2 border border-border-strong bg-surface text-fg shadow-xs transition-colors cursor-pointer select-none outline-none disabled:opacity-50 disabled:cursor-not-allowed hover:border-fg-muted/60 focus-visible:outline-none focus-visible:border-border-strong',
+              'w-full flex items-center justify-between gap-2 border bg-surface text-fg shadow-xs transition-colors cursor-pointer select-none outline-none disabled:opacity-50 disabled:cursor-not-allowed',
+              error
+                ? 'border-danger-dot focus-visible:border-danger-fg'
+                : 'border-border-strong hover:border-fg-muted/60 focus-visible:border-border-strong',
+              'aria-invalid:border-danger-dot',
               triggerSizeClass,
-              open && 'border-border-strong bg-subtle/50'
+              open && 'bg-subtle/50'
             )}
           >
             <div className="flex items-center gap-2 min-w-0">
@@ -219,6 +246,17 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         </PopoverPrimitive.Content>
         )}
       </PopoverPrimitive.Root>
+
+      {error && (
+        <p
+          id={errorId}
+          role="alert"
+          className="text-small text-danger-fg flex items-center gap-1.5 mt-1"
+        >
+          <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+          <span>{error}</span>
+        </p>
+      )}
     </div>
   );
 };

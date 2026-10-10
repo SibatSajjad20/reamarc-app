@@ -183,7 +183,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
   const handleDeleteOption = async (index: number) => {
     if (!canEdit) return;
     if (creativeTypes.length <= 1) {
-      addToast('At least one option must remain', 'error');
+      addToast('At least one option must remain', undefined, 'error');
       return;
     }
     const updated = creativeTypes.filter((_, i) => i !== index);
@@ -208,7 +208,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
       (item, i) => i !== index && item.toLowerCase() === trimmed.toLowerCase()
     );
     if (existsOther) {
-      addToast(`"${trimmed}" already exists`, 'error');
+      addToast(`"${trimmed}" already exists`, undefined, 'error');
       return;
     }
     const updated = [...creativeTypes];
@@ -318,7 +318,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
                   </Button>
                 </div>
                 {optionInputError && (
-                  <p className="text-xs text-danger font-medium">{optionInputError}</p>
+                  <p className="text-xs text-danger-fg font-medium">{optionInputError}</p>
                 )}
               </form>
 

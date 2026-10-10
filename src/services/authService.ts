@@ -8,6 +8,7 @@ import { adminService } from './adminService';
 import { logExceptionService } from './logExceptionService';
 import { workspaceService } from './workspaceService';
 import { marketingService } from './marketingService';
+import { emitInvalidation } from '../utils/cacheBus';
 import type { AuthUser, LoginPayload, AuthResponse } from '../types/auth';
 
 export const authService = {
@@ -27,6 +28,42 @@ export const authService = {
     new_password?: string;
   }): Promise<AuthUser> {
     return apiClient.put<AuthUser>('/auth/me/profile', payload);
+  },
+
+  async uploadAvatar(file: File | Blob): Promise<AuthUser> {
+    const formData = new FormData();
+    formData.append('file', file, 'avatar.webp');
+    const updatedUser = await apiClient.upload<AuthUser>('/users/me/avatar', formData);
+    try {
+      const cached = adminService.getCachedMembers();
+      if (cached?.data) {
+        const patched = cached.data.map((m) =>
+          m.id === updatedUser.id ? { ...m, avatar_url: updatedUser.avatar_url } : m
+        );
+        adminService.setCachedMembers(patched);
+      }
+    } catch {
+      // ignore
+    }
+    emitInvalidation(['admin.members', 'dashboard']);
+    return updatedUser;
+  },
+
+  async deleteAvatar(): Promise<AuthUser> {
+    const updatedUser = await apiClient.delete<AuthUser>('/users/me/avatar');
+    try {
+      const cached = adminService.getCachedMembers();
+      if (cached?.data) {
+        const patched = cached.data.map((m) =>
+          m.id === updatedUser.id ? { ...m, avatar_url: null } : m
+        );
+        adminService.setCachedMembers(patched);
+      }
+    } catch {
+      // ignore
+    }
+    emitInvalidation(['admin.members', 'dashboard']);
+    return updatedUser;
   },
 
   async logout(): Promise<void> {

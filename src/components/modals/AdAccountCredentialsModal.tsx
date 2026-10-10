@@ -16,6 +16,7 @@ import {
 import { Button, IconButton } from '../ui/button';
 import { Callout } from '../ui/Callout';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
+import { CustomSelect } from '../ui/CustomSelect';
 import { MetaIcon, GoogleAdsIcon } from '../ui/brand-icons';
 import type { Workspace } from '../../types';
 import type { AdAccount } from '../../types/admin';
@@ -200,9 +201,9 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       {cred.platform === 'Meta' ? (
-                        <MetaIcon size={14} className="text-fg shrink-0" />
+                        <MetaIcon size={14} variant="brand" className="shrink-0" />
                       ) : (
-                        <GoogleAdsIcon size={14} className="text-fg shrink-0" />
+                        <GoogleAdsIcon size={14} variant="brand" className="shrink-0" />
                       )}
                       <span className="font-medium text-fg truncate">
                         {cred.workspace_name}
@@ -229,14 +230,14 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-ui font-medium text-fg mb-1">Platform</label>
-                <select
+                <CustomSelect
                   value={platform}
-                  onChange={(e) => setPlatform(e.target.value as any)}
-                  className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg focus:outline-none focus:border-accent"
-                >
-                  <option value="Meta">Meta Ads</option>
-                  <option value="Google">Google Ads</option>
-                </select>
+                  onChange={(val) => setPlatform(val as any)}
+                  options={[
+                    { value: 'Meta', label: 'Meta Ads', icon: MetaIcon },
+                    { value: 'Google', label: 'Google Ads', icon: GoogleAdsIcon },
+                  ]}
+                />
               </div>
 
               <div>

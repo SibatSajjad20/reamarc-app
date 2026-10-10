@@ -14,6 +14,7 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
 import { adminService } from '../../services/adminService';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import { getAttendanceMinDate } from '../../constants/attendance';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
@@ -462,6 +463,28 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
     void init();
   }, [isManagementRole]);
 
+  // SWR: Revalidate quietly on domain invalidations without resetting skeletons or unmounting
+  useCacheInvalidation(['attendance', 'requests', 'approvals'], (key) => {
+    if (key === 'requests' || key === 'approvals') {
+      void loadRequests(true);
+    }
+    if (key === 'attendance' || key === 'approvals') {
+      if (isManagementRole) {
+        if (activeTab === 'daily-matrix') {
+          void loadMatrix(matrixDate, selectedDepartment !== 'All' ? selectedDepartment : undefined);
+        } else if (activeTab === 'punctuality-hub') {
+          void loadMonthlySummary(
+            selectedYear,
+            selectedMonth,
+            selectedDepartment !== 'All' ? selectedDepartment : undefined,
+            true
+          );
+        }
+      }
+      void loadTimesheet(selectedYear, selectedMonth, true);
+    }
+  });
+
   useEffect(() => {
     attendanceService
       .getAttendanceConfig()
@@ -569,6 +592,13 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       void loadRequests();
     }
   }, [isManagementRole, activeTab, employeeTab, loadRequests]);
+
+  // Load directory members on mount for management roles so avatar URLs are cached
+  useEffect(() => {
+    if (isManagementRole) {
+      void loadDirectoryMembers();
+    }
+  }, [isManagementRole, loadDirectoryMembers]);
 
   // Clean up abort controllers on unmount
   useEffect(() => {

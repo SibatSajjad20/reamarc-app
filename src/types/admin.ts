@@ -17,6 +17,7 @@ export interface AdminMember {
   is_active: boolean;
   created_at?: string;
   workspace_ids?: string[];
+  avatar_url?: string | null;
 }
 
 export type AdminUser = AdminMember;

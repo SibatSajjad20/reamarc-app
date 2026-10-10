@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { detectPublicIp } from '../utils/publicIp';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type {
   TodayAttendanceResponse,
   AttendanceRecord,
@@ -155,10 +156,14 @@ class AttendanceService {
    */
   public async checkIn(payload: CheckInPayload): Promise<AttendanceRecord> {
     const publicIp = payload.detected_public_ip || (await detectPublicIp()) || undefined;
-    return apiClient.post<AttendanceRecord>('/attendance/check-in', {
+    const res = await apiClient.post<AttendanceRecord>('/attendance/check-in', {
       ...payload,
       detected_public_ip: publicIp,
     });
+    this.todayStatusCache.clear();
+    this.myTimesheetCache.clear();
+    emitInvalidation(['attendance', 'dashboard', 'daily-log']);
+    return res;
   }
 
   /**
@@ -166,17 +171,25 @@ class AttendanceService {
    */
   public async checkOut(payload: CheckOutPayload = {}): Promise<AttendanceRecord> {
     const publicIp = payload.detected_public_ip || (await detectPublicIp()) || undefined;
-    return apiClient.post<AttendanceRecord>('/attendance/check-out', {
+    const res = await apiClient.post<AttendanceRecord>('/attendance/check-out', {
       ...payload,
       detected_public_ip: publicIp,
     });
+    this.todayStatusCache.clear();
+    this.myTimesheetCache.clear();
+    emitInvalidation(['attendance', 'dashboard', 'daily-log']);
+    return res;
   }
 
   /**
    * Start or end break interval
    */
   public async toggleBreak(payload: BreakActionPayload): Promise<AttendanceRecord> {
-    return apiClient.post<AttendanceRecord>('/attendance/break', payload);
+    const res = await apiClient.post<AttendanceRecord>('/attendance/break', payload);
+    this.todayStatusCache.clear();
+    this.myTimesheetCache.clear();
+    emitInvalidation(['attendance', 'dashboard', 'daily-log']);
+    return res;
   }
 
   /**
@@ -261,42 +274,66 @@ class AttendanceService {
    * Submit a self-service request (Leave, Short Leave, WFH, Regularization)
    */
   public async createRequest(payload: CreateLeavePayload): Promise<AttendanceRequest> {
-    return apiClient.post<AttendanceRequest>('/leaves/requests', payload);
+    const res = await apiClient.post<AttendanceRequest>('/leaves/requests', payload);
+    this.requestsCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
    * Review (Approve / Reject / Request Clarification) an attendance request with audit comment
    */
   public async reviewRequest(requestId: string, payload: ReviewLeavePayload): Promise<AttendanceRequest> {
-    return apiClient.patch<AttendanceRequest>(`/leaves/requests/${requestId}/status`, payload);
+    const res = await apiClient.patch<AttendanceRequest>(`/leaves/requests/${requestId}/status`, payload);
+    this.requestsCache.clear();
+    this.matrixCache.clear();
+    this.monthlySummaryCache.clear();
+    this.employeeTimesheetCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
    * Submit employee clarification for a request with 'needs_info' status
    */
   public async clarifyRequest(requestId: string, payload: ClarifyLeavePayload): Promise<AttendanceRequest> {
-    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/clarify`, payload);
+    const res = await apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/clarify`, payload);
+    this.requestsCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
    * Submit single-use appeal for a rejected request
    */
   public async appealRequest(requestId: string, payload: AppealLeavePayload): Promise<AttendanceRequest> {
-    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/appeal`, payload);
+    const res = await apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/appeal`, payload);
+    this.requestsCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
    * Edit or reverse the status of an already resolved request
    */
   public async editRequestStatus(requestId: string, payload: EditLeaveStatusPayload): Promise<AttendanceRequest> {
-    return apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/edit-status`, payload);
+    const res = await apiClient.post<AttendanceRequest>(`/leaves/requests/${requestId}/edit-status`, payload);
+    this.requestsCache.clear();
+    this.matrixCache.clear();
+    this.monthlySummaryCache.clear();
+    this.employeeTimesheetCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
    * Delete an accidental or incorrect attendance request
    */
   public async deleteRequest(requestId: string): Promise<{ success: boolean; message: string }> {
-    return apiClient.delete<{ success: boolean; message: string }>(`/leaves/requests/${requestId}`);
+    const res = await apiClient.delete<{ success: boolean; message: string }>(`/leaves/requests/${requestId}`);
+    this.requestsCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res;
   }
 
   /**
@@ -323,28 +360,36 @@ class AttendanceService {
     weekday_rules?: ShiftAssignment['weekday_rules'];
     date_overrides?: ShiftAssignment['date_overrides'];
   }): Promise<ShiftAssignment> {
-    return apiClient.post<ShiftAssignment>('/shifts/assignments', payload);
+    const res = await apiClient.post<ShiftAssignment>('/shifts/assignments', payload);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
    * Create a new shift template (HR / Admin)
    */
   public async createShift(shift: Partial<ShiftTemplate>): Promise<ShiftTemplate> {
-    return apiClient.post<ShiftTemplate>('/shifts', shift);
+    const res = await apiClient.post<ShiftTemplate>('/shifts', shift);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
    * Update an existing shift template (HR / Admin)
    */
   public async updateShift(id: string, shift: Partial<ShiftTemplate>): Promise<ShiftTemplate> {
-    return apiClient.put<ShiftTemplate>(`/shifts/${id}`, shift);
+    const res = await apiClient.put<ShiftTemplate>(`/shifts/${id}`, shift);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
    * Delete a shift template (HR / Admin)
    */
   public async deleteShift(id: string): Promise<{ message: string; id: string }> {
-    return apiClient.delete<{ message: string; id: string }>(`/shifts/${id}`);
+    const res = await apiClient.delete<{ message: string; id: string }>(`/shifts/${id}`);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
@@ -358,7 +403,9 @@ class AttendanceService {
    * Update attendance security settings (HR / Admin)
    */
   public async updateSecuritySettings(settings: Partial<SecuritySettings>): Promise<SecuritySettings> {
-    return apiClient.put<SecuritySettings>('/attendance/settings', settings);
+    const res = await apiClient.put<SecuritySettings>('/attendance/settings', settings);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
@@ -386,14 +433,18 @@ class AttendanceService {
    * Create a new company calendar event / holiday (HR / Admin)
    */
   public async createCalendarEvent(payload: Partial<CompanyCalendarEvent>): Promise<CompanyCalendarEvent> {
-    return apiClient.post<CompanyCalendarEvent>('/company-calendar', payload);
+    const res = await apiClient.post<CompanyCalendarEvent>('/company-calendar', payload);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
    * Delete a company calendar event (HR / Admin)
    */
   public async deleteCalendarEvent(id: string): Promise<{ message: string; id: string }> {
-    return apiClient.delete<{ message: string; id: string }>(`/company-calendar/${id}`);
+    const res = await apiClient.delete<{ message: string; id: string }>(`/company-calendar/${id}`);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
@@ -403,7 +454,13 @@ class AttendanceService {
     recordId: string,
     payload: OverrideAttendancePayload
   ): Promise<AttendanceRecord> {
-    return apiClient.patch<AttendanceRecord>(`/attendance/records/${recordId}/override`, payload);
+    const res = await apiClient.patch<AttendanceRecord>(`/attendance/records/${recordId}/override`, payload);
+    this.matrixCache.clear();
+    this.monthlySummaryCache.clear();
+    this.employeeTimesheetCache.clear();
+    this.myTimesheetCache.clear();
+    emitInvalidation(['attendance', 'dashboard', 'daily-log']);
+    return res;
   }
 
   public async getAttendanceConfig(): Promise<AttendanceConfig> {
@@ -430,7 +487,9 @@ class AttendanceService {
       sick_entitled?: number;
     }
   ): Promise<LeaveBalance> {
-    return apiClient.put<LeaveBalance>(`/leaves/balances/${encodeURIComponent(userId)}`, payload);
+    const res = await apiClient.put<LeaveBalance>(`/leaves/balances/${encodeURIComponent(userId)}`, payload);
+    emitInvalidation(['attendance', 'settings', 'dashboard']);
+    return res;
   }
 
   /**
@@ -441,7 +500,9 @@ class AttendanceService {
     date: string;
     note?: string;
   }): Promise<import('../types/attendance').MissedPunchInquiry> {
-    return apiClient.post<import('../types/attendance').MissedPunchInquiry>('/attendance/missed-punch-inquiries', payload);
+    const res = await apiClient.post<import('../types/attendance').MissedPunchInquiry>('/attendance/missed-punch-inquiries', payload);
+    emitInvalidation(['attendance', 'dashboard']);
+    return res;
   }
 
   /**
@@ -474,10 +535,15 @@ class AttendanceService {
     inquiryId: string,
     payload: { check_out: string; reason: string }
   ): Promise<{ message: string; attendance_record: AttendanceRecord }> {
-    return apiClient.post<{ message: string; attendance_record: AttendanceRecord }>(
+    const res = await apiClient.post<{ message: string; attendance_record: AttendanceRecord }>(
       `/attendance/missed-punch-inquiries/${inquiryId}/respond`,
       payload
     );
+    this.matrixCache.clear();
+    this.myTimesheetCache.clear();
+    this.todayStatusCache.clear();
+    emitInvalidation(['attendance', 'dashboard', 'daily-log']);
+    return res;
   }
 
   /**
@@ -494,4 +560,7 @@ class AttendanceService {
 }
 
 export const attendanceService = new AttendanceService();
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => attendanceService.clearAllCaches());
 

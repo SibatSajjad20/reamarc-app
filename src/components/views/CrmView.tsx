@@ -13,17 +13,20 @@ import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { crmService } from '../../services/crmService';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import { canAssignCrmLeads } from '../../utils/crmAccess';
 import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 import { followUpBucket, isClosedLeadOutcome } from '../../utils/followUpBuckets';
 import { formatOpenDealTotals } from '../../utils/money';
-import { getInitials } from '../../utils/badgeStyles';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 import { CustomSelect } from '../ui/CustomSelect';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { StatusPill } from '../ui/StatusPill';
-import { KanbanSkeleton } from '../ui/Skeletons';
+import { KanbanSkeleton, FollowUpSkeleton } from '../ui/Skeletons';
+import { Skeleton } from '../ui/skeleton';
 import { TableCard, Table, THead, TH, TBody, TR, TD, TableSkeletonRows } from '../ui/DataTable';
 import { CrmCreateLeadModal } from '../crm/CrmCreateLeadModal';
 import { CrmKanbanBoard } from '../crm/CrmKanbanBoard';
@@ -101,13 +104,26 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const { addToast } = useToast();
   const canAssign = canAssignCrmLeads(user);
 
-  const [leads, setLeads] = useState<CrmLead[]>([]);
-  const [counts, setCounts] = useState<CrmCounts>(EMPTY_COUNTS);
-  const [stages, setStages] = useState<CrmPipelineStage[]>([]);
-  const [assignees, setAssignees] = useState<CrmAssignee[]>([]);
-  const [templates, setTemplates] = useState<CrmTemplate[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const cachedLeadsEntry = useMemo(() => crmService.getCachedLeads(), []);
+  const cachedCountsEntry = useMemo(() => crmService.getCachedCounts(), []);
+  const cachedPipelineEntry = useMemo(() => crmService.getCachedPipeline(), []);
+  const cachedAssigneesEntry = useMemo(() => crmService.getCachedAssignees(), []);
+  const cachedTemplatesEntry = useMemo(() => crmService.getCachedTemplates(), []);
+  const cachedDealsEntry = useMemo(() => crmService.getCachedDeals(), []);
+  const cachedDealPipelineEntry = useMemo(() => crmService.getCachedDealPipeline(), []);
+
+  const hasCache = !!(cachedLeadsEntry || cachedPipelineEntry);
+
+  const [leads, setLeads] = useState<CrmLead[]>(() => cachedLeadsEntry?.data.items || []);
+  const [counts, setCounts] = useState<CrmCounts>(() => cachedCountsEntry?.data || EMPTY_COUNTS);
+  const [stages, setStages] = useState<CrmPipelineStage[]>(() => cachedPipelineEntry?.data.stages || []);
+  const [assignees, setAssignees] = useState<CrmAssignee[]>(() => cachedAssigneesEntry?.data || []);
+  const [templates, setTemplates] = useState<CrmTemplate[]>(() => cachedTemplatesEntry?.data || []);
+  const [pipelineDeals, setPipelineDeals] = useState<CrmDeal[]>(() => cachedDealsEntry?.data.deals || []);
+  const [dealStages, setDealStages] = useState<CrmPipelineStage[]>(() => cachedDealPipelineEntry?.data.stages || []);
+  const [isLoading, setIsLoading] = useState(!hasCache);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const { getAvatarUrl } = useMemberAvatars();
   useModuleLoadGate(isLoading);
 
   const loadAbortRef = useRef<AbortController | null>(null);
@@ -115,7 +131,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const detailAbortRef = useRef<AbortController | null>(null);
   const detailReqIdRef = useRef(0);
   const pollAbortRef = useRef<AbortController | null>(null);
-  const hasLoadedOnceRef = useRef(false);
+  const hasLoadedOnceRef = useRef(hasCache);
   const selectedIdRef = useRef<string | null>(null);
 
   const [search, setSearch] = useState('');
@@ -128,8 +144,6 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const [editingDeal, setEditingDeal] = useState<CrmDeal | null>(null);
   const [newDealFormKey, setNewDealFormKey] = useState(0);
   const [drawerInitialTab, setDrawerInitialTab] = useState<'overview' | 'brief' | 'activity' | 'deals'>('overview');
-  const [pipelineDeals, setPipelineDeals] = useState<CrmDeal[]>([]);
-  const [dealStages, setDealStages] = useState<CrmPipelineStage[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<CrmLeadDetail | null>(null);
@@ -239,6 +253,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       loadAbortRef.current?.abort();
     };
   }, [load]);
+
+  useCacheInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts'], () => {
+    void load();
+  });
 
   // Performance-optimized polling: 10s cadence, pause when hidden, backoff on 429
   useEffect(() => {
@@ -545,11 +563,15 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                         ? 'All leads'
                         : 'Sales pipeline'}
                 </span>
-                <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-subtle text-fg-muted border border-border font-numeric">
-                  {viewMode === 'deals'
-                    ? `${pipelineDeals.length}`
-                    : `${quickFilter === 'all' ? activeLeadCount : displayLeads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length}`}
-                </span>
+                {isLoading ? (
+                  <Skeleton className="w-5 h-4 rounded-full" />
+                ) : (
+                  <span className="px-2 py-0.5 text-xs font-semibold rounded-full bg-subtle text-fg-muted border border-border font-numeric">
+                    {viewMode === 'deals'
+                      ? `${pipelineDeals.length}`
+                      : `${quickFilter === 'all' ? activeLeadCount : displayLeads.filter((lead) => !isClosedLeadOutcome(lead.outcome)).length}`}
+                  </span>
+                )}
                 {isRefreshing && (
                   <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg-muted">
                     <span className="w-3 h-3 rounded-full border-2 border-border border-t-accent motion-safe:animate-spin" />
@@ -572,25 +594,25 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                     <div className="flex items-center gap-3 text-xs me-2">
                       <span><strong className="font-semibold font-numeric text-fg">{openDeals.length}</strong> <span className="text-fg-muted">open deals</span></span>
                       {openDealValueLabel && <span><strong className="font-semibold font-numeric text-fg">{openDealValueLabel}</strong> <span className="text-fg-muted">pipeline</span></span>}
-                      {pendingOpsDealCount > 0 && <span><strong className="font-semibold font-numeric text-warning">{pendingOpsDealCount}</strong> <span className="text-fg-muted">pending ops</span></span>}
+                      {pendingOpsDealCount > 0 && <span><strong className="font-semibold font-numeric text-warning-fg">{pendingOpsDealCount}</strong> <span className="text-fg-muted">pending ops</span></span>}
                       {counts.win_rate != null && <span><strong className="font-semibold font-numeric text-fg">{counts.win_rate}%</strong> <span className="text-fg-muted">win rate</span></span>}
                     </div>
                   ) : (
                     <div className="flex items-center gap-3 text-xs me-2">
                       <span><strong className="font-semibold font-numeric text-fg">{activeLeadCount}</strong> <span className="text-fg-muted">open leads</span></span>
                       {counts.win_rate != null && <span><strong className="font-semibold font-numeric text-fg">{counts.win_rate}%</strong> <span className="text-fg-muted">win rate</span></span>}
-                      {counts.uncontacted > 0 && <span><strong className="font-semibold font-numeric text-warning">{counts.uncontacted}</strong> <span className="text-fg-muted">uncontacted</span></span>}
+                      {counts.uncontacted > 0 && <span><strong className="font-semibold font-numeric text-warning-fg">{counts.uncontacted}</strong> <span className="text-fg-muted">uncontacted</span></span>}
                       {overdueFollowUpCount > 0 && (
                         <button
                           type="button"
                           onClick={() => setQuickFilter('overdue')}
                           className="cursor-pointer hover:underline text-xs"
                         >
-                          <strong className="font-semibold font-numeric text-danger">{overdueFollowUpCount}</strong> <span className="text-fg-muted">follow-up overdue</span>
+                          <strong className="font-semibold font-numeric text-danger-fg">{overdueFollowUpCount}</strong> <span className="text-fg-muted">follow-up overdue</span>
                         </button>
                       )}
-                      {counts.opened_not_confirmed > 0 && <span><strong className="font-semibold font-numeric text-warning">{counts.opened_not_confirmed}</strong> <span className="text-fg-muted">opened, not confirmed</span></span>}
-                      {pendingClientFormCount > 0 && <span><strong className="font-semibold font-numeric text-warning">{pendingClientFormCount}</strong> <span className="text-fg-muted">need client form</span></span>}
+                      {counts.opened_not_confirmed > 0 && <span><strong className="font-semibold font-numeric text-warning-fg">{counts.opened_not_confirmed}</strong> <span className="text-fg-muted">opened, not confirmed</span></span>}
+                      {pendingClientFormCount > 0 && <span><strong className="font-semibold font-numeric text-warning-fg">{pendingClientFormCount}</strong> <span className="text-fg-muted">need client form</span></span>}
                     </div>
                   )
                 )}
@@ -680,9 +702,20 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
 
         {/* View Mode Content */}
         {isLoading ? (
-          viewMode === 'board' || viewMode === 'deals' ? <CrmBoardSkeleton /> : <CrmTableSkeleton />
+          viewMode === 'board' || viewMode === 'deals' ? (
+            <CrmBoardSkeleton />
+          ) : viewMode === 'followup' ? (
+            <FollowUpSkeleton />
+          ) : (
+            <CrmTableSkeleton />
+          )
         ) : (
-          <div className={`flex-1 flex flex-col min-h-0 min-w-0 ${isRefreshing ? 'opacity-90' : ''}`}>
+          <div className="flex-1 flex flex-col min-h-0 min-w-0 relative">
+            {isRefreshing && (
+              <div className="h-0.5 w-full bg-accent/20 overflow-hidden shrink-0 absolute top-0 left-0 z-10">
+                <div className="h-full bg-accent w-1/3 animate-pulse" />
+              </div>
+            )}
         {viewMode === 'followup' ? (
           <CrmFollowUpView
             leads={displayLeads}
@@ -844,9 +877,12 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                         <TD>
                           {lead.assigned_to_name ? (
                             <div className="flex items-center gap-1.5">
-                              <span className="w-5 h-5 rounded-full bg-accent-soft text-accent text-micro font-medium inline-flex items-center justify-center shrink-0">
-                                {getInitials(lead.assigned_to_name)}
-                              </span>
+                              <Avatar
+                                name={lead.assigned_to_name}
+                                src={getAvatarUrl(lead.assigned_to, lead.assigned_to_name)}
+                                size={20}
+                                className="rounded-full shrink-0 text-micro"
+                              />
                               <span className="text-small font-medium text-fg">{lead.assigned_to_name}</span>
                             </div>
                           ) : (

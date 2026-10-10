@@ -16,6 +16,7 @@ interface StageCountCardProps {
   stages: StageItem[];
   layout?: 'single-col' | 'two-col';
   isLoading?: boolean;
+  isError?: boolean;
   className?: string;
 }
 
@@ -28,6 +29,7 @@ export const StageCountCard: React.FC<StageCountCardProps> = ({
   layout = 'single-col',
   className,
   isLoading,
+  isError,
 }) => {
   const totalCount = stages.reduce((acc, s) => acc + (s.count || 0), 0);
 
@@ -69,6 +71,10 @@ export const StageCountCard: React.FC<StageCountCardProps> = ({
                 <Skeleton className="w-6 h-3.5 rounded-sm" />
               </div>
             ))}
+          </div>
+        ) : isError ? (
+          <div className="py-6 text-center text-xs text-danger-fg">
+            Failed to load stages
           </div>
         ) : stages.length === 0 ? (
           <div className="py-6 text-center text-xs text-fg-muted">

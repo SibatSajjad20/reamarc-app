@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Copy,
   Check,
   RefreshCw,
   Eye,
   EyeOff,
+  AlertCircle,
 } from 'lucide-react';
 import {
   Dialog,
@@ -17,12 +18,15 @@ import {
 import { Button, IconButton } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
 import type { UserRole } from '../../types/auth';
 import type { AdminMember, EmploymentType, UpdateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { workspaceService } from '../../services/workspaceService';
 import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave, phoneForInput } from '../../utils/phone';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 export const DEPARTMENTS = [
   'Website',
@@ -83,7 +87,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   useEffect(() => {
     if (isOpen && member) {
@@ -105,7 +112,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setIsActive(member.is_active !== undefined ? member.is_active : true);
       setWorkspaceIds(member.workspace_ids || []);
       setCopied(false);
-      setErrorMsg(null);
+      setFieldErrors({});
+      setServerError(null);
+      setHasSubmitted(false);
     }
   }, [isOpen, member]);
 
@@ -144,36 +153,46 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     );
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!member) return;
-    setErrorMsg(null);
-
+  const validate = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
     if (!fullName.trim()) {
-      setErrorMsg('Full name is required');
-      return;
+      errs.fullName = 'Full name is required';
     }
     const normalizedEmail = email.trim().toLowerCase();
     if (!normalizedEmail || !looksLikeEmail(normalizedEmail)) {
-      setErrorMsg('A valid work email is required');
-      return;
+      errs.email = 'A valid work email is required';
     }
-
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
     if (phone.trim() && !normalizedPhone) {
-      setErrorMsg('Invalid phone number format');
-      return;
+      errs.phone = 'Invalid phone number format';
     }
-
     if (role === 'client' && workspaceIds.length === 0) {
-      setErrorMsg('Please select at least one client workspace to link');
+      errs.workspaceIds = 'Please select at least one client workspace to link';
+    }
+    if (role !== 'client' && selectedDepartments.length === 0 && role !== 'admin' && role !== 'operations') {
+      errs.departments = 'Please select at least one department';
+    }
+    return errs;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!member) return;
+    setHasSubmitted(true);
+    setServerError(null);
+
+    const errs = validate();
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
       return;
     }
 
-    if (role !== 'client' && selectedDepartments.length === 0 && role !== 'admin' && role !== 'operations') {
-      setErrorMsg('Please select at least one department');
-      return;
-    }
+    const normalizedEmail = email.trim().toLowerCase();
+    const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
 
     try {
       setIsSubmitting(true);
@@ -195,7 +214,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       await onSubmit(member.id, payload);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to update member profile');
+      setServerError(err.message || 'Failed to update member profile');
     } finally {
       setIsSubmitting(false);
     }
@@ -215,13 +234,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         </DialogHeader>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
-          {errorMsg && (
-            <div className="p-3 text-ui font-medium text-danger-fg bg-danger-bg border border-danger-bd rounded-md">
-              {errorMsg}
-            </div>
-          )}
-
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
           {/* Row 1: Full name + Work email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -230,11 +243,28 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </label>
               <input
                 type="text"
+                name="fullName"
                 required
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  if (hasSubmitted) {
+                    if (e.target.value.trim()) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.fullName; return n; });
+                    }
+                  }
+                }}
+                aria-invalid={!!fieldErrors.fullName}
+                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                  fieldErrors.fullName ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                }`}
               />
+              {fieldErrors.fullName && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.fullName}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -243,11 +273,29 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </label>
               <input
                 type="email"
+                name="email"
                 required
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                onChange={(e) => {
+                  setEmail(e.target.value);
+                  if (hasSubmitted) {
+                    const norm = e.target.value.trim().toLowerCase();
+                    if (norm && looksLikeEmail(norm)) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.email; return n; });
+                    }
+                  }
+                }}
+                aria-invalid={!!fieldErrors.email}
+                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                  fieldErrors.email ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                }`}
               />
+              {fieldErrors.email && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.email}</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -259,22 +307,38 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </label>
               <input
                 type="tel"
+                name="phone"
                 placeholder="+92 300 1234567"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  if (hasSubmitted) {
+                    const norm = e.target.value.trim() ? normalizePhoneForSave(e.target.value) : undefined;
+                    if (!e.target.value.trim() || norm) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.phone; return n; });
+                    }
+                  }
+                }}
+                aria-invalid={!!fieldErrors.phone}
+                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                  fieldErrors.phone ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                }`}
               />
+              {fieldErrors.phone && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.phone}</span>
+                </div>
+              )}
             </div>
 
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
                 Joining date
               </label>
-              <input
-                type="date"
+              <CustomDatePicker
                 value={joiningDate}
-                onChange={(e) => setJoiningDate(e.target.value)}
-                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                onChange={setJoiningDate}
               />
             </div>
           </div>
@@ -342,6 +406,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   );
                 })}
               </div>
+              {fieldErrors.workspaceIds && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.workspaceIds}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -358,7 +428,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                     <button
                       key={dept}
                       type="button"
-                      onClick={() => toggleDepartment(dept)}
+                      onClick={() => {
+                        toggleDepartment(dept);
+                        if (hasSubmitted) {
+                          setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
+                        }
+                      }}
                       className={`h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
                         isSelected
                           ? 'bg-accent-soft border-accent-200 text-accent-text'
@@ -371,6 +446,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   );
                 })}
               </div>
+              {fieldErrors.departments && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.departments}</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -451,18 +532,34 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         </form>
 
         {/* Footer */}
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            loading={isSubmitting}
-            disabled={isSubmitting}
-          >
-            Save changes
-          </Button>
+        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FormErrorSummaryButton
+              count={Object.keys(fieldErrors).length}
+              onClick={() => {
+                if (formRef.current) focusFirstError(formRef.current);
+              }}
+            />
+            {serverError && (
+              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{serverError}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+            >
+              Save changes
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

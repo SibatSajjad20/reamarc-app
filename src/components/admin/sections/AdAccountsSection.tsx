@@ -36,7 +36,7 @@ interface AdAccountsSectionProps {
 
 export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
   adAccounts,
-  workspaces,
+  workspaces: _workspaces,
   onAddAccount,
   onEditAccount,
   onDeleteAccount,
@@ -46,27 +46,16 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlatformFilter, setSelectedPlatformFilter] = useState<'all' | 'meta' | 'google'>('all');
 
-  // Build a lookup map for workspace names
-  const workspaceMap = useMemo(() => {
-    const map: Record<string, string> = {};
-    workspaces.forEach((w) => {
-      map[w.id] = w.name;
-    });
-    return map;
-  }, [workspaces]);
-
   const filteredAccounts = useMemo(() => {
     return adAccounts.filter((acc) => {
       const q = searchQuery.toLowerCase().trim();
-      const wsName = (acc.workspace_name || workspaceMap[acc.workspace_id || ''] || '').toLowerCase();
 
       const matchesQuery =
         !q ||
         acc.name.toLowerCase().includes(q) ||
         acc.platform.toLowerCase().includes(q) ||
         acc.account_id.toLowerCase().includes(q) ||
-        (acc.pixel_id && acc.pixel_id.toLowerCase().includes(q)) ||
-        wsName.includes(q);
+        (acc.pixel_id && acc.pixel_id.toLowerCase().includes(q));
 
       const pLower = (acc.platform || '').toLowerCase();
       let matchesPlatform = true;
@@ -78,7 +67,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
 
       return matchesQuery && matchesPlatform;
     });
-  }, [adAccounts, searchQuery, selectedPlatformFilter, workspaceMap]);
+  }, [adAccounts, searchQuery, selectedPlatformFilter]);
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto p-6 space-y-6">
@@ -147,7 +136,6 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
             <TR>
               <TH>Platform & Account</TH>
               <TH>Account ID</TH>
-              <TH>Workspace</TH>
               <TH>Connection status</TH>
               <TH>Currency</TH>
               <TH>Last sync</TH>
@@ -157,7 +145,7 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
           <TBody>
             {filteredAccounts.length === 0 ? (
               <TableEmptyRow
-                colSpan={canManageAdAccounts ? 7 : 6}
+                colSpan={canManageAdAccounts ? 6 : 5}
                 title="No ad accounts yet"
                 description={
                   searchQuery || selectedPlatformFilter !== 'all'
@@ -170,7 +158,6 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                 const isMeta =
                   acc.platform.toLowerCase().includes('meta') ||
                   acc.platform.toLowerCase().includes('facebook');
-                const wsName = acc.workspace_name || workspaceMap[acc.workspace_id || ''] || 'Unassigned';
 
                 return (
                   <TR key={acc.id} className="hover:bg-hover transition-colors">
@@ -179,9 +166,9 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-md bg-subtle border border-border flex items-center justify-center shrink-0 text-fg">
                           {isMeta ? (
-                            <MetaIcon size={16} className="text-fg" />
+                            <MetaIcon size={16} variant="brand" />
                           ) : (
-                            <GoogleAdsIcon size={16} className="text-fg" />
+                            <GoogleAdsIcon size={16} variant="brand" />
                           )}
                         </div>
                         <div className="min-w-0">
@@ -198,11 +185,6 @@ export const AdAccountsSection: React.FC<AdAccountsSectionProps> = ({
                     {/* Account ID (Mono) */}
                     <TD className="font-mono text-caption text-fg-muted">
                       {acc.account_id}
-                    </TD>
-
-                    {/* Workspace */}
-                    <TD className="text-fg-muted text-caption">
-                      {wsName}
                     </TD>
 
                     {/* Connection Status Pill */}

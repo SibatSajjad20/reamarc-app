@@ -27,6 +27,7 @@ class UserResponse(BaseModel):
     workspace_ids: List[str] = []
     crm_enabled: Optional[bool] = None
     crm_paused: Optional[bool] = None
+    avatar_url: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

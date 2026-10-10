@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -9,8 +10,11 @@ import {
 } from '../ui/dialog';
 import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
+import { MetaIcon, GoogleAdsIcon } from '../ui/brand-icons';
 import type { AdAccount, CreateAdAccountPayload, UpdateAdAccountPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 interface AdAccountModalProps {
   isOpen: boolean;
@@ -40,7 +44,10 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
   const [currency, setCurrency] = useState('USD');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -59,20 +66,35 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
         setWorkspaceId(workspaces[0]?.id || '');
         setCurrency('USD');
       }
-      setErrorMsg(null);
+      setFieldErrors({});
+      setServerError(null);
+      setHasSubmitted(false);
     }
   }, [isOpen, adAccountToEdit, workspaces]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg(null);
-
+  const validate = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
     if (!name.trim()) {
-      setErrorMsg('Account name is required');
-      return;
+      errs.name = 'Account name is required';
     }
     if (!accountId.trim()) {
-      setErrorMsg('Account ID is required');
+      errs.accountId = 'Account ID is required';
+    }
+    return errs;
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setHasSubmitted(true);
+    setServerError(null);
+
+    const errs = validate();
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
       return;
     }
 
@@ -90,7 +112,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
       await onSave(payload, adAccountToEdit?.id);
       onClose();
     } catch (err: any) {
-      setErrorMsg(err.message || 'Failed to save advertising account');
+      setServerError(err.message || 'Failed to save advertising account');
     } finally {
       setIsSubmitting(false);
     }
@@ -115,13 +137,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
-          {errorMsg && (
-            <div className="p-3 text-ui font-medium text-danger-fg bg-danger-bg border border-danger-bd rounded-md">
-              {errorMsg}
-            </div>
-          )}
-
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
           {/* Account Name */}
           <div>
             <label className="block text-ui font-medium text-fg mb-1.5">
@@ -129,12 +145,27 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
             </label>
             <input
               type="text"
+              name="name"
               required
               placeholder="e.g. Apex Transfers - Meta Main"
               value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+              onChange={(e) => {
+                setName(e.target.value);
+                if (hasSubmitted && e.target.value.trim()) {
+                  setFieldErrors((prev) => { const n = { ...prev }; delete n.name; return n; });
+                }
+              }}
+              aria-invalid={!!fieldErrors.name}
+              className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                fieldErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+              }`}
             />
+            {fieldErrors.name && (
+              <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                <span>{fieldErrors.name}</span>
+              </div>
+            )}
           </div>
 
           {/* Platform & Currency */}
@@ -143,14 +174,15 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               <label className="block text-ui font-medium text-fg mb-1.5">
                 Platform <span className="text-danger-fg">*</span>
               </label>
-              <select
+              <CustomSelect
+                name="platform"
                 value={platform}
-                onChange={(e) => setPlatform(e.target.value as any)}
-                className="w-full h-9 px-3 text-ui bg-surface border border-border rounded-md text-fg focus:outline-none focus:border-accent"
-              >
-                <option value="Meta Ads">Meta Ads</option>
-                <option value="Google Ads">Google Ads</option>
-              </select>
+                onChange={(val) => setPlatform(val as any)}
+                options={[
+                  { value: 'Meta Ads', label: 'Meta Ads', icon: MetaIcon },
+                  { value: 'Google Ads', label: 'Google Ads', icon: GoogleAdsIcon },
+                ]}
+              />
             </div>
 
             <div>
@@ -158,6 +190,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
                 Currency
               </label>
               <CustomSelect
+                name="currency"
                 value={currency}
                 onChange={setCurrency}
                 options={currencyOptions}
@@ -173,12 +206,27 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               </label>
               <input
                 type="text"
+                name="accountId"
                 required
                 placeholder="act_123456789 or 123-456-7890"
                 value={accountId}
-                onChange={(e) => setAccountId(e.target.value)}
-                className="w-full h-9 px-3 text-ui font-mono bg-surface border border-border rounded-md text-fg placeholder:text-fg-faint focus:outline-none focus:border-accent"
+                onChange={(e) => {
+                  setAccountId(e.target.value);
+                  if (hasSubmitted && e.target.value.trim()) {
+                    setFieldErrors((prev) => { const n = { ...prev }; delete n.accountId; return n; });
+                  }
+                }}
+                aria-invalid={!!fieldErrors.accountId}
+                className={`w-full h-9 px-3 text-ui font-mono bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                  fieldErrors.accountId ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:border-accent'
+                }`}
               />
+              {fieldErrors.accountId && (
+                <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{fieldErrors.accountId}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -187,6 +235,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               </label>
               <input
                 type="text"
+                name="pixelId"
                 placeholder="e.g. 9876543210123"
                 value={pixelId}
                 onChange={(e) => setPixelId(e.target.value)}
@@ -201,6 +250,7 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               Assigned client workspace
             </label>
             <CustomSelect
+              name="workspaceId"
               value={workspaceId}
               onChange={setWorkspaceId}
               options={workspaceOptions}
@@ -209,18 +259,34 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
           </div>
         </form>
 
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
-          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleSubmit}
-            loading={isSubmitting}
-            disabled={isSubmitting}
-          >
-            {isEditMode ? 'Save changes' : 'Connect account'}
-          </Button>
+        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <FormErrorSummaryButton
+              count={Object.keys(fieldErrors).length}
+              onClick={() => {
+                if (formRef.current) focusFirstError(formRef.current);
+              }}
+            />
+            {serverError && (
+              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{serverError}</span>
+              </div>
+            )}
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleSubmit}
+              loading={isSubmitting}
+              disabled={isSubmitting}
+            >
+              {isEditMode ? 'Save changes' : 'Connect account'}
+            </Button>
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>

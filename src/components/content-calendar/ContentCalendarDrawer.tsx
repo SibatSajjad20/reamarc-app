@@ -72,6 +72,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
   const [isActing, setIsActing] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [reviewCopied, setReviewCopied] = useState(false);
+  const [isUploadingAssets, setIsUploadingAssets] = useState(false);
 
   const handleCopyClientReviewLink = async () => {
     if (!currentItem) return;
@@ -278,7 +279,8 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
               variant="ghost"
               size="sm"
               onClick={onClose}
-              className="px-2 text-fg-muted hover:text-fg ml-1"
+              disabled={isUploadingAssets}
+              className="px-2 text-fg-muted hover:text-fg ml-1 disabled:opacity-50"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -361,6 +363,11 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           )}
           {(needsNote || needsAssignee || actions.length > 0) && (
             <div className="flex flex-wrap items-center gap-2">
+              {isUploadingAssets && (
+                <span className="text-small text-fg-muted" aria-live="polite">
+                  Wait for upload to finish
+                </span>
+              )}
               {needsAssignee && (
                 <div className="w-48">
                   <CustomSelect
@@ -369,6 +376,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                     value={assigneeId}
                     onChange={setAssigneeId}
                     options={assignees.map((person) => ({ value: person.id, label: person.name }))}
+                    disabled={isUploadingAssets}
                   />
                 </div>
               )}
@@ -378,7 +386,8 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   placeholder={isCreativeStage ? 'Note for creative' : 'Note for writer'}
-                  className="flex-1 min-w-[160px] px-2 py-1 rounded-md bg-surface border border-border text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden"
+                  disabled={isUploadingAssets}
+                  className="flex-1 min-w-[160px] px-2 py-1 rounded-md bg-surface border border-border text-xs text-fg placeholder:text-fg-muted focus:border-accent focus:outline-hidden disabled:opacity-50"
                 />
               )}
               {actions.map((action) => (
@@ -387,7 +396,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                   type="button"
                   variant="primary"
                   size="sm"
-                  disabled={isActing || (action.action === 'assign' && !assigneeId)}
+                  disabled={isActing || isUploadingAssets || (action.action === 'assign' && !assigneeId)}
                   onClick={async () => {
                     setIsActing(true);
                     try {
@@ -548,6 +557,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
                 attachments={currentItem.attachments || []}
                 readOnly={isClient || isPerformance(actor)}
                 onAssetsUpdated={handleAssetsUpdated}
+                onUploadingChange={setIsUploadingAssets}
               />
 
               {/* External Asset Links */}

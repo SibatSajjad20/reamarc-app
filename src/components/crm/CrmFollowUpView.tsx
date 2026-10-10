@@ -9,7 +9,9 @@ import {
 import type { CrmLead } from '../../types/crm';
 import { crmService } from '../../services/crmService';
 import { followUpBucket } from '../../utils/followUpBuckets';
-import { getInitials } from '../../utils/badgeStyles';
+import { CustomDateTimePicker } from '../ui/CustomDateTimePicker';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 interface CrmFollowUpViewProps {
   leads: CrmLead[];
@@ -43,8 +45,8 @@ function RescheduleMenu({
     if (!anchorEl) return;
     const place = () => {
       const rect = anchorEl.getBoundingClientRect();
-      const menuHeight = 160;
-      const menuWidth = 220;
+      const menuHeight = 220;
+      const menuWidth = 260;
       const spaceBelow = window.innerHeight - rect.bottom;
       const openUp = spaceBelow < menuHeight && rect.top > spaceBelow;
       const top = openUp ? rect.top - 8 : rect.bottom + 8;
@@ -69,6 +71,7 @@ function RescheduleMenu({
       const t = e.target as Node;
       if (menuRef.current?.contains(t)) return;
       if (anchorEl?.contains(t)) return;
+      if ((t as Element).closest?.('[data-radix-popper-content-wrapper], [role="dialog"]')) return;
       onClose();
     };
     document.addEventListener('keydown', onKey);
@@ -89,7 +92,7 @@ function RescheduleMenu({
         top: pos.openUp ? undefined : pos.top,
         bottom: pos.openUp ? window.innerHeight - pos.top : undefined,
         left: pos.left,
-        width: 220,
+        width: 260,
       }}
       className="rounded-lg bg-surface shadow-lg border border-border p-3 z-[100]"
       onClick={(e) => e.stopPropagation()}
@@ -97,11 +100,10 @@ function RescheduleMenu({
       <label className="text-micro font-medium text-fg-muted uppercase tracking-wider block mb-1.5">
         Pick date & time
       </label>
-      <input
-        type="datetime-local"
+      <CustomDateTimePicker
         value={customDateTime}
-        onChange={(e) => setCustomDateTime(e.target.value)}
-        className="w-full text-small px-2.5 py-1.5 rounded-md border border-input bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+        onChange={setCustomDateTime}
+        layout="stacked"
       />
       {customDateTime ? (
         <button
@@ -116,7 +118,7 @@ function RescheduleMenu({
         <button
           type="button"
           onClick={() => onClear(lead.id)}
-          className="mt-1.5 w-full text-left px-1 py-1 text-xs font-medium text-danger hover:bg-danger-bg rounded transition-colors cursor-pointer"
+          className="mt-1.5 w-full text-left px-1 py-1 text-xs font-medium text-danger-fg hover:bg-danger-bg rounded transition-colors cursor-pointer"
         >
           Clear follow-up
         </button>
@@ -133,6 +135,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
   onRefresh,
   onOptimisticUpdate,
 }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const [rescheduleLeadId, setRescheduleLeadId] = useState<string | null>(null);
   const [customDateTime, setCustomDateTime] = useState<string>('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -262,9 +265,12 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
           </span>
           {lead.assigned_to_name && (
             <span className="inline-flex items-center gap-1.5 text-xs text-fg-muted">
-              <span className="w-5 h-5 rounded-full bg-accent-soft text-accent-text text-micro font-medium inline-flex items-center justify-center shrink-0">
-                {getInitials(lead.assigned_to_name)}
-              </span>
+              <Avatar
+                name={lead.assigned_to_name}
+                src={getAvatarUrl(lead.assigned_to, lead.assigned_to_name)}
+                size={20}
+                className="rounded-full shrink-0 text-micro"
+              />
               <span>{lead.assigned_to_name}</span>
             </span>
           )}
@@ -276,9 +282,9 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
             <span
               className={`inline-flex items-center gap-1 text-micro font-medium px-2 py-0.5 rounded font-mono ${
                 timeInfo.isOverdue
-                  ? 'bg-danger-bg text-danger-fg border border-danger/30'
+                  ? 'bg-danger-bg text-danger-fg border border-danger-bd'
                   : timeInfo.isToday
-                  ? 'bg-warning-bg text-warning-fg border border-warning/30'
+                  ? 'bg-warning-bg text-warning-fg border border-warning-bd'
                   : 'bg-subtle text-fg-muted border border-border'
               }`}
             >
@@ -329,7 +335,7 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
               type="button"
               title="Mark follow-up done"
               onClick={() => void handleClearFollowUp(lead.id)}
-              className="w-7 h-7 rounded-md border border-border hover:border-success hover:bg-success-bg text-fg-muted hover:text-success-fg transition-colors flex items-center justify-center cursor-pointer"
+              className="w-7 h-7 rounded-md border border-border hover:border-success-bd hover:bg-success-bg text-fg-muted hover:text-success-fg transition-colors flex items-center justify-center cursor-pointer"
             >
               <Check className="w-3.5 h-3.5" />
             </button>
@@ -344,9 +350,9 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
       {/* Overdue */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-danger" />
+          <div className="w-2 h-2 rounded-full bg-danger-dot" />
           <h3 className="text-ui font-semibold text-fg">Overdue</h3>
-          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-danger-bg text-danger-fg border border-danger/30">
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-danger-bg text-danger-fg border border-danger-bd">
             {overdueLeads.length}
           </span>
         </div>
@@ -364,9 +370,9 @@ export const CrmFollowUpView: React.FC<CrmFollowUpViewProps> = ({
       {/* Today */}
       <section className="space-y-2">
         <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-warning" />
+          <div className="w-2 h-2 rounded-full bg-warning-dot" />
           <h3 className="text-ui font-semibold text-fg">Today</h3>
-          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-warning-bg text-warning-fg border border-warning/30">
+          <span className="text-micro font-medium font-numeric px-2 py-0.5 rounded-full bg-warning-bg text-warning-fg border border-warning-bd">
             {todayLeads.length}
           </span>
         </div>

@@ -13,10 +13,12 @@ import {
   ExternalLink,
   Download,
   FileText,
+  AlertCircle,
 } from 'lucide-react';
 import type { CrmDeal, CrmDealCreatePayload, CrmLead } from '../../types/crm';
 import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
+import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { openFileAttachment, downloadFileAttachment } from '../../utils/fileUrl';
 import {
   Dialog,
@@ -27,6 +29,8 @@ import {
   DialogFooter,
 } from '../ui/dialog';
 import { Button } from '../ui/button';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 export interface CrmDealFormConfig {
   workspace_name: string;
@@ -240,7 +244,10 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
   const [isUploading, setIsUploading] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
 
   // Auto-calculate expected revenue when budget, currency, or probability changes
   useEffect(() => {
@@ -321,7 +328,9 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
       setProposalSize(null);
     }
 
-    setError(null);
+    setFieldErrors({});
+    setServerError(null);
+    setHasSubmitted(false);
   }, [isOpen, lead, deal]);
 
   if (!isOpen || !lead) return null;
@@ -339,19 +348,19 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
     if (!file) return;
 
     if (file.size > 25 * 1024 * 1024) {
-      setError('File exceeds the 25MB limit.');
+      setServerError('File exceeds the 25MB limit.');
       return;
     }
 
     setIsUploading(true);
-    setError(null);
+    setServerError(null);
     try {
       const res = await dailyLogService.uploadDeliverableFile(file);
       setProposalUrl(res.file_url);
       setProposalName(file.name);
       setProposalSize(file.size);
     } catch (err: any) {
-      setError(err.message || 'File upload failed. Please try again.');
+      setServerError(err.message || 'File upload failed. Please try again.');
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -366,13 +375,23 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setHasSubmitted(true);
+    setServerError(null);
+
+    const errs: Record<string, string> = {};
     if (!workspaceName.trim()) {
-      setError('Client / workspace name is required.');
+      errs.workspaceName = 'Client / workspace name is required.';
+    }
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
       return;
     }
 
     setIsSubmitting(true);
-    setError(null);
 
     try {
       const config: CrmDealFormConfig = {
@@ -407,7 +426,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
       await onSave(config);
       onClose();
     } catch (err: any) {
-      setError(err.message || 'Failed to save deal.');
+      setServerError(err.message || 'Failed to save deal.');
     } finally {
       setIsSubmitting(false);
     }
@@ -423,7 +442,7 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
       <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
-        <form onSubmit={handleSubmit} className="flex flex-col max-h-[calc(100vh-64px)]">
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col max-h-[calc(100vh-64px)]">
           <DialogHeader className="p-5 pb-3 border-b border-border">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg bg-accent-soft flex items-center justify-center text-accent shrink-0">
@@ -443,14 +462,8 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
 
           <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
             {createBlocked && (
-              <div className="p-3 rounded-md bg-warning-bg border border-warning/30 text-xs text-warning-fg">
+              <div className="p-3 rounded-md bg-warning-bg border border-warning-bd text-xs text-warning-fg">
                 This lead is not won yet. Mark it as won before a deal can be created.
-              </div>
-            )}
-
-            {error && (
-              <div className="p-3 rounded-md bg-danger-bg border border-danger/30 text-xs text-danger-fg">
-                {error}
               </div>
             )}
 
@@ -562,11 +575,9 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                   <label className="text-small font-medium text-fg block mb-1">
                     Expected Close
                   </label>
-                  <input
-                    type="date"
+                  <CustomDatePicker
                     value={expectedCloseDate}
-                    onChange={(e) => setExpectedCloseDate(e.target.value)}
-                    className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                    onChange={setExpectedCloseDate}
                   />
                 </div>
                 <div>
@@ -584,11 +595,9 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                   <label className="text-small font-medium text-fg block mb-1">
                     Next Follow-up
                   </label>
-                  <input
-                    type="date"
+                  <CustomDatePicker
                     value={nextFollowUp}
-                    onChange={(e) => setNextFollowUp(e.target.value)}
-                    className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                    onChange={setNextFollowUp}
                   />
                 </div>
               </div>
@@ -692,12 +701,27 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                 </label>
                 <input
                   type="text"
+                  name="workspaceName"
                   required
                   value={workspaceName}
-                  onChange={(e) => setWorkspaceName(e.target.value)}
+                  onChange={(e) => {
+                    setWorkspaceName(e.target.value);
+                    if (hasSubmitted && e.target.value.trim()) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.workspaceName; return n; });
+                    }
+                  }}
+                  aria-invalid={!!fieldErrors.workspaceName}
                   placeholder="e.g. Apex Corporation"
-                  className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                  className={`w-full text-xs h-8 px-2.5 rounded-md border bg-surface text-fg focus:outline-none ${
+                    fieldErrors.workspaceName ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border focus:ring-1 focus:ring-accent'
+                  }`}
                 />
+                {fieldErrors.workspaceName && (
+                  <div className="mt-1 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.workspaceName}</span>
+                  </div>
+                )}
               </div>
 
               <div>
@@ -788,22 +812,19 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                   <label className="text-small font-medium text-fg block mb-1">
                     Contract Start Date
                   </label>
-                  <input
-                    type="date"
+                  <CustomDatePicker
                     value={contractStartDate}
-                    onChange={(e) => setContractStartDate(e.target.value)}
-                    className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                    onChange={setContractStartDate}
                   />
                 </div>
                 <div>
                   <label className="text-small font-medium text-fg block mb-1">
                     Estimated End Date (Optional)
                   </label>
-                  <input
-                    type="date"
+                  <CustomDatePicker
                     value={contractEndDate}
-                    onChange={(e) => setContractEndDate(e.target.value)}
-                    className="w-full text-xs h-8 px-2.5 rounded-md border border-border bg-surface text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                    onChange={setContractEndDate}
+                    clearable
                   />
                 </div>
               </div>
@@ -861,24 +882,45 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
             </div>
           </div>
 
-          <DialogFooter className="p-4 border-t border-border">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={isSubmitting || isUploading}
-              loadingText={isUploading ? 'Uploading proposal…' : isEdit ? 'Saving deal…' : 'Creating deal…'}
-              disabled={createBlocked}
-            >
-              {isEdit ? 'Save deal' : 'Create deal → proposal'}
-            </Button>
+          <DialogFooter className="p-4 border-t border-border flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <FormErrorSummaryButton
+                count={Object.keys(fieldErrors).length}
+                onClick={() => {
+                  if (formRef.current) focusFirstError(formRef.current);
+                }}
+              />
+              {serverError && (
+                <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                  <span>{serverError}</span>
+                </div>
+              )}
+              {isUploading && (
+                <span className="text-small text-fg-muted" aria-live="polite">
+                  Wait for upload to finish
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSubmitting}
+                loadingText={isEdit ? 'Saving deal…' : 'Creating deal…'}
+                disabled={createBlocked || isUploading}
+              >
+                {isEdit ? 'Save deal' : 'Create deal → proposal'}
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

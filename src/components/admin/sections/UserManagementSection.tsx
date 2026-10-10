@@ -25,7 +25,7 @@ import { KpiCard } from '../../ui/KpiCard';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import { StatusPill } from '../../ui/StatusPill';
 import { Button, IconButton } from '../../ui/button';
-import { Checkbox } from '../../ui/checkbox';
+import { Avatar } from '../../ui/Avatar';
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -46,7 +46,6 @@ import {
 } from '../../ui/DataTable';
 import {
   getRoleLabel,
-  getInitials,
 } from '../../../utils/badgeStyles';
 import { formatPhoneDisplay } from '../../../utils/phone';
 
@@ -103,7 +102,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [departmentFilter, setDepartmentFilter] = useState<string>('all');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const workspaceMap = useMemo(() => {
     const map: Record<string, Workspace> = {};
@@ -244,21 +242,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-  };
-
-  const handleSelectAll = (checked: boolean) => {
-    if (checked) {
-      setSelectedIds(new Set(filteredMembers.map((m) => m.id)));
-    } else {
-      setSelectedIds(new Set());
-    }
-  };
-
-  const handleSelectRow = (id: string, checked: boolean) => {
-    const next = new Set(selectedIds);
-    if (checked) next.add(id);
-    else next.delete(id);
-    setSelectedIds(next);
   };
 
   return (
@@ -445,16 +428,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
         <Table>
           <THead>
             <TR>
-              <TH className="w-10">
-                <Checkbox
-                  checked={
-                    filteredMembers.length > 0 &&
-                    filteredMembers.every((m) => selectedIds.has(m.id))
-                  }
-                  onCheckedChange={handleSelectAll}
-                  aria-label="Select all"
-                />
-              </TH>
               <TH>Member</TH>
               {directoryTab === 'clients' ? (
                 <TH>Linked clients</TH>
@@ -475,9 +448,6 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
             {isLoading ? (
               Array.from({ length: 8 }).map((_, idx) => (
                 <TR key={`skeleton-${idx}`}>
-                  <TD className="w-10">
-                    <div className="w-4 h-4 rounded bg-subtle animate-pulse" />
-                  </TD>
                   <TD>
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-subtle animate-pulse" />
@@ -516,7 +486,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
               ))
             ) : filteredMembers.length === 0 ? (
               <TableEmptyRow
-                colSpan={canManageMembers ? (directoryTab === 'team' ? 9 : 8) : 8}
+                colSpan={canManageMembers ? (directoryTab === 'team' ? 8 : 7) : 7}
                 title={directoryTab === 'clients' ? 'No client accounts found' : 'No members found'}
                 description={
                   searchQuery || roleFilter !== 'all' || departmentFilter !== 'all'
@@ -526,32 +496,23 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
               />
             ) : (
               filteredMembers.map((m) => {
-                const initials = getInitials(m.full_name, m.email);
                 const isGlobalRole = m.role === 'admin' || m.role === 'hr' || m.role === 'operations';
                 const clientWs = linkedClientWorkspaces(m);
-                const isSelected = selectedIds.has(m.id);
 
                 return (
                   <TR
                     key={m.id}
-                    selected={isSelected}
                     className="hover:bg-hover transition-colors"
                   >
-                    {/* Checkbox */}
-                    <TD className="w-10">
-                      <Checkbox
-                        checked={isSelected}
-                        onCheckedChange={(checked) => handleSelectRow(m.id, Boolean(checked))}
-                        aria-label={`Select ${m.full_name}`}
-                      />
-                    </TD>
-
                     {/* Member: Avatar + Name + Email */}
                     <TD>
                       <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-accent-soft text-accent-text border border-accent-200 font-semibold text-xs flex items-center justify-center shrink-0">
-                          {initials}
-                        </div>
+                        <Avatar
+                          name={m.full_name || 'User'}
+                          src={m.avatar_url}
+                          size={32}
+                          className="rounded-full shrink-0"
+                        />
                         <div className="min-w-0">
                           <div className="font-medium text-fg truncate">
                             {m.full_name || 'User'}

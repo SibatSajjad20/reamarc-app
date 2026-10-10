@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   Clock,
   Calendar,
@@ -10,9 +10,12 @@ import {
   Search,
   TreePalm,
   Loader2,
+  AlertCircle,
 } from 'lucide-react';
 import { PageHeader } from '../../ui/PageHeader';
 import { Button, IconButton } from '../../ui/button';
+import { focusFirstError } from '../../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../../hooks/useFormValidation';
 import {
   TableCard,
   Table,
@@ -112,6 +115,9 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   const [isShiftModalOpen, setIsShiftModalOpen] = useState(false);
   const [shiftToDelete, setShiftToDelete] = useState<ShiftTemplate | null>(null);
   const [isDeletingShift, setIsDeletingShift] = useState(false);
+  const shiftFormRef = useRef<HTMLFormElement>(null);
+  const [shiftErrors, setShiftErrors] = useState<Record<string, string>>({});
+  const [shiftServerError, setShiftServerError] = useState<string | null>(null);
 
   // Member Shift Assignments State
   const [members, setMembers] = useState<AdminMember[]>([]);
@@ -141,6 +147,9 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   const [newEventDate, setNewEventDate] = useState(getAttendanceMinDate());
   const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday'>('holiday');
   const [newEventDesc, setNewEventDesc] = useState('');
+  const eventFormRef = useRef<HTMLFormElement>(null);
+  const [holidayErrors, setHolidayErrors] = useState<Record<string, string>>({});
+  const [holidayServerError, setHolidayServerError] = useState<string | null>(null);
 
   const applyShifts = (fetchedShifts: PromiseSettledResult<ShiftTemplate[]>) => {
     if (fetchedShifts.status === 'fulfilled' && fetchedShifts.value?.length) {
@@ -538,10 +547,14 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
       expected_hours: 8.0,
       expected_work_hours: 8.0,
     });
+    setShiftErrors({});
+    setShiftServerError(null);
     setIsShiftModalOpen(true);
   };
 
   const handleOpenEditShift = (shift: ShiftTemplate) => {
+    setShiftErrors({});
+    setShiftServerError(null);
     setEditingShift(withDerivedHours({ ...shift }));
     setIsShiftModalOpen(true);
   };
@@ -549,20 +562,28 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   const handleSaveShift = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingShift) return;
+    setShiftServerError(null);
+
+    const errs: Record<string, string> = {};
     if (!editingShift.name.trim()) {
-      addToast('Name Required', 'Please provide a shift name.', 'warning');
-      return;
+      errs.name = 'Please provide a shift name.';
     }
     const isTime = (t?: string | null) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t || '');
     if (!isTime(editingShift.start_time) || !isTime(editingShift.end_time)) {
-      addToast('Invalid Time', 'Start and end times must be HH:MM (24-hour), e.g. 09:30.', 'warning');
-      return;
+      errs.time = 'Start and end times must be HH:MM (24-hour), e.g. 09:30.';
     }
     if (
       (editingShift.break_duration_minutes || 0) > 0 &&
       (!isTime(editingShift.break_start_time) || !isTime(editingShift.break_end_time))
     ) {
-      addToast('Invalid Time', 'Break start and end times must be HH:MM (24-hour).', 'warning');
+      errs.break = 'Break start and end times must be HH:MM (24-hour).';
+    }
+
+    setShiftErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (shiftFormRef.current) focusFirstError(shiftFormRef.current);
+      }, 50);
       return;
     }
 
@@ -583,7 +604,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
       setEditingShift(null);
       fetchData();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to save shift.', 'error');
+      setShiftServerError(err.message || 'Failed to save shift.');
     } finally {
       setIsSaving(false);
     }
@@ -592,8 +613,18 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   // ─── Calendar / Holiday Handlers ───
   const handleCreateHoliday = async (e: React.FormEvent) => {
     e.preventDefault();
+    setHolidayServerError(null);
+
+    const errs: Record<string, string> = {};
     if (!newEventTitle.trim()) {
-      addToast('Title Required', 'Please specify a title for the holiday.', 'warning');
+      errs.title = 'Please specify a title for the holiday.';
+    }
+
+    setHolidayErrors(errs);
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (eventFormRef.current) focusFirstError(eventFormRef.current);
+      }, 50);
       return;
     }
 
@@ -613,7 +644,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
       setNewEventDesc('');
       fetchData();
     } catch (err: any) {
-      addToast('Error', err.message || 'Failed to add calendar event.', 'error');
+      setHolidayServerError(err.message || 'Failed to add calendar event.');
     } finally {
       setIsSaving(false);
     }
@@ -1246,21 +1277,34 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
               </DialogDescription>
             </DialogHeader>
 
-            <form onSubmit={handleSaveShift}>
+            <form ref={shiftFormRef} noValidate onSubmit={handleSaveShift}>
               <div className="p-6 space-y-4 text-xs max-h-[70vh] overflow-y-auto">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-ui font-medium text-fg mb-1">
-                      Shift Name
+                      Shift Name *
                     </label>
                     <input
                       type="text"
                       required
+                      aria-invalid={!!shiftErrors.name}
                       placeholder="e.g. Standard 09:30-18:30"
                       value={editingShift.name}
-                      onChange={(e) => setEditingShift({ ...editingShift, name: e.target.value })}
-                      className="w-full h-9 px-3 rounded-md bg-surface border border-border text-fg text-ui focus:outline-none focus:border-accent"
+                      onChange={(e) => {
+                        setEditingShift({ ...editingShift, name: e.target.value });
+                        if (shiftErrors.name) setShiftErrors((prev) => { const n = { ...prev }; delete n.name; return n; });
+                      }}
+                      className={cn(
+                        'w-full h-9 px-3 rounded-md bg-surface border text-fg text-ui focus:outline-none focus:border-accent',
+                        shiftErrors.name ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border'
+                      )}
                     />
+                    {shiftErrors.name && (
+                      <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                        <span>{shiftErrors.name}</span>
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-ui font-medium text-fg mb-1">
@@ -1282,16 +1326,24 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     <CustomTimePicker
                       label="Start Time"
                       required
+                      error={shiftErrors.time}
                       value={editingShift.start_time}
-                      onChange={(val) => setEditingShift(withDerivedHours(editingShift, { start_time: val }))}
+                      onChange={(val) => {
+                        setEditingShift(withDerivedHours(editingShift, { start_time: val }));
+                        if (shiftErrors.time) setShiftErrors((prev) => { const n = { ...prev }; delete n.time; return n; });
+                      }}
                     />
                   </div>
                   <div>
                     <CustomTimePicker
                       label="End Time"
                       required
+                      error={shiftErrors.time}
                       value={editingShift.end_time}
-                      onChange={(val) => setEditingShift(withDerivedHours(editingShift, { end_time: val }))}
+                      onChange={(val) => {
+                        setEditingShift(withDerivedHours(editingShift, { end_time: val }));
+                        if (shiftErrors.time) setShiftErrors((prev) => { const n = { ...prev }; delete n.time; return n; });
+                      }}
                     />
                   </div>
                 </div>
@@ -1374,18 +1426,22 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     <CustomTimePicker
                       label="Break Starts"
                       required
+                      error={shiftErrors.break}
                       value={editingShift.break_start_time || '13:00'}
-                      onChange={(val) =>
-                        setEditingShift({ ...editingShift, break_start_time: val })
-                      }
+                      onChange={(val) => {
+                        setEditingShift({ ...editingShift, break_start_time: val });
+                        if (shiftErrors.break) setShiftErrors((prev) => { const n = { ...prev }; delete n.break; return n; });
+                      }}
                     />
                     <CustomTimePicker
                       label="Break Ends"
                       required
+                      error={shiftErrors.break}
                       value={editingShift.break_end_time || '14:00'}
-                      onChange={(val) =>
-                        setEditingShift({ ...editingShift, break_end_time: val })
-                      }
+                      onChange={(val) => {
+                        setEditingShift({ ...editingShift, break_end_time: val });
+                        if (shiftErrors.break) setShiftErrors((prev) => { const n = { ...prev }; delete n.break; return n; });
+                      }}
                     />
                   </div>
                 )}
@@ -1407,22 +1463,38 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 </div>
               </div>
 
-              <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setIsShiftModalOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={isSaving}
-                  disabled={isSaving}
-                >
-                  Save shift
-                </Button>
+              <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  {Object.keys(shiftErrors).length > 1 && (
+                    <FormErrorSummaryButton
+                      count={Object.keys(shiftErrors).length}
+                      onClick={() => shiftFormRef.current && focusFirstError(shiftFormRef.current)}
+                    />
+                  )}
+                  {shiftServerError && (
+                    <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>{shiftServerError}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setIsShiftModalOpen(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    loading={isSaving}
+                    disabled={isSaving}
+                  >
+                    Save shift
+                  </Button>
+                </div>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -1447,19 +1519,32 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
               </button>
             </div>
 
-            <form onSubmit={handleCreateHoliday} className="p-6 space-y-4 text-xs">
+            <form ref={eventFormRef} noValidate onSubmit={handleCreateHoliday} className="p-6 space-y-4 text-xs">
               <div>
                 <label className="block font-medium text-fg mb-1">
-                  Holiday / Event Name
+                  Holiday / Event Name *
                 </label>
                 <input
                   type="text"
                   required
+                  aria-invalid={!!holidayErrors.title}
                   placeholder="e.g. Independence Day or Eid Holiday"
                   value={newEventTitle}
-                  onChange={(e) => setNewEventTitle(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                  onChange={(e) => {
+                    setNewEventTitle(e.target.value);
+                    if (holidayErrors.title) setHolidayErrors((prev) => { const n = { ...prev }; delete n.title; return n; });
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent',
+                    holidayErrors.title ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                  )}
                 />
+                {holidayErrors.title && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{holidayErrors.title}</span>
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-3 items-end">
@@ -1498,21 +1583,31 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 />
               </div>
 
-              <div className="flex justify-end gap-2 pt-4 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setIsEventModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-md text-fg-2 hover:bg-hover border border-border font-medium cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSaving}
-                  className="px-4 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium cursor-pointer disabled:opacity-50"
-                >
-                  {isSaving ? 'Adding...' : 'Add Event'}
-                </button>
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-border">
+                <div>
+                  {holidayServerError && (
+                    <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>{holidayServerError}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEventModalOpen(false)}
+                    className="px-3.5 py-1.5 rounded-md text-fg-2 hover:bg-hover border border-border font-medium cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSaving}
+                    className="px-4 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium cursor-pointer disabled:opacity-50"
+                  >
+                    {isSaving ? 'Adding...' : 'Add Event'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>

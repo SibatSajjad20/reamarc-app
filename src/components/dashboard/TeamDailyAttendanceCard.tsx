@@ -11,6 +11,8 @@ import {
 } from '../../utils/attendanceFilters';
 import { getStatusMapping } from '../../lib/statusMap';
 import { cn } from '../../lib/utils';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 interface TeamDailyAttendanceCardProps {
   matrixData: DailyMatrixResponse | null;
@@ -29,15 +31,6 @@ const FILTER_CHIPS: { label: string; filter: AttendanceStatusBucket }[] = [
   { label: 'Missed punch', filter: 'Missed punch' },
   { label: 'Not checked in', filter: 'Not checked in' },
 ];
-
-function getInitials(name?: string): string {
-  if (!name) return '??';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-  }
-  return name.slice(0, 2).toUpperCase();
-}
 
 function formatCheckTime(val?: string | null): string {
   if (!val) return '—';
@@ -62,12 +55,24 @@ function formatCheckTime(val?: string | null): string {
   return val;
 }
 
+function formatHeaderDate(isoDate?: string | null): string {
+  if (!isoDate) return '';
+  try {
+    const d = new Date(isoDate.includes('T') ? isoDate : `${isoDate}T00:00:00`);
+    if (isNaN(d.getTime())) return isoDate;
+    return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  } catch {
+    return isoDate;
+  }
+}
+
 export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = ({
   matrixData,
   isLoading,
   onNavigateView,
   className,
 }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDept, setSelectedDept] = useState('All');
   const [activeFilter, setActiveFilter] = useState<AttendanceStatusBucket>('All');
@@ -155,7 +160,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
         <div>
           <h3 className="text-ui font-semibold text-fg">Team daily attendance</h3>
           <p className="text-xs text-fg-muted mt-0.5">
-            Today{matrixData?.date ? `, ${matrixData.date}` : ''} · needs action first
+            {matrixData?.date ? formatHeaderDate(matrixData.date) : 'Today'} · needs action first
           </p>
         </div>
         <button
@@ -274,9 +279,12 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
               >
                 {/* Employee */}
                 <div className="flex items-center gap-2.5 min-w-0 pr-2">
-                  <div className="w-7 h-7 rounded-full bg-subtle border border-border flex items-center justify-center text-[10px] font-semibold text-fg shrink-0">
-                    {getInitials(row.employee_name)}
-                  </div>
+                  <Avatar
+                    name={row.employee_name}
+                    src={(row as any).avatar_url || getAvatarUrl(row.user_id, row.employee_name)}
+                    size={28}
+                    className="rounded-full shrink-0"
+                  />
                   <div className="min-w-0">
                     <p className="font-medium text-fg truncate">
                       {row.employee_name}
@@ -294,7 +302,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
 
                 {/* Check-in */}
                 <div className="font-numeric text-fg">
-                  {formatCheckTime(row.check_in)}
+                  {formatCheckTime(row.check_in ?? (row as any).punch_in)}
                   {isLate && row.late_minutes ? (
                     <span className="ml-1 text-[11px] font-medium text-warning-fg">
                       +{row.late_minutes}m
@@ -304,7 +312,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
 
                 {/* Check-out */}
                 <div className="font-numeric text-fg-muted">
-                  {formatCheckTime(row.check_out)}
+                  {formatCheckTime(row.check_out ?? (row as any).punch_out)}
                 </div>
 
                 {/* Status Pill */}

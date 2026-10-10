@@ -200,6 +200,7 @@ class MemberResponse(BaseModel):
     is_active: bool
     created_at: Optional[str] = None
     workspace_ids: List[str] = Field(default_factory=list)
+    avatar_url: Optional[str] = None
 
 
 class MemberActivityResponse(BaseModel):

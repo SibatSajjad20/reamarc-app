@@ -36,6 +36,7 @@ import { CrmCreateLeadModal } from './CrmCreateLeadModal';
 import { DrawerSkeleton } from '../ui/Skeletons';
 import { Button } from '../ui/button';
 import { StatusPill } from '../ui/StatusPill';
+import { CustomDateTimePicker } from '../ui/CustomDateTimePicker';
 
 const AVAILABLE_SERVICES = [
   'Website Dev',
@@ -599,7 +600,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 custom-scrollbar">
           {/* Operations Approval / Client Form status */}
           {lead.outcome === 'won' && (
-            <div className="p-3.5 rounded-lg bg-success-bg/40 border border-success/30 space-y-2">
+            <div className="p-3.5 rounded-lg bg-success-bg/40 border border-success-bd space-y-2">
               <div className="flex items-start gap-2.5">
                 {lead.converted_workspace_id ? (
                   <CheckCircle2 className="w-4 h-4 text-success-fg shrink-0 mt-0.5" />
@@ -619,7 +620,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               </div>
 
               {!lead.converted_workspace_id && (
-                <div className="pt-2 border-t border-success/20">
+                <div className="pt-2 border-t border-success-bd">
                   <Button
                     type="button"
                     variant="primary"
@@ -750,11 +751,10 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <input
-                  type="datetime-local"
+                <CustomDateTimePicker
                   value={followUpLocal}
-                  onChange={(e) => setFollowUpLocal(e.target.value)}
-                  className="flex-1 h-8 px-2.5 rounded-md border border-border bg-surface text-xs font-numeric text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                  onChange={setFollowUpLocal}
+                  className="flex-1"
                 />
                 <Button
                   type="button"

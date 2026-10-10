@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
+import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
 import type { Workspace } from '../types';
 
 const workspacesCache = new BoundedCache<Workspace[]>(2);
@@ -70,14 +71,26 @@ export const workspaceService = {
   },
 
   async createWorkspace(payload: WorkspaceCreatePayload): Promise<Workspace> {
-    return apiClient.post<Workspace>('/workspaces', payload);
+    const res = await apiClient.post<Workspace>('/workspaces', payload);
+    workspacesCache.clear();
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 
   async updateWorkspace(workspaceId: string, payload: WorkspaceUpdatePayload): Promise<Workspace> {
-    return apiClient.patch<Workspace>(`/workspaces/${workspaceId}`, payload);
+    const res = await apiClient.patch<Workspace>(`/workspaces/${workspaceId}`, payload);
+    workspacesCache.clear();
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 
   async deleteWorkspace(workspaceId: string): Promise<{ message: string }> {
-    return apiClient.delete<{ message: string }>(`/workspaces/${workspaceId}`);
+    const res = await apiClient.delete<{ message: string }>(`/workspaces/${workspaceId}`);
+    workspacesCache.clear();
+    emitInvalidation(['workspaces', 'dashboard']);
+    return res;
   },
 };
+
+// Register for app-wide cache sweep on logout and user switch
+registerCacheClearer(() => workspaceService.clearAllCaches());

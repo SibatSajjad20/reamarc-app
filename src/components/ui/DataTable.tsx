@@ -13,6 +13,7 @@ import { cn } from '../../lib/utils';
 import { IconButton } from './button';
 import { EmptyState } from './EmptyState';
 import { TableSkeletonRows } from './Skeletons';
+import { CustomSelect } from './CustomSelect';
 
 export { TableSkeletonRows };
 
@@ -457,17 +458,15 @@ export const TableFooter: React.FC<TableFooterProps> = ({
       <div className="flex items-center gap-2 ml-auto">
         {pageSizeOptions && onPageSizeChange && (
           <div className="flex items-center gap-1.5 mr-2">
-            <select
-              value={pageSize}
-              onChange={(e) => onPageSizeChange(Number(e.target.value))}
-              className="h-7 px-2 text-small rounded-md border border-border bg-surface text-fg focus-ring cursor-pointer"
-            >
-              {pageSizeOptions.map((opt) => (
-                <option key={opt} value={opt}>
-                  {opt} per page
-                </option>
-              ))}
-            </select>
+            <CustomSelect
+              value={String(pageSize)}
+              onChange={(val) => onPageSizeChange(Number(val))}
+              options={pageSizeOptions.map((opt) => ({
+                value: String(opt),
+                label: `${opt} per page`,
+              }))}
+              size="xs"
+            />
           </div>
         )}
 

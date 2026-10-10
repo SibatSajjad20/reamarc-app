@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import { logExceptionService } from '../../services/logExceptionService';
 import { dailyLogService } from '../../services/dailyLogService';
 import type { LogExceptionItem, DailyLogEntry } from '../../types/dailyLog';
@@ -30,18 +31,13 @@ import { SegmentedControl } from '../ui/SegmentedControl';
 import { Skeleton } from '../ui/skeleton';
 import { DrawerSkeleton } from '../ui/Skeletons';
 import { getRoleDisplayName } from '../../lib/roleLabel';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 import { cn } from '../../lib/utils';
 
 const todayIso = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
-const getInitials = (name?: string): string => {
-  if (!name) return 'U';
-  const parts = name.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 };
 
 const formatItemDate = (isoString?: string): string => {
@@ -62,6 +58,7 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
 }) => {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const { getAvatarUrl } = useMemberAvatars();
   const isLead = user?.role === 'team_lead' || user?.role === 'admin' || user?.role === 'operations';
 
   const cachedInbox = logExceptionService.getCachedInbox();
@@ -113,6 +110,10 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
   useEffect(() => {
     load();
   }, [load]);
+
+  useCacheInvalidation(['exceptions', 'daily-log'], () => {
+    void load();
+  });
 
   // Listen for member deletion event
   useEffect(() => {
@@ -554,9 +555,12 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                       )}
                     >
                       {/* Avatar */}
-                      <div className="w-7 h-7 rounded-full bg-subtle text-fg font-semibold text-xs flex items-center justify-center shrink-0">
-                        {getInitials(item.full_name)}
-                      </div>
+                      <Avatar
+                        name={item.full_name}
+                        src={getAvatarUrl(item.user_id, item.full_name)}
+                        size={28}
+                        className="rounded-full shrink-0"
+                      />
 
                       {/* Info */}
                       <div className="flex-1 min-w-0">
@@ -629,9 +633,12 @@ export const ExceptionInboxView: React.FC<{ onOpenDailyLog?: (date: string) => v
                 {/* Detail Header */}
                 <div className="p-5 border-b border-border flex items-center justify-between gap-4 shrink-0">
                   <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-subtle text-fg font-semibold text-sm flex items-center justify-center shrink-0">
-                      {getInitials(selectedDetailItem.full_name)}
-                    </div>
+                    <Avatar
+                      name={selectedDetailItem.full_name}
+                      src={getAvatarUrl(selectedDetailItem.user_id, selectedDetailItem.full_name)}
+                      size={40}
+                      className="rounded-full shrink-0"
+                    />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2.5 flex-wrap">
                         <h2 className="text-h2 font-semibold text-fg tracking-tight truncate">

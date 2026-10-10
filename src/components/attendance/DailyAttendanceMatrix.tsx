@@ -25,6 +25,8 @@ import { NumberStepper } from '../ui/NumberStepper';
 import { getAttendanceMinDate } from '../../constants/attendance';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
 import { matchesAttendanceStatus } from '../../utils/attendanceFilters';
+import { Avatar } from '../ui/Avatar';
+import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 interface DailyAttendanceMatrixProps {
   matrixData: DailyMatrixResponse | null;
@@ -66,6 +68,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   minDate,
 }) => {
   const { addToast } = useToast();
+  const { getAvatarUrl } = useMemberAvatars();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
 
@@ -77,6 +80,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   const [overrideStatus, setOverrideStatus] = useState<AttendanceStatus>('present');
   const [overrideReason, setOverrideReason] = useState('');
   const [isSavingOverride, setIsSavingOverride] = useState(false);
+  const [overrideErrors, setOverrideErrors] = useState<{ timeIn?: string; timeOut?: string }>({});
 
   const START_DATE = minDate || getAttendanceMinDate();
   const isAtStartDate = selectedDate <= START_DATE;
@@ -126,6 +130,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   // Open Override Modal
   const handleOpenOverride = (row: DailyMatrixEmployeeRow) => {
     setEditingRow(row);
+    setOverrideErrors({});
     const currentStatus = row.status || 'present';
     setOverrideStatus(currentStatus);
     setOverrideBreak(row.break_minutes ?? 60);
@@ -164,6 +169,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   // Change Status and auto-fill corresponding shift times
   const handleStatusOverrideChange = (newStatus: AttendanceStatus) => {
     setOverrideStatus(newStatus);
+    setOverrideErrors({});
     const { start, end } = parseShiftTiming(editingRow?.shift_timing);
 
     if (newStatus === 'present' || newStatus === 'wfh') {
@@ -187,6 +193,9 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   // When Time In changes manually, automatically sync status between present and late
   const handleTimeInChange = (newTimeIn: string) => {
     setOverrideIn(newTimeIn);
+    if (overrideErrors.timeIn) {
+      setOverrideErrors((prev) => ({ ...prev, timeIn: undefined }));
+    }
     if (!newTimeIn) return;
 
     const isLate = checkIsLateForShift(newTimeIn, editingRow?.shift_timing, 30);
@@ -205,13 +214,16 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
       setIsSavingOverride(true);
       const isNonWorking = ['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave', 'sunday_off', 'first_saturday_off', 'holiday'].includes(overrideStatus);
       const isValidTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+
+      const errs: { timeIn?: string; timeOut?: string } = {};
       if (!isNonWorking && !isValidTime(overrideIn)) {
-        addToast('Time In required', 'Enter a valid Time In (HH:MM). Time Out can be left empty if they are still working.', 'warning');
-        setIsSavingOverride(false);
-        return;
+        errs.timeIn = 'Enter a valid Time In (HH:MM).';
       }
       if (!isNonWorking && overrideOut && !isValidTime(overrideOut)) {
-        addToast('Invalid Time Out', 'Time Out must be HH:MM (24-hour), e.g. 18:30, or cleared to keep the day in progress.', 'warning');
+        errs.timeOut = 'Time Out must be HH:MM (24-hour), e.g. 18:30.';
+      }
+      if (Object.keys(errs).length > 0) {
+        setOverrideErrors(errs);
         setIsSavingOverride(false);
         return;
       }
@@ -438,13 +450,6 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   </tr>
                 ) : (
                   filteredRows.map((row, idx) => {
-                    const initials = row.employee_name
-                      .split(' ')
-                      .map((n) => n[0])
-                      .join('')
-                      .substring(0, 2)
-                      .toUpperCase();
-
                     return (
                       <tr
                         key={row.user_id}
@@ -456,9 +461,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* Employee Info */}
                         <td className="py-3 px-4 whitespace-nowrap">
                           <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-lg bg-accent-subtle text-accent-text font-semibold text-xs flex items-center justify-center border border-accent-border">
-                              {initials}
-                            </div>
+                            <Avatar
+                              name={row.employee_name}
+                              src={(row as any).avatar_url || getAvatarUrl(row.user_id, row.employee_name)}
+                              size={28}
+                              className="rounded-lg shrink-0"
+                            />
                             <span
                               className={`font-semibold text-fg leading-tight ${
                                 onSelectEmployee
@@ -651,6 +659,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   <CustomTimePicker
                     label={`Time In ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : ''}`}
                     disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
+                    error={overrideErrors.timeIn}
                     value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideIn}
                     onChange={handleTimeInChange}
                   />
@@ -659,8 +668,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   <CustomTimePicker
                     label={`Time Out ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : '(optional)'}`}
                     disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
+                    error={overrideErrors.timeOut}
                     value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideOut}
-                    onChange={setOverrideOut}
+                    onChange={(val) => {
+                      setOverrideOut(val);
+                      if (overrideErrors.timeOut) setOverrideErrors((prev) => ({ ...prev, timeOut: undefined }));
+                    }}
                     allowClear={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) === false}
                     clearTitle="Clear time out (keep day in progress)"
                   />

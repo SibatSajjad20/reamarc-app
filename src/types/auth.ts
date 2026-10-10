@@ -23,11 +23,12 @@ export interface AuthUser {
   department?: string;
   departments?: string[];
   joining_date?: string | null;
-  employment_type?: 'probation' | 'contract';
+  employment_type?: 'probation' | 'contract' | 'full_time' | string;
   is_active?: boolean;
   crm_enabled?: boolean;
   crm_paused?: boolean;
   workspace_ids?: string[];
+  avatar_url?: string | null;
 }
 
 export interface LoginPayload {

@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Eye, EyeOff, X } from 'lucide-react';
+import { Eye, EyeOff, X, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
@@ -31,7 +31,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
     ref
   ) => {
     const generatedId = React.useId();
-    const inputId = id || (label ? generatedId : undefined);
+    const inputId = id || (label || error ? generatedId : undefined);
+    const errorId = error && inputId ? `${inputId}-error` : undefined;
     const [showPassword, setShowPassword] = React.useState(false);
     const isPassword = type === 'password';
     const computedType = isPassword ? (showPassword ? 'text' : 'password') : type;
@@ -50,6 +51,8 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
           disabled={disabled}
           readOnly={readOnly}
           value={value}
+          aria-invalid={Boolean(error) || props['aria-invalid']}
+          aria-describedby={error ? errorId : props['aria-describedby']}
           className={cn(
             'w-full rounded-md border border-border-strong bg-surface text-fg placeholder:text-fg-faint transition-colors duration-120 outline-none',
             'hover:border-fg-faint focus:border-ring-border focus:shadow-[0_0_0_3px_var(--ring)]',
@@ -59,7 +62,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             inputSize === 'sm' ? 'h-8 px-2.5 text-sm' : 'h-9 px-3 text-sm',
             Icon && 'pl-9',
             (isPassword || ((onClear || clearable) && value)) && 'pr-9',
-            error && 'border-danger-bd focus:border-danger-fg',
+            error && 'border-danger-dot focus:border-danger-fg',
             className
           )}
           {...props}
@@ -100,7 +103,16 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
             </label>
           )}
           {inputElement}
-          {error && <p className="text-small text-danger-fg">{error}</p>}
+          {error && (
+            <p
+              id={errorId}
+              role="alert"
+              className="text-small text-danger-fg flex items-center gap-1.5 mt-1"
+            >
+              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+              <span>{error}</span>
+            </p>
+          )}
         </div>
       );
     }

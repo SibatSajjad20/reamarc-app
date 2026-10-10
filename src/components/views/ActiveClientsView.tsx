@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   Building2,
   Search,
-  Layers,
   Calendar,
   Paperclip,
   Download,
@@ -13,7 +12,6 @@ import {
   ExternalLink,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
-import type { AdAccount } from '../../types/admin';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { HealthBadge, PriorityBadge } from '../ui/WorkspaceBadges';
@@ -36,7 +34,6 @@ import { Button } from '../ui/button';
 
 interface ActiveClientsViewProps {
   workspaces?: Workspace[];
-  adAccounts?: AdAccount[];
 }
 
 type ClientFilter = 'All' | 'Retainer' | 'One-Time Project' | 'High Priority' | 'Emergency';
@@ -48,6 +45,17 @@ const FILTER_OPTIONS: SegmentedOption[] = [
   { value: 'High Priority', label: 'High priority' },
   { value: 'Emergency', label: 'Emergency' },
 ];
+
+function formatContractDate(iso?: string | null): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso.includes('T') ? iso : `${iso}T00:00:00`);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
 
 export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 }) {
   const fontSize = Math.round(size * 0.42);
@@ -72,7 +80,6 @@ export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 })
 
 export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   workspaces: propWorkspaces,
-  adAccounts = [],
 }) => {
   const { workspaces: liveWorkspaces, isLoading } = useWorkspaces();
   const workspaces = useMemo(
@@ -122,11 +129,6 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     [selectedId, activeWorkspaces]
   );
 
-  const selectedAdCount = useMemo(() => {
-    if (!selectedClient) return 0;
-    return adAccounts.filter((a) => a.workspace_id === selectedClient.id).length;
-  }, [adAccounts, selectedClient]);
-
   // Close drawer if selected client disappears from the active set
   useEffect(() => {
     if (selectedId && !activeWorkspaces.some((w) => w.id === selectedId)) {
@@ -142,9 +144,6 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selectedClient]);
-
-  const linkedCountFor = (wsId: string) =>
-    adAccounts.filter((a) => a.workspace_id === wsId).length;
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-bg p-6">
@@ -194,17 +193,16 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               <TH>POC</TH>
               <TH>Health</TH>
               <TH>Priority</TH>
-              <TH align="center">Ad accounts</TH>
               <TH>Contract end</TH>
               <TH className="w-10" />
             </tr>
           </THead>
           <TBody>
             {isLoading && workspaces.length === 0 ? (
-              <TableSkeletonRows rows={6} columns={9} />
+              <TableSkeletonRows rows={6} columns={8} />
             ) : filteredWorkspaces.length === 0 ? (
               <TableEmpty
-                colSpan={9}
+                colSpan={8}
                 title="No active clients found"
                 description={
                   searchQuery || activeFilter !== 'All'
@@ -222,7 +220,6 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               filteredWorkspaces.map((ws) => {
                 const serviceCount = ws.services?.length ?? 0;
                 const isOpen = selectedId === ws.id;
-                const ads = linkedCountFor(ws.id);
                 const firstTwoServices = (ws.services || []).slice(0, 2);
                 const extraServices = serviceCount - 2;
 
@@ -250,7 +247,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                     </TD>
                     <TD>
                       <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-xs font-medium bg-subtle border border-border text-fg-muted">
-                        {ws.project_cycle || 'Retainer'}
+                        {ws.project_cycle || '—'}
                       </span>
                     </TD>
                     <TD>
@@ -295,11 +292,6 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                     <TD>
                       <PriorityBadge priority={ws.priority} />
                     </TD>
-                    <TD align="center">
-                      <span className="font-mono text-xs font-medium text-fg-muted">
-                        {ads > 0 ? ads : '—'}
-                      </span>
-                    </TD>
                     <TD>
                       <span className="font-mono text-xs text-fg-muted">
                         {ws.contract_end_date || 'Ongoing'}
@@ -322,7 +314,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
           {selectedClient && (
             <>
               {/* Header with ClientMark 40, badges */}
-              <div className="p-6 border-b border-border flex items-start justify-between gap-4">
+              <div className="p-6 border-b border-border flex items-start justify-between gap-4 pr-12">
                 <div className="flex items-center gap-3.5 min-w-0">
                   <ClientMark ws={selectedClient} size={40} />
                   <div className="min-w-0">
@@ -330,7 +322,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       {selectedClient.name}
                     </h2>
                     <div className="flex items-center gap-2 mt-1 text-xs text-fg-muted">
-                      <span>{selectedClient.project_cycle || 'Retainer'}</span>
+                      <span>{selectedClient.project_cycle || '—'}</span>
                       {selectedClient.industry && (
                         <>
                           <span>•</span>
@@ -356,8 +348,8 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       <span>Contract</span>
                     </h3>
                     <p className="text-xs font-mono text-fg-muted">
-                      {selectedClient.contract_start_date || 'Start'} →{' '}
-                      {selectedClient.contract_end_date || 'Ongoing'}
+                      {formatContractDate(selectedClient.contract_start_date) || 'Start'} →{' '}
+                      {formatContractDate(selectedClient.contract_end_date) || 'Ongoing'}
                     </p>
                   </div>
                 )}
@@ -420,23 +412,14 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                   </div>
                 )}
 
-                {/* Linked ad accounts */}
-                <div className="p-4 rounded-lg bg-subtle/50 border border-border space-y-2">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="inline-flex items-center gap-1.5 text-xs font-medium text-fg">
-                      <Layers className="w-3.5 h-3.5 text-accent" />
-                      <span>Linked ad accounts</span>
-                    </span>
-                    <span className="font-mono text-xs font-medium px-2 py-0.5 rounded-full bg-subtle text-fg border border-border">
-                      {selectedAdCount}
-                    </span>
-                  </div>
-                  {selectedClient.tagline && (
+                {/* Tagline */}
+                {selectedClient.tagline && (
+                  <div className="p-4 rounded-lg bg-subtle/50 border border-border">
                     <p className="text-xs text-fg-muted">
                       {selectedClient.tagline}
                     </p>
-                  )}
-                </div>
+                  </div>
+                )}
 
                 {/* Proposals */}
                 {selectedClient.proposal_url && (

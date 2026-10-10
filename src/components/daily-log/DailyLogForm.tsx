@@ -33,6 +33,7 @@ import {
   getOldestOpenLogDate,
 } from '../../utils/logTimeChecks';
 import { cn } from '../../lib/utils';
+import { focusFirstError } from '../../utils/formFocus';
 
 export interface DailyLogFormProps {
   mode: 'create' | 'edit';
@@ -162,8 +163,14 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [isSubmittingAnother, setIsSubmittingAnother] = useState<boolean>(false);
   const isBusy = isSubmitting || isSubmittingAnother || isUploadingFile;
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<{ date?: string; task?: string; [k: string]: string | undefined }>({});
+  const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
+
+  const errorCount = useMemo(() => {
+    return Object.values(fieldErrors).filter(Boolean).length;
+  }, [fieldErrors]);
 
   // Parse active workspaces for client selector
   const activeWorkspaces = useMemo(() => {
@@ -203,7 +210,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     if (hydrateSessionRef.current === sessionKey) return;
     hydrateSessionRef.current = sessionKey;
 
-    setErrorMessage(null);
+    setServerError(null);
     setUploadError(null);
     setIsOccConflict(false);
 
@@ -392,39 +399,35 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   };
 
+  const getDateError = (d: string): string | undefined => {
+    if (!d.trim()) return 'Please provide a valid date.';
+    if (d > getTodayIso()) return 'Future dates are not permitted. Please log for today or a missed date.';
+    if (isOffDay(d)) return `${getOffDay(d).label}. Daily logs cannot be submitted on rest days.`;
+    if (isLogDateExpired(d, holidays, workingSaturdays)) return `The 48 working-hour submission window for ${d} has expired.`;
+    if (isLogDateNotStarted(d)) return `Daily logs for ${d} cannot be entered before your shift starts.`;
+    if (d.trim() < '2026-08-19') return 'Daily log entries cannot be logged for dates before 2026-08-19.';
+    return undefined;
+  };
+
+  const getTaskError = (task: string): string | undefined => {
+    if (!task.trim()) return 'Task description is required.';
+    return undefined;
+  };
+
   const handleSave = async (addAnother: boolean = false) => {
     if (isBusy) return;
 
-    if (!date.trim()) {
-      setErrorMessage('Please provide a valid date.');
-      return;
-    }
+    const dateErr = getDateError(date);
+    const taskErr = getTaskError(taskDescription);
 
-    if (date > getTodayIso()) {
-      setErrorMessage('Future dates are not permitted. Please log for today or a missed date.');
-      return;
-    }
-    if (isOffDay(date)) {
-      setErrorMessage(`${getOffDay(date).label}. Daily logs cannot be submitted on rest days.`);
-      return;
-    }
+    const errors: { date?: string; task?: string } = {};
+    if (dateErr) errors.date = dateErr;
+    if (taskErr) errors.task = taskErr;
 
-    if (isDateInvalid) {
-      if (isCurrentDateExpired) {
-        setErrorMessage(`The 48 working-hour submission window for ${date} has expired.`);
-      } else {
-        setErrorMessage(`Daily logs for ${date} cannot be entered before your shift starts.`);
-      }
-      return;
-    }
-
-    if (!taskDescription.trim()) {
-      setErrorMessage('Task description is required.');
-      return;
-    }
-
-    if (date.trim() < '2026-08-19') {
-      setErrorMessage('Daily log entries cannot be logged for dates before 2026-08-19.');
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setHasAttemptedSubmit(true);
+      setTimeout(() => focusFirstError(), 10);
       return;
     }
 
@@ -436,7 +439,8 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       );
     }
 
-    setErrorMessage(null);
+    setFieldErrors({});
+    setServerError(null);
     setIsOccConflict(false);
     if (addAnother) {
       setIsSubmittingAnother(true);
@@ -486,7 +490,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           setShowRemarksInput(false);
           setCustomFields({});
           setTaskStatus('Incomplete');
-          setErrorMessage(null);
+          setServerError(null);
 
           setTimeout(() => {
             taskDescRef.current?.focus();
@@ -504,7 +508,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           setShowRemarksInput(false);
           setCustomFields({});
           setTaskStatus('Incomplete');
-          setErrorMessage(null);
+          setServerError(null);
         }
       } else if (mode === 'edit' && initialData) {
         const payload = {
@@ -531,18 +535,17 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to submit daily log entry:', err);
+      const msg =
+        err.status === 409
+          ? err.message || 'This record was modified by another session. Please refresh and try again.'
+          : err.message ||
+            err.details?.detail ||
+            "Couldn't save entry. Please check your inputs and try again.";
       if (err.status === 409) {
         setIsOccConflict(true);
-        setErrorMessage(
-          err.message || 'This record was modified by another session. Please refresh and try again.'
-        );
-      } else {
-        setErrorMessage(
-          err.message ||
-            err.details?.detail ||
-            "Couldn't save entry. Please check your inputs and try again."
-        );
       }
+      setServerError(msg);
+      addToast('Submission failed', msg, 'error');
     } finally {
       setIsSubmitting(false);
       setIsSubmittingAnother(false);
@@ -559,49 +562,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       }}
       className={cn('space-y-3.5 text-ui text-fg', isCard ? 'text-xs' : 'text-sm')}
     >
-      {/* Error Banner */}
-      {errorMessage && (
-        <div
-          className={cn(
-            'p-3 rounded-md border flex items-start gap-2.5 text-xs select-none',
-            isOccConflict
-              ? 'bg-warning-bg border-warning-bd text-warning-fg'
-              : 'bg-danger-bg border-danger-bd text-danger-fg'
-          )}
-        >
-          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-          <div className="flex-1 space-y-1">
-            <p className="font-semibold">{errorMessage}</p>
-            {isOccConflict && onRefreshRequired && (
-              <button
-                type="button"
-                onClick={() => {
-                  onRefreshRequired();
-                  if (onClose) onClose();
-                }}
-                className="inline-flex items-center gap-1 mt-1 text-xs font-semibold text-warning-fg underline hover:no-underline cursor-pointer"
-              >
-                <RefreshCw className="w-3 h-3" />
-                <span>Refresh view to load latest version</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Date Expiry Warnings */}
-      {isCurrentDateExpired && (
-        <div className="p-2.5 bg-danger-bg border border-danger-bd rounded-md text-small text-danger-fg flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>The 48 working-hour submission window for {date} has expired. Logs for this date are locked.</span>
-        </div>
-      )}
-      {isCurrentDateNotStarted && (
-        <div className="p-2.5 bg-warning-bg border border-warning-bd rounded-md text-small text-warning-fg flex items-center gap-2">
-          <AlertCircle className="w-4 h-4 shrink-0" />
-          <span>Daily logs for {date} cannot be entered before your shift starts.</span>
-        </div>
-      )}
 
       {/* Resource & Role Info (only displayed in Dialog mode) */}
       {!isCard && (
@@ -652,7 +612,27 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           </label>
           <CustomDatePicker
             value={date}
-            onChange={(val) => setDate(val || lastWorkday(getTodayIso(), minOpenDate))}
+            onChange={(val) => {
+              const nextDate = val || lastWorkday(getTodayIso(), minOpenDate);
+              setDate(nextDate);
+              if (hasAttemptedSubmit) {
+                const err = getDateError(nextDate);
+                setFieldErrors((prev) => {
+                  const copy = { ...prev };
+                  if (err) copy.date = err;
+                  else delete copy.date;
+                  return copy;
+                });
+              }
+            }}
+            error={
+              fieldErrors.date ||
+              (isCurrentDateExpired
+                ? `The 48 working-hour submission window for ${date} has expired. Logs for this date are locked.`
+                : isCurrentDateNotStarted
+                  ? `Daily logs for ${date} cannot be entered before your shift starts.`
+                  : undefined)
+            }
             minDate={minOpenDate}
             maxDate={getTodayIso()}
             placeholder="Select date..."
@@ -677,18 +657,45 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
 
       {/* Task Description */}
       <div>
-        <label className="block text-label text-fg mb-1">
+        <label htmlFor="daily-log-task-desc" className="block text-label text-fg mb-1">
           Task description
         </label>
         <textarea
+          id="daily-log-task-desc"
           ref={taskDescRef}
-          required
           rows={isCard ? 2 : 3}
           placeholder="Describe what you worked on..."
           value={taskDescription}
-          onChange={(e) => setTaskDescription(e.target.value)}
-          className="w-full px-3 py-2 bg-surface border border-border-strong rounded-md text-ui text-fg placeholder:text-fg-faint focus-visible:focus-ring resize-none leading-relaxed transition-colors"
+          onChange={(e) => {
+            const val = e.target.value;
+            setTaskDescription(val);
+            if (hasAttemptedSubmit) {
+              const err = getTaskError(val);
+              setFieldErrors((prev) => {
+                const copy = { ...prev };
+                if (err) copy.task = err;
+                else delete copy.task;
+                return copy;
+              });
+            }
+          }}
+          aria-invalid={Boolean(fieldErrors.task)}
+          aria-describedby={fieldErrors.task ? 'daily-log-task-desc-error' : undefined}
+          className={cn(
+            'w-full px-3 py-2 bg-surface border rounded-md text-ui text-fg placeholder:text-fg-faint focus-visible:focus-ring resize-none leading-relaxed transition-colors',
+            fieldErrors.task ? 'border-danger-dot focus:border-danger-fg' : 'border-border-strong'
+          )}
         />
+        {fieldErrors.task && (
+          <p
+            id="daily-log-task-desc-error"
+            role="alert"
+            className="text-small text-danger-fg flex items-center gap-1.5 mt-1"
+          >
+            <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+            <span>{fieldErrors.task}</span>
+          </p>
+        )}
       </div>
 
       {/* Task Type */}
@@ -951,23 +958,28 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
               {c.label}
             </label>
             {c.type === 'select' && c.options ? (
-              <select
+              <CustomSelect
                 value={customFields[c.key] || ''}
-                onChange={(e) =>
-                  setCustomFields((prev) => ({ ...prev, [c.key]: e.target.value }))
+                onChange={(val) =>
+                  setCustomFields((prev) => ({ ...prev, [c.key]: val }))
                 }
-                className="w-full px-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg focus-visible:focus-ring"
-              >
-                <option value="">Select...</option>
-                {c.options.map((opt) => (
-                  <option key={opt} value={opt}>
-                    {opt}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'Select...' },
+                  ...c.options.map((opt) => ({ value: opt, label: opt })),
+                ]}
+                placeholder="Select..."
+                size="sm"
+              />
+            ) : c.type === 'date' ? (
+              <CustomDatePicker
+                value={customFields[c.key] || ''}
+                onChange={(val) =>
+                  setCustomFields((prev) => ({ ...prev, [c.key]: val }))
+                }
+              />
             ) : (
               <input
-                type={c.type === 'number' ? 'number' : c.type === 'date' ? 'date' : 'text'}
+                type={c.type === 'number' ? 'number' : 'text'}
                 placeholder={`Enter ${c.label}...`}
                 value={customFields[c.key] || ''}
                 onChange={(e) =>
@@ -980,45 +992,98 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         ))}
 
       {/* Form Action Buttons */}
-      <div className={cn('pt-3 border-t border-border flex items-center gap-2 justify-end', isCard ? 'mt-4' : 'mt-6')}>
-        {!isCard && onClose && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={onClose}
-            disabled={isBusy}
-          >
-            Cancel
-          </Button>
+      <div
+        className={cn(
+          'sticky bottom-0 bg-surface/95 backdrop-blur-xs pt-3 pb-2 border-t border-border flex items-center gap-2 justify-between flex-wrap z-10',
+          isCard ? 'mt-4' : 'mt-6'
         )}
+      >
+        <div className="flex items-center gap-3 min-w-0 flex-wrap">
+          {errorCount >= 2 && (
+            <button
+              type="button"
+              onClick={() => focusFirstError()}
+              aria-live="polite"
+              className="text-small text-danger-fg hover:underline cursor-pointer flex items-center gap-1.5 font-medium shrink-0"
+            >
+              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+              <span>{errorCount} fields need attention</span>
+            </button>
+          )}
 
-        {mode === 'create' && (
+          {serverError && (
+            <div
+              role="alert"
+              className={cn(
+                'text-small flex items-center gap-1.5 font-medium',
+                isOccConflict ? 'text-warning-fg' : 'text-danger-fg'
+              )}
+            >
+              <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
+              <span>{serverError}</span>
+              {isOccConflict && onRefreshRequired && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRefreshRequired();
+                    if (onClose) onClose();
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-semibold text-warning-fg underline hover:no-underline cursor-pointer ml-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  <span>Refresh</span>
+                </button>
+              )}
+            </div>
+          )}
+
+          {isUploadingFile && (
+            <span className="text-small text-fg-muted" aria-live="polite">
+              Wait for upload to finish
+            </span>
+          )}
+        </div>
+
+        <div className="flex items-center gap-2 ml-auto">
+          {!isCard && onClose && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={onClose}
+              disabled={isSubmitting || isSubmittingAnother}
+            >
+              Cancel
+            </Button>
+          )}
+
+          {mode === 'create' && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => handleSave(true)}
+              disabled={isBusy || isDateInvalid}
+              loading={isSubmittingAnother}
+              loadingText="Saving…"
+            >
+              Save & add another
+            </Button>
+          )}
+
           <Button
             type="button"
-            variant="secondary"
+            variant="primary"
             size="md"
-            onClick={() => handleSave(true)}
+            onClick={() => handleSave(false)}
             disabled={isBusy || isDateInvalid}
-            loading={isSubmittingAnother}
+            loading={isSubmitting}
             loadingText="Saving…"
+            icon={CheckCircle2}
           >
-            Save & add another
+            {mode === 'create' ? 'Save entry' : 'Save changes'}
           </Button>
-        )}
-
-        <Button
-          type="button"
-          variant="primary"
-          size="md"
-          onClick={() => handleSave(false)}
-          disabled={isBusy || isDateInvalid}
-          loading={isSubmitting || isUploadingFile}
-          loadingText="Saving…"
-          icon={CheckCircle2}
-        >
-          {mode === 'create' ? 'Save entry' : 'Save changes'}
-        </Button>
+        </div>
       </div>
     </form>
   );

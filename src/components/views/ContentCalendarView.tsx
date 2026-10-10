@@ -43,6 +43,7 @@ import {
   DropdownMenuItem,
 } from '../ui/dropdown-menu';
 import { useAuth } from '../../context/AuthContext';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import {
   canCreateCampaign,
   visiblePipelineStages,
@@ -299,6 +300,10 @@ export const ContentCalendarView: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useCacheInvalidation(['content-calendar'], () => {
+    void loadData({ silent: true });
+  });
 
   // Move stage with instant optimistic update
   const handleTransition = async (

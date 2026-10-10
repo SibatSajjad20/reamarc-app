@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { TriangleAlert } from 'lucide-react';
+import { TriangleAlert, AlertCircle } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -51,27 +51,29 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
 }) => {
   const [reason, setReason] = useState(options[0]?.value || 'other');
   const [note, setNote] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [reasonError, setReasonError] = useState<string | null>(null);
+  const [serverError, setServerError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setReasonError(null);
+    setServerError(null);
     if (!reason) {
-      setError('Please select a reason.');
+      setReasonError('Please select a reason.');
       return;
     }
-    setError(null);
     try {
       await onConfirm(reason, note.trim() || undefined);
       setNote('');
     } catch (err: any) {
-      setError(err?.message || 'Could not save. Try again.');
+      setServerError(err?.message || 'Could not save. Try again.');
     }
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
       <DialogContent maxWidth="sm" className="p-0 overflow-hidden">
-        <form onSubmit={handleSubmit} className="flex flex-col">
+        <form onSubmit={handleSubmit} noValidate className="flex flex-col">
           <DialogHeader className="p-5 pb-3">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-full bg-danger-bg flex items-center justify-center text-danger-fg shrink-0">
@@ -89,12 +91,6 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
           </DialogHeader>
 
           <div className="px-5 py-2 space-y-3.5 max-h-[60vh] overflow-y-auto custom-scrollbar">
-            {error && (
-              <div className="text-xs text-danger-fg bg-danger-bg border border-danger/30 rounded-md p-2.5">
-                {error}
-              </div>
-            )}
-
             <div>
               <label className="text-small font-medium text-fg block mb-2">
                 Reason *
@@ -108,7 +104,10 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
                       type="button"
                       role="radio"
                       aria-checked={selected}
-                      onClick={() => setReason(opt.value)}
+                      onClick={() => {
+                        setReason(opt.value);
+                        setReasonError(null);
+                      }}
                       className={`w-full text-left px-3 py-2 rounded-md border text-xs transition-colors flex items-center justify-between cursor-pointer ${
                         selected
                           ? 'border-accent bg-accent-soft text-fg font-medium'
@@ -129,6 +128,12 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
                   );
                 })}
               </div>
+              {reasonError && (
+                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{reasonError}</span>
+                </div>
+              )}
             </div>
 
             <div>
@@ -145,24 +150,32 @@ export const CrmLostReasonModal: React.FC<CrmLostReasonModalProps> = ({
             </div>
           </div>
 
-          <DialogFooter className="p-4 pt-3 border-t border-border">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="danger"
-              disabled={isSubmitting}
-              loading={isSubmitting}
-              loadingText="Saving…"
-            >
-              Confirm lost
-            </Button>
+          <DialogFooter className="p-4 pt-3 border-t border-border flex items-center justify-between">
+            {serverError ? (
+              <div className="flex items-center gap-1.5 text-xs text-status-danger-fg" role="alert">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                <span>{serverError}</span>
+              </div>
+            ) : <div />}
+            <div className="flex items-center gap-2 ml-auto">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="danger"
+                disabled={isSubmitting}
+                loading={isSubmitting}
+                loadingText="Saving…"
+              >
+                Confirm lost
+              </Button>
+            </div>
           </DialogFooter>
         </form>
       </DialogContent>

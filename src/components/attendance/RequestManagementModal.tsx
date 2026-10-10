@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   X,
   FilePlus,
@@ -6,6 +6,7 @@ import {
   Home,
   Calendar,
   AlertTriangle,
+  AlertCircle,
   FileEdit,
 } from 'lucide-react';
 import type {
@@ -27,6 +28,8 @@ import { cn } from '../../lib/utils';
 import { getAttendanceMinDate, isFuturePktClockTime } from '../../constants/attendance';
 import { useOffDays } from '../../hooks/useOffDays';
 import { parseTimeToMinutes, formatHours } from '../../utils/logTimeChecks';
+import { focusFirstError } from '../../utils/formFocus';
+import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 interface RequestManagementModalProps {
   isOpen: boolean;
@@ -101,11 +104,17 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const [regularizeOut, setRegularizeOut] = useState('18:30');
   const [regularizeReason, setRegularizeReason] = useState('');
 
+  const formRef = useRef<HTMLFormElement>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState<string | null>(null);
+
   // Sync tab & initial record on open
   useEffect(() => {
     if (!isOpen) return;
     setActiveTab(defaultTab);
     setCorrectionTarget('time_in');
+    setFieldErrors({});
+    setServerError(null);
     const initDate = getInitialWorkday();
     if (initialRecord?.date) {
       setRegularizeDate(initialRecord.date);
@@ -227,19 +236,86 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     return null;
   };
 
+  const validate = (): Record<string, string> => {
+    const errs: Record<string, string> = {};
+
+    if (activeTab === 'leave') {
+      if (!leaveReason.trim()) {
+        errs.leaveReason = 'Please provide a reason for the leave application.';
+      }
+      const quotaErr = leaveQuotaError();
+      if (quotaErr) {
+        errs.leaveReason = quotaErr;
+      }
+    } else if (activeTab === 'short_leave') {
+      if (!shortLeaveReason.trim()) {
+        errs.shortLeaveReason = 'Please provide a reason for short leave.';
+      }
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(shortLeaveStartTime)) {
+        errs.shortLeaveStartTime = 'Departure / Start time must be HH:MM (24-hour), e.g. 16:00.';
+      } else {
+        const finalDuration = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
+        if (finalDuration < 0.5) {
+          errs.shortLeaveStartTime = isLeavingEarly
+            ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
+            : 'Short leave duration must be at least 30 minutes (0.5h).';
+        } else if (finalDuration > 4.0) {
+          errs.shortLeaveStartTime = 'Short leave cannot exceed 4.0 hours. Please apply for a full leave.';
+        }
+      }
+      if (isOffDay(shortLeaveDate)) {
+        errs.shortLeaveDate = `Cannot request short leave on a non-working day (${getOffDay(shortLeaveDate).label}).`;
+      }
+    } else if (activeTab === 'wfh') {
+      if (!wfhReason.trim()) {
+        errs.wfhReason = 'Please specify your deliverables and reason for WFH.';
+      }
+      const workdays = countWorkingDays(wfhStartDate, wfhEndDate);
+      if (workdays === 0) {
+        errs.wfhReason = 'Selected WFH date range contains no working days.';
+      }
+    } else if (activeTab === 'regularization') {
+      if (!regularizeReason.trim()) {
+        errs.regularizeReason = 'Please describe why the punch was missed/incorrect.';
+      }
+      const isTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+      if ((correctionTarget === 'time_in' || correctionTarget === 'both') && !isTime(regularizeIn)) {
+        errs.regularizeIn = 'Time in must be HH:MM (24-hour), e.g. 09:30.';
+      }
+      if (correctionTarget === 'time_out' || correctionTarget === 'both') {
+        if (!isTime(regularizeOut)) {
+          errs.regularizeOut = 'Time out must be HH:MM (24-hour), e.g. 18:30.';
+        } else if (isFuturePktClockTime(regularizeDate, regularizeOut)) {
+          errs.regularizeOut = 'That would check you out before you leave. Use Time in only while you are still working.';
+        }
+      }
+      if (isOffDay(regularizeDate)) {
+        errs.regularizeDate = `Cannot regularize punch on a non-working day (${getOffDay(regularizeDate).label}).`;
+      }
+    }
+
+    return errs;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setServerError(null);
+
+    const errs = validate();
+    setFieldErrors(errs);
+
+    if (Object.keys(errs).length > 0) {
+      setTimeout(() => {
+        if (formRef.current) focusFirstError(formRef.current);
+      }, 50);
+      return;
+    }
 
     try {
       setIsSubmitting(true);
       let payload: CreateLeavePayload;
 
       if (activeTab === 'leave') {
-        if (!leaveReason.trim()) {
-          addToast('Reason required', 'Please provide a reason for the leave application.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
         payload = {
           leave_type: leaveCategory,
           request_type: 'leave',
@@ -249,33 +325,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           reason: leaveReason.trim(),
         };
       } else if (activeTab === 'short_leave') {
-        if (!shortLeaveReason.trim()) {
-          addToast('Reason required', 'Please provide a reason for short leave.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
-        if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(shortLeaveStartTime)) {
-          addToast('Invalid time', 'Departure / Start time must be HH:MM (24-hour), e.g. 16:00.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
         const finalDuration = isLeavingEarly ? autoCalculatedHours : Number(shortLeaveDuration);
-        if (finalDuration < 0.5) {
-          addToast(
-            'Invalid duration',
-            isLeavingEarly
-              ? `Departure time must be at least 30 minutes before shift end (${shiftEndTime}).`
-              : 'Short leave duration must be at least 30 minutes (0.5h).',
-            'warning'
-          );
-          setIsSubmitting(false);
-          return;
-        }
-        if (finalDuration > 4.0) {
-          addToast('Duration exceeded', 'Short leave cannot exceed 4.0 hours. Please apply for a full leave.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
         const finalEndTime = isLeavingEarly ? shiftEndTime : midShiftReturnTime;
 
         payload = {
@@ -290,11 +340,6 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           reason: shortLeaveReason.trim(),
         };
       } else if (activeTab === 'wfh') {
-        if (!wfhReason.trim()) {
-          addToast('Work plan required', 'Please specify your deliverables and reason for WFH.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
         payload = {
           leave_type: 'wfh',
           request_type: 'wfh',
@@ -303,35 +348,6 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           reason: wfhReason.trim(),
         };
       } else {
-        // regularization
-        if (!regularizeReason.trim()) {
-          addToast('Justification required', 'Please describe why the punch was missed/incorrect.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
-        const isTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
-        if ((correctionTarget === 'time_in' || correctionTarget === 'both') && !isTime(regularizeIn)) {
-          addToast('Invalid time', 'Time in must be HH:MM (24-hour), e.g. 09:30.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
-        if ((correctionTarget === 'time_out' || correctionTarget === 'both') && !isTime(regularizeOut)) {
-          addToast('Invalid time', 'Time out must be HH:MM (24-hour), e.g. 18:30.', 'warning');
-          setIsSubmitting(false);
-          return;
-        }
-        if (
-          (correctionTarget === 'time_out' || correctionTarget === 'both') &&
-          isFuturePktClockTime(regularizeDate, regularizeOut)
-        ) {
-          addToast(
-            'Time out is still in the future',
-            'That would check you out before you leave. Use Time in only while you are still working.',
-            'warning'
-          );
-          setIsSubmitting(false);
-          return;
-        }
         payload = {
           leave_type: 'missed_punch_regularization',
           request_type: 'regularization',
@@ -351,19 +367,12 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         };
       }
 
-      const blocked = leaveQuotaError();
-      if (blocked) {
-        addToast('Leave quota exceeded', blocked, 'error');
-        setIsSubmitting(false);
-        return;
-      }
-
       await attendanceService.createRequest(payload);
       addToast('Request sent', 'Your team lead or HR will review it.', 'success');
       onSuccess();
       onClose();
     } catch (err: any) {
-      addToast('Submission failed', err.message || 'Could not submit attendance request.', 'error');
+      setServerError(err.response?.data?.detail || err.message || 'Could not submit attendance request.');
     } finally {
       setIsSubmitting(false);
     }
@@ -412,7 +421,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         </div>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 text-xs">
+        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-5 overflow-y-auto space-y-4 text-xs">
           {/* Request Type Selector (2×2 RadioCards per §13.5) */}
           <div>
             <label className="block text-label font-medium text-fg mb-1.5">
@@ -431,7 +440,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setActiveTab(item.id as RequestType)}
+                    onClick={() => {
+                      setActiveTab(item.id as RequestType);
+                      setFieldErrors({});
+                      setServerError(null);
+                    }}
                     className={cn(
                       'p-2.5 rounded-lg border text-left transition-colors cursor-pointer flex flex-col justify-between gap-1',
                       isSelected
@@ -520,17 +533,31 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-label font-medium text-fg mb-1">
+                <label htmlFor="leaveReason" className="block text-label font-medium text-fg mb-1">
                   Reason and handover notes *
                 </label>
                 <textarea
+                  id="leaveReason"
                   rows={3}
                   required
+                  aria-invalid={!!fieldErrors.leaveReason}
                   placeholder="Explain reason for leave and any task handovers or coverage..."
                   value={leaveReason}
-                  onChange={(e) => setLeaveReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
+                  onChange={(e) => {
+                    setLeaveReason(e.target.value);
+                    if (fieldErrors.leaveReason) setFieldErrors((prev) => { const n = { ...prev }; delete n.leaveReason; return n; });
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
+                    fieldErrors.leaveReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                  )}
                 />
+                {fieldErrors.leaveReason && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.leaveReason}</span>
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -579,8 +606,12 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       offDayMode="disable"
                       label="Date"
                       minDate={minDate}
+                      error={fieldErrors.shortLeaveDate}
                       value={shortLeaveDate}
-                      onChange={setShortLeaveDate}
+                      onChange={(v) => {
+                        setShortLeaveDate(v);
+                        if (fieldErrors.shortLeaveDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveDate; return n; });
+                      }}
                     />
                     <div>
                       <div className="flex items-center justify-between mb-1">
@@ -590,7 +621,10 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                         {shortLeaveDate === getTodayIso() && (
                           <button
                             type="button"
-                            onClick={() => setShortLeaveStartTime(getCurrentTimePkt())}
+                            onClick={() => {
+                              setShortLeaveStartTime(getCurrentTimePkt());
+                              if (fieldErrors.shortLeaveStartTime) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveStartTime; return n; });
+                            }}
                             className="text-micro font-medium text-accent hover:underline cursor-pointer flex items-center gap-0.5"
                           >
                             <Clock className="w-2.5 h-2.5" />
@@ -600,8 +634,12 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       </div>
                       <CustomTimePicker
                         required
+                        error={fieldErrors.shortLeaveStartTime}
                         value={shortLeaveStartTime}
-                        onChange={setShortLeaveStartTime}
+                        onChange={(v) => {
+                          setShortLeaveStartTime(v);
+                          if (fieldErrors.shortLeaveStartTime) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveStartTime; return n; });
+                        }}
                       />
                     </div>
                   </div>
@@ -651,14 +689,22 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                       offDayMode="disable"
                       label="Date"
                       minDate={minDate}
+                      error={fieldErrors.shortLeaveDate}
                       value={shortLeaveDate}
-                      onChange={setShortLeaveDate}
+                      onChange={(v) => {
+                        setShortLeaveDate(v);
+                        if (fieldErrors.shortLeaveDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveDate; return n; });
+                      }}
                     />
                     <CustomTimePicker
                       label="Departure time"
                       required
+                      error={fieldErrors.shortLeaveStartTime}
                       value={shortLeaveStartTime}
-                      onChange={setShortLeaveStartTime}
+                      onChange={(v) => {
+                        setShortLeaveStartTime(v);
+                        if (fieldErrors.shortLeaveStartTime) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveStartTime; return n; });
+                      }}
                     />
                     <CustomSelect
                       label="Duration"
@@ -687,21 +733,35 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               )}
 
               <div>
-                <label className="block text-label font-medium text-fg mb-1">
+                <label htmlFor="shortLeaveReason" className="block text-label font-medium text-fg mb-1">
                   Reason for short leave *
                 </label>
                 <textarea
+                  id="shortLeaveReason"
                   rows={3}
                   required
+                  aria-invalid={!!fieldErrors.shortLeaveReason}
                   placeholder={
                     isLeavingEarly
                       ? 'Reason for leaving early today (e.g. medical appointment, urgent personal matter)...'
                       : 'Reason for temporary absence and return plan...'
                   }
                   value={shortLeaveReason}
-                  onChange={(e) => setShortLeaveReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
+                  onChange={(e) => {
+                    setShortLeaveReason(e.target.value);
+                    if (fieldErrors.shortLeaveReason) setFieldErrors((prev) => { const n = { ...prev }; delete n.shortLeaveReason; return n; });
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
+                    fieldErrors.shortLeaveReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                  )}
                 />
+                {fieldErrors.shortLeaveReason && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.shortLeaveReason}</span>
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -740,17 +800,31 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-label font-medium text-fg mb-1">
+                <label htmlFor="wfhReason" className="block text-label font-medium text-fg mb-1">
                   Deliverables and work plan *
                 </label>
                 <textarea
+                  id="wfhReason"
                   rows={3}
                   required
+                  aria-invalid={!!fieldErrors.wfhReason}
                   placeholder="Outline key tasks, deliverables, and communication availability for the remote day..."
                   value={wfhReason}
-                  onChange={(e) => setWfhReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
+                  onChange={(e) => {
+                    setWfhReason(e.target.value);
+                    if (fieldErrors.wfhReason) setFieldErrors((prev) => { const n = { ...prev }; delete n.wfhReason; return n; });
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
+                    fieldErrors.wfhReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                  )}
                 />
+                {fieldErrors.wfhReason && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.wfhReason}</span>
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -766,8 +840,12 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 offDayMode="disable"
                 label="Date of missed / incorrect punch"
                 minDate={minDate}
+                error={fieldErrors.regularizeDate}
                 value={regularizeDate}
-                onChange={setRegularizeDate}
+                onChange={(v) => {
+                  setRegularizeDate(v);
+                  if (fieldErrors.regularizeDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.regularizeDate; return n; });
+                }}
               />
 
               {/* Correction Scope Selector */}
@@ -810,53 +888,91 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   <CustomTimePicker
                     label="Correct time in (check-in)"
                     required
+                    error={fieldErrors.regularizeIn}
                     value={regularizeIn}
-                    onChange={setRegularizeIn}
+                    onChange={(v) => {
+                      setRegularizeIn(v);
+                      if (fieldErrors.regularizeIn) setFieldErrors((prev) => { const n = { ...prev }; delete n.regularizeIn; return n; });
+                    }}
                   />
                 )}
                 {(correctionTarget === 'time_out' || correctionTarget === 'both') && (
                   <CustomTimePicker
                     label="Correct time out (check-out)"
                     required
+                    error={fieldErrors.regularizeOut}
                     value={regularizeOut}
-                    onChange={setRegularizeOut}
+                    onChange={(v) => {
+                      setRegularizeOut(v);
+                      if (fieldErrors.regularizeOut) setFieldErrors((prev) => { const n = { ...prev }; delete n.regularizeOut; return n; });
+                    }}
                   />
                 )}
               </div>
 
               <div>
-                <label className="block text-label font-medium text-fg mb-1">
+                <label htmlFor="regularizeReason" className="block text-label font-medium text-fg mb-1">
                   Reason and justification for correction *
                 </label>
                 <textarea
+                  id="regularizeReason"
                   rows={3}
                   required
+                  aria-invalid={!!fieldErrors.regularizeReason}
                   placeholder="Explain why punch was missed or needs adjustment (e.g. power outage, client call, field meeting)..."
                   value={regularizeReason}
-                  onChange={(e) => setRegularizeReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
+                  onChange={(e) => {
+                    setRegularizeReason(e.target.value);
+                    if (fieldErrors.regularizeReason) setFieldErrors((prev) => { const n = { ...prev }; delete n.regularizeReason; return n; });
+                  }}
+                  className={cn(
+                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring',
+                    fieldErrors.regularizeReason ? 'border-status-danger-border ring-1 ring-status-danger-border' : 'border-border-strong'
+                  )}
                 />
+                {fieldErrors.regularizeReason && (
+                  <p className="mt-1 text-xs text-status-danger-fg flex items-center gap-1" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.regularizeReason}</span>
+                  </p>
+                )}
               </div>
             </div>
           )}
 
           {/* Modal Footer Controls */}
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-            <Button
-              type="button"
-              variant="secondary"
-              onClick={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={isSubmitting}
-            >
-              Send request
-            </Button>
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-border">
+            <div className="flex items-center gap-2">
+              {Object.keys(fieldErrors).length > 1 && (
+                <FormErrorSummaryButton
+                  count={Object.keys(fieldErrors).length}
+                  onClick={() => formRef.current && focusFirstError(formRef.current)}
+                />
+              )}
+              {serverError && (
+                <p className="text-xs text-status-danger-fg flex items-center gap-1.5" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{serverError}</span>
+                </p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSubmitting}
+              >
+                Send request
+              </Button>
+            </div>
           </div>
         </form>
       </div>

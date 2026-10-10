@@ -32,6 +32,7 @@ import {
 } from '../ui/dropdown-menu';
 import { dailyLogService } from '../../services/dailyLogService';
 import { logExceptionService } from '../../services/logExceptionService';
+import { useCacheInvalidation } from '../../utils/cacheBus';
 import type {
   DailyLogEntry,
   DailyLogColumn,
@@ -290,7 +291,7 @@ export const DailyLogView: React.FC = () => {
     try {
       const saved = localStorage.getItem('reamarc_daily_log_col_widths');
       if (saved) return JSON.parse(saved);
-    } catch (_e) {}
+    } catch {}
     const initial: Record<string, number> = {};
     DEFAULT_COLUMNS.forEach((col) => {
       initial[col.key] = parseInt(col.width || '150', 10);
@@ -302,7 +303,7 @@ export const DailyLogView: React.FC = () => {
     try {
       const saved = localStorage.getItem('reamarc_daily_log_row_heights');
       if (saved) return JSON.parse(saved);
-    } catch (_e) {}
+    } catch {}
     return {};
   });
 
@@ -492,6 +493,12 @@ export const DailyLogView: React.FC = () => {
   useEffect(() => {
     refreshDayTarget();
   }, [refreshDayTarget]);
+
+  // SWR: Invalidation bus listener for real-time consistency without unmounting
+  useCacheInvalidation(['daily-log', 'attendance', 'exceptions'], () => {
+    void refreshDayTarget();
+    void fetchEntries();
+  });
 
   const followUps = useMemo(() => {
     const list = [...(dayTarget?.follow_ups || [])] as DayTargetFollowUp[];
@@ -797,7 +804,7 @@ export const DailyLogView: React.FC = () => {
         const next = { ...prev, [colKey]: finalWidth };
         try {
           localStorage.setItem('reamarc_daily_log_col_widths', JSON.stringify(next));
-        } catch (_e) {}
+        } catch {}
         return next;
       });
     };
@@ -814,7 +821,7 @@ export const DailyLogView: React.FC = () => {
     setColumnWidths(initial);
     try {
       localStorage.removeItem('reamarc_daily_log_col_widths');
-    } catch (_e) {}
+    } catch {}
     addToast('Layout reset', 'Column widths restored to defaults.', 'info');
   };
 
@@ -822,7 +829,7 @@ export const DailyLogView: React.FC = () => {
     setRowHeights({});
     try {
       localStorage.removeItem('reamarc_daily_log_row_heights');
-    } catch (_e) {}
+    } catch {}
     addToast('Layout reset', 'Row heights restored to defaults.', 'info');
   };
 
@@ -1018,7 +1025,7 @@ export const DailyLogView: React.FC = () => {
             department: user.department,
           }
         : null,
-    [user?.name, user?.full_name, user?.role, user?.department]
+    [user]
   );
 
   const modalExistingEntries = useMemo(() => {

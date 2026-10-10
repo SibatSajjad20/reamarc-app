@@ -1,7 +1,8 @@
 import React from 'react';
 import { Users } from 'lucide-react';
 import type { TeamMemberWorkload } from '../../../utils/contentCalendarOverview';
-import { getInitials } from '../../../utils/badgeStyles';
+import { Avatar } from '../../ui/Avatar';
+import { useMemberAvatars } from '../../../hooks/useMemberAvatars';
 
 interface Props {
   workload: TeamMemberWorkload[];
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export const TeamWorkloadCard: React.FC<Props> = ({ workload, isLoading = false }) => {
+  const { getAvatarUrl } = useMemberAvatars();
   return (
     <div className="w-full h-[235px] rounded-xl bg-surface border border-border p-3 sm:p-3.5 flex flex-col overflow-hidden">
       <div className="flex items-center justify-between gap-2 border-b border-border pb-2 shrink-0">
@@ -51,7 +53,6 @@ export const TeamWorkloadCard: React.FC<Props> = ({ workload, isLoading = false 
           </div>
         ) : (
           workload.map((member) => {
-            const initials = getInitials(member.name);
             return (
               <div
                 key={member.id}
@@ -59,9 +60,12 @@ export const TeamWorkloadCard: React.FC<Props> = ({ workload, isLoading = false 
               >
                 {/* Col 1: Name + Avatar */}
                 <div className="flex items-center gap-2 min-w-0">
-                  <div className="w-5 h-5 rounded-md bg-subtle border border-border flex items-center justify-center text-[9px] font-semibold text-fg shrink-0">
-                    {initials}
-                  </div>
+                  <Avatar
+                    name={member.name}
+                    src={getAvatarUrl(member.id, member.name)}
+                    size={20}
+                    className="rounded-md shrink-0 text-[9px]"
+                  />
                   <div className="truncate min-w-0">
                     <div className="font-semibold text-fg text-xs truncate">
                       {member.name}

@@ -83,7 +83,7 @@ export const CrmStatusDot: React.FC<{
   if (!lead.contacted) {
     return (
       <span
-        className="w-1.5 h-1.5 rounded-full bg-warning shrink-0"
+        className="w-1.5 h-1.5 rounded-full bg-warning-dot shrink-0"
         title="Uncontacted"
       />
     );

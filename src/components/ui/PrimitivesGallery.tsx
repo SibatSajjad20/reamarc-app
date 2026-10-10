@@ -199,17 +199,35 @@ export const PrimitivesGallery: React.FC = () => {
             <BrandMark size={32} />
             <BrandMark size={40} />
           </div>
-          <div className="flex items-center gap-4 text-fg-muted bg-surface p-3 rounded-lg border border-border">
-            <MetaIcon size={16} />
-            <FacebookIcon size={16} />
-            <InstagramIcon size={16} />
-            <GoogleIcon size={16} />
-            <GoogleAdsIcon size={16} />
-            <TikTokIcon size={16} />
-            <WhatsAppIcon size={16} />
-            <LinkedInIcon size={16} />
-            <WordPressIcon size={16} />
-            <ElementorIcon size={16} />
+          <div className="flex flex-col gap-2">
+            <span className="text-caption text-fg-muted font-medium">Brand Colors</span>
+            <div className="flex items-center gap-4 bg-surface p-3 rounded-lg border border-border">
+              <MetaIcon size={16} variant="brand" />
+              <FacebookIcon size={16} variant="brand" />
+              <InstagramIcon size={16} variant="brand" />
+              <GoogleIcon size={16} variant="brand" />
+              <GoogleAdsIcon size={16} variant="brand" />
+              <TikTokIcon size={16} variant="brand" />
+              <WhatsAppIcon size={16} variant="brand" />
+              <LinkedInIcon size={16} variant="brand" />
+              <WordPressIcon size={16} variant="brand" />
+              <ElementorIcon size={16} variant="brand" />
+            </div>
+          </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-caption text-fg-muted font-medium">Monochrome</span>
+            <div className="flex items-center gap-4 text-fg-muted bg-surface p-3 rounded-lg border border-border">
+              <MetaIcon size={16} variant="mono" />
+              <FacebookIcon size={16} variant="mono" />
+              <InstagramIcon size={16} variant="mono" />
+              <GoogleIcon size={16} variant="mono" />
+              <GoogleAdsIcon size={16} variant="mono" />
+              <TikTokIcon size={16} variant="mono" />
+              <WhatsAppIcon size={16} variant="mono" />
+              <LinkedInIcon size={16} variant="mono" />
+              <WordPressIcon size={16} variant="mono" />
+              <ElementorIcon size={16} variant="mono" />
+            </div>
           </div>
         </div>
       </section>
