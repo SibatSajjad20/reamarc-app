@@ -62,6 +62,12 @@ const timeToMinutes = (value?: string | null) => {
   return (h || 0) * 60 + (m || 0);
 };
 
+const getDefaultHolidayDate = () => {
+  const today = new Date().toISOString().split('T')[0];
+  const minDate = getAttendanceMinDate();
+  return today < minDate ? minDate : today;
+};
+
 const computeNetExpectedHours = (
   start: string,
   end: string,
@@ -144,7 +150,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   const [calendarEvents, setCalendarEvents] = useState<CompanyCalendarEvent[]>([]);
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [newEventTitle, setNewEventTitle] = useState('');
-  const [newEventDate, setNewEventDate] = useState(getAttendanceMinDate());
+  const [newEventDate, setNewEventDate] = useState(getDefaultHolidayDate());
   const [newEventType, setNewEventType] = useState<'holiday' | 'working_saturday'>('holiday');
   const [newEventDesc, setNewEventDesc] = useState('');
   const eventFormRef = useRef<HTMLFormElement>(null);
@@ -669,11 +675,42 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden space-y-6">
       {/* Top Section Header */}
-      <PageHeader
-        title="Attendance policies"
-        description="Shift schedules, working hours, employee assignments, and overtime/grace thresholds."
-        actions={
-          <div className="flex items-center gap-2">
+      {!fixedTab ? (
+        <PageHeader
+          title="Attendance policies"
+          description="Shift schedules, working hours, employee assignments, and overtime/grace thresholds."
+          actions={
+            <div className="flex items-center gap-2">
+              {activeTab === 'shifts' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleOpenAddShift}
+                  icon={Plus}
+                >
+                  Add shift template
+                </Button>
+              )}
+
+              {activeTab === 'calendar' && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => {
+                    setNewEventDate(getDefaultHolidayDate());
+                    setIsEventModalOpen(true);
+                  }}
+                  icon={Plus}
+                >
+                  Add holiday / event
+                </Button>
+              )}
+            </div>
+          }
+        />
+      ) : (
+        (activeTab === 'shifts' || activeTab === 'calendar') && (
+          <div className="flex items-center justify-end">
             {activeTab === 'shifts' && (
               <Button
                 variant="primary"
@@ -690,7 +727,7 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 variant="primary"
                 size="sm"
                 onClick={() => {
-                  setNewEventDate(getAttendanceMinDate());
+                  setNewEventDate(getDefaultHolidayDate());
                   setIsEventModalOpen(true);
                 }}
                 icon={Plus}
@@ -699,8 +736,8 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
               </Button>
             )}
           </div>
-        }
-      />
+        )
+      )}
 
       {/* Policy Navigation Subtabs Bar */}
       {!fixedTab && (
@@ -1107,23 +1144,22 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
               <table className="w-full text-xs">
                 <thead className="bg-subtle border-b border-border text-fg-muted font-medium">
                   <tr>
-                    <th className="text-left font-medium px-4 py-3">Employee</th>
+                    <th className="text-left font-medium px-3 py-3">Employee</th>
                     <th className="text-left font-medium px-3 py-3" title="Opening baseline taken before system go-live">Annual taken</th>
                     <th className="text-left font-medium px-3 py-3" title="Opening baseline taken before system go-live">Sick taken</th>
                     <th className="text-left font-medium px-3 py-3">Annual quota</th>
                     <th className="text-left font-medium px-3 py-3">Sick quota</th>
                     <th className="text-left font-medium px-3 py-3" title="Approved in-app requests plus HR leave overrides that have no matching leave request">In-app used</th>
-                    <th className="text-left font-medium px-3 py-3" title="Days deducted from 8h cumulative undertime deficit">UT deducted</th>
-                    <th className="text-left font-medium px-3 py-3" title="Carried undertime deficit towards next 8h cut">Carried deficit</th>
+                    <th className="text-left font-medium px-3 py-3" title="Days deducted from 8h cumulative undertime deficit / Carried undertime deficit towards next 8h cut">UT deducted / Carried</th>
                     <th className="text-left font-medium px-3 py-3">Annual left</th>
                     <th className="text-left font-medium px-3 py-3">Sick left</th>
-                    <th className="px-4 py-3 text-right">Action</th>
+                    <th className="px-3 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leaveBalances.length === 0 ? (
                     <tr>
-                      <td colSpan={11} className="py-12 text-center text-fg-muted">
+                      <td colSpan={10} className="py-12 text-center text-fg-muted">
                         No employee leave quota records found.
                       </td>
                     </tr>
@@ -1153,79 +1189,76 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                       }));
                     return (
                     <tr key={row.user_id} className="border-t border-border hover:bg-hover transition-colors">
-                      <td className="px-4 py-2.5">
-                        <div className="font-medium text-fg">{row.user_name}</div>
-                        <div className="text-fg-muted">{row.department}</div>
+                      <td className="px-3 py-3 min-w-[140px]">
+                        <div className="font-semibold text-small text-fg leading-snug">{row.user_name}</div>
+                        <div className="text-caption text-fg-muted leading-tight">{row.department}</div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           min={0}
                           step={0.5}
                           value={draft?.annual ?? String(row.annual_used_opening)}
                           onChange={(e) => patchDraft({ annual: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           min={0}
                           step={0.5}
                           value={draft?.sick ?? String(row.sick_used_opening)}
                           onChange={(e) => patchDraft({ sick: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           min={0}
                           step={0.5}
                           value={draft?.annualQuota ?? String(row.annual_entitled)}
                           onChange={(e) => patchDraft({ annualQuota: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
                         />
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-3">
                         <input
                           type="number"
                           min={0}
                           step={0.5}
                           value={draft?.sickQuota ?? String(row.sick_entitled)}
                           onChange={(e) => patchDraft({ sickQuota: e.target.value })}
-                          className="w-20 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                          className="w-16 px-2 py-1.5 rounded-md bg-surface border border-border-strong text-fg focus:outline-none focus:ring-1 focus:ring-accent font-numeric text-small"
                         />
                       </td>
-                      <td className="px-3 py-2 text-fg-2">
-                        <div className="font-medium">{inAppAnnual}a / {inAppSick}s</div>
+                      <td className="px-3 py-3 text-fg-2">
+                        <div className="font-numeric font-medium text-small">{inAppAnnual}a / {inAppSick}s</div>
                         {(row.annual_pending > 0 || row.sick_pending > 0) && (
-                          <div className="text-[10px] text-warning-fg font-medium">
+                          <div className="text-[10px] text-warning-fg font-medium font-numeric">
                             +{row.annual_pending}a / +{row.sick_pending}s pend
                           </div>
                         )}
                       </td>
-                      <td className="px-3 py-2">
-                        <div className={`font-semibold ${utDeducted > 0 ? 'text-warning-fg' : 'text-fg-muted'}`}>
-                          {utDeducted > 0 ? `${utDeducted}d` : '0d'}
+                      <td className="px-3 py-3">
+                        <div className="font-numeric font-medium text-small text-fg">
+                          <span className={utDeducted > 0 ? 'text-warning-fg font-semibold' : 'text-fg-muted'}>
+                            {utDeducted > 0 ? `${utDeducted}d` : '0d'}
+                          </span>
+                          {' / '}
+                          <span className={carriedHours > 0 ? 'text-fg' : 'text-fg-muted'}>
+                            {formatHours(carriedHours)}
+                          </span>
                         </div>
-                        {utDeducted > 0 && (
-                          <div className="text-[10px] text-warning-fg font-medium">
-                            -{formatHours(utDeducted * 8)} settled
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2">
-                        <div className={`font-medium ${carriedHours > 0 ? 'text-fg' : 'text-fg-muted'}`}>
-                          {formatHours(carriedHours)}
-                        </div>
-                        <div className="text-[10px] text-fg-muted">
+                        <div className="text-[10px] text-fg-muted font-numeric">
+                          {utDeducted > 0 && <span className="text-warning-fg">-{formatHours(utDeducted * 8)} settled · </span>}
                           {carriedHours > 0 ? `${formatHours(8 - carriedHours)} to next 1d cut` : 'Clean'}
                         </div>
                       </td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-3">
                         <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className={`font-semibold ${annualLeft < 0 ? 'text-danger-fg' : annualLeft === 0 ? 'text-fg-muted' : 'text-success-fg'}`}>
+                          <span className={`font-semibold font-numeric text-small ${annualLeft < 0 ? 'text-danger-fg' : annualLeft === 0 ? 'text-fg-muted' : 'text-success-fg'}`}>
                             {annualLeft}
                           </span>
                           {annualLeft < 0 && (
@@ -1235,18 +1268,19 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                           )}
                         </div>
                       </td>
-                      <td className={`px-3 py-2 font-semibold ${sickLeft <= 0 ? 'text-danger-fg' : 'text-fg'}`}>
+                      <td className={`px-3 py-3 font-semibold font-numeric text-small ${sickLeft <= 0 ? 'text-danger-fg' : 'text-fg'}`}>
                         {sickLeft}
                       </td>
-                      <td className="px-4 py-2 text-right">
-                        <button
+                      <td className="px-3 py-3 text-right">
+                        <Button
                           type="button"
+                          size="sm"
+                          variant="primary"
                           disabled={savingLeaveUserId === row.user_id}
                           onClick={() => handleSaveLeaveOpening(row.user_id)}
-                          className="px-3 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium disabled:opacity-50 transition-colors"
                         >
-                          {savingLeaveUserId === row.user_id ? 'Saving...' : 'Save'}
-                        </button>
+                          {savingLeaveUserId === row.user_id ? 'Saving…' : 'Save'}
+                        </Button>
                       </td>
                     </tr>
                     );

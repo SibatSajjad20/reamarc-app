@@ -196,9 +196,18 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
             <label className="text-ui font-medium text-fg block">
               One-Day Specific Overrides
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_auto] gap-2 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_1fr_1fr_auto] gap-2 items-end">
               <CustomDatePicker value={overrideDate} onChange={setOverrideDate} placeholder="Date" />
-              <CustomSelect value={overrideShiftId} onChange={setOverrideShiftId} options={options} />
+              <CustomSelect value={overrideShiftId} onChange={setOverrideShiftId} options={options} placeholder="Shift" />
+              <CustomSelect
+                value={overrideWfh}
+                onChange={(v) => setOverrideWfh(v as 'inherit' | 'on' | 'off')}
+                options={[
+                  { value: 'inherit', label: 'Inherit week pattern' },
+                  { value: 'on', label: 'Force WFH' },
+                  { value: 'off', label: 'Force office' },
+                ]}
+              />
               <Button
                 type="button"
                 variant="secondary"
@@ -220,9 +229,21 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
                       key={row.date}
                       className="flex items-center justify-between rounded-md bg-surface border border-border px-3 py-1.5 text-caption font-numeric"
                     >
-                      <span className="text-fg">
-                        {row.date} · {shift?.name || 'Default shift'}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-fg font-medium">
+                          {row.date} · {shift?.name || 'Default shift'}
+                        </span>
+                        {row.auto_wfh === true && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
+                            WFH
+                          </span>
+                        )}
+                        {row.auto_wfh === false && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-subtle text-fg-muted border border-border">
+                            Office
+                          </span>
+                        )}
+                      </div>
                       <button
                         type="button"
                         onClick={() => setOverrides((prev) => prev.filter((item) => item.date !== row.date))}

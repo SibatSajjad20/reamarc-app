@@ -2,6 +2,7 @@ import React, { useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useBreadcrumb } from '@/components/layout/BreadcrumbContext';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import type { ThemePreference } from '@/types';
 import {
@@ -72,7 +73,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto bg-canvas">
-      <div className="max-w-[1000px] w-full mx-auto px-4 sm:px-6 py-6 pb-28 space-y-6">
+      <div className={cn("w-full mx-auto px-4 sm:px-6 py-6 pb-28 space-y-6", currentSection === 'leave-quotas' ? 'max-w-6xl' : 'max-w-[1000px]')}>
         <PageHeader
           title={sectionMeta.label}
           description={sectionMeta.description}

@@ -159,7 +159,7 @@ export const CrmSettingsTemplates: React.FC = () => {
         {/* Left Column: Configured Templates */}
         <div className="lg:col-span-7 space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+            <h3 className="text-label font-semibold text-fg-muted uppercase tracking-wider">
               Active templates
             </h3>
             {loading && <span className="text-micro text-fg-muted flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Loading…</span>}
@@ -168,12 +168,12 @@ export const CrmSettingsTemplates: React.FC = () => {
           {loading && templates.length === 0 ? (
             <div className="p-8 rounded-lg bg-surface border border-border text-center space-y-2">
               <Loader2 className="w-5 h-5 animate-spin text-accent mx-auto" />
-              <p className="text-xs text-fg-muted">Fetching templates…</p>
+              <p className="text-caption text-fg-muted">Fetching templates…</p>
             </div>
           ) : templates.length === 0 ? (
             <div className="p-8 rounded-lg bg-surface border border-dashed border-border text-center space-y-2">
               <MessageSquareText className="w-7 h-7 text-fg-faint mx-auto" />
-              <p className="text-xs font-medium text-fg">No message templates created yet</p>
+              <p className="text-small font-medium text-fg">No message templates created yet</p>
               <p className="text-micro text-fg-muted">Use the form to create your first outreach template.</p>
             </div>
           ) : (
@@ -188,7 +188,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                   >
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <span className="font-medium text-xs text-fg truncate">
+                        <span className="font-medium text-small text-fg truncate">
                           {tpl.name}
                         </span>
                         {tpl.is_default && (
@@ -229,7 +229,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="p-2.5 rounded-md bg-subtle text-xs text-fg font-sans whitespace-pre-wrap leading-relaxed">
+                    <div className="p-2.5 rounded-md bg-subtle text-small text-fg font-sans whitespace-pre-wrap leading-relaxed">
                       {tpl.body}
                     </div>
                   </div>
@@ -241,7 +241,7 @@ export const CrmSettingsTemplates: React.FC = () => {
 
         {/* Right Column: Create Template Form + Live Preview */}
         <div className="lg:col-span-5 space-y-3">
-          <h3 className="text-xs font-semibold text-fg-muted uppercase tracking-wider">
+          <h3 className="text-label font-semibold text-fg-muted uppercase tracking-wider">
             Create template
           </h3>
 
@@ -258,7 +258,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. Inbound Website Lead Welcome"
-                className="w-full h-8 px-2.5 rounded-md border border-input bg-surface text-xs text-fg placeholder:text-fg-muted focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-colors"
+                className="w-full h-8 px-2.5 rounded-md border border-input bg-surface text-small text-fg placeholder:text-fg-muted focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-colors"
                 required
               />
             </div>
@@ -280,7 +280,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                       key={tag}
                       type="button"
                       onClick={() => handleInsertTag(tag)}
-                      className="px-1.5 py-0.5 rounded text-micro font-numeric border border-border bg-subtle text-fg-muted hover:text-fg hover:border-accent transition-colors cursor-pointer"
+                      className="px-1.5 py-0.5 rounded text-micro font-sans border border-border bg-subtle text-fg-muted hover:text-fg hover:border-accent transition-colors cursor-pointer"
                       title={`Insert {{${tag}}}`}
                     >
                       +{label}
@@ -295,7 +295,7 @@ export const CrmSettingsTemplates: React.FC = () => {
                 onChange={(e) => setBody(e.target.value)}
                 rows={4}
                 placeholder="Write your template text here with dynamic tags..."
-                className="w-full p-2.5 rounded-md border border-input bg-surface text-xs text-fg placeholder:text-fg-muted focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-colors leading-relaxed font-sans"
+                className="w-full p-2.5 rounded-md border border-input bg-surface text-small text-fg placeholder:text-fg-muted focus:ring-1 focus:ring-accent focus:border-accent outline-none transition-colors leading-relaxed font-sans"
                 required
               />
             </div>
@@ -312,13 +312,13 @@ export const CrmSettingsTemplates: React.FC = () => {
                 <Eye className="w-3.5 h-3.5" />
                 <span>Live sample preview</span>
               </div>
-              <p className="text-xs text-fg leading-relaxed italic bg-surface p-2 rounded border border-border">
+              <p className="text-small text-fg leading-relaxed italic bg-surface p-2 rounded border border-border">
                 "{getLivePreview()}"
               </p>
             </div>
 
             {error && (
-              <div className="p-2.5 rounded-md bg-danger-bg border border-danger-bd text-xs text-danger-fg">
+              <div className="p-2.5 rounded-md bg-danger-bg border border-danger-bd text-small text-danger-fg">
                 {error}
               </div>
             )}
