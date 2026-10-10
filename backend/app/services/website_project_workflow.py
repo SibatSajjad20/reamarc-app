@@ -51,6 +51,26 @@ ALLOWED_DEPARTMENTS: Set[str] = {
     "design",
 }
 
+WEBSITE_DEPARTMENTS: Set[str] = {
+    "website",
+    "web development",
+    "software development",
+    "software",
+}
+
+
+def can_create_project(user: Dict[str, Any] | None) -> bool:
+    """Checks if a user is permitted to create a website project (admin, PM, or website department)."""
+    if not user or not user.get("is_active", True) or is_client(user):
+        return False
+    if is_admin_or_ops(user) or is_website_lead(user):
+        return True
+    role = _normalize(user.get("role"))
+    if role in ("team_lead", "lead", "pm", "project_manager"):
+        return True
+    depts = get_user_departments(user)
+    return bool(depts & WEBSITE_DEPARTMENTS)
+
 
 class WorkflowError(Exception):
     """Raised when a website project workflow rule or transition is violated."""

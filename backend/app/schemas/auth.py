@@ -28,6 +28,7 @@ class UserResponse(BaseModel):
     crm_enabled: Optional[bool] = None
     crm_paused: Optional[bool] = None
     avatar_url: Optional[str] = None
+    phone: Optional[str] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

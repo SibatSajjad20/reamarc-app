@@ -5064,17 +5064,17 @@ async def get_calendar_events(year: Optional[int] = None, month: Optional[int] =
     """Retrieves all calendar events, holidays, and working Saturdays for a month or active period."""
     db = get_database()
     target_year = year or 2026
-    target_month = month or 8
+    target_month = month
     if db is None:
         return CalendarMonthResponse(year=target_year, month=target_month, events=[], holidays=[], working_saturdays=[])
 
     query = {}
-    if year is not None and month is not None:
-        num_days = calendar.monthrange(year, month)[1]
-        month_prefix = f"{year:04d}-{month:02d}"
+    if month is not None:
+        num_days = calendar.monthrange(target_year, month)[1]
+        month_prefix = f"{target_year:04d}-{month:02d}"
         query = {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}}
-    elif year is not None:
-        query = {"date": {"$gte": f"{year:04d}-01-01", "$lte": f"{year:04d}-12-31"}}
+    else:
+        query = {"date": {"$gte": f"{target_year:04d}-01-01", "$lte": f"{target_year:04d}-12-31"}}
 
     docs = await db.company_calendar.find(query, {"_id": 0}).sort("date", 1).to_list(500)
 

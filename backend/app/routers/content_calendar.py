@@ -4,7 +4,7 @@ Provides endpoints for viewing, managing, creating, updating, and transitioning 
 """
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, File, Form, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status, File, Form, UploadFile
 from app.core.limiter import limiter
 from app.services.content_calendar_access import (
     require_content_calendar_reader,
@@ -350,16 +350,31 @@ async def add_content_link(
 async def get_drive_picker_config(
     request: Request,
     item_id: str,
+    response: Response,
     current_user: dict = Depends(require_content_calendar_user),
 ):
     """Returns credentials, active OAuth access token, and campaign folder ID for Google Picker."""
     db = get_database()
+    item = await content_calendar_service.get_item_by_id(db, item_id, viewer=current_user)
+    if not item:
+        raw_doc = await db[content_calendar_service.COLLECTION_NAME].find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
+        if not raw_doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Content item not found.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this content item.")
+
+    if not content_calendar_service.can_manage_assets(current_user, item):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not authorized to manage assets for this content item.",
+        )
+
     from app.services import google_drive_service as gdrive
     if not gdrive.configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Google Drive integration is not configured on this server.",
         )
+    response.headers["Cache-Control"] = "no-store"
     return await gdrive.get_picker_config(db, item_id=item_id, category="Content")
 
 

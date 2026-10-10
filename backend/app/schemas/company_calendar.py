@@ -61,7 +61,7 @@ class CalendarEventResponse(CalendarEventBase):
 
 class CalendarMonthResponse(BaseModel):
     year: int
-    month: int
+    month: Optional[int] = None
     events: List[CalendarEventResponse]
     holidays: List[str] = Field(default_factory=list, description="List of holiday date strings YYYY-MM-DD")
     working_saturdays: List[str] = Field(default_factory=list, description="List of working Saturday date strings YYYY-MM-DD")

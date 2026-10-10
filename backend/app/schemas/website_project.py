@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 def validate_http_url(v: Optional[str]) -> Optional[str]:
@@ -274,7 +274,82 @@ class WebsiteFileCreate(BaseModel):
     @field_validator("external_url")
     @classmethod
     def validate_external_url(cls, v: Optional[str]) -> Optional[str]:
-        return validate_http_url(v)
+        if v is None:
+            return None
+        val = str(v).strip()
+        if not val:
+            return None
+        if len(val) > 2048:
+            raise ValueError("URL cannot exceed 2048 characters")
+        return validate_http_url(val)
+
+    @model_validator(mode="after")
+    def validate_storage_or_external_url(self) -> "WebsiteFileCreate":
+        has_storage = bool(self.storage_key and str(self.storage_key).strip())
+        has_url = bool(self.external_url and str(self.external_url).strip())
+        if not has_storage and not has_url:
+            raise ValueError("Either storage_key or external_url must be provided.")
+        if has_url:
+            url = str(self.external_url).strip()
+            if len(url) > 2048:
+                raise ValueError("external_url must not exceed 2048 characters")
+            parsed = urlparse(url)
+            if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+                raise ValueError("external_url must be a valid http or https URL")
+        return self
+
+
+class WebsiteDriveFileItem(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    name: str
+    mimeType: Optional[str] = None
+    url: str
+    sizeBytes: Optional[int] = None
+
+
+class WebsiteDriveAttachRequest(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    folder: str = "assets"
+    task_id: Optional[str] = None
+    gate_id: Optional[str] = None
+    files: List[WebsiteDriveFileItem] = Field(default_factory=list)
+
+    @field_validator("folder")
+    @classmethod
+    def validate_folder(cls, v: str) -> str:
+        f = v.lower().strip()
+        if f not in FOLDERS:
+            raise ValueError(f"Invalid folder '{v}'. Must be one of {FOLDERS}")
+        return f
+
+    @model_validator(mode="after")
+    def validate_files_count_and_urls(self) -> "WebsiteDriveAttachRequest":
+        if not self.files:
+            raise ValueError("At least one file must be provided.")
+        if len(self.files) > 10:
+            raise ValueError("Maximum 10 files allowed per request.")
+        for item in self.files:
+            fid = str(item.id or "").strip()
+            if not fid:
+                raise ValueError("File id cannot be empty.")
+            fname = str(item.name or "").strip()
+            if not fname:
+                raise ValueError("File name cannot be empty.")
+            u = str(item.url or "").strip()
+            if not u:
+                raise ValueError("File URL cannot be empty.")
+            if len(u) > 2048:
+                raise ValueError("File URL must not exceed 2048 characters.")
+            parsed = urlparse(u)
+            if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+                raise ValueError(f"Invalid URL for file '{item.name}'.")
+            netloc = parsed.netloc.lower()
+            if not (netloc == "drive.google.com" or netloc.endswith(".drive.google.com") or netloc == "docs.google.com" or netloc.endswith(".docs.google.com")):
+                raise ValueError(f"URL '{u}' is not a valid Google Drive or Docs URL.")
+        return self
 
 
 class WebsiteFileResponse(BaseModel):

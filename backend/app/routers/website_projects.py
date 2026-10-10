@@ -4,7 +4,7 @@ Provides endpoints for projects, tasks, approval gates, file links, and activity
 """
 import asyncio
 from typing import Any, Dict, List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from app.core.limiter import limiter
 from app.core.security import get_current_user
 from app.database import get_database
@@ -26,6 +26,7 @@ from app.schemas.website_project import (
     WebsiteGateRevisionTaskRequest,
     WebsiteFileCreate,
     WebsiteFileResponse,
+    WebsiteDriveAttachRequest,
     WebsiteActivityResponse,
     TaskComment,
     WebsiteTeamMemberResponse,
@@ -33,6 +34,7 @@ from app.schemas.website_project import (
 from app.services import website_project_service
 from app.services.website_project_workflow import (
     WorkflowError,
+    can_create_project,
     can_view_project,
     can_manage_project,
     is_client,
@@ -130,8 +132,11 @@ async def create_project(
     current_user: dict = Depends(get_current_user),
 ):
     """Creates a new website project, seeding 8 stages and 5 draft approval gates."""
-    if is_client(current_user):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Clients cannot create projects.")
+    if not can_create_project(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin, PM, or website department members can create website projects.",
+        )
     db = get_database()
     return await website_project_service.create_project(db, payload, current_user)
 
@@ -344,11 +349,29 @@ async def create_revision_task(
 async def get_website_project_picker_config(
     request: Request,
     project_id: str,
+    response: Response,
+    task_id: Optional[str] = Query(None, description="Optional task ID to check task assignee access"),
     current_user: dict = Depends(get_current_user),
 ):
     """Returns credentials, active OAuth access token, and client website folder ID for Google Picker."""
     db = get_database()
-    project = await website_project_service.get_project_by_id(db, project_id, current_user)
+    project = await db.website_projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    has_manage = can_manage_project(current_user, project)
+    is_task_assignee = False
+    if not has_manage and task_id:
+        task = await db.website_project_tasks.find_one({"id": task_id, "project_id": project_id})
+        if task and str(task.get("assignee_id") or "").strip() == str(current_user.get("id") or "").strip():
+            is_task_assignee = True
+
+    if not has_manage and not is_task_assignee:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to attach files to this project.",
+        )
+
     from app.services import google_drive_service as gdrive
     if not gdrive.configured():
         raise HTTPException(
@@ -364,6 +387,7 @@ async def get_website_project_picker_config(
     token = await asyncio.to_thread(gdrive.get_access_token)
     from app.config import settings
     client_id = (settings.GOOGLE_DRIVE_WEB_CLIENT_ID or settings.GOOGLE_DRIVE_CLIENT_ID or "").strip()
+    response.headers["Cache-Control"] = "no-store"
     return {
         "developer_key": (settings.GOOGLE_DRIVE_API_KEY or "").strip(),
         "client_id": client_id,
@@ -404,6 +428,51 @@ async def create_file(
     return await website_project_service.create_file_record(db, project_id, payload, current_user)
 
 
+@router.post("/{project_id}/files/from-drive", response_model=List[WebsiteFileResponse], status_code=status.HTTP_201_CREATED)
+@limiter.limit("60/minute")
+async def attach_files_from_drive(
+    request: Request,
+    project_id: str,
+    payload: WebsiteDriveAttachRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """Attaches Google Drive files to a website project folder or task."""
+    db = get_database()
+    project = await db.website_projects.find_one({"id": project_id})
+    if not project:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+
+    has_manage = can_manage_project(current_user, project)
+    is_task_assignee = False
+    if not has_manage and payload.task_id:
+        task = await db.website_project_tasks.find_one({"id": payload.task_id, "project_id": project_id})
+        if task and str(task.get("assignee_id") or "").strip() == str(current_user.get("id") or "").strip():
+            is_task_assignee = True
+
+    if not has_manage and not is_task_assignee:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have permission to attach Drive files to this project.",
+        )
+
+    results: List[Dict[str, Any]] = []
+    for f in payload.files:
+        file_payload = WebsiteFileCreate(
+            folder=payload.folder,
+            name=f.name,
+            storage_key=f"drive:{f.id}",
+            external_url=f.url,
+            file_size=f.sizeBytes,
+            mime_type=f.mimeType,
+            task_id=payload.task_id,
+            gate_id=payload.gate_id,
+        )
+        rec = await website_project_service.create_file_record(db, project_id, file_payload, current_user)
+        results.append(rec)
+
+    return results
+
+
 @router.delete("/{project_id}/files/{file_id}", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("60/minute")
 async def delete_file(
@@ -415,40 +484,6 @@ async def delete_file(
     """Removes a file record from a project."""
     db = get_database()
     await website_project_service.delete_file_record(db, project_id, file_id, current_user)
-
-
-@router.get("/{project_id}/picker-config")
-@limiter.limit("60/minute")
-async def get_website_drive_picker_config(
-    request: Request,
-    project_id: str,
-    current_user: dict = Depends(get_current_user),
-):
-    """Returns credentials, active OAuth access token, and website project folder ID for Google Picker."""
-    db = get_database()
-    project = await db.website_projects.find_one({"id": project_id})
-    if not project or not can_view_project(current_user, project):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
-    from app.services import google_drive_service as gdrive
-    if not gdrive.configured():
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Google Drive integration is not configured on this server.",
-        )
-    folder_id = await gdrive.ensure_website_folder(
-        db,
-        client_name=project.get("client_name"),
-        workspace_id=project.get("workspace_id"),
-        project_name=project.get("name"),
-    )
-    picker_cfg = await gdrive.get_picker_config(
-        db,
-        client_name=project.get("client_name"),
-        workspace_id=project.get("workspace_id"),
-        category="Website",
-    )
-    picker_cfg["folder_id"] = folder_id
-    return picker_cfg
 
 
 # ==========================================

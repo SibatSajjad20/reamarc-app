@@ -583,7 +583,7 @@ async def create_item(
 
 async def _resolve_workspace_id_for_client(db, client_name: Optional[str]) -> Optional[str]:
     """Finds matching active workspace id for a client name using exact, substring, or keyword matching."""
-    if not db or not client_name:
+    if db is None or not client_name:
         return None
     c_clean = str(client_name).strip().lower()
     if not c_clean:

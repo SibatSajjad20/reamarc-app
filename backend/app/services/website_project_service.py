@@ -33,6 +33,7 @@ from app.services.website_project_workflow import (
     calculate_health,
     calculate_progress,
     can_client_review_gate,
+    can_create_project,
     can_edit_task,
     can_manage_project,
     can_view_project,
@@ -114,7 +115,7 @@ async def _notify_event(
 
 
 async def _find_client_users_for_workspace(db, workspace_id: Optional[str]) -> List[str]:
-    if not db or not workspace_id:
+    if db is None or not workspace_id:
         return []
     cursor = db.users.find(
         {
@@ -129,7 +130,7 @@ async def _find_client_users_for_workspace(db, workspace_id: Optional[str]) -> L
 
 
 async def _find_project_team_members(db, project_id: str) -> List[str]:
-    if not db:
+    if db is None:
         return []
     cursor = db.website_project_tasks.find(
         {"project_id": project_id, "assignee_id": {"$exists": True, "$ne": None}},
@@ -140,7 +141,7 @@ async def _find_project_team_members(db, project_id: str) -> List[str]:
 
 
 async def _find_admin_users(db) -> List[str]:
-    if not db:
+    if db is None:
         return []
     cursor = db.users.find(
         {"role": {"$in": ["admin", "super_admin", "operations"]}, "is_active": {"$ne": False}},
@@ -222,6 +223,11 @@ async def present_project(db, doc: Dict[str, Any], now_iso: Optional[str] = None
 
 
 async def create_project(db, payload: WebsiteProjectCreate, actor: Dict[str, Any]) -> Dict[str, Any]:
+    if not can_create_project(actor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only admin, PM, or website department members can create website projects.",
+        )
     project_id = f"wp_{uuid4().hex[:12]}"
     now = _now_iso()
 

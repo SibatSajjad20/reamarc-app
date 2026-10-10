@@ -1,6 +1,7 @@
 """CRM lead store, timeline, and Phase 1 manual assignment."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import uuid
@@ -29,6 +30,20 @@ from app.services.crm_access import (
 from app.services.crm_phone import normalize_phone_e164, wa_me_url
 
 logger = logging.getLogger("app.crm")
+
+
+def _dispatch_background_notification(coro) -> None:
+    """Dispatches a coroutine in the background and logs any uncaught exception."""
+    async def _runner():
+        try:
+            await coro
+        except Exception as exc:
+            logger.warning(f"Background CRM notification failed: {exc}")
+
+    try:
+        asyncio.create_task(_runner())
+    except Exception as exc:
+        logger.warning(f"Failed to schedule background CRM notification: {exc}")
 
 DEFAULT_STAGES = [
     {"id": "new", "name": "New", "order": 1},
@@ -650,9 +665,14 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
     updated.pop("_id", None)
     kind = "reassigned" if prev and prev != uid else "assigned"
     await append_activity(lead_id, kind, f"Assigned to {name}.", user, {"assigned_to": uid, "previous": prev})
-    from app.services.crm_assignment import notify_users
+    try:
+        from app.services.crm_assignment import notify_users
 
-    await notify_users([uid], "New CRM lead", f"A lead was assigned to {name}.")
+        _dispatch_background_notification(
+            notify_users([uid], "New CRM lead", f"A lead was assigned to {name}.")
+        )
+    except Exception as exc:
+        logger.warning(f"Failed to prepare assignment notification: {exc}")
     return serialize_lead(updated)
 
 
@@ -978,14 +998,16 @@ async def add_note(lead_id: str, body: str, user: Dict[str, Any]) -> Dict[str, A
             from app.services.crm_assignment import notify_users
             actor_name = user.get("full_name") or user.get("name") or "A team member"
             snippet = (body.strip()[:80] + "…") if len(body.strip()) > 80 else body.strip()
-            await notify_users(
-                [assigned_to],
-                f"New Note on {lead.get('name')}",
-                f"{actor_name}: {snippet}",
-                data={"type": "crm_lead", "lead_id": lead_id},
+            _dispatch_background_notification(
+                notify_users(
+                    [assigned_to],
+                    f"New Note on {lead.get('name')}",
+                    f"{actor_name}: {snippet}",
+                    data={"type": "crm_lead", "lead_id": lead_id},
+                )
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning(f"Failed to prepare note notification: {exc}")
     return serialize_lead(await get_lead_or_404(lead_id, user))
 
 

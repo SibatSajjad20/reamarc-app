@@ -44,7 +44,7 @@ async def get_monthly_calendar_events(
     """
     now = datetime.now(timezone.utc)
     target_year = year or now.year
-    target_month = month or now.month
+    target_month = month
     return await attendance_service.get_calendar_events(year=target_year, month=target_month)
 
 
