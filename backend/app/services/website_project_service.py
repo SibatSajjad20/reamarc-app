@@ -3,6 +3,7 @@ Database operations, auto-advance engine, notifications, and activity logging fo
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone, timedelta
@@ -151,19 +152,27 @@ async def _find_admin_users(db) -> List[str]:
     return [str(d.get("id") or d.get("_id")) for d in docs if (d.get("id") or d.get("_id"))]
 
 
-async def present_project(db, doc: Dict[str, Any], now_iso: Optional[str] = None) -> Dict[str, Any]:
+async def present_project(
+    db,
+    doc: Dict[str, Any],
+    now_iso: Optional[str] = None,
+    all_tasks: Optional[List[Dict[str, Any]]] = None,
+    all_gates: Optional[List[Dict[str, Any]]] = None,
+) -> Dict[str, Any]:
     """Decorates a raw project document with computed progress, health, and task counts."""
     now_iso = now_iso or _now_iso()
     today = now_iso[:10]
     pid = doc["id"]
 
     # Gather tasks
-    tasks_cursor = db.website_project_tasks.find({"project_id": pid})
-    all_tasks = await tasks_cursor.to_list(length=1000)
+    if all_tasks is None:
+        tasks_cursor = db.website_project_tasks.find({"project_id": pid})
+        all_tasks = await tasks_cursor.to_list(length=1000)
 
     # Gather gates
-    gates_cursor = db.website_project_gates.find({"project_id": pid})
-    all_gates = await gates_cursor.to_list(length=10)
+    if all_gates is None:
+        gates_cursor = db.website_project_gates.find({"project_id": pid})
+        all_gates = await gates_cursor.to_list(length=10)
 
     total_tasks = len(all_tasks)
     completed_tasks = sum(1 for t in all_tasks if str(t.get("status") or "").lower() == "completed")
@@ -342,12 +351,39 @@ async def get_projects(
     raw_projects = await cursor.to_list(length=limit)
     total = await db.website_projects.count_documents(query)
 
+    pids = [doc["id"] for doc in raw_projects if "id" in doc]
+    tasks_by_pid: Dict[str, List[Dict[str, Any]]] = {pid: [] for pid in pids}
+    gates_by_pid: Dict[str, List[Dict[str, Any]]] = {pid: [] for pid in pids}
+
+    if pids:
+        tasks_cursor = db.website_project_tasks.find({"project_id": {"$in": pids}})
+        gates_cursor = db.website_project_gates.find({"project_id": {"$in": pids}})
+        all_tasks, all_gates = await asyncio.gather(
+            tasks_cursor.to_list(length=10000),
+            gates_cursor.to_list(length=1000),
+        )
+        for t in all_tasks:
+            pid = t.get("project_id")
+            if pid in tasks_by_pid:
+                tasks_by_pid[pid].append(t)
+        for g in all_gates:
+            pid = g.get("project_id")
+            if pid in gates_by_pid:
+                gates_by_pid[pid].append(g)
+
     presented = []
     now = _now_iso()
     for doc in raw_projects:
         if not can_view_project(viewer, doc):
             continue
-        item = await present_project(db, doc, now)
+        pid = doc["id"]
+        item = await present_project(
+            db,
+            doc,
+            now,
+            all_tasks=tasks_by_pid.get(pid),
+            all_gates=gates_by_pid.get(pid),
+        )
         if health and item["health"] != health.lower().strip():
             continue
         presented.append(item)

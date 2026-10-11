@@ -37,6 +37,8 @@ import { DrawerSkeleton } from '../ui/Skeletons';
 import { Button } from '../ui/button';
 import { StatusPill } from '../ui/StatusPill';
 import { CustomDateTimePicker } from '../ui/CustomDateTimePicker';
+import { FormDialog, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 
 const AVAILABLE_SERVICES = [
   'Website Dev',
@@ -1093,9 +1095,9 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
         </div>
       )}
 
-      {/* Sticky Footer */}
+      {/* Footer */}
       {!closed ? (
-        <div className="sticky bottom-0 bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 z-10 shrink-0">
+        <div className="bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 shrink-0">
           <Button
             type="button"
             variant="primary"
@@ -1124,7 +1126,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           </Button>
         </div>
       ) : (
-        <div className="sticky bottom-0 bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 z-10 shrink-0">
+        <div className="bg-surface border-t border-border px-5 py-3 flex items-center justify-between gap-2.5 shrink-0">
           <span className="text-xs text-fg-muted">
             This lead is <strong className="capitalize text-fg">{lead.outcome}</strong>.
           </span>
@@ -1191,20 +1193,24 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
         </div>
       )}
 
-      {trashOpen && (
-        <div className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center p-4 bg-overlay animate-in fade-in-0 duration-150">
-          <form
-            className="w-full max-w-[400px] rounded-lg bg-surface border border-border p-5 shadow-lg space-y-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              const reason = trashReason.trim();
-              if (reason.length < 10) return;
-              setTrashOpen(false);
-              void onTrash(reason);
-            }}
-          >
-            <h3 className="text-h2 font-semibold text-fg">Move {lead.name} to trash</h3>
-            <p className="text-body text-fg-muted">Trash is distinct from lost. Please write a reason (minimum 10 characters).</p>
+      <FormDialog
+        isOpen={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        maxWidth="sm"
+        title={`Move ${lead.name} to trash`}
+        subtitle="Trash is distinct from lost. Please write a reason (minimum 10 characters)."
+      >
+        <form
+          className="flex flex-col flex-1 min-h-0"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const reason = trashReason.trim();
+            if (reason.length < 10) return;
+            setTrashOpen(false);
+            void onTrash(reason);
+          }}
+        >
+          <FormDialogBody className="p-5">
             <textarea
               value={trashReason}
               onChange={(e) => setTrashReason(e.target.value)}
@@ -1212,21 +1218,21 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
               className="w-full text-xs p-2.5 rounded-md border border-border bg-subtle/50 text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-accent"
               placeholder="Why is this lead being trashed?"
             />
-            <div className="flex justify-end gap-2 pt-2">
-              <Button type="button" variant="secondary" onClick={() => setTrashOpen(false)}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="danger"
-                disabled={trashReason.trim().length < 10 || busy}
-              >
-                Trash lead
-              </Button>
-            </div>
-          </form>
-        </div>
-      )}
+          </FormDialogBody>
+          <FormFooter>
+            <Button type="button" variant="secondary" onClick={() => setTrashOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="danger"
+              disabled={trashReason.trim().length < 10 || busy}
+            >
+              Trash lead
+            </Button>
+          </FormFooter>
+        </form>
+      </FormDialog>
 
       {lead && (
         <CrmCreateLeadModal

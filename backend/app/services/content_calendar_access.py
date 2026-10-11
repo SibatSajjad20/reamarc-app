@@ -34,10 +34,9 @@ def _role(value: Any) -> str:
 def can_access_content_calendar(user: Dict[str, Any] | None) -> bool:
     if not user or not user.get("is_active", True):
         return False
-    role = _role(user.get("role"))
-    if role == UserRole.ADMIN.value or role == "admin":
-        return True
-    return role in _TEAM_ROLES and bool(_user_departments(user) & _ALLOWED_DEPARTMENTS)
+    from app.services.permissions import PermCtx, resolve, level_gte, SYSTEM_ROLE_DEFAULTS
+    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    return level_gte("content_calendar", resolve(ctx, "content_calendar"), "view")
 
 
 async def require_content_calendar_user(current_user: dict = Depends(get_current_user)) -> dict:

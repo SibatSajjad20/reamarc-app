@@ -4,14 +4,15 @@ import type { ContentCalendarItem, ContentCalendarConstants } from '../../types/
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
-import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../ui/dialog';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { DialogTitle, DialogDescription } from '../ui/dialog';
+import { FormFooter } from '../ui/FormFooter';
 import { Button } from '../ui/button';
 import {
   detectStageOwner,
   getApprovalStatusesForStage,
 } from '../../utils/contentCalendarWorkflow';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 
 interface Props {
@@ -333,27 +334,31 @@ export const ContentCalendarModal: React.FC<Props> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
-      <DialogContent maxWidth="lg" className="p-0 overflow-hidden max-h-[90vh] flex flex-col">
-        {/* Modal Header */}
-        <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-surface shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-md bg-accent-soft text-accent flex items-center justify-center shrink-0">
-              <Calendar className="w-4.5 h-4.5" />
-            </div>
-            <div>
-              <DialogTitle className="text-ui font-semibold text-fg">
-                {item ? `Edit campaign item: ${item.serial}` : 'Create new campaign item'}
-              </DialogTitle>
-              <DialogDescription className="text-caption text-fg-muted mt-0.5">
-                Configure campaign strategy, copy, schedule, and assets
-              </DialogDescription>
-            </div>
+    <FormDialog
+      isOpen={isOpen}
+      onClose={() => { if (!isSubmitting) onClose(); }}
+      maxWidth="lg"
+    >
+      {/* Modal Header */}
+      <FormDialogHeader className="bg-surface">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-md bg-accent-soft text-accent flex items-center justify-center shrink-0">
+            <Calendar className="w-4.5 h-4.5" />
+          </div>
+          <div>
+            <DialogTitle className="text-ui font-semibold text-fg">
+              {item ? `Edit campaign item: ${item.serial}` : 'Create new campaign item'}
+            </DialogTitle>
+            <DialogDescription className="text-caption text-fg-muted mt-0.5">
+              Configure campaign strategy, copy, schedule, and assets
+            </DialogDescription>
           </div>
         </div>
+      </FormDialogHeader>
 
-        {/* Modal Form */}
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex-1 overflow-y-auto p-6 space-y-5 select-text flex flex-col">
+      {/* Modal Form */}
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-5 select-text">
           {/* Section: Identity & Strategy */}
           <div className="space-y-3">
             <h3 className="text-micro font-semibold text-fg-muted uppercase tracking-wider">
@@ -729,43 +734,34 @@ export const ContentCalendarModal: React.FC<Props> = ({
             </div>
           </div>
 
-          {/* Sticky Modal Footer */}
-          <div className="sticky bottom-0 bg-surface -mx-6 -mb-6 p-4 px-6 border-t border-border flex items-center justify-between gap-2.5 mt-auto z-10">
-            <div className="flex items-center gap-3">
-              <FormErrorSummaryButton
-                count={Object.keys(fieldErrors).length}
-                onClick={() => {
-                  if (formRef.current) focusFirstError(formRef.current);
-                }}
-              />
-              {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{serverError}</span>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2.5 ml-auto">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={isSubmitting}
-              >
-                <Save className="w-3.5 h-3.5 mr-1.5" />
-                <span>{isSubmitting ? 'Saving...' : item ? 'Update item' : 'Create item'}</span>
-              </Button>
-            </div>
-          </div>
-        </form>
-      </DialogContent>
-    </Dialog>
+        </FormDialogBody>
+
+        {/* Modal Footer */}
+        <FormFooter
+          count={Object.keys(fieldErrors).length}
+          onFocusFirst={() => {
+            if (formRef.current) focusFirstError(formRef.current);
+          }}
+          serverError={serverError}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            disabled={isSubmitting}
+          >
+            <Save className="w-3.5 h-3.5 mr-1.5" />
+            <span>{isSubmitting ? 'Saving...' : item ? 'Update item' : 'Create item'}</span>
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

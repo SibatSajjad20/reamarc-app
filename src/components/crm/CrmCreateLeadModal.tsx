@@ -1,17 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Plus, AlertCircle } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '../ui/dialog';
+import { FormDialog, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Button } from '../ui/button';
 import { Checkbox } from '../ui/checkbox';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 import type { CrmAssignee, CrmLead, CrmLeadCreatePayload } from '../../types/crm';
 import {
   LEAD_BUDGETS,
@@ -247,16 +241,14 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col max-h-[calc(100vh-64px)]">
-          <DialogHeader className="p-5 pb-3 border-b border-border">
-            <DialogTitle className="text-h2 font-semibold text-fg">
-              {mode === 'edit' ? 'Edit Lead Brief & Info' : 'New Lead'}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="flex-1 overflow-y-auto p-5 grid grid-cols-1 md:grid-cols-2 gap-4 custom-scrollbar">
+    <FormDialog
+      isOpen={isOpen}
+      onClose={saving ? undefined : onClose}
+      maxWidth="lg"
+      title={mode === 'edit' ? 'Edit Lead Brief & Info' : 'New Lead'}
+    >
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Section title="Contact Information" />
             <TextField label="Full Name" required value={form.name} error={fieldErrors.name} onChange={(v) => set('name', v)} />
             <TextField label="Company" required value={form.company} error={fieldErrors.company} onChange={(v) => set('company', v)} />
@@ -390,48 +382,37 @@ export const CrmCreateLeadModal: React.FC<CrmCreateLeadModalProps> = ({
               </div>
             )}
 
-          </div>
+          </FormDialogBody>
 
-          <DialogFooter className="p-4 border-t border-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FormErrorSummaryButton
-                count={Object.keys(fieldErrors).length}
-                onClick={() => {
-                  if (formRef.current) focusFirstError(formRef.current);
-                }}
-              />
-              {error && (
-                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={saving}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                disabled={saving}
-                loading={saving}
-                loadingText="Saving…"
-                icon={Plus}
-              >
-                {mode === 'edit' ? 'Save form' : 'Create lead'}
-              </Button>
-            </div>
-          </DialogFooter>
+          <FormFooter
+            errorCount={Object.keys(fieldErrors).length}
+            onFocusFirst={() => {
+              if (formRef.current) focusFirstError(formRef.current);
+            }}
+            serverError={error}
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={saving}
+              loading={saving}
+              loadingText="Saving…"
+              icon={Plus}
+            >
+              {mode === 'edit' ? 'Save form' : 'Create lead'}
+            </Button>
+          </FormFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
+      </FormDialog>
+    );
 };
 
 function Section({ title }: { title: string }) {

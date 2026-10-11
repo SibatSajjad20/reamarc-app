@@ -127,12 +127,15 @@ async def list_exception_inbox(
 
     user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
     if role == "team_lead":
-        lead_user_doc = await db.users.find_one({"id": viewer_id}, {"departments": 1, "department": 1})
-        lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+        from app.services.permissions import load_context, departments_with, normalize_dept
+        lead_user_doc = await db.users.find_one({"id": viewer_id})
+        ctx = await load_context(lead_user_doc or current_user, db=db)
+        lead_depts = departments_with(ctx, "exceptions", "department")
         if not lead_depts:
             return []
-        user_query["role"] = {"$in": ["team_member", UserRole.TEAM_MEMBER.value]}
-        user_query["$or"] = [_dept_match_query(d) for d in lead_depts]
+        user_query["role"] = {"$in": ["team_member", UserRole.TEAM_MEMBER.value, "member"]}
+        dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in lead_depts]
+        user_query["$or"] = dept_regexes
         user_query["id"] = {"$ne": viewer_id}
     else:
         user_query["role"] = {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}
@@ -422,13 +425,21 @@ async def act_on_exception(
         raise HTTPException(status_code=404, detail="Employee not found.")
     member_role = str(member.get("role") or "").lower()
     if role == "team_lead":
-        if member_role not in ("team_member",):
+        if member_role not in ("team_member", "member"):
             raise HTTPException(status_code=403, detail="Team leads only act on their team members.")
-        lead_depts = _extract_lead_departments(current_user)
-        mem_depts = _extract_lead_departments(member)
+        from app.services.permissions import (
+            load_context,
+            departments_with,
+            normalize_dept,
+            get_user_primary_department,
+        )
+        lead_user_doc = await db.users.find_one({"id": current_user.get("id")})
+        ctx = await load_context(lead_user_doc or current_user, db=db)
+        lead_depts = [normalize_dept(d) for d in departments_with(ctx, "exceptions", "department")]
         if not lead_depts:
             raise HTTPException(status_code=403, detail="Your account has no department assigned.")
-        if not mem_depts or not any(ld.lower() == md.lower() for ld in lead_depts for md in mem_depts):
+        member_primary = normalize_dept(get_user_primary_department(member))
+        if not member_primary or member_primary not in lead_depts:
             raise HTTPException(status_code=403, detail="This employee is outside your department.")
         if user_id == current_user.get("id"):
             raise HTTPException(status_code=403, detail="Your own log is reviewed by HR.")

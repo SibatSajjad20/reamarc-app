@@ -13,6 +13,7 @@ import { useToast } from '../../../context/ToastContext';
 import { useConfirm } from '../../ui/ConfirmProvider';
 import { PageHeader } from '../../ui/PageHeader';
 import { Button } from '../../ui/button';
+import { FormFooter } from '../../ui/FormFooter';
 import { StatusPill } from '../../ui/StatusPill';
 import { CustomSelect } from '../../ui/CustomSelect';
 import {
@@ -212,16 +213,18 @@ export const MobileOpsSection: React.FC = () => {
               />
             </div>
 
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={sending}
-              disabled={sending || !title.trim() || !body.trim()}
-              icon={Send}
-            >
-              {audience === 'all' ? 'Send to all bound phones' : 'Send notification'}
-            </Button>
+            <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                loading={sending}
+                disabled={sending || !title.trim() || !body.trim()}
+                icon={Send}
+              >
+                {audience === 'all' ? 'Send to all bound phones' : 'Send notification'}
+              </Button>
+            </FormFooter>
           </form>
 
           {/* Right: Neutral Live Preview Card (13px text) */}

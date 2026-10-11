@@ -38,14 +38,8 @@ import {
   TableSkeletonRows,
 } from '../../ui/DataTable';
 import { Progress } from '../../ui/progress';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../../ui/dialog';
+import { FormDialog, FormDialogBody } from '../../ui/FormDialogLayout';
+import { FormFooter } from '../../ui/FormFooter';
 import { Textarea } from '../../ui/textarea';
 import { cn } from '../../../lib/utils';
 
@@ -747,21 +741,15 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
       )}
 
       {/* Send reminder dialog (Dialog 400 per §13.15.3) */}
-      <Dialog
-        open={Boolean(customReminderUser)}
-        onOpenChange={(open) => {
-          if (!open) setCustomReminderUser(null);
-        }}
+      <FormDialog
+        isOpen={Boolean(customReminderUser)}
+        onClose={() => setCustomReminderUser(null)}
+        maxWidth="sm"
+        title={`Send reminder to ${customReminderUser?.full_name || ''}`}
+        subtitle="Send an email reminder to submit missing daily logs."
       >
-        <DialogContent maxWidth="sm">
-          <DialogHeader>
-            <DialogTitle>Send reminder to {customReminderUser?.full_name}</DialogTitle>
-            <DialogDescription>
-              Send an email reminder to submit missing daily logs.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="p-6 space-y-3">
+        <div className="flex flex-col flex-1 min-h-0">
+          <FormDialogBody className="space-y-3">
             <div className="text-xs text-fg-muted">
               Recipient:{' '}
               <span className="font-medium text-fg">{customReminderUser?.email}</span>
@@ -776,16 +764,18 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
                 placeholder="Enter reminder note..."
               />
             </div>
-          </div>
+          </FormDialogBody>
 
-          <DialogFooter>
+          <FormFooter>
             <Button
+              type="button"
               variant="secondary"
               onClick={() => setCustomReminderUser(null)}
             >
               Cancel
             </Button>
             <Button
+              type="button"
               variant="primary"
               icon={Send}
               loading={customReminderUser ? isSendingReminder[customReminderUser.user_id] : false}
@@ -793,9 +783,9 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
             >
               Send reminder
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </FormFooter>
+        </div>
+      </FormDialog>
 
       {/* Detail drawer (Sheet 480 per §13.15.3) */}
       <EmployeeComplianceDrawer

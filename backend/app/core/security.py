@@ -186,7 +186,9 @@ def _parse_iso(value: str) -> Optional[datetime]:
     return parsed
 
 
-async def accept_retired_refresh(db: Any, user_id: str, old_jti: str, new_jti: str) -> bool:
+async def accept_retired_refresh(
+    db: Any, user_id: str, old_jti: str, new_jti: str, fresh_doc: Optional[dict] = None
+) -> bool:
     """Accept one replay of a just-rotated refresh token.
 
     The winning request already kept that browser signed in. A second copy of the
@@ -195,8 +197,12 @@ async def accept_retired_refresh(db: Any, user_id: str, old_jti: str, new_jti: s
     """
     if db is None or not user_id or not old_jti or not new_jti:
         return False
-    fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "refresh_retired": 1})
-    if not retired_jti_is_recent((fresh or {}).get("refresh_retired"), old_jti):
+    if fresh_doc is not None and "refresh_retired" in fresh_doc:
+        refresh_retired = fresh_doc.get("refresh_retired")
+    else:
+        fresh = await db.users.find_one({"id": user_id}, {"_id": 0, "refresh_retired": 1})
+        refresh_retired = (fresh or {}).get("refresh_retired")
+    if not retired_jti_is_recent(refresh_retired, old_jti):
         return False
     consumed = await db.users.update_one(
         {
@@ -312,6 +318,8 @@ async def get_current_user(
         "full_name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "role": effective_role,
         "department": user_doc.get("department"),
+        "departments": user_doc.get("departments") or [],
+        "primary_department": user_doc.get("primary_department"),
         "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),

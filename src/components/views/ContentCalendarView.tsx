@@ -622,6 +622,10 @@ export const ContentCalendarView: React.FC = () => {
               setIsDrawerOpen(true);
             }}
             onRefresh={() => void loadData({ silent: false })}
+            onAddContent={() => {
+              setEditingItem(null);
+              setIsModalOpen(true);
+            }}
           />
         )}
 

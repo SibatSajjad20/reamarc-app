@@ -23,6 +23,7 @@ import type { ContentCalendarConstants } from '@/types/contentCalendar';
 import { SettingsCard } from '../SettingsCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { FormFooter } from '@/components/ui/FormFooter';
 
 const DEFAULT_CREATIVE_TYPES = [
   'Video',
@@ -296,7 +297,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
         >
           {canEdit ? (
             <div className="space-y-4">
-              <form onSubmit={handleAddOption} className="space-y-1.5">
+              <form onSubmit={handleAddOption} className="space-y-2">
                 <div className="flex items-center gap-2">
                   <Input
                     placeholder="Enter new creative type (e.g. Carousel, Short)..."
@@ -307,6 +308,8 @@ export const ContentCalendarFieldsSection: React.FC = () => {
                     }}
                     className="flex-1"
                   />
+                </div>
+                <FormFooter className="px-0 py-0 border-t-0 bg-transparent" serverError={optionInputError}>
                   <Button
                     type="submit"
                     variant="primary"
@@ -316,10 +319,7 @@ export const ContentCalendarFieldsSection: React.FC = () => {
                   >
                     Add
                   </Button>
-                </div>
-                {optionInputError && (
-                  <p className="text-xs text-danger-fg font-medium">{optionInputError}</p>
-                )}
+                </FormFooter>
               </form>
 
               <div className="rounded-xl border border-border divide-y divide-border max-h-72 overflow-y-auto bg-surface">

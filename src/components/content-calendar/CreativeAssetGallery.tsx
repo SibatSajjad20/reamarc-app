@@ -24,6 +24,8 @@ import {
 import type { CreativeAsset, ContentCalendarItem, AssetRole, DrivePickedFile } from '../../types/contentCalendar';
 import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
@@ -1066,32 +1068,19 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
 
       {/* Add Deliverable Link Modal */}
       {isAddLinkOpen && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4 animate-in fade-in duration-150">
-          <div className="w-full max-w-md rounded-xl bg-surface border border-border p-6 space-y-4 shadow-lg">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-lg bg-subtle text-accent-text border border-border">
-                  <Link2 className="w-5 h-5" />
-                </div>
-                <div>
-                  <h4 className="text-sm font-semibold text-fg">
-                    Add Deliverable Link
-                  </h4>
-                  <p className="text-xs text-fg-muted">
-                    Attach external Figma, Canva, Drive, Loom, or asset links
-                  </p>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsAddLinkOpen(false)}
-                className="p-1 rounded-md text-fg-muted hover:text-fg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <form onSubmit={handleAddLinkSubmit} className="space-y-3.5">
+        <FormDialog
+          isOpen={isAddLinkOpen}
+          onClose={() => setIsAddLinkOpen(false)}
+          maxWidth="md"
+        >
+          <FormDialogHeader
+            title="Add Deliverable Link"
+            subtitle="Attach external Figma, Canva, Drive, Loom, or asset links"
+            icon={<Link2 className="w-5 h-5 text-accent-text" />}
+            onClose={() => setIsAddLinkOpen(false)}
+          />
+          <form onSubmit={handleAddLinkSubmit} className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-3.5">
               <div>
                 <label className="block text-xs font-medium text-fg mb-1">
                   URL / Web Address <span className="text-danger-fg">*</span>
@@ -1150,30 +1139,31 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   size="sm"
                 />
               </div>
+            </FormDialogBody>
 
-              <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-                <button
-                  type="button"
-                  disabled={isSubmittingLink}
-                  onClick={() => setIsAddLinkOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs font-medium text-fg bg-subtle hover:bg-hover border border-border transition cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  loading={isSubmittingLink}
-                  loadingText="Adding link…"
-                  disabled={!linkUrl.trim() || isUploading}
-                >
-                  Add Link
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <FormFooter serverError={linkError}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={isSubmittingLink}
+                onClick={() => setIsAddLinkOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                loading={isSubmittingLink}
+                loadingText="Adding link…"
+                disabled={!linkUrl.trim() || isUploading}
+              >
+                Add Link
+              </Button>
+            </FormFooter>
+          </form>
+        </FormDialog>
       )}
 
       <DriveAttach

@@ -20,6 +20,9 @@ class UserResponse(BaseModel):
     name: str
     role: str = "member"
     department: Optional[str] = None
+    departments: Optional[List[str]] = None
+    primary_department: Optional[str] = None
+    permissions: Optional[dict] = None
     designation: Optional[str] = None
     joining_date: Optional[str] = None
     employment_type: Optional[str] = "contract"

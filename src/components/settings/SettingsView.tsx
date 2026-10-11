@@ -19,6 +19,7 @@ import { AccountAppearanceSection } from './sections/AccountAppearanceSection';
 // Organization Sections
 import { AttendancePoliciesSection } from '@/components/admin/sections/AttendancePoliciesSection';
 import { DailyLogFieldsSection } from './sections/DailyLogFieldsSection';
+import { RolesPermissionsSection } from './sections/roles-permissions/RolesPermissionsSection';
 import { MobileOpsSection } from '@/components/admin/sections/MobileOpsSection';
 
 // CRM Sections
@@ -100,6 +101,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <AttendancePoliciesSection fixedTab="leaves" />
           )}
           {currentSection === 'daily-log-fields' && <DailyLogFieldsSection />}
+          {currentSection === 'roles-permissions' && <RolesPermissionsSection />}
           {currentSection === 'mobile-alerts' && <MobileOpsSection />}
 
           {currentSection === 'lead-sources' && (

@@ -80,6 +80,14 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     isAllowed: (user) => user?.role === 'admin',
   },
   {
+    slug: 'roles-permissions',
+    group: 'organization',
+    groupLabel: 'Organization',
+    label: 'Roles & permissions',
+    description: 'Decide what each role can see and do, then fine-tune per person and department.',
+    isAllowed: (user) => user?.role === 'admin',
+  },
+  {
     slug: 'mobile-alerts',
     group: 'organization',
     groupLabel: 'Organization',

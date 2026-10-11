@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  X,
   User,
   Building2,
   FileText,
@@ -14,6 +13,8 @@ import {
   Plus,
 } from 'lucide-react';
 import { Button, IconButton } from '../ui/button';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Checkbox } from '../ui/checkbox';
 import type {
   WebsiteTask,
@@ -370,10 +371,13 @@ export const WebsiteTaskModal: React.FC<Props> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 animate-in fade-in duration-150">
-      <div className="w-full max-w-4xl max-h-[92vh] bg-surface rounded-xl shadow-2xl border border-border flex flex-col overflow-hidden">
-        {/* Header Bar */}
-        <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between gap-3 bg-subtle">
+    <FormDialog
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="2xl"
+    >
+      <FormDialogHeader>
+        <div className="flex items-center justify-between gap-3 w-full">
           <div className="flex items-center gap-2.5 flex-wrap min-w-0">
             <span className="px-2.5 py-1 rounded-md text-xs font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
               {cleanLabel(activeStage)}
@@ -396,7 +400,7 @@ export const WebsiteTaskModal: React.FC<Props> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             {!isCreateMode && effectiveCanManage && onDeleteTask && (
               <IconButton
                 icon={Trash2}
@@ -408,19 +412,18 @@ export const WebsiteTaskModal: React.FC<Props> = ({
                 className="text-fg-muted hover:text-danger-fg hover:bg-danger-bg"
               />
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              className="p-2 rounded-xl text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
-              title="Close dialog"
-            >
-              <X className="w-5 h-5" />
-            </button>
           </div>
         </div>
+      </FormDialogHeader>
 
-        {/* Modal Body - 2 Columns (Left: Task Details, Right: Files & Comments) */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 custom-scrollbar">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSave();
+        }}
+        className="flex flex-col flex-1 min-h-0"
+      >
+        <FormDialogBody className="p-4 sm:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* LEFT COLUMN: Metadata & Description (7 Cols) */}
           <div className="lg:col-span-7 space-y-4">
             {/* Project Picker (Create mode with multiple available projects) */}
@@ -790,53 +793,40 @@ export const WebsiteTaskModal: React.FC<Props> = ({
               </>
             )}
           </div>
-        </div>
 
-        {/* Modal Footer Bar */}
-        <div className="p-4 border-t border-border flex items-center justify-between bg-subtle">
-          <div className="text-xs text-fg-muted flex items-center gap-2">
-            <span>Stage: <strong className="text-fg uppercase">{cleanLabel(activeStage)}</strong></span>
-            {task?.updated_at && (
-              <>
-                <span>•</span>
-                <span>Updated: {new Date(task.updated_at).toLocaleDateString()}</span>
-              </>
-            )}
-          </div>
+        </FormDialogBody>
 
-          <div className="flex items-center gap-2">
-            {!(isCreateMode ? effectiveCanManage : canEditTask) ? (
-              <button
+        <FormFooter serverError={taskError}>
+          {!(isCreateMode ? effectiveCanManage : canEditTask) ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+            >
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl bg-hover hover:bg-subtle text-fg text-xs font-semibold transition-colors cursor-pointer border border-border"
               >
-                Close
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-fg-muted hover:bg-hover transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <Button
-                  type="button"
-                  variant="primary"
-                  onClick={() => handleSave()}
-                  loading={isSaving}
-                  loadingText={isCreateMode ? 'Creating…' : 'Saving…'}
-                  icon={CheckCircle2}
-                >
-                  {isCreateMode ? 'Create Task' : 'Save Changes'}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSaving}
+                loadingText={isCreateMode ? 'Creating…' : 'Saving…'}
+                icon={CheckCircle2}
+              >
+                {isCreateMode ? 'Create Task' : 'Save Changes'}
+              </Button>
+            </>
+          )}
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

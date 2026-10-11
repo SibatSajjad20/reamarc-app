@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Loader2, Plus, Trash2, Users, SlidersHorizontal, AlertCircle } from 'lucide-react';
 import { Button } from '../../ui/button';
+import { FormFooter } from '../../ui/FormFooter';
 import { Input } from '../../ui/input';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { StatusPill } from '../../ui/StatusPill';
@@ -431,16 +432,18 @@ export const CrmSettingsRules: React.FC<CrmSettingsRulesProps> = ({ assignees: i
               />
             </div>
 
-            <Button
-              type="submit"
-              variant="primary"
-              className="w-full"
-              loading={saving}
-              loadingText="Saving rule…"
-              icon={Plus}
-            >
-              Save assignment rule
-            </Button>
+            <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full"
+                loading={saving}
+                loadingText="Saving rule…"
+                icon={Plus}
+              >
+                Save assignment rule
+              </Button>
+            </FormFooter>
           </form>
         </div>
       </div>

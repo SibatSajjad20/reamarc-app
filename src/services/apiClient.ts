@@ -109,6 +109,7 @@ class ApiClient {
   private onUnauthorizedCallback?: () => void;
   private activeWorkspaceId: string | null = null;
   private refreshPromise: Promise<boolean> | null = null;
+  private inFlightGets = new Map<string, Promise<any>>();
 
   constructor(baseUrl: string = API_BASE_URL) {
     this.baseUrl = baseUrl;
@@ -180,7 +181,24 @@ class ApiClient {
     return headers;
   }
 
-  public async request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  public request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    const isGet = (!options.method || options.method.toUpperCase() === 'GET') && !options.signal;
+    if (isGet) {
+      const cacheKey = `${this.activeWorkspaceId || ''}::${endpoint}`;
+      const inFlight = this.inFlightGets.get(cacheKey);
+      if (inFlight) {
+        return inFlight as Promise<T>;
+      }
+      const promise = this._executeRequest<T>(endpoint, options).finally(() => {
+        this.inFlightGets.delete(cacheKey);
+      });
+      this.inFlightGets.set(cacheKey, promise);
+      return promise;
+    }
+    return this._executeRequest<T>(endpoint, options);
+  }
+
+  private async _executeRequest<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
     const { timeout = 15000, headers: customHeaders, signal: externalSignal, _retried, ...fetchOptions } = options;
 
     const controller = new AbortController();

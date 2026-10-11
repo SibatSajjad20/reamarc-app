@@ -7,14 +7,8 @@ import {
   EyeOff,
   AlertCircle,
 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../ui/dialog';
+import { FormDialog, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Button, IconButton } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
@@ -26,7 +20,6 @@ import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 export const DEPARTMENTS = [
   'Website',
@@ -215,20 +208,15 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
-        {/* Header matching Mock 14 */}
-        <DialogHeader className="p-6 pb-4 border-b border-border">
-          <DialogTitle className="text-base font-semibold">
-            {role === 'client' ? 'Add client account' : 'Add member'}
-          </DialogTitle>
-          <DialogDescription className="text-ui text-fg-muted mt-0.5">
-            They'll get a sign-in link by email. You can change their role later.
-          </DialogDescription>
-        </DialogHeader>
-
-        {/* Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
+    <FormDialog
+      isOpen={isOpen}
+      onClose={isSubmitting ? undefined : onClose}
+      maxWidth="lg"
+      title={role === 'client' ? 'Add client account' : 'Add member'}
+      subtitle="They'll get a sign-in link by email. You can change their role later."
+    >
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-4">
           {/* Row 1: Full name + Work email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
@@ -520,39 +508,28 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
               </div>
             </div>
           </div>
-        </form>
+        </FormDialogBody>
 
-        {/* Footer matching Mock 14 */}
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FormErrorSummaryButton
-              count={Object.keys(fieldErrors).length}
-              onClick={() => {
-                if (formRef.current) focusFirstError(formRef.current);
-              }}
-            />
-            {serverError && (
-              <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{serverError}</span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSubmit}
-              loading={isSubmitting}
-              disabled={isSubmitting}
-            >
-              {role === 'client' ? 'Add client account' : 'Add member'}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <FormFooter
+          errorCount={Object.keys(fieldErrors).length}
+          onFocusFirst={() => {
+            if (formRef.current) focusFirstError(formRef.current);
+          }}
+          serverError={serverError}
+        >
+          <Button variant="ghost" type="button" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            type="submit"
+            loading={isSubmitting}
+            disabled={isSubmitting}
+          >
+            {role === 'client' ? 'Add client account' : 'Add member'}
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

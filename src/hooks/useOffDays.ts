@@ -12,40 +12,24 @@ interface MonthKey {
   month: number;
 }
 
-const monthKey = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
-
-const surroundingMonths = (from = new Date()): MonthKey[] => {
-  const months: MonthKey[] = [];
-  for (let offset = -1; offset <= 2; offset += 1) {
-    const d = new Date(from.getFullYear(), from.getMonth() + offset, 1);
-    months.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
-  }
-  return months;
-};
-
 export function useOffDays(extraMonths?: MonthKey[]) {
   const [holidays, setHolidays] = useState<Set<string>>(new Set());
   const [workingSaturdays, setWorkingSaturdays] = useState<Set<string>>(new Set());
   const [holidayTitles, setHolidayTitles] = useState<Record<string, string>>({});
   const [ready, setReady] = useState(false);
 
-  const months = useMemo(() => {
-    const base = surroundingMonths();
-    const merged = [...base, ...(extraMonths || [])];
-    const seen = new Set<string>();
-    return merged.filter((m) => {
-      const key = monthKey(m.year, m.month);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
+  const years = useMemo(() => {
+    const currentYear = new Date().getFullYear();
+    const set = new Set<number>([currentYear]);
+    (extraMonths || []).forEach((m) => set.add(m.year));
+    return Array.from(set);
   }, [extraMonths]);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all(
-      months.map((m) =>
-        attendanceService.getCalendarMonth(m.year, m.month).catch(() => ({
+      years.map((y) =>
+        attendanceService.getCalendarMonth(y).catch(() => ({
           events: [],
           holidays: [] as string[],
           working_saturdays: [] as string[],
@@ -77,7 +61,7 @@ export function useOffDays(extraMonths?: MonthKey[]) {
     return () => {
       cancelled = true;
     };
-  }, [months]);
+  }, [years]);
 
   const getOffDay = useCallback(
     (iso?: string | null): OffDayInfo => {

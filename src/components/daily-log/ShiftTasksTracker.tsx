@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Timer } from 'lucide-react';
 import type { DayTarget } from '../../types/dailyLog';
+import type { OffDayInfo } from '../../utils/offDays';
+import { formatShiftDate, toIsoDate } from '../../utils/offDays';
 import { formatHours } from '../../utils/logTimeChecks';
 import {
   formatNowHhMm,
@@ -22,24 +24,12 @@ export interface ShiftTasksTrackerProps {
   loading?: boolean;
   className?: string;
   variant?: 'strip' | 'pill';
+  offDay?: OffDayInfo;
 }
 
 function formatTrackerHours(hours: number): string {
   if (hours <= 0) return '0m';
   return formatHours(hours);
-}
-
-function formatShiftDate(isoDate?: string): string {
-  if (!isoDate) return 'Today';
-  const parts = isoDate.split('-').map(Number);
-  if (parts.length !== 3) return 'Today';
-  const [y, m, d] = parts;
-  const dt = new Date(y, m - 1, d);
-  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const prefix = isoDate === todayIso ? 'Today · ' : '';
-  return `${prefix}${days[dt.getDay()]}, ${d} ${months[m - 1]}`;
 }
 
 function formatShiftWindow(target?: DayTarget | null): string {
@@ -62,6 +52,7 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   loading = false,
   className = '',
   variant = 'strip',
+  offDay,
 }) => {
   const hasCheckin = Boolean(dayTarget?.has_checkin);
   const hasCheckout = Boolean(dayTarget?.has_checkout);
@@ -224,12 +215,34 @@ export const ShiftTasksTracker: React.FC<ShiftTasksTrackerProps> = ({
   }
 
   // --- Strip Variant (Mock 06 Reference) ---
-  const dateLabel = formatShiftDate(dayTarget?.date);
-  const shiftLabel = formatShiftWindow(dayTarget);
+  const isOff = Boolean(offDay?.isOff);
+  const dateLabel = formatShiftDate(dayTarget?.date, offDay);
+  const isToday = !dayTarget?.date || dayTarget.date === toIsoDate(new Date());
+  const offText = isToday ? 'No hours expected today' : 'No hours expected';
+  const shiftLabel = isOff
+    ? `${offText}${loggedHours > 0 ? ` · Logged ${formatTrackerHours(loggedHours)}` : ''}`
+    : formatShiftWindow(dayTarget);
   const atWorkDisplay = formatTrackerHours(timeAtWorkHours);
   const loggedDisplay = formatTrackerHours(loggedHours);
   const remainingDisplay = formatTrackerHours(remainingHours);
   const expectedDisplay = `${expectedHours}h`;
+
+  if (isOff) {
+    return (
+      <div
+        className={cn(
+          'bg-surface border border-border rounded-lg px-4 py-3 sm:px-4 sm:py-3.5 flex flex-wrap items-center gap-4 sm:gap-6 shrink-0 mb-4 shadow-xs select-none',
+          className
+        )}
+      >
+        {/* Date & Shift Info for Off Day */}
+        <div className="min-w-[170px]">
+          <div className="text-small text-fg-muted">{dateLabel}</div>
+          <div className="text-body font-medium text-fg">{shiftLabel}</div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

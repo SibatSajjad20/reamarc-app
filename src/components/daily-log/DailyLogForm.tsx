@@ -22,6 +22,7 @@ import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { useOffDays } from '../../hooks/useOffDays';
+import { formatOffDayReason, nearestPastWorkdayIso } from '../../utils/offDays';
 import { Button } from '../ui/button';
 import { FormFooter } from '../ui/FormFooter';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
@@ -35,6 +36,7 @@ import {
 } from '../../utils/logTimeChecks';
 import { cn } from '../../lib/utils';
 import { focusFirstError } from '../../utils/formFocus';
+import { isValidWebUrl } from '../../utils/safeUrl';
 
 export interface DailyLogFormProps {
   mode: 'create' | 'edit';
@@ -48,6 +50,7 @@ export interface DailyLogFormProps {
   onSaved: (entry: DailyLogEntry) => void;
   onRefreshRequired?: () => void;
   layout?: 'card' | 'dialog';
+  onDateChange?: (date: string) => void;
 }
 
 const QUICK_DURATIONS = [
@@ -108,6 +111,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   onSaved,
   onRefreshRequired,
   layout = 'card',
+  onDateChange,
 }) => {
   const { workspaces } = useWorkspaces();
   const { addToast } = useToast();
@@ -127,7 +131,14 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     return getOldestOpenLogDate(holidays, workingSaturdays);
   }, [holidays, workingSaturdays]);
 
-  const [date, setDate] = useState<string>(getTodayIso());
+  const [date, setDate] = useState<string>(() => {
+    if (mode === 'edit' && initialData?.date) return initialData.date;
+    return prefilledDate || nearestPastWorkdayIso(getTodayIso());
+  });
+
+  useEffect(() => {
+    onDateChange?.(date);
+  }, [date, onDateChange]);
 
   const isCurrentDateExpired = useMemo(() => {
     return isLogDateExpired(date, holidays, workingSaturdays);
@@ -162,9 +173,8 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const [customFields, setCustomFields] = useState<Record<string, any>>({});
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [isSubmittingAnother, setIsSubmittingAnother] = useState<boolean>(false);
-  const isBusy = isSubmitting || isSubmittingAnother || isUploadingFile;
-  const [fieldErrors, setFieldErrors] = useState<{ date?: string; task?: string; [k: string]: string | undefined }>({});
+  const isBusy = isSubmitting || isUploadingFile;
+  const [fieldErrors, setFieldErrors] = useState<{ date?: string; task?: string; link?: string; [k: string]: string | undefined }>({});
   const [hasAttemptedSubmit, setHasAttemptedSubmit] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
   const [isOccConflict, setIsOccConflict] = useState<boolean>(false);
@@ -195,7 +205,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     if (!raw) return [''];
     const lines = raw
       .split('\n')
-      .map((l) => l.replace(/^[\s•\-\*]+/, '').trim())
+      .map((l) => l.replace(/^[\s•\-*]+/, '').trim())
       .filter(Boolean);
     return lines.length > 0 ? lines : [''];
   };
@@ -296,24 +306,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     }
   }, [mode, initialData, currentUser, prefilledDate, workspaces, lastWorkday]);
 
-  const sameDayEntries = useMemo(
-    () => existingEntries.filter((e) => e.date === date),
-    [existingEntries, date]
-  );
 
-  const duplicateHit = useMemo(
-    () =>
-      findDuplicate(
-        {
-          id: initialData?.id,
-          date,
-          task_description: taskDescription,
-          hours_utilized: hoursUtilized,
-        },
-        sameDayEntries
-      ),
-    [initialData?.id, date, taskDescription, hoursUtilized, sameDayEntries]
-  );
 
   const derivedMonthSheet = useMemo(() => {
     if (date) {
@@ -403,27 +396,52 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
   const getDateError = (d: string): string | undefined => {
     if (!d.trim()) return 'Please provide a valid date.';
     if (d > getTodayIso()) return 'Future dates are not permitted. Please log for today or a missed date.';
-    if (isOffDay(d)) return `${getOffDay(d).label}. Daily logs cannot be submitted on rest days.`;
+    if (isOffDay(d)) return formatOffDayReason(getOffDay(d), d);
     if (isLogDateExpired(d, holidays, workingSaturdays)) return `The 48 working-hour submission window for ${d} has expired.`;
     if (isLogDateNotStarted(d)) return `Daily logs for ${d} cannot be entered before your shift starts.`;
     if (d.trim() < '2026-08-19') return 'Daily log entries cannot be logged for dates before 2026-08-19.';
     return undefined;
   };
 
-  const getTaskError = (task: string): string | undefined => {
+  const getTaskError = (
+    task: string,
+    hours: string = hoursUtilized,
+    d: string = date
+  ): string | undefined => {
     if (!task.trim()) return 'Task description is required.';
+    const dup = findDuplicate(
+      {
+        id: initialData?.id,
+        date: d,
+        task_description: task,
+        hours_utilized: hours,
+      },
+      existingEntries.filter((e) => e.date === d)
+    );
+    if (dup) return 'You already logged this task for this date.';
     return undefined;
   };
 
-  const handleSave = async (addAnother: boolean = false) => {
+  const getDeliverableUrlError = (url: string): string | undefined => {
+    const trimmed = url.trim();
+    if (!trimmed) return undefined;
+    if (!isValidWebUrl(trimmed)) {
+      return 'Please enter a valid link (e.g. https://figma.com/..., drive.google.com/..., github.com/...)';
+    }
+    return undefined;
+  };
+
+  const handleSave = async () => {
     if (isBusy) return;
 
     const dateErr = getDateError(date);
-    const taskErr = getTaskError(taskDescription);
+    const taskErr = getTaskError(taskDescription, hoursUtilized, date);
+    const linkErr = getDeliverableUrlError(deliverableUrl);
 
-    const errors: { date?: string; task?: string } = {};
+    const errors: { date?: string; task?: string; link?: string } = {};
     if (dateErr) errors.date = dateErr;
     if (taskErr) errors.task = taskErr;
+    if (linkErr) errors.link = linkErr;
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
@@ -432,22 +450,10 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       return;
     }
 
-    if (duplicateHit) {
-      addToast(
-        'Similar entry exists',
-        'You already have a log with this task and duration today. Saving anyway.',
-        'info'
-      );
-    }
-
     setFieldErrors({});
     setServerError(null);
     setIsOccConflict(false);
-    if (addAnother) {
-      setIsSubmittingAnother(true);
-    } else {
-      setIsSubmitting(true);
-    }
+    setIsSubmitting(true);
 
     try {
       const cleanPoints = revisionPoints.map((p) => p.trim()).filter(Boolean);
@@ -456,7 +462,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       const deliverableParts: string[] = [];
       attachedFiles.forEach((f) => deliverableParts.push(f.file_url));
       if (deliverableUrl.trim()) {
-        deliverableParts.push(deliverableUrl.trim());
+        const trimmed = deliverableUrl.trim();
+        const normalized = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+        deliverableParts.push(normalized);
       }
       const formattedDeliverables = deliverableParts.join(' | ');
 
@@ -480,23 +488,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         const created = await dailyLogService.createEntry(payload);
         onSaved(created);
 
-        if (addAnother) {
-          addToast('Log added', 'Task saved! You can now log your next task.', 'success');
-          setTaskDescription('');
-          setRevisionPoints(['']);
-          setAttachedFiles([]);
-          setDeliverableUrl('');
-          setHoursUtilized('1.0');
-          setRemarks('');
-          setShowRemarksInput(false);
-          setCustomFields({});
-          setTaskStatus('Incomplete');
-          setServerError(null);
-
-          setTimeout(() => {
-            taskDescRef.current?.focus();
-          }, 50);
-        } else if (onClose) {
+        if (onClose) {
           onClose();
         } else {
           addToast('Log added', 'Task saved successfully.', 'success');
@@ -536,20 +528,37 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
       }
     } catch (err: any) {
       console.error('Failed to submit daily log entry:', err);
-      const msg =
-        err.status === 409
-          ? err.message || 'This record was modified by another session. Please refresh and try again.'
-          : err.message ||
-            err.details?.detail ||
-            "Couldn't save entry. Please check your inputs and try again.";
-      if (err.status === 409) {
+      const rawDetail = err.details?.detail || err.message || '';
+      const isDuplicateError =
+        err.status === 409 &&
+        typeof rawDetail === 'string' &&
+        rawDetail.toLowerCase().includes('already logged');
+
+      if (isDuplicateError) {
+        setFieldErrors((prev) => ({
+          ...prev,
+          task: 'You already logged this task for this date.',
+        }));
+        setServerError(rawDetail);
+      } else if (err.status === 409) {
         setIsOccConflict(true);
+        setServerError(
+          rawDetail ||
+            'This record was modified by another session. Please refresh and try again.'
+        );
+      } else {
+        setServerError(
+          rawDetail ||
+            "Couldn't save entry. Please check your inputs and try again."
+        );
       }
-      setServerError(msg);
-      addToast('Submission failed', msg, 'error');
+      addToast(
+        'Submission failed',
+        typeof rawDetail === 'string' && rawDetail ? rawDetail : 'Submission failed',
+        'error'
+      );
     } finally {
       setIsSubmitting(false);
-      setIsSubmittingAnother(false);
     }
   };
 
@@ -559,12 +568,12 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
     <form
       onSubmit={(e) => {
         e.preventDefault();
-        handleSave(false);
+        handleSave();
       }}
-      className={cn('space-y-3.5 text-ui text-fg', isCard ? 'text-xs' : 'text-sm')}
+      className={cn('flex flex-col flex-1 min-h-0 text-ui text-fg', isCard ? 'text-xs' : 'text-sm')}
     >
-
-      {/* Resource & Role Info (only displayed in Dialog mode) */}
+      <div className={cn('flex-1 min-h-0 overflow-y-auto space-y-3.5', isCard ? 'p-4' : 'px-6 py-5')}>
+        {/* Resource & Role Info (only displayed in Dialog mode) */}
       {!isCard && (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-1">
           <div>
@@ -618,10 +627,13 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
               setDate(nextDate);
               if (hasAttemptedSubmit) {
                 const err = getDateError(nextDate);
+                const taskErr = getTaskError(taskDescription, hoursUtilized, nextDate);
                 setFieldErrors((prev) => {
                   const copy = { ...prev };
                   if (err) copy.date = err;
                   else delete copy.date;
+                  if (taskErr) copy.task = taskErr;
+                  else delete copy.task;
                   return copy;
                 });
               }
@@ -671,7 +683,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             const val = e.target.value;
             setTaskDescription(val);
             if (hasAttemptedSubmit) {
-              const err = getTaskError(val);
+              const err = getTaskError(val, hoursUtilized, date);
               setFieldErrors((prev) => {
                 const copy = { ...prev };
                 if (err) copy.task = err;
@@ -749,7 +761,19 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             type="text"
             placeholder="1.0"
             value={hoursUtilized}
-            onChange={(e) => setHoursUtilized(e.target.value)}
+            onChange={(e) => {
+              const val = e.target.value;
+              setHoursUtilized(val);
+              if (hasAttemptedSubmit) {
+                const err = getTaskError(taskDescription, val, date);
+                setFieldErrors((prev) => {
+                  const copy = { ...prev };
+                  if (err) copy.task = err;
+                  else delete copy.task;
+                  return copy;
+                });
+              }
+            }}
             className="w-24 px-2.5 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-ui font-numeric tabular-nums text-fg focus-visible:focus-ring"
           />
 
@@ -760,7 +784,18 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
                 <button
                   key={d.value}
                   type="button"
-                  onClick={() => setHoursUtilized(d.value)}
+                  onClick={() => {
+                    setHoursUtilized(d.value);
+                    if (hasAttemptedSubmit) {
+                      const err = getTaskError(taskDescription, d.value, date);
+                      setFieldErrors((prev) => {
+                        const copy = { ...prev };
+                        if (err) copy.task = err;
+                        else delete copy.task;
+                        return copy;
+                      });
+                    }
+                  }}
                   className={cn(
                     'h-7 px-2.5 rounded-sm border text-small font-medium transition-colors cursor-pointer select-none',
                     isSelected
@@ -851,15 +886,39 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
         )}
 
         {/* Link Input */}
-        <div className="relative">
-          <Link2 size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
-          <input
-            type="text"
-            placeholder="Paste Figma, Drive, or GitHub link..."
-            value={deliverableUrl}
-            onChange={(e) => setDeliverableUrl(e.target.value)}
-            className="w-full pl-8 pr-3 py-1.5 h-8 bg-surface border border-border-strong rounded-md text-small text-fg placeholder:text-fg-faint focus-visible:focus-ring transition-colors"
-          />
+        <div className="space-y-1">
+          <div className="relative">
+            <Link2 size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-fg-muted" />
+            <input
+              type="text"
+              placeholder="Paste Figma, Drive, or GitHub link..."
+              value={deliverableUrl}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDeliverableUrl(val);
+                if (hasAttemptedSubmit) {
+                  const err = getDeliverableUrlError(val);
+                  setFieldErrors((prev) => {
+                    const copy = { ...prev };
+                    if (err) copy.link = err;
+                    else delete copy.link;
+                    return copy;
+                  });
+                }
+              }}
+              aria-invalid={Boolean(fieldErrors.link)}
+              aria-describedby={fieldErrors.link ? 'daily-log-link-error' : undefined}
+              className={cn(
+                'w-full pl-8 pr-3 py-1.5 h-8 bg-surface border rounded-md text-small text-fg placeholder:text-fg-faint focus-visible:focus-ring transition-colors',
+                fieldErrors.link ? 'border-danger-dot focus:border-danger-fg' : 'border-border-strong'
+              )}
+            />
+          </div>
+          {fieldErrors.link && (
+            <p id="daily-log-link-error" className="text-micro text-danger-fg">
+              {fieldErrors.link}
+            </p>
+          )}
         </div>
       </div>
 
@@ -991,6 +1050,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             )}
           </div>
         ))}
+      </div>
 
       {/* Form Action Buttons */}
       <FormFooter
@@ -1017,9 +1077,6 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           ) : undefined
         }
         uploading={isUploadingFile ? 'Wait for upload to finish' : false}
-        className={cn(
-          isCard ? '-mx-4 -mb-4 px-4 py-3 mt-4' : '-mx-6 -mb-6 px-6 py-3 mt-6'
-        )}
       >
         {!isCard && onClose && (
           <Button
@@ -1027,23 +1084,9 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
             variant="secondary"
             size="md"
             onClick={onClose}
-            disabled={isSubmitting || isSubmittingAnother}
+            disabled={isSubmitting}
           >
             Cancel
-          </Button>
-        )}
-
-        {mode === 'create' && (
-          <Button
-            type="button"
-            variant="secondary"
-            size="md"
-            onClick={() => handleSave(true)}
-            disabled={isBusy || isDateInvalid}
-            loading={isSubmittingAnother}
-            loadingText="Saving…"
-          >
-            Save & add another
           </Button>
         )}
 
@@ -1051,7 +1094,7 @@ export const DailyLogForm: React.FC<DailyLogFormProps> = ({
           type="button"
           variant="primary"
           size="md"
-          onClick={() => handleSave(false)}
+          onClick={() => handleSave()}
           disabled={isBusy || isDateInvalid}
           loading={isSubmitting}
           loadingText="Saving…"

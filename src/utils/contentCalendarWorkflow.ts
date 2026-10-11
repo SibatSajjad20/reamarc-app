@@ -25,6 +25,7 @@ export interface CalendarActor {
   department?: string;
   departments?: string[];
   is_active?: boolean;
+  permissions?: any;
 }
 
 const CONTENT_STAGES: PipelineStage[] = PIPELINE_STAGES.slice(0, 4);
@@ -153,6 +154,9 @@ export function getActorDepartments(user?: CalendarActor | null): string[] {
   if (Array.isArray(user.departments)) {
     rawList.push(...user.departments);
   }
+  if (user.permissions?.departments && Array.isArray(user.permissions.departments)) {
+    rawList.push(...user.permissions.departments);
+  }
   if (typeof user.department === 'string' && user.department) {
     const split = user.department
       .split(/[,;/]|\band\b|&/i)
@@ -189,7 +193,13 @@ export function isContentActor(user?: CalendarActor | null): boolean {
 }
 
 export function isContentLead(user?: CalendarActor | null): boolean {
-  if (!user || user.is_active === false || roleOf(user) !== 'team_lead') return false;
+  if (!user || user.is_active === false) return false;
+  if (roleOf(user) === 'admin') return true;
+  if (roleOf(user) !== 'team_lead') return false;
+  if (user.permissions?.modules?.content_calendar) {
+    const lvl = user.permissions.modules.content_calendar['Content'] || user.permissions.modules.content_calendar['content'];
+    if (lvl) return lvl === 'manage';
+  }
   return getActorDepartments(user).includes('content');
 }
 
@@ -199,7 +209,13 @@ export function isCreativeActor(user?: CalendarActor | null): boolean {
 }
 
 export function isCreativeLead(user?: CalendarActor | null): boolean {
-  if (!user || user.is_active === false || roleOf(user) !== 'team_lead') return false;
+  if (!user || user.is_active === false) return false;
+  if (roleOf(user) === 'admin') return true;
+  if (roleOf(user) !== 'team_lead') return false;
+  if (user.permissions?.modules?.content_calendar) {
+    const lvl = user.permissions.modules.content_calendar['Creative'] || user.permissions.modules.content_calendar['creative'];
+    if (lvl) return lvl === 'manage';
+  }
   return getActorDepartments(user).includes('creative');
 }
 
@@ -237,6 +253,24 @@ export function canCreateCampaign(user?: CalendarActor | null): boolean {
 export function visiblePipelineStages(user?: CalendarActor | null): PipelineStage[] {
   if (!user || user.is_active === false) return [];
   if (isAdmin(user) || isPerformance(user) || roleOf(user) === 'client') return [...PIPELINE_STAGES];
+
+  if (user.permissions?.modules?.content_calendar) {
+    const mod = user.permissions.modules.content_calendar;
+    const stages: PipelineStage[] = [];
+    const LEVEL_RANKS: Record<string, number> = { none: 0, view: 1, own_stages: 2, manage: 3 };
+    for (const [dept, lvl] of Object.entries(mod)) {
+      if ((LEVEL_RANKS[lvl as string] || 0) >= 2) {
+        const d = dept.toLowerCase().trim();
+        if (d === 'content') stages.push(...CONTENT_STAGES);
+        else if (d === 'creative') stages.push(...CREATIVE_STAGES);
+        else if (d === 'social media' || d === 'social') stages.push(...SOCIAL_STAGES);
+      }
+    }
+    if (stages.length > 0) {
+      return PIPELINE_STAGES.filter((s) => stages.includes(s));
+    }
+  }
+
   const depts = getActorDepartments(user);
   const stages: PipelineStage[] = [];
   if (depts.includes('content')) stages.push(...CONTENT_STAGES);

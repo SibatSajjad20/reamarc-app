@@ -6,13 +6,11 @@ import {
   Loader2,
 } from 'lucide-react';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../ui/dialog';
+  FormDialog,
+  FormDialogHeader,
+  FormDialogBody,
+} from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Button, IconButton } from '../ui/button';
 import { Callout } from '../ui/Callout';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
@@ -153,18 +151,14 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent maxWidth="md" className="p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 border-b border-border">
-          <DialogTitle className="text-base font-semibold">
-            API credentials & verification
-          </DialogTitle>
-          <DialogDescription className="text-ui text-fg-muted mt-0.5">
-            Configure secret tokens for Meta Graph API and Google Ads API sync.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="p-6 space-y-5 max-h-[calc(85vh-140px)] overflow-y-auto">
+    <FormDialog isOpen={isOpen} onClose={onClose} maxWidth="md">
+      <FormDialogHeader
+        title="API credentials & verification"
+        subtitle="Configure secret tokens for Meta Graph API and Google Ads API sync."
+        onClose={onClose}
+      />
+      <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-5">
           {/* Verification Callout */}
           {verificationResult && (
             <Callout
@@ -226,7 +220,7 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
           )}
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-3.5 pt-1">
+          <div className="space-y-3.5 pt-1">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-ui font-medium text-fg mb-1">Platform</label>
@@ -385,23 +379,23 @@ export const AdAccountCredentialsModal: React.FC<Props> = ({
                 label="Automated metrics sync"
               />
             </div>
-          </form>
-        </div>
+          </div>
+        </FormDialogBody>
 
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
+        <FormFooter>
           <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
             Close
           </Button>
           <Button
+            type="submit"
             variant="primary"
-            onClick={handleSubmit}
             loading={isSubmitting}
             disabled={isSubmitting}
           >
             Verify & save
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

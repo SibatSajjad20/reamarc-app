@@ -13,10 +13,10 @@ import {
   type OverviewTimeRange,
 } from '../../../utils/contentCalendarOverview';
 import { OverviewKpiCards } from './OverviewKpiCards';
-import { ClientHealthMatrix } from './ClientHealthMatrix';
-import { DepartmentFunnelCard } from './DepartmentFunnelCard';
-import { NextSevenDaysStripCard } from './NextSevenDaysStripCard';
+import { PipelineStripCard } from './PipelineStripCard';
+import { UpcomingListCard } from './UpcomingListCard';
 import { UrgentWatchlistCard } from './UrgentWatchlistCard';
+import { ClientHealthMatrix } from './ClientHealthMatrix';
 import { TeamWorkloadCard } from './TeamWorkloadCard';
 import { CustomSelect } from '../../ui/CustomSelect';
 
@@ -29,6 +29,7 @@ interface Props {
   onSwitchViewMode: (mode: ContentCalendarViewMode) => void;
   onSelectItem: (item: ContentCalendarItem) => void;
   onRefresh: () => void;
+  onAddContent?: () => void;
 }
 
 export const ContentCalendarOverviewTab: React.FC<Props> = ({
@@ -40,6 +41,7 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
   onSwitchViewMode,
   onSelectItem,
   onRefresh,
+  onAddContent,
 }) => {
   // 1. Time Range State (with localStorage cache)
   const [timeRange, setTimeRange] = useState<OverviewTimeRange>(() => {
@@ -59,7 +61,7 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
     } catch {}
   };
 
-  // 3. Client Options for Dropdown
+  // 2. Client Options for Dropdown
   const clientOptions = useMemo(() => {
     const names = new Set<string>();
     for (const it of items) {
@@ -74,6 +76,20 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
       ...[...names].sort((a, b) => a.localeCompare(b)).map((name) => ({ value: name, label: name })),
     ];
   }, [items, activeClients]);
+
+  // 3. Client Count calculation
+  const clientCount = useMemo(() => {
+    if (activeClientFilter !== 'all') return 1;
+    const names = new Set<string>();
+    for (const it of items) {
+      const n = (it.client_name || '').trim();
+      if (n) names.add(n);
+    }
+    for (const c of activeClients) {
+      if (c.name?.trim()) names.add(c.name.trim());
+    }
+    return Math.max(1, names.size);
+  }, [items, activeClients, activeClientFilter]);
 
   // 4. Filter Items by Selected Client
   const clientFilteredItems = useMemo(() => {
@@ -102,8 +118,8 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
 
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto bg-canvas p-3 sm:p-4 space-y-3">
-      {/* Overview Filter Bar */}
-      <div className="rounded-xl bg-surface border border-border p-2 flex flex-wrap items-center justify-between gap-2.5 shadow-xs">
+      {/* 1. Overview Header Filter Bar */}
+      <div className="rounded-xl bg-surface border border-border p-2.5 flex flex-wrap items-center justify-between gap-2.5 shadow-xs">
         {/* Left: Client Scope & Time Range */}
         <div className="flex flex-wrap items-center gap-2">
           {/* Client Filter */}
@@ -210,45 +226,49 @@ export const ContentCalendarOverviewTab: React.FC<Props> = ({
         </div>
       ) : (
         <>
-          {/* Row 1: Executive 5-KPI Strip */}
-          <OverviewKpiCards metrics={overviewMetrics} isLoading={isLoading} />
+          {/* 2. KPI row (5 equal stat cards, no badges) */}
+          <OverviewKpiCards
+            metrics={overviewMetrics}
+            clientCount={clientCount}
+            isLoading={isLoading}
+          />
 
-          {/* Row 2: Pipeline Distribution + Next 7 Days Strip */}
+          {/* 3. Pipeline strip, full width */}
+          <PipelineStripCard
+            items={scopedItems}
+            isLoading={isLoading}
+            onOpenPipeline={() => onSwitchViewMode('pipeline')}
+          />
+
+          {/* 4. Two equal-height columns */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
-            <DepartmentFunnelCard
+            <UpcomingListCard
               items={scopedItems}
               isLoading={isLoading}
-              onOpenPipeline={() => onSwitchViewMode('pipeline')}
-            />
-            <NextSevenDaysStripCard
-              items={scopedItems}
-              isLoading={isLoading}
+              onSelectItem={onSelectItem}
               onOpenCalendar={() => onSwitchViewMode('calendar')}
+              onAddContent={onAddContent}
+            />
+            <UrgentWatchlistCard
+              watchlist={urgentWatchlist}
+              isLoading={isLoading}
+              onSelectItem={onSelectItem}
+              onViewAll={() => onSwitchViewMode('table')}
             />
           </div>
 
-          {/* Row 3: Clients Table (7 Columns) + Needs Attention & Team Workload */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 items-start">
-            <div className="lg:col-span-7 flex flex-col gap-3">
-              <ClientHealthMatrix
-                matrix={clientHealthMatrix}
-                isLoading={isLoading}
-                onOpenClient={handleOpenClient}
-              />
-            </div>
+          {/* 5. Clients table, full width (7 fixed columns) */}
+          <ClientHealthMatrix
+            matrix={clientHealthMatrix}
+            isLoading={isLoading}
+            onOpenClient={handleOpenClient}
+          />
 
-            <div className="lg:col-span-5 flex flex-col gap-3">
-              <UrgentWatchlistCard
-                watchlist={urgentWatchlist}
-                isLoading={isLoading}
-                onSelectItem={onSelectItem}
-              />
-              <TeamWorkloadCard
-                workload={teamWorkload}
-                isLoading={isLoading}
-              />
-            </div>
-          </div>
+          {/* 6. Team workload (conditional, hidden when no active contributors) */}
+          <TeamWorkloadCard
+            workload={teamWorkload}
+            isLoading={isLoading}
+          />
         </>
       )}
     </div>

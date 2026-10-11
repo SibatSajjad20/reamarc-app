@@ -22,6 +22,8 @@ export interface AuthUser {
   role: UserRole;
   department?: string;
   departments?: string[];
+  primary_department?: string;
+  permissions?: any;
   joining_date?: string | null;
   employment_type?: 'probation' | 'contract' | 'full_time' | string;
   is_active?: boolean;

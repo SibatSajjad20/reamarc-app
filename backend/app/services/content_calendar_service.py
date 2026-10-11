@@ -785,19 +785,24 @@ async def transition_item(
     )
     if result:
         presented_res = _present_doc(result)
+        async def _bg_cc_notif():
+            try:
+                await notify_content_calendar_event(
+                    db,
+                    item=presented_res,
+                    action=action,
+                    actor=viewer,
+                    note=note,
+                    assignee_id=assignee_id,
+                    assignee_name=assignee_name,
+                    old_item=presented,
+                )
+            except Exception as notif_err:
+                logger.warning("Content calendar transition notification failed: %s", notif_err)
         try:
-            await notify_content_calendar_event(
-                db,
-                item=presented_res,
-                action=action,
-                actor=viewer,
-                note=note,
-                assignee_id=assignee_id,
-                assignee_name=assignee_name,
-                old_item=presented,
-            )
-        except Exception as notif_err:
-            logger.warning("Content calendar transition notification failed: %s", notif_err)
+            asyncio.create_task(_bg_cc_notif())
+        except Exception:
+            pass
         return presented_res
     return None
 

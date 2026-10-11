@@ -99,22 +99,59 @@ def _dept_match_query(dept_name: str) -> dict:
     return {"department": {"$regex": pattern, "$options": "i"}}
 
 
-def _can_mutate_daily_log(existing_entry: dict, current_user: dict) -> bool:
-    """Mutations require user_id match. Name-only matches are legacy read-only."""
+def _can_mutate_daily_log(
+    existing_entry: dict,
+    current_user: dict,
+    author_user_doc: Optional[dict] = None,
+) -> bool:
+    """Mutations require user_id match or lead oversight on allowed departments."""
     user_role = current_user.get("role", "team_member")
     if user_role in (UserRole.ADMIN.value, "admin", UserRole.HR.value, "hr"):
         return True
-    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
-    if is_lead:
-        lead_depts = _extract_lead_departments(current_user)
-        entry_depts = _parse_departments(existing_entry.get("department"))
-        if lead_depts and entry_depts and any(
-            ld.lower() == ed.lower() for ld in lead_depts for ed in entry_depts
-        ):
-            return True
+
     entry_uid = existing_entry.get("user_id")
     curr_id = current_user.get("id") or str(current_user.get("_id"))
-    return bool(entry_uid and curr_id and str(entry_uid) == str(curr_id))
+    if entry_uid and curr_id and str(entry_uid) == str(curr_id):
+        return True
+
+    # Regular team members can never mutate someone else's log
+    if user_role in (UserRole.TEAM_MEMBER.value, "team_member", "member"):
+        return False
+
+    is_lead = user_role in (UserRole.TEAM_LEAD.value, "team_lead")
+    if is_lead:
+        # Leads cannot mutate other team leads or admin entries
+        if author_user_doc:
+            a_role = str(author_user_doc.get("role") or "").lower().strip()
+            if a_role in ("team_lead", "admin", UserRole.TEAM_LEAD.value, UserRole.ADMIN.value):
+                return False
+
+        from app.services.permissions import (
+            PermCtx,
+            departments_with,
+            SYSTEM_ROLE_DEFAULTS,
+            normalize_dept,
+            get_user_primary_department,
+        )
+        ctx = PermCtx(
+            user=current_user,
+            overrides=current_user.get("overrides", []),
+            role_defaults=SYSTEM_ROLE_DEFAULTS,
+        )
+        lead_depts = [normalize_dept(d) for d in departments_with(ctx, "daily_log", "department")]
+
+        if author_user_doc:
+            author_primary = normalize_dept(get_user_primary_department(author_user_doc))
+            if author_primary and author_primary in lead_depts:
+                return True
+
+        entry_depts = _parse_departments(existing_entry.get("department"))
+        if lead_depts and entry_depts and any(
+            ld == normalize_dept(ed) for ld in lead_depts for ed in entry_depts
+        ):
+            return True
+
+    return False
 
 DEFAULT_COLUMNS: List[dict] = [
     {"key": "date", "label": "Date", "type": "date", "editable": True},
@@ -360,23 +397,23 @@ async def get_team_hours(
         return {"members": []}
 
     viewer_id = current_user.get("id")
-    lead_user_doc = await db.users.find_one(
-        {"id": viewer_id},
-        {"departments": 1, "department": 1, "lead_department": 1, "primary_department": 1},
-    )
-    lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+    from app.services.permissions import load_context, departments_with, normalize_dept
+    lead_user_doc = await db.users.find_one({"id": viewer_id})
+    ctx = await load_context(lead_user_doc or current_user, db=db)
+    lead_depts = departments_with(ctx, "daily_log", "department")
     if not lead_depts:
         return {"members": []}
 
+    dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in lead_depts]
     user_query = {
         "is_active": {"$ne": False},
-        "role": {"$in": ["team_member", UserRole.TEAM_MEMBER.value]},
-        "$or": [_dept_match_query(d) for d in lead_depts],
+        "role": {"$in": ["team_member", UserRole.TEAM_MEMBER.value, "member"]},
+        "$or": dept_regexes,
         "id": {"$ne": viewer_id},
     }
     members = await db.users.find(
         user_query,
-        {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1},
+        {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "primary_department": 1},
     ).to_list(500)
     if not members:
         return {"members": []}
@@ -758,31 +795,52 @@ async def get_entries(
         if resource_name:
             query_filter["resource_name"] = contains_ci(resource_name)
     elif user_role in (UserRole.TEAM_LEAD.value, "team_lead"):
-        # Team Lead can see all logs in their assigned departments + their own logs
+        # Team Lead can see all logs of team members in authorized daily_log departments + own logs
+        from app.services.permissions import (
+            load_context,
+            departments_with,
+            normalize_dept,
+            parse_user_departments,
+            get_user_primary_department,
+        )
         lead_user_doc = None
         if db is not None:
-            lead_user_doc = await db.users.find_one({"id": current_uid}, {"departments": 1, "department": 1})
-        lead_depts = _extract_lead_departments(current_user, lead_user_doc)
+            lead_user_doc = await db.users.find_one({"id": current_uid})
+        ctx = await load_context(lead_user_doc or current_user, db=db)
+        lead_depts = departments_with(ctx, "daily_log", "department")
 
         if lead_depts:
             target_depts: List[str] = []
             if department and department.strip().lower() != "all":
-                requested = department.strip()
-                # Check if lead is authorized for the requested department
-                matching = [ld for ld in lead_depts if ld.lower() == requested.lower()]
+                requested = department.strip().lower()
+                matching = [ld for ld in lead_depts if normalize_dept(ld) == normalize_dept(requested)]
                 if matching:
                     target_depts = matching
                 else:
-                    # If requested contains multiple (e.g. 'Creative, Content'), match any overlapping authorized depts
-                    req_parts = _parse_departments(requested)
-                    target_depts = [ld for ld in lead_depts if any(ld.lower() == rp.lower() for rp in req_parts)]
+                    req_parts = [normalize_dept(p) for p in _parse_departments(requested)]
+                    target_depts = [ld for ld in lead_depts if normalize_dept(ld) in req_parts]
             else:
                 target_depts = lead_depts
 
-            if target_depts:
-                base_clauses = [_dept_match_query(d) for d in target_depts] + [{"user_id": current_uid}]
+            if target_depts and db is not None:
+                dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in target_depts]
+                authors_cursor = db.users.find(
+                    {
+                        "role": {"$in": ["team_member", UserRole.TEAM_MEMBER.value, "member"]},
+                        "$or": dept_regexes,
+                    },
+                    {"id": 1}
+                )
+                member_docs = await authors_cursor.to_list(1000)
+                authorized_author_ids = [str(m["id"]) for m in member_docs if m.get("id")]
+                authorized_author_ids.append(str(current_uid))
+
+                legacy_clauses = [
+                    {"user_id": None, "$or": [_dept_match_query(d) for d in target_depts]},
+                    {"user_id": {"$exists": False}, "$or": [_dept_match_query(d) for d in target_depts]},
+                ]
+                base_clauses = [{"user_id": {"$in": authorized_author_ids}}] + legacy_clauses
             else:
-                # Lead filtered on a department outside their assigned scope
                 base_clauses = [{"user_id": current_uid}]
 
             if user_id:
@@ -798,7 +856,6 @@ async def get_entries(
             else:
                 query_filter["$or"] = base_clauses
         else:
-            # Fallback if lead has no department assigned yet
             query_filter["user_id"] = current_uid
     else:
         # Regular Team Member: strictly restricted to their own submitted logs
@@ -1005,6 +1062,29 @@ async def download_file(
     return await open_upload_response(db, file_path)
 
 
+def _schedule_background_score_recompute(
+    user_id: str,
+    date_str: str,
+    variance_reason: Optional[str] = None,
+    actor: Optional[dict] = None,
+) -> None:
+    async def _runner():
+        try:
+            from app.services.log_compliance import recompute_day_score
+            await recompute_day_score(
+                user_id,
+                date_str,
+                variance_reason=variance_reason,
+                actor=actor,
+            )
+        except Exception as exc:
+            logging.getLogger(__name__).warning(f"Background day score recompute failed for {user_id} on {date_str}: {exc}")
+    try:
+        asyncio.create_task(_runner())
+    except Exception as exc:
+        logging.getLogger(__name__).warning(f"Failed to schedule background day score recompute: {exc}")
+
+
 @router.post("/entries", response_model=DailyLogEntryResponse, status_code=status.HTTP_201_CREATED)
 async def create_entry(
     entry_in: DailyLogEntryCreate,
@@ -1029,6 +1109,7 @@ async def create_entry(
     today_iso = datetime.now(PKT_TIMEZONE).strftime("%Y-%m-%d")
     
     # Restrict log submission date: cannot be earlier than SYSTEM_START_DATE or in the future
+    existing_same_day = []
     if entry_in.date:
         if entry_in.date < SYSTEM_START_DATE:
             raise HTTPException(
@@ -1041,24 +1122,40 @@ async def create_entry(
                 detail=f"Daily logs cannot be submitted for future dates (Today is {today_iso})."
             )
         from app.services.workdays import classify_date
-        day_info = await classify_date(entry_in.date)
+        from app.services.log_compliance import (
+            hours_from_start_end,
+            load_user_day_entries,
+            assert_no_overlap_or_duplicate,
+            compute_log_submission_window,
+        )
+
+        day_info, window_res, existing_same_day = await asyncio.gather(
+            classify_date(entry_in.date),
+            compute_log_submission_window(
+                user_id=current_user["id"],
+                target_date_str=entry_in.date,
+                user_dept=current_user.get("department"),
+            ),
+            load_user_day_entries(current_user["id"], entry_in.date),
+        )
         if day_info.is_off:
+            from app.services.workdays import format_off_day_reason
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Daily logs cannot be submitted on {day_info.label} ({entry_in.date}).",
+                detail=format_off_day_reason(day_info, entry_in.date),
             )
 
         # 48 Working-Hours & Shift-Start Gate (Strict equality, zero exemptions)
-        from app.services.log_compliance import compute_log_submission_window
-        window_res = await compute_log_submission_window(
-            user_id=current_user["id"],
-            target_date_str=entry_in.date,
-            user_dept=current_user.get("department"),
-        )
         if not window_res.get("is_valid") or not window_res.get("is_open"):
             err_msg = window_res.get("error") or f"Submission window for {entry_in.date} is closed."
             err_status = status.HTTP_400_BAD_REQUEST if (window_res.get("is_not_started") or window_res.get("is_off_day")) else status.HTTP_403_FORBIDDEN
             raise HTTPException(status_code=err_status, detail=err_msg)
+    else:
+        from app.services.log_compliance import (
+            hours_from_start_end,
+            load_user_day_entries,
+            assert_no_overlap_or_duplicate,
+        )
 
     # Calculate month sheet dynamically from entry date if available
     date_val = entry_in.date
@@ -1097,30 +1194,19 @@ async def create_entry(
     entry_dict["created_at"] = now_iso
     entry_dict["updated_at"] = now_iso
 
-    from app.services.log_compliance import (
-        hours_from_start_end,
-        load_user_day_entries,
-        assert_no_overlap_or_duplicate,
-        recompute_day_score,
-    )
-
     auto_hours = hours_from_start_end(entry_dict.get("start_time"), entry_dict.get("end_time"))
     if auto_hours is not None:
         entry_dict["hours_utilized"] = auto_hours
 
-    existing_same_day = await load_user_day_entries(entry_dict["user_id"], entry_dict["date"])
     assert_no_overlap_or_duplicate(existing_same_day, entry_dict)
 
     await db.daily_log_entries.insert_one(entry_dict)
-    try:
-        await recompute_day_score(
-            entry_dict["user_id"],
-            entry_dict["date"],
-            variance_reason=entry_dict.get("variance_reason"),
-            actor=current_user,
-        )
-    except Exception:
-        pass
+    _schedule_background_score_recompute(
+        entry_dict["user_id"],
+        entry_dict["date"],
+        variance_reason=entry_dict.get("variance_reason"),
+        actor=current_user,
+    )
     return entry_dict
 
 
@@ -1139,7 +1225,11 @@ async def update_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    if not _can_mutate_daily_log(existing_entry, current_user):
+    author_user_doc = None
+    if existing_entry.get("user_id"):
+        author_user_doc = await db.users.find_one({"id": existing_entry["user_id"]})
+
+    if not _can_mutate_daily_log(existing_entry, current_user, author_user_doc=author_user_doc):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to edit this log entry. Only the author who logged the entry can edit it.",
@@ -1197,12 +1287,12 @@ async def update_entry(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily log date cannot be set to a future date (Today is {today_iso})."
             )
-        from app.services.workdays import classify_date
+        from app.services.workdays import classify_date, format_off_day_reason
         day_info = await classify_date(dt_str)
         if day_info.is_off:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Daily logs cannot be submitted on {day_info.label} ({dt_str}).",
+                detail=format_off_day_reason(day_info, dt_str),
             )
         try:
             dt = datetime.strptime(str(update_data["date"]), "%Y-%m-%d")
@@ -1265,22 +1355,18 @@ async def update_entry(
     res["id"] = res.get("id") or str(res.get("_id"))
     res["workspace_id"] = res.get("workspace_id", "global")
     res["version"] = int(res.get("version", 1))
-    try:
-        from app.services.log_compliance import recompute_day_score
-        uid = res.get("user_id") or existing_entry.get("user_id")
-        dte = res.get("date") or existing_entry.get("date")
-        if uid and dte:
-            await recompute_day_score(
-                uid,
-                dte,
-                variance_reason=update_data.get("variance_reason"),
-                actor=current_user,
-            )
-            old_date = existing_entry.get("date")
-            if old_date and old_date != dte:
-                await recompute_day_score(uid, old_date, actor=current_user)
-    except Exception:
-        pass
+    uid = res.get("user_id") or existing_entry.get("user_id")
+    dte = res.get("date") or existing_entry.get("date")
+    if uid and dte:
+        _schedule_background_score_recompute(
+            uid,
+            dte,
+            variance_reason=update_data.get("variance_reason"),
+            actor=current_user,
+        )
+        old_date = existing_entry.get("date")
+        if old_date and old_date != dte:
+            _schedule_background_score_recompute(uid, old_date, actor=current_user)
     return res
 
 
@@ -1297,7 +1383,11 @@ async def delete_entry(
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
-    if not _can_mutate_daily_log(existing_entry, current_user):
+    author_user_doc = None
+    if existing_entry.get("user_id"):
+        author_user_doc = await db.users.find_one({"id": existing_entry["user_id"]})
+
+    if not _can_mutate_daily_log(existing_entry, current_user, author_user_doc=author_user_doc):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to delete this log entry. Only the author who logged the entry can delete it.",
@@ -1323,11 +1413,7 @@ async def delete_entry(
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Log entry '{entry_id}' not found.")
 
-    try:
-        from app.services.log_compliance import recompute_day_score
-        if entry_uid and existing_entry.get("date"):
-            await recompute_day_score(entry_uid, existing_entry["date"], actor=current_user)
-    except Exception:
-        pass
+    if entry_uid and existing_entry.get("date"):
+        _schedule_background_score_recompute(entry_uid, existing_entry["date"], actor=current_user)
 
     return {"message": "Entry deleted successfully."}

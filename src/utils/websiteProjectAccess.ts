@@ -25,6 +25,7 @@ export interface AccessUser {
   department?: string;
   departments?: string[];
   is_active?: boolean;
+  permissions?: any;
 }
 
 function roleOf(value?: string | null): string {
@@ -36,6 +37,9 @@ export function parseUserDepartments(user?: AccessUser | null): string[] {
   const rawList: string[] = [];
   if (Array.isArray(user.departments)) {
     rawList.push(...user.departments);
+  }
+  if (user.permissions?.departments && Array.isArray(user.permissions.departments)) {
+    rawList.push(...user.permissions.departments);
   }
   if (typeof user.department === 'string' && user.department) {
     const split = user.department
@@ -63,6 +67,16 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
   if (role === 'client') return false;
+
+  if (user.permissions) {
+    const summary = user.permissions.summary?.website;
+    if (summary && summary !== 'none') return true;
+    const mod = user.permissions.modules?.website;
+    if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
+      return true;
+    }
+  }
+
   const depts = parseUserDepartments(user);
   if ((role === 'team_lead' || role === 'lead') && depts.some((d) => WEBSITE_LEAD_DEPARTMENTS.has(d))) {
     return true;
@@ -77,6 +91,15 @@ export function canManageWebsiteProject(
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
+  if (role === 'client') return false;
+
+  if (user.permissions?.modules?.website) {
+    const mod = user.permissions.modules.website;
+    if (Object.values(mod).some((lvl) => lvl === 'manage')) {
+      return true;
+    }
+  }
+
   if (role === 'team_lead' || role === 'lead') {
     const depts = parseUserDepartments(user);
     if (depts.some((d) => WEBSITE_LEAD_DEPARTMENTS.has(d))) return true;

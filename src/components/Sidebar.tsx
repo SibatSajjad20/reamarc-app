@@ -4,6 +4,7 @@ import { useAuth } from '@/context/AuthContext';
 import { dailyLogService } from '@/services/dailyLogService';
 import { useCacheInvalidation } from '@/utils/cacheBus';
 import { getRoleDisplayName } from '@/lib/roleLabel';
+import { usePermissions } from '@/hooks/usePermissions';
 import { canAccessCrm } from '@/utils/crmAccess';
 import { canAccessContentCalendar } from '@/utils/contentCalendarAccess';
 import { canAccessWebsitePipeline } from '@/utils/websiteProjectAccess';
@@ -75,6 +76,7 @@ const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ classNam
   holidays: CalendarDays,
   'leave-quotas': CalendarCheck,
   'daily-log-fields': SlidersHorizontal,
+  'roles-permissions': ShieldCheck,
   'mobile-alerts': Smartphone,
   'lead-sources': Flame,
   'booking-scheduler': Calendar,
@@ -221,23 +223,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const displayEmail = user?.email || '';
   const displayRole = getRoleDisplayName(user?.role);
 
+  const perms = usePermissions();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
-  const isLead = user?.role === 'team_lead';
-  const canSeeExceptions = isLead || isHR;
-  const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
-  const canSeeCrm = canAccessCrm(user);
-  const canSeeContentCalendar = canAccessContentCalendar(user);
-  const canSeeWebsitePipeline = canAccessWebsitePipeline(user);
+  const canSeeExceptions = perms.can('exceptions', 'department');
+  const canSeeActiveClients = perms.canAccessActiveClients;
+  const canSeeCrm = perms.canAccessCrm || canAccessCrm(user);
+  const canSeeContentCalendar = perms.canAccessContentCalendar || canAccessContentCalendar(user);
+  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline || canAccessWebsitePipeline(user);
   const isManagementRole = isAdmin || isHR || isOperations;
 
-  const deptLower = (user?.department || '').toLowerCase().trim();
-  const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
   const canSeeMarketing =
     isAdmin ||
-    ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
+    perms.can('ads', 'view') ||
+    perms.departments.some((d: string) => {
+      const lower = d.toLowerCase().trim();
+      return lower === 'seo' || lower === 'performance marketing';
+    });
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

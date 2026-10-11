@@ -8,6 +8,9 @@ import {
 import type { ShiftTemplate } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
+import { Button } from '../ui/button';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 
 interface ShiftPolicySettingsModalProps {
@@ -138,34 +141,14 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-[#11131a] rounded-2xl border border-zinc-200 dark:border-zinc-800 w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-        {/* Modal Header */}
-        <div className="p-5 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-zinc-900 dark:text-zinc-100">
-                Shift Profiles & Mathematical Rules
-              </h3>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                Configure shift schedules, 30m grace buffers, and work hours
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Modal Body */}
-        <div className="p-6 max-h-[70vh] overflow-y-auto space-y-6 text-xs">
+    <FormDialog isOpen={isOpen} onClose={onClose} maxWidth="2xl">
+      <FormDialogHeader
+        title="Shift Profiles & Mathematical Rules"
+        subtitle="Configure shift schedules, 30m grace buffers, and work hours"
+        icon={<Sliders className="w-5 h-5 text-accent-text" />}
+        onClose={onClose}
+      />
+      <FormDialogBody className="space-y-6 text-xs">
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div>
@@ -318,29 +301,29 @@ export const ShiftPolicySettingsModal: React.FC<ShiftPolicySettingsModalProps> =
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-end gap-2 pt-2">
-                    <button
+                  <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+                    <Button
                       type="button"
+                      variant="ghost"
                       onClick={() => setEditingShift(null)}
-                      className="px-3 py-1.5 rounded-lg text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
                     >
                       Cancel
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="submit"
+                      variant="primary"
+                      loading={isSaving}
                       disabled={isSaving}
-                      className="px-4 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold cursor-pointer disabled:opacity-50"
                     >
-                      {isSaving ? 'Saving...' : 'Save Shift'}
-                    </button>
-                  </div>
+                      Save Shift
+                    </Button>
+                  </FormFooter>
                 </form>
               </div>
             )}
           </div>
-        </div>
-      </div>
-    </div>
+      </FormDialogBody>
+    </FormDialog>
   );
 };
 

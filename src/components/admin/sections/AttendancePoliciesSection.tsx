@@ -14,8 +14,9 @@ import {
 } from 'lucide-react';
 import { PageHeader } from '../../ui/PageHeader';
 import { Button, IconButton } from '../../ui/button';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../../ui/FormDialogLayout';
+import { FormFooter } from '../../ui/FormFooter';
 import { focusFirstError } from '../../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../../hooks/useFormValidation';
 import {
   TableCard,
   Table,
@@ -25,14 +26,6 @@ import {
   TR,
   TD,
 } from '../../ui/DataTable';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../../ui/dialog';
 import { cn } from '../../../lib/utils';
 import { attendanceService } from '../../../services/attendanceService';
 import { adminService } from '../../../services/adminService';
@@ -1298,21 +1291,28 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
 
       {/* ─── DEDICATED SHIFT MODAL ─── */}
       {/* ─── DEDICATED SHIFT MODAL (Dialog 560) ─── */}
-      <Dialog open={isShiftModalOpen && Boolean(editingShift)} onOpenChange={(open) => !open && setIsShiftModalOpen(false)}>
+      <FormDialog
+        isOpen={isShiftModalOpen && Boolean(editingShift)}
+        onClose={() => setIsShiftModalOpen(false)}
+        maxWidth="lg"
+      >
         {editingShift && (
-          <DialogContent className="max-w-[560px] p-0 overflow-hidden">
-            <DialogHeader className="p-6 pb-4 border-b border-border bg-canvas/40">
-              <DialogTitle className="text-base font-semibold text-fg flex items-center gap-2">
+          <form ref={shiftFormRef} noValidate onSubmit={handleSaveShift} className="flex flex-col flex-1 min-h-0">
+            <FormDialogHeader>
+              <div className="flex items-center gap-2">
                 <Clock className="w-4 h-4 text-accent-text" />
-                <span>{editingShift.id ? 'Edit shift template' : 'New shift template'}</span>
-              </DialogTitle>
-              <DialogDescription className="text-caption text-fg-muted">
-                Define timing bounds, grace period, meal break duration and night shift status.
-              </DialogDescription>
-            </DialogHeader>
+                <div>
+                  <h3 className="text-base font-semibold text-fg">
+                    {editingShift.id ? 'Edit shift template' : 'New shift template'}
+                  </h3>
+                  <p className="text-caption text-fg-muted mt-0.5">
+                    Define timing bounds, grace period, meal break duration and night shift status.
+                  </p>
+                </div>
+              </div>
+            </FormDialogHeader>
 
-            <form ref={shiftFormRef} noValidate onSubmit={handleSaveShift}>
-              <div className="p-6 space-y-4 text-xs max-h-[70vh] overflow-y-auto">
+            <FormDialogBody className="space-y-4 text-xs">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-ui font-medium text-fg mb-1">
@@ -1495,158 +1495,131 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                     description="Calculates positive duration across midnight (e.g. 22:00 to 06:00)"
                   />
                 </div>
-              </div>
 
-              <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  {Object.keys(shiftErrors).length > 1 && (
-                    <FormErrorSummaryButton
-                      count={Object.keys(shiftErrors).length}
-                      onClick={() => shiftFormRef.current && focusFirstError(shiftFormRef.current)}
-                    />
-                  )}
-                  {shiftServerError && (
-                    <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                      <span>{shiftServerError}</span>
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-center justify-end gap-2">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => setIsShiftModalOpen(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    loading={isSaving}
-                    disabled={isSaving}
-                  >
-                    Save shift
-                  </Button>
-                </div>
-              </DialogFooter>
-            </form>
-          </DialogContent>
+            </FormDialogBody>
+
+            <FormFooter
+              errorCount={Object.keys(shiftErrors).length}
+              onFocusFirst={() => shiftFormRef.current && focusFirstError(shiftFormRef.current)}
+              serverError={shiftServerError}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setIsShiftModalOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSaving}
+                disabled={isSaving}
+              >
+                Save shift
+              </Button>
+            </FormFooter>
+          </form>
         )}
-      </Dialog>
+      </FormDialog>
 
       {/* ─── DEDICATED HOLIDAY MODAL ─── */}
-      {isEventModalOpen && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface rounded-xl border border-border w-full max-w-md shadow-lg overflow-visible relative animate-in fade-in zoom-in-95 duration-150">
-            <div className="p-5 border-b border-border rounded-t-xl flex items-center justify-between">
-              <h3 className="text-base font-semibold text-fg flex items-center gap-2">
-                <Calendar className="w-4 h-4 text-accent" />
-                Add Official Holiday / Event
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsEventModalOpen(false)}
-                className="text-fg-muted hover:text-fg p-1.5 rounded-md hover:bg-hover cursor-pointer"
-              >
-                <X className="w-5 h-5" />
-              </button>
+      <FormDialog
+        isOpen={isEventModalOpen}
+        onClose={() => setIsEventModalOpen(false)}
+        maxWidth="md"
+        title={
+          <span className="flex items-center gap-2">
+            <Calendar className="w-4 h-4 text-accent" />
+            Add Official Holiday / Event
+          </span>
+        }
+      >
+        <form ref={eventFormRef} noValidate onSubmit={handleCreateHoliday} className="flex flex-col flex-1 min-h-0 text-xs">
+          <FormDialogBody className="space-y-4">
+            <div>
+              <label className="block font-medium text-fg mb-1">
+                Holiday / Event Name *
+              </label>
+              <input
+                type="text"
+                required
+                aria-invalid={!!holidayErrors.title}
+                placeholder="e.g. Independence Day or Eid Holiday"
+                value={newEventTitle}
+                onChange={(e) => {
+                  setNewEventTitle(e.target.value);
+                  if (holidayErrors.title) setHolidayErrors((prev) => { const n = { ...prev }; delete n.title; return n; });
+                }}
+                className={cn(
+                  'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent',
+                  holidayErrors.title ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
+                )}
+              />
+              {holidayErrors.title && (
+                <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                  <span>{holidayErrors.title}</span>
+                </p>
+              )}
             </div>
 
-            <form ref={eventFormRef} noValidate onSubmit={handleCreateHoliday} className="p-6 space-y-4 text-xs">
+            <div className="grid grid-cols-2 gap-3 items-end">
               <div>
-                <label className="block font-medium text-fg mb-1">
-                  Holiday / Event Name *
-                </label>
-                <input
-                  type="text"
-                  required
-                  aria-invalid={!!holidayErrors.title}
-                  placeholder="e.g. Independence Day or Eid Holiday"
-                  value={newEventTitle}
-                  onChange={(e) => {
-                    setNewEventTitle(e.target.value);
-                    if (holidayErrors.title) setHolidayErrors((prev) => { const n = { ...prev }; delete n.title; return n; });
-                  }}
-                  className={cn(
-                    'w-full px-3 py-2 rounded-md bg-surface border text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent',
-                    holidayErrors.title ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border-strong'
-                  )}
-                />
-                {holidayErrors.title && (
-                  <p className="mt-1 text-xs text-danger-fg flex items-center gap-1" role="alert">
-                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                    <span>{holidayErrors.title}</span>
-                  </p>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <div>
-                  <CustomDatePicker
-                    label="Date"
-                    minDate={getAttendanceMinDate()}
-                    value={newEventDate}
-                    onChange={setNewEventDate}
-                  />
-                </div>
-
-                <div>
-                  <CustomSelect
-                    label="Event Type"
-                    value={newEventType}
-                    onChange={(val) => setNewEventType(val as any)}
-                    options={[
-                      { value: 'holiday', label: 'Public Holiday (Off)' },
-                      { value: 'working_saturday', label: 'Working Saturday' },
-                    ]}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-medium text-fg mb-1">
-                  Description / Notes (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Additional company notes..."
-                  value={newEventDesc}
-                  onChange={(e) => setNewEventDesc(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+                <CustomDatePicker
+                  label="Date"
+                  minDate={getAttendanceMinDate()}
+                  value={newEventDate}
+                  onChange={setNewEventDate}
                 />
               </div>
 
-              <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-4 border-t border-border">
-                <div>
-                  {holidayServerError && (
-                    <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
-                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                      <span>{holidayServerError}</span>
-                    </p>
-                  )}
-                </div>
-                <div className="flex justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setIsEventModalOpen(false)}
-                    className="px-3.5 py-1.5 rounded-md text-fg-2 hover:bg-hover border border-border font-medium cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={isSaving}
-                    className="px-4 py-1.5 rounded-md bg-accent hover:bg-accent-hover text-white font-medium cursor-pointer disabled:opacity-50"
-                  >
-                    {isSaving ? 'Adding...' : 'Add Event'}
-                  </button>
-                </div>
+              <div>
+                <CustomSelect
+                  label="Event Type"
+                  value={newEventType}
+                  onChange={(val) => setNewEventType(val as any)}
+                  options={[
+                    { value: 'holiday', label: 'Public Holiday (Off)' },
+                    { value: 'working_saturday', label: 'Working Saturday' },
+                  ]}
+                />
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </div>
+
+            <div>
+              <label className="block font-medium text-fg mb-1">
+                Description / Notes (Optional)
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Additional company notes..."
+                value={newEventDesc}
+                onChange={(e) => setNewEventDesc(e.target.value)}
+                className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent"
+              />
+            </div>
+          </FormDialogBody>
+
+          <FormFooter serverError={holidayServerError}>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setIsEventModalOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              disabled={isSaving}
+              loading={isSaving}
+            >
+              {isSaving ? 'Adding...' : 'Add Event'}
+            </Button>
+          </FormFooter>
+        </form>
+      </FormDialog>
 
       {/* ─── Delete Shift Confirmation Modal ─── */}
       {shiftToDelete && (

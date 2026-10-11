@@ -3,6 +3,7 @@ import { Loader2, Plus, Trash2, MessageSquareText, Eye, Check, Copy } from 'luci
 import { crmService } from '../../../services/crmService';
 import { useToast } from '../../../context/ToastContext';
 import { Button, IconButton } from '../../ui/button';
+import { FormFooter } from '../../ui/FormFooter';
 import { Checkbox } from '../../ui/checkbox';
 import type { CrmTemplate } from '../../../types/crm';
 
@@ -317,22 +318,18 @@ export const CrmSettingsTemplates: React.FC = () => {
               </p>
             </div>
 
-            {error && (
-              <div className="p-2.5 rounded-md bg-danger-bg border border-danger-bd text-small text-danger-fg">
-                {error}
-              </div>
-            )}
-
-            <Button
-              type="submit"
-              variant="primary"
-              className="w-full"
-              loading={saving}
-              loadingText="Saving template…"
-              icon={Plus}
-            >
-              Save template
-            </Button>
+            <FormFooter serverError={error} className="px-0 py-0 border-t-0 bg-transparent mt-2">
+              <Button
+                type="submit"
+                variant="primary"
+                className="w-full"
+                loading={saving}
+                loadingText="Saving template…"
+                icon={Plus}
+              >
+                Save template
+              </Button>
+            </FormFooter>
           </form>
         </div>
       </div>

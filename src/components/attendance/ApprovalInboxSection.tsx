@@ -25,6 +25,8 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Callout } from '../ui/Callout';
 import { cn } from '../../lib/utils';
 import { isFuturePktClockTime } from '../../constants/attendance';
@@ -844,51 +846,41 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
       {/* 2. Review Modal Dialog (Approve, Reject, Request Info) */}
       {/* ────────────────────────────────────────────────────────── */}
       {reviewingItem && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-                {reviewingItem.action === 'approved' ? (
-                  <CheckCircle2 className="w-4 h-4 text-success-fg" />
-                ) : reviewingItem.action === 'needs_info' ? (
-                  <HelpCircle className="w-4 h-4 text-info-fg" />
-                ) : (
-                  <XCircle className="w-4 h-4 text-danger-fg" />
-                )}
-                <span>
-                  {reviewingItem.action === 'approved'
-                    ? 'Approve'
-                    : reviewingItem.action === 'needs_info'
-                    ? 'Request Clarification for'
-                    : 'Reject'}{' '}
-                  {reviewingItem.request.request_type.replace('_', ' ')}
-                </span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setReviewingItem(null)}
-                className="text-fg-muted hover:text-fg p-1 rounded-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <FormDialog
+          isOpen={Boolean(reviewingItem)}
+          onClose={() => setReviewingItem(null)}
+          maxWidth="md"
+        >
+          <FormDialogHeader
+            title={`${reviewingItem.action === 'approved' ? 'Approve' : reviewingItem.action === 'needs_info' ? 'Request Clarification for' : 'Reject'} ${reviewingItem.request.request_type.replace('_', ' ')}`}
+            icon={
+              reviewingItem.action === 'approved' ? (
+                <CheckCircle2 className="w-4 h-4 text-success-fg" />
+              ) : reviewingItem.action === 'needs_info' ? (
+                <HelpCircle className="w-4 h-4 text-info-fg" />
+              ) : (
+                <XCircle className="w-4 h-4 text-danger-fg" />
+              )
+            }
+            onClose={() => setReviewingItem(null)}
+          />
+          <form onSubmit={handleConfirmReview} className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4 text-xs">
+              <div className="p-3 rounded-lg bg-subtle border border-border text-xs space-y-1 text-fg-2">
+                <p>
+                  <strong>Applicant:</strong> {reviewingItem.request.user_name} ({reviewingItem.request.department})
+                </p>
+                <p>
+                  <strong>Dates / Time:</strong> {reviewingItem.request.start_date}{' '}
+                  {reviewingItem.request.end_date !== reviewingItem.request.start_date
+                    ? `to ${reviewingItem.request.end_date}`
+                    : ''}
+                </p>
+                <p>
+                  <strong>Reason:</strong> {reviewingItem.request.reason}
+                </p>
+              </div>
 
-            <div className="p-3 rounded-lg bg-subtle border border-border text-xs space-y-1 text-fg-2">
-              <p>
-                <strong>Applicant:</strong> {reviewingItem.request.user_name} ({reviewingItem.request.department})
-              </p>
-              <p>
-                <strong>Dates / Time:</strong> {reviewingItem.request.start_date}{' '}
-                {reviewingItem.request.end_date !== reviewingItem.request.start_date
-                  ? `to ${reviewingItem.request.end_date}`
-                  : ''}
-              </p>
-              <p>
-                <strong>Reason:</strong> {reviewingItem.request.reason}
-              </p>
-            </div>
-
-            <form onSubmit={handleConfirmReview} className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-fg mb-1">
                   {reviewingItem.action === 'approved'
@@ -912,67 +904,61 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   className="w-full px-3 py-2 rounded-md bg-surface border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+            </FormDialogBody>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setReviewingItem(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  size="sm"
-                  disabled={isProcessing}
-                  variant={reviewingItem.action === 'rejected' ? 'danger' : 'primary'}
-                  
-                >
-                  {isProcessing
-                    ? 'Processing...'
-                    : reviewingItem.action === 'approved'
-                    ? 'Confirm Approval'
-                    : reviewingItem.action === 'needs_info'
-                    ? 'Send Request for Info'
-                    : 'Confirm Rejection'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <FormFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setReviewingItem(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                size="sm"
+                disabled={isProcessing}
+                variant={reviewingItem.action === 'rejected' ? 'danger' : 'primary'}
+              >
+                {isProcessing
+                  ? 'Processing...'
+                  : reviewingItem.action === 'approved'
+                  ? 'Confirm Approval'
+                  : reviewingItem.action === 'needs_info'
+                  ? 'Send Request for Info'
+                  : 'Confirm Rejection'}
+              </Button>
+            </FormFooter>
+          </form>
+        </FormDialog>
       )}
 
       {/* ────────────────────────────────────────────────────────── */}
       {/* 3. Status Edit / Undo Modal Dialog */}
       {/* ────────────────────────────────────────────────────────── */}
       {editingStatusItem && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-accent" />
-                <span>Edit / Reverse Request Status</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setEditingStatusItem(null)}
-                className="text-fg-muted hover:text-fg p-1 rounded-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <FormDialog
+          isOpen={Boolean(editingStatusItem)}
+          onClose={() => setEditingStatusItem(null)}
+          maxWidth="md"
+        >
+          <FormDialogHeader
+            title="Edit / Reverse Request Status"
+            icon={<Edit3 className="w-4 h-4 text-accent" />}
+            onClose={() => setEditingStatusItem(null)}
+          />
+          <form onSubmit={handleConfirmEditStatus} className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4 text-xs">
+              <div className="p-3 rounded-lg bg-subtle border border-border text-xs space-y-1 text-fg-2">
+                <p>
+                  <strong>Applicant:</strong> {editingStatusItem.user_name} ({editingStatusItem.department})
+                </p>
+                <p>
+                  <strong>Current Status:</strong> <span className="font-semibold capitalize">{editingStatusItem.status}</span>
+                </p>
+              </div>
 
-            <div className="p-3 rounded-lg bg-subtle border border-border text-xs space-y-1 text-fg-2">
-              <p>
-                <strong>Applicant:</strong> {editingStatusItem.user_name} ({editingStatusItem.department})
-              </p>
-              <p>
-                <strong>Current Status:</strong> <span className="font-semibold capitalize">{editingStatusItem.status}</span>
-              </p>
-            </div>
-
-            <form onSubmit={handleConfirmEditStatus} className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-fg mb-1">
                   New Status
@@ -1001,57 +987,52 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   className="w-full px-3 py-2 rounded-md bg-surface border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+            </FormDialogBody>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setEditingStatusItem(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? 'Saving...' : 'Update Status & Recalculate'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <FormFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setEditingStatusItem(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={isProcessing}
+              >
+                {isProcessing ? 'Saving...' : 'Update Status & Recalculate'}
+              </Button>
+            </FormFooter>
+          </form>
+        </FormDialog>
       )}
 
       {/* ────────────────────────────────────────────────────────── */}
       {/* 4. Clarification Reply Modal Dialog (For Employee) */}
       {/* ────────────────────────────────────────────────────────── */}
       {clarifyingItem && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-                <HelpCircle className="w-4 h-4 text-info-fg" />
-                <span>Provide Requested Clarification</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setClarifyingItem(null)}
-                className="text-fg-muted hover:text-fg p-1 rounded-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <FormDialog
+          isOpen={Boolean(clarifyingItem)}
+          onClose={() => setClarifyingItem(null)}
+          maxWidth="md"
+        >
+          <FormDialogHeader
+            title="Provide Requested Clarification"
+            icon={<HelpCircle className="w-4 h-4 text-info-fg" />}
+            onClose={() => setClarifyingItem(null)}
+          />
+          <form onSubmit={handleConfirmClarification} className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4 text-xs">
+              {clarifyingItem.clarification_prompt && (
+                <Callout variant="info" title="HR / Reviewer Question:">
+                  {clarifyingItem.clarification_prompt}
+                </Callout>
+              )}
 
-            {clarifyingItem.clarification_prompt && (
-              <Callout variant="info" title="HR / Reviewer Question:">
-                {clarifyingItem.clarification_prompt}
-              </Callout>
-            )}
-
-            <form onSubmit={handleConfirmClarification} className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-fg mb-1">
                   Your Explanation / Response
@@ -1065,60 +1046,55 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   className="w-full px-3 py-2 rounded-md bg-surface border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+            </FormDialogBody>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setClarifyingItem(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? 'Submitting...' : 'Submit Clarification'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <FormFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setClarifyingItem(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={isProcessing}
+              >
+                {isProcessing ? 'Submitting...' : 'Submit Clarification'}
+              </Button>
+            </FormFooter>
+          </form>
+        </FormDialog>
       )}
 
       {/* ────────────────────────────────────────────────────────── */}
       {/* 5. Appeal Modal Dialog (For Employee, Single-Use) */}
       {/* ────────────────────────────────────────────────────────── */}
       {appealingItem && (
-        <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-          <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-                <CornerUpLeft className="w-4 h-4 text-accent" />
-                <span>Appeal Rejected Request</span>
-              </h3>
-              <button
-                type="button"
-                onClick={() => setAppealingItem(null)}
-                className="text-fg-muted hover:text-fg p-1 rounded-md cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+        <FormDialog
+          isOpen={Boolean(appealingItem)}
+          onClose={() => setAppealingItem(null)}
+          maxWidth="md"
+        >
+          <FormDialogHeader
+            title="Appeal Rejected Request"
+            icon={<CornerUpLeft className="w-4 h-4 text-accent" />}
+            onClose={() => setAppealingItem(null)}
+          />
+          <form onSubmit={handleConfirmAppeal} className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4 text-xs">
+              <Callout variant="warning" title="Single-Use Appeal">
+                <p>You can only submit an appeal once for this request. Please provide a clear, comprehensive justification.</p>
+                {appealingItem.rejection_reason && (
+                  <p className="text-xs pt-1 text-danger-fg">
+                    <strong>Rejection Note:</strong> {appealingItem.rejection_reason}
+                  </p>
+                )}
+              </Callout>
 
-            <Callout variant="warning" title="Single-Use Appeal">
-              <p>You can only submit an appeal once for this request. Please provide a clear, comprehensive justification.</p>
-              {appealingItem.rejection_reason && (
-                <p className="text-xs pt-1 text-danger-fg">
-                  <strong>Rejection Note:</strong> {appealingItem.rejection_reason}
-                </p>
-              )}
-            </Callout>
-
-            <form onSubmit={handleConfirmAppeal} className="space-y-3 text-xs">
               <div>
                 <label className="block font-medium text-fg mb-1">
                   Appeal Rationale
@@ -1132,28 +1108,28 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                   className="w-full px-3 py-2 rounded-md bg-surface border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:ring-1 focus:ring-ring"
                 />
               </div>
+            </FormDialogBody>
 
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setAppealingItem(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? 'Submitting...' : 'Submit Appeal'}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
+            <FormFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setAppealingItem(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                size="sm"
+                disabled={isProcessing}
+              >
+                {isProcessing ? 'Submitting...' : 'Submit Appeal'}
+              </Button>
+            </FormFooter>
+          </form>
+        </FormDialog>
       )}
 
       {/* ────────────────────────────────────────────────────────── */}

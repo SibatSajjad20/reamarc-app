@@ -95,12 +95,15 @@ def _token_payload(access_token: str, refresh_token: str, user_doc: dict, includ
 
 def _build_user_response(user_doc: dict) -> dict:
     role_str = _normalize_role(user_doc.get("role"))
+    from app.services.permissions import parse_user_departments, get_user_primary_department
     return {
         "id": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "department": user_doc.get("department"),
+        "departments": parse_user_departments(user_doc),
+        "primary_department": get_user_primary_department(user_doc),
         "designation": user_doc.get("designation"),
         "joining_date": user_doc.get("joining_date"),
         "employment_type": user_doc.get("employment_type") or "contract",
@@ -241,10 +244,10 @@ async def refresh_token(request: Request, response: Response):
 
     if action == "rotate":
         rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
-        if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id):
+        if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
     elif action == "grace":
-        if not await accept_retired_refresh(db, user_id, old_jti, session_id):
+        if not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
     elif action == "legacy":
         # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
@@ -265,7 +268,13 @@ from app.schemas.user import UserProfileUpdate
 
 @router.get("/me", response_model=UserResponse)
 async def get_me(current_user: dict = Depends(get_current_user)):
-    return current_user
+    from app.services.permissions import load_context, effective_map
+    ctx = await load_context(current_user)
+    resp = dict(current_user)
+    resp["departments"] = ctx.departments
+    resp["primary_department"] = ctx.primary_department
+    resp["permissions"] = effective_map(ctx)
+    return resp
 
 
 @router.put("/me/profile", response_model=UserResponse)

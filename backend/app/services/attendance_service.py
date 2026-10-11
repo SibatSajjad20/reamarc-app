@@ -4499,15 +4499,20 @@ async def review_leave_request(
                 body = f"Your {type_lbl.lower()} request status was set to {new_status.value}."
                 kind = "leave_status_update"
 
-            await push_service.dispatch_to_users(
-                user_ids=[applicant_id],
-                title=title,
-                body=body,
-                kind=kind,
-                sender_id=reviewer_id,
-                sender_name=reviewer_name,
-                sender_role=reviewer_role,
-            )
+            try:
+                asyncio.create_task(
+                    push_service.dispatch_to_users(
+                        user_ids=[applicant_id],
+                        title=title,
+                        body=body,
+                        kind=kind,
+                        sender_id=reviewer_id,
+                        sender_name=reviewer_name,
+                        sender_role=reviewer_role,
+                    )
+                )
+            except Exception:
+                pass
     except Exception as exc:
         logger.warning("Failed to dispatch push notification for reviewed request %s: %s", request_id, exc)
 

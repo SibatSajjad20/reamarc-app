@@ -205,7 +205,11 @@ def is_content_actor(user: Optional[Dict[str, Any]]) -> bool:
 
 
 def is_content_lead(user: Optional[Dict[str, Any]]) -> bool:
-    return is_active(user) and _role(user) == "team_lead" and "content" in _user_departments(user)
+    if not is_active(user) or _role(user) != "team_lead":
+        return False
+    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
+    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    return resolve(ctx, "content_calendar", "content") == "manage"
 
 
 def is_creative_actor(user: Optional[Dict[str, Any]]) -> bool:
@@ -213,7 +217,11 @@ def is_creative_actor(user: Optional[Dict[str, Any]]) -> bool:
 
 
 def is_creative_lead(user: Optional[Dict[str, Any]]) -> bool:
-    return is_active(user) and _role(user) == "team_lead" and "creative" in _user_departments(user)
+    if not is_active(user) or _role(user) != "team_lead":
+        return False
+    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
+    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    return resolve(ctx, "content_calendar", "creative") == "manage"
 
 
 def is_social_actor(user: Optional[Dict[str, Any]]) -> bool:

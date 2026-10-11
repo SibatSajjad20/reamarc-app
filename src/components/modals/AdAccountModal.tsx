@@ -1,20 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AlertCircle } from 'lucide-react';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../ui/dialog';
+  FormDialog,
+  FormDialogHeader,
+  FormDialogBody,
+} from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
 import { MetaIcon, GoogleAdsIcon } from '../ui/brand-icons';
 import type { AdAccount, CreateAdAccountPayload, UpdateAdAccountPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 interface AdAccountModalProps {
   isOpen: boolean;
@@ -126,18 +123,14 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
   const currencyOptions = CURRENCIES.map((c) => ({ value: c, label: c }));
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent maxWidth="md" className="p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 border-b border-border">
-          <DialogTitle className="text-base font-semibold">
-            {isEditMode ? 'Edit ad account' : 'Connect ad account'}
-          </DialogTitle>
-          <DialogDescription className="text-ui text-fg-muted mt-0.5">
-            Link Meta Ads or Google Ads account identifiers to client workspaces.
-          </DialogDescription>
-        </DialogHeader>
-
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-6 space-y-4 max-h-[calc(85vh-140px)] overflow-y-auto">
+    <FormDialog isOpen={isOpen} onClose={onClose} maxWidth="md">
+      <FormDialogHeader
+        title={isEditMode ? 'Edit ad account' : 'Connect ad account'}
+        subtitle="Link Meta Ads or Google Ads account identifiers to client workspaces."
+        onClose={onClose}
+      />
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-4">
           {/* Account Name */}
           <div>
             <label className="block text-ui font-medium text-fg mb-1.5">
@@ -257,38 +250,27 @@ export const AdAccountModal: React.FC<AdAccountModalProps> = ({
               placeholder="Select client workspace"
             />
           </div>
-        </form>
-
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FormErrorSummaryButton
-              count={Object.keys(fieldErrors).length}
-              onClick={() => {
-                if (formRef.current) focusFirstError(formRef.current);
-              }}
-            />
-            {serverError && (
-              <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                <span>{serverError}</span>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2 ml-auto">
-            <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleSubmit}
-              loading={isSubmitting}
-              disabled={isSubmitting}
-            >
-              {isEditMode ? 'Save changes' : 'Connect account'}
-            </Button>
-          </div>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </FormDialogBody>
+        <FormFooter
+          errorCount={Object.keys(fieldErrors).length}
+          onFocusFirst={() => {
+            if (formRef.current) focusFirstError(formRef.current);
+          }}
+          serverError={serverError}
+        >
+          <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={isSubmitting}
+            disabled={isSubmitting}
+          >
+            {isEditMode ? 'Save changes' : 'Connect account'}
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

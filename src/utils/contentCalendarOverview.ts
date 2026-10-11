@@ -21,6 +21,14 @@ export interface DailyPublishDay {
   count: number;
 }
 
+export interface UpcomingDayGroup {
+  isoDate: string;
+  dayLabel: string;
+  dateStr: string;
+  isToday: boolean;
+  items: ContentCalendarItem[];
+}
+
 export interface ClientHealthItem {
   clientName: string;
   workspaceId?: string;
@@ -229,6 +237,61 @@ export function calculateNextSevenDays(items: ContentCalendarItem[], now: Date =
   }
 
   return days;
+}
+
+/**
+ * Groups upcoming items by day for the next `daysCount` days (default 7).
+ */
+export function getUpcomingItemsByDay(
+  items: ContentCalendarItem[],
+  daysCount: number = 7,
+  now: Date = new Date()
+): {
+  groups: UpcomingDayGroup[];
+  totalPosts: number;
+} {
+  const groups: UpcomingDayGroup[] = [];
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  let totalPosts = 0;
+
+  for (let i = 0; i < daysCount; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth(), now.getDate() + i);
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dayNum = String(d.getDate()).padStart(2, '0');
+    const isoDate = `${y}-${m}-${dayNum}`;
+    const isToday = i === 0;
+    const dayName = dayNames[d.getDay()];
+    const monthName = monthNames[d.getMonth()];
+    const dateNum = d.getDate();
+
+    const dayLabel = isToday
+      ? `Today · ${dayName} ${dateNum} ${monthName}`
+      : `${dayName} ${dateNum} ${monthName}`;
+    const dateStr = `${monthName} ${dateNum}`;
+
+    const dayItems = items.filter((it) => {
+      if (it.stage === 'Rejected') return false;
+      const pubDate = it.publish_date?.split('T')[0];
+      return pubDate === isoDate;
+    });
+
+    totalPosts += dayItems.length;
+
+    groups.push({
+      isoDate,
+      dayLabel,
+      dateStr,
+      isToday,
+      items: dayItems,
+    });
+  }
+
+  return {
+    groups,
+    totalPosts,
+  };
 }
 
 /**

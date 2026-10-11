@@ -4,6 +4,7 @@ import type { DrivePickerConfig, DrivePickedFile } from '../../types/contentCale
 import { useToast } from '../../context/ToastContext';
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from './dialog';
 import { Button } from './button';
+import { FormFooter } from './FormFooter';
 import { CustomSelect } from './CustomSelect';
 import { Link2, Paperclip, AlertTriangle, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -442,7 +443,7 @@ export const DriveAttach = forwardRef<DriveAttachRef, DriveAttachProps>(function
                   )}
                 </div>
 
-                <div className="pt-2 flex items-center justify-end gap-2.5">
+                <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
                   <Button
                     type="button"
                     variant="secondary"
@@ -460,7 +461,7 @@ export const DriveAttach = forwardRef<DriveAttachRef, DriveAttachProps>(function
                   >
                     Save Link
                   </Button>
-                </div>
+                </FormFooter>
               </form>
             )}
           </div>

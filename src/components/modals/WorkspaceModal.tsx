@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { createPortal } from 'react-dom';
 import {
   X,
   Building2,
@@ -30,7 +29,8 @@ import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { Button } from '../ui/button';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
 
@@ -391,47 +391,35 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
 
   const currentDisplayInitials = initials.trim() || name.trim().slice(0, 2).toUpperCase() || 'WS';
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[var(--z-overlay,50)] flex items-center justify-center w-screen h-screen bg-overlay animate-fadeIn p-4 select-none"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+  return (
+    <FormDialog
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="xl"
     >
-      <div
-        className="relative z-[var(--z-dialog,51)] w-full max-w-3xl max-h-[90vh] overflow-y-auto custom-scrollbar bg-surface border border-border rounded-xl p-6 sm:p-7 shadow-xl space-y-6 animate-scaleIn"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border pb-4">
-          <div className="flex items-center gap-3">
-            <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-semibold text-sm shrink-0 transition-colors"
-              style={{ backgroundColor: brandColor }}
-            >
-              {currentDisplayInitials}
-            </div>
-            <div>
-              <h2 className="text-base font-semibold text-fg">
-                {workspaceToEdit ? 'Edit Client Workspace' : 'Add Client Workspace'}
-              </h2>
-              <p className="text-xs text-fg-muted">
-                Configure client proposal, contract lifecycle, services, health, POC & billing details
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 text-fg-muted hover:text-fg rounded-lg hover:bg-hover transition-colors cursor-pointer"
-            title="Close (Esc)"
+      {/* Header */}
+      <FormDialogHeader className="px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-semibold text-sm shrink-0 transition-colors"
+            style={{ backgroundColor: brandColor }}
           >
-            <X className="w-5 h-5" />
-          </button>
+            {currentDisplayInitials}
+          </div>
+          <div>
+            <h2 className="text-base font-semibold text-fg">
+              {workspaceToEdit ? 'Edit Client Workspace' : 'Add Client Workspace'}
+            </h2>
+            <p className="text-xs text-fg-muted">
+              Configure client proposal, contract lifecycle, services, health, POC & billing details
+            </p>
+          </div>
         </div>
+      </FormDialogHeader>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="space-y-6">
+      {/* Form Body */}
+      <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-6">
           {/* SECTION 1: Client & Brand Basics */}
           <div className="space-y-4">
             <div className="flex items-center gap-2 pb-1 border-b border-border">
@@ -957,50 +945,36 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
             </div>
           </div>
 
-          {/* Actions */}
-          <div className="sticky bottom-0 bg-surface/95 backdrop-blur-xs pt-4 pb-2 border-t border-border flex items-center justify-between gap-2.5 flex-wrap z-10">
-            <div className="flex items-center gap-3 min-w-0 flex-wrap">
-              <FormErrorSummaryButton
-                errorCount={errorCount}
-                onClick={() => focusFirstError()}
-              />
-              {serverError && (
-                <div role="alert" className="text-small text-danger-fg flex items-center gap-1.5 font-medium">
-                  <AlertCircle size={14} className="shrink-0" aria-hidden="true" />
-                  <span>{serverError}</span>
-                </div>
-              )}
-              {isUploadingProposal && (
-                <span className="text-small text-fg-muted" aria-live="polite">
-                  Wait for upload to finish
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2.5 ml-auto">
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={isSubmitting}
-                className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-fg bg-subtle hover:bg-hover transition-colors cursor-pointer disabled:opacity-50"
-              >
-                Cancel
-              </button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isSubmitting}
-                loadingText="Saving Workspace…"
-                disabled={isSubmitting || isUploadingProposal}
-                icon={CheckCircle2}
-              >
-                {workspaceToEdit ? 'Save Changes' : 'Create Workspace'}
-              </Button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>,
-    document.body
+        </FormDialogBody>
+
+        {/* Actions */}
+        <FormFooter
+          errorCount={errorCount}
+          onFocusFirst={() => focusFirstError()}
+          serverError={serverError}
+          uploading={isUploadingProposal ? 'Wait for upload to finish' : false}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="px-4 py-2 rounded-lg border border-border text-xs font-medium text-fg bg-subtle hover:bg-hover transition-colors cursor-pointer disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={isSubmitting}
+            loadingText="Saving Workspace…"
+            disabled={isSubmitting || isUploadingProposal}
+            icon={CheckCircle2}
+          >
+            {workspaceToEdit ? 'Save Changes' : 'Create Workspace'}
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };
 

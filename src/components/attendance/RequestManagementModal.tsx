@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  X,
   FilePlus,
   Clock,
   Home,
@@ -29,7 +28,8 @@ import { getAttendanceMinDate, isFuturePktClockTime } from '../../constants/atte
 import { useOffDays } from '../../hooks/useOffDays';
 import { parseTimeToMinutes, formatHours } from '../../utils/logTimeChecks';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 
 interface RequestManagementModalProps {
   isOpen: boolean;
@@ -381,47 +381,20 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const isCorrectionMode = defaultTab === 'regularization';
 
   return (
-    <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4 animate-in fade-in duration-150">
-      <div
-        className="bg-surface rounded-lg border border-border w-full max-w-[560px] shadow-lg overflow-hidden flex flex-col max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Modal Header */}
-        <div className="p-4 sm:p-5 border-b border-border flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div
-              className={cn(
-                'p-2 rounded-md',
-                isCorrectionMode
-                  ? 'bg-warning-bg text-warning-fg border border-warning-bd'
-                  : 'bg-accent-soft-2 text-accent-text border border-accent-200'
-              )}
-            >
-              {isCorrectionMode ? <FileEdit className="w-5 h-5" /> : <FilePlus className="w-5 h-5" />}
-            </div>
-            <div>
-              <h3 className="text-h2 font-semibold text-fg">
-                {isCorrectionMode ? 'Attendance punch correction' : 'Submit request'}
-              </h3>
-              <p className="text-small text-fg-muted">
-                {isCorrectionMode
-                  ? 'Submit time in / time out corrections for review'
-                  : 'Submit leaves, short leaves, remote work or punch adjustments'}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-fg-muted hover:text-fg p-1 rounded-md hover:bg-hover transition-colors cursor-pointer"
-            aria-label="Close dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Scrollable Form Body */}
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-5 overflow-y-auto space-y-4 text-xs">
+    <FormDialog
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidth="xl"
+      className="max-w-[560px]"
+    >
+      <FormDialogHeader
+        title={isCorrectionMode ? 'Attendance punch correction' : 'Submit request'}
+        subtitle={isCorrectionMode ? 'Submit time in / time out corrections for review' : 'Submit leaves, short leaves, remote work or punch adjustments'}
+        icon={isCorrectionMode ? <FileEdit className="w-5 h-5 text-warning-fg" /> : <FilePlus className="w-5 h-5 text-accent-text" />}
+        onClose={onClose}
+      />
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-4 text-xs">
           {/* Request Type Selector (2×2 RadioCards per §13.5) */}
           <div>
             <label className="block text-label font-medium text-fg mb-1.5">
@@ -940,42 +913,29 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
             </div>
           )}
 
-          {/* Modal Footer Controls */}
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-border">
-            <div className="flex items-center gap-2">
-              {Object.keys(fieldErrors).length > 1 && (
-                <FormErrorSummaryButton
-                  count={Object.keys(fieldErrors).length}
-                  onClick={() => formRef.current && focusFirstError(formRef.current)}
-                />
-              )}
-              {serverError && (
-                <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{serverError}</span>
-                </p>
-              )}
-            </div>
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isSubmitting}
-              >
-                Send request
-              </Button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
+        </FormDialogBody>
+        <FormFooter
+          errorCount={Object.keys(fieldErrors).length}
+          onFocusFirst={() => formRef.current && focusFirstError(formRef.current)}
+          serverError={serverError}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={isSubmitting}
+          >
+            Send request
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

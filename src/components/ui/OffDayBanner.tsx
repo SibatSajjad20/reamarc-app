@@ -1,6 +1,7 @@
 import React from 'react';
 import { CalendarOff } from 'lucide-react';
 import type { OffDayInfo } from '../../utils/offDays';
+import { formatOffDayReason } from '../../utils/offDays';
 import { Callout } from './Callout';
 
 export interface OffDayBannerProps {
@@ -26,8 +27,7 @@ export const OffDayBanner: React.FC<OffDayBannerProps> = ({
       className={className}
     >
       <span className={compact ? 'text-small' : 'text-ui'}>
-        {date ? `${date} is an official off day. ` : ''}
-        Check-in and daily logs are not required. Leave, WFH, and punch corrections can still be submitted if needed.
+        {formatOffDayReason(info, date)} Check-in and daily logs are not required. Leave, WFH, and punch corrections can still be submitted if needed.
       </span>
     </Callout>
   );

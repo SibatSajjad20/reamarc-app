@@ -24,6 +24,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import { usePermissions } from './hooks/usePermissions';
 import { canAccessCrm, canAssignCrmLeads } from './utils/crmAccess';
 import { canAccessContentCalendar } from './utils/contentCalendarAccess';
 import { canAccessWebsitePipeline } from './utils/websiteProjectAccess';
@@ -123,24 +124,26 @@ function AppInner() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [handleToggleSidebar]);
 
-  const deptLower = (user?.department || '').toLowerCase().trim();
-  const isMarketingOrSEO = deptLower === 'seo' || deptLower === 'performance marketing';
+  const perms = usePermissions();
   const isAdmin = user?.role === 'admin';
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
-  const isLead = user?.role === 'team_lead';
 
   const canSeeMarketing =
     isAdmin ||
-    ((user?.role === 'team_lead' || user?.role === 'team_member') && isMarketingOrSEO);
+    perms.can('ads', 'view') ||
+    perms.departments.some((d: string) => {
+      const lower = d.toLowerCase().trim();
+      return lower === 'seo' || lower === 'performance marketing';
+    });
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
-  const canSeeExceptions = user?.role === 'team_lead' || isHR;
-  const canSeeActiveClients = isLead || isHR || isAdmin || isOperations;
-  const canSeeCrm = canAccessCrm(user);
-  const canSeeContentCalendar = canAccessContentCalendar(user);
-  const canSeeWebsitePipeline = canAccessWebsitePipeline(user);
+  const canSeeExceptions = perms.can('exceptions', 'department');
+  const canSeeActiveClients = perms.canAccessActiveClients;
+  const canSeeCrm = perms.canAccessCrm || canAccessCrm(user);
+  const canSeeContentCalendar = perms.canAccessContentCalendar || canAccessContentCalendar(user);
+  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline || canAccessWebsitePipeline(user);
   const canAssign = canAssignCrmLeads(user);
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -535,7 +538,7 @@ function AppInner() {
     adAccounts,
     selectedAdAccount,
     setSelectedAdAccount,
-  } = useAdAccounts(Boolean(isAdmin));
+  } = useAdAccounts(Boolean(isAdmin || perms.can('ads', 'view')));
 
   // Modal State for Workspaces
   const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);

@@ -130,11 +130,11 @@ def is_admin_or_ops(user: Dict[str, Any] | None) -> bool:
 def is_website_lead(user: Dict[str, Any] | None) -> bool:
     if not user:
         return False
-    role = _normalize(user.get("role"))
-    if role not in ("team_lead", "lead"):
+    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
+    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    if ctx.role not in ("team_lead", "lead"):
         return False
-    depts = get_user_departments(user)
-    return bool(depts & {"website", "web development", "software development", "software"})
+    return resolve(ctx, "website", "website") == "manage"
 
 
 def is_client(user: Dict[str, Any] | None) -> bool:

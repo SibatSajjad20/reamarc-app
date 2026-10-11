@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Clock } from 'lucide-react';
+import { Clock } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../types/attendance';
 import { attendanceService } from '../services/attendanceService';
 import { useToast } from '../context/ToastContext';
@@ -11,6 +11,8 @@ import {
 } from '../constants/officeLocation';
 import { CustomSelect } from '../components/ui/CustomSelect';
 import { Button } from '../components/ui/button';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../components/ui/FormDialogLayout';
+import { FormFooter } from '../components/ui/FormFooter';
 
 export const OVERTIME_CATEGORY_OPTIONS = [
   { value: 'client_deadline', label: 'Client deadline' },
@@ -421,37 +423,32 @@ export function usePunchFlow(
   }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes]);
 
   const renderVarianceModal = () => {
-    if (!varianceOpen) return null;
     return (
-      <div className="fixed inset-0 z-50 bg-overlay flex items-center justify-center p-4">
-        <div className="bg-surface rounded-lg border border-border w-full max-w-md p-5 shadow-lg space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-border">
-            <h3 className="text-ui font-semibold text-fg">
-              {gateType === 'overtime' ? 'Overtime reason required' : 'Early check-out reason'}
-            </h3>
-            <button
-              type="button"
-              onClick={() => setVarianceOpen(false)}
-              className="text-fg-muted hover:text-fg p-1 rounded-md transition-colors cursor-pointer"
-              aria-label="Close"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <p className="text-small text-fg-muted leading-relaxed">
-            {checkoutGate?.message ||
-              (gateType === 'overtime'
-                ? `Your shift ended at ${shift?.end_time || '18:30'}. Enter the reason you stayed.`
-                : `You are leaving before ${shift?.end_time || '18:30'}. Enter the reason.`)}
-          </p>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (varianceReason.trim().length < 3) return;
-              void submitCheckOut(varianceReason.trim(), varianceCategory || undefined);
-            }}
-            className="space-y-3"
-          >
+      <FormDialog
+        isOpen={varianceOpen}
+        onClose={() => setVarianceOpen(false)}
+        maxWidth="md"
+      >
+        <FormDialogHeader
+          title={gateType === 'overtime' ? 'Overtime reason required' : 'Early check-out reason'}
+          subtitle={
+            checkoutGate?.message ||
+            (gateType === 'overtime'
+              ? `Your shift ended at ${shift?.end_time || '18:30'}. Enter the reason you stayed.`
+              : `You are leaving before ${shift?.end_time || '18:30'}. Enter the reason.`)
+          }
+          icon={gateType === 'overtime' ? <Clock className="w-5 h-5 text-accent-text" /> : undefined}
+          onClose={() => setVarianceOpen(false)}
+        />
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (varianceReason.trim().length < 3) return;
+            void submitCheckOut(varianceReason.trim(), varianceCategory || undefined);
+          }}
+          className="flex flex-col flex-1 min-h-0"
+        >
+          <FormDialogBody className="space-y-3">
             <div>
               <CustomSelect
                 label="Category"
@@ -490,28 +487,29 @@ export function usePunchFlow(
                 className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-ui text-fg placeholder:text-fg-faint focus:focus-ring outline-none"
               />
             </div>
-            <div className="flex items-center justify-end gap-2 pt-1">
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                onClick={() => setVarianceOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="destructive"
-                size="sm"
-                disabled={isSubmitting || varianceReason.trim().length < 3}
-                loading={isSubmitting}
-              >
-                Confirm check out
-              </Button>
-            </div>
-          </form>
-        </div>
-      </div>
+          </FormDialogBody>
+
+          <FormFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => setVarianceOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="destructive"
+              size="sm"
+              disabled={isSubmitting || varianceReason.trim().length < 3}
+              loading={isSubmitting}
+            >
+              Confirm check out
+            </Button>
+          </FormFooter>
+        </form>
+      </FormDialog>
     );
   };
 

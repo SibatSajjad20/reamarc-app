@@ -2,14 +2,8 @@ import React, { useMemo, useState } from 'react';
 import { Calendar, Plus, Trash2 } from 'lucide-react';
 import type { AdminMember } from '../../../types/admin';
 import type { DateShiftOverride, ShiftAssignment, ShiftTemplate, WeekdayShiftRule } from '../../../types/attendance';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../../ui/dialog';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../../ui/FormDialogLayout';
+import { FormFooter } from '../../ui/FormFooter';
 import { Button } from '../../ui/button';
 import { CustomSelect } from '../../ui/CustomSelect';
 import { CustomDatePicker } from '../../ui/CustomDatePicker';
@@ -96,19 +90,25 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
   };
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-[560px] p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-4 border-b border-border bg-canvas/40">
-          <DialogTitle className="text-base font-semibold text-fg flex items-center gap-2">
+    <FormDialog
+      isOpen
+      onClose={saving ? undefined : onClose}
+      maxWidth="md"
+    >
+      <div className="flex flex-col flex-1 min-h-0">
+        <FormDialogHeader>
+          <div className="flex items-center gap-2">
             <Calendar size={18} className="text-accent-text" />
-            <span>Week pattern — {memberName}</span>
-          </DialogTitle>
-          <DialogDescription className="text-caption text-fg-muted">
-            Configure default weekly WFH schedule, custom shifts, and one-day overrides.
-          </DialogDescription>
-        </DialogHeader>
+            <div>
+              <h3 className="text-base font-semibold text-fg">Week pattern — {memberName}</h3>
+              <p className="text-caption text-fg-muted mt-0.5">
+                Configure default weekly WFH schedule, custom shifts, and one-day overrides.
+              </p>
+            </div>
+          </div>
+        </FormDialogHeader>
 
-        <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+        <FormDialogBody className="space-y-5">
           {/* Day of Week Toggle Group (7 x 32px square toggles per §13.15.4) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -258,14 +258,15 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
               </div>
             )}
           </div>
-        </div>
+        </FormDialogBody>
 
-        <DialogFooter className="px-6 py-3.5 border-t border-border bg-canvas">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>
+        <FormFooter>
+          <Button variant="ghost" type="button" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
           <Button
             variant="primary"
+            type="button"
             loading={saving}
             disabled={saving}
             onClick={() =>
@@ -278,8 +279,8 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
           >
             Save pattern
           </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        </FormFooter>
+      </div>
+    </FormDialog>
   );
 };

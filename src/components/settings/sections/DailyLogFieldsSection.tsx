@@ -6,6 +6,7 @@ import { useToast } from '@/context/ToastContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { CustomSelect } from '@/components/ui/CustomSelect';
+import { FormFooter } from '@/components/ui/FormFooter';
 import { SettingsCard } from '../SettingsCard';
 import { StickySaveBar } from '../StickySaveBar';
 
@@ -129,7 +130,7 @@ export const DailyLogFieldsSection: React.FC = () => {
         description="Create new column attributes to track in employee daily work logs."
       >
         <form onSubmit={handleAddNewColumn} className="space-y-3">
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_160px_auto] gap-2.5 items-end">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-end">
             <div>
               <label className="block text-xs font-medium text-fg mb-1">
                 Field label
@@ -151,16 +152,6 @@ export const DailyLogFieldsSection: React.FC = () => {
                 options={FIELD_TYPE_OPTIONS.map((opt) => ({ value: opt.id, label: opt.label }))}
               />
             </div>
-
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              disabled={!newFieldLabel.trim()}
-              icon={Plus}
-            >
-              Add field
-            </Button>
           </div>
 
           {newFieldType === 'select' && (
@@ -175,6 +166,18 @@ export const DailyLogFieldsSection: React.FC = () => {
               />
             </div>
           )}
+
+          <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-1">
+            <Button
+              type="submit"
+              variant="primary"
+              size="sm"
+              disabled={!newFieldLabel.trim()}
+              icon={Plus}
+            >
+              Add field
+            </Button>
+          </FormFooter>
         </form>
       </SettingsCard>
 

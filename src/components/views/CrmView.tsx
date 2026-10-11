@@ -403,14 +403,47 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     }
   };
 
-  const run = async (fn: () => Promise<unknown>) => {
-    if (!selectedId) return;
+  const mutateLead = async (
+    leadId: string,
+    optimisticPatch: Partial<CrmLead> | null,
+    request: () => Promise<any>
+  ) => {
+    const prevDetail = detail;
+    const prevLeads = leads;
+
+    // 1. Optimistic update (< 150 ms visible response)
+    if (optimisticPatch) {
+      if (detail && detail.id === leadId) {
+        setDetail((prev) => (prev ? { ...prev, ...optimisticPatch } : prev));
+      }
+      setLeads((prev) =>
+        prev.map((l) => (l.id === leadId ? { ...l, ...optimisticPatch } : l))
+      );
+    }
+
     setBusy(true);
     try {
-      await fn();
-      await refreshOpen(selectedId);
+      // 2. Server mutation
+      const updatedLead = await request();
+
+      // 3. Update with returned entity
+      if (updatedLead && typeof updatedLead === 'object' && 'id' in updatedLead) {
+        if (selectedIdRef.current === leadId) {
+          setDetail((prev) => (prev ? { ...prev, ...updatedLead } : (updatedLead as CrmLead)));
+        }
+        setLeads((prev) =>
+          prev.map((l) => (l.id === leadId ? { ...l, ...updatedLead } : l))
+        );
+      }
+
+      // 4. Refetch ONLY counts in background
+      void crmService.getCounts().then(setCounts).catch(() => {});
     } catch (err: any) {
-      addToast('CRM action failed', err.message || 'Try again.', 'error');
+      // Rollback on error
+      if (prevDetail) setDetail(prevDetail);
+      setLeads(prevLeads);
+      addToast('CRM action failed', err.message || 'Please try again.', 'error');
+      throw err;
     } finally {
       setBusy(false);
     }
@@ -418,51 +451,15 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
 
   const handleAssign = async (leadId: string, userId: string) => {
     const targetAssignee = assignees.find((a) => a.id === userId);
-    const prevDetail = detail;
-    const prevLeads = leads;
-
-    // Optimistic update
     const assigneeName = targetAssignee?.full_name || null;
-    if (detail && detail.id === leadId) {
-      setDetail({
-        ...detail,
+    await mutateLead(
+      leadId,
+      {
         assigned_to: userId,
         assigned_to_name: assigneeName || undefined,
-      });
-    }
-    setLeads((prev) =>
-      prev.map((l) =>
-        l.id === leadId
-          ? {
-              ...l,
-              assigned_to: userId,
-              assigned_to_name: assigneeName,
-            }
-          : l
-      )
+      },
+      () => crmService.assignLead(leadId, userId)
     );
-
-    setBusy(true);
-    try {
-      await crmService.assignLead(leadId, userId);
-      // Refetch ONLY getLead(id) + getCounts()
-      const [freshLead, freshCounts] = await Promise.all([
-        crmService.getLead(leadId),
-        crmService.getCounts(),
-      ]);
-      if (selectedIdRef.current === leadId) {
-        setDetail(freshLead);
-      }
-      setCounts(freshCounts);
-      setLeads((prev) => prev.map((l) => (l.id === leadId ? { ...l, ...freshLead } : l)));
-    } catch (err: any) {
-      // Rollback on error
-      if (prevDetail) setDetail(prevDetail);
-      setLeads(prevLeads);
-      addToast('Failed to assign lead', err.message || 'Please try again.', 'error');
-    } finally {
-      setBusy(false);
-    }
   };
 
   const stageOptions = useMemo(
@@ -843,16 +840,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               void openLead(id);
             }}
             onMoveStage={async (leadId, nextStage) => {
-              setLeads((prev) =>
-                prev.map((l) => (l.id === leadId ? { ...l, stage: nextStage } : l))
-              );
-              try {
-                await crmService.updateLead(leadId, { stage: nextStage });
-                if (selectedId === leadId) await refreshOpen(leadId);
-              } catch (err: any) {
-                addToast('Could not move lead', err.message || 'Try again.', 'error');
-                await load();
-              }
+              await mutateLead(leadId, { stage: nextStage }, () => crmService.updateLead(leadId, { stage: nextStage }));
             }}
             onWon={async (leadId) => {
               const lead = leads.find((item) => item.id === leadId);
@@ -862,17 +850,11 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               setLostTarget({ kind: 'lead', id: leadId });
             }}
             onReopen={async (leadId, nextStage) => {
-              setLeads((prev) =>
-                prev.map((l) =>
-                  l.id === leadId
-                    ? { ...l, outcome: null, stage: nextStage || 'new' }
-                    : l
-                )
-              );
-              await crmService.reopenLead(leadId, { stage: nextStage || 'new' });
-              addToast('Lead Reopened', 'Lead has been restored to the active pipeline.', 'info');
-              await load();
-              if (selectedId === leadId) await refreshOpen(leadId);
+              await mutateLead(leadId, { outcome: null, stage: nextStage || 'new' }, async () => {
+                const res = await crmService.reopenLead(leadId, { stage: nextStage || 'new' });
+                addToast('Lead Reopened', 'Lead has been restored to the active pipeline.', 'info');
+                return res;
+              });
             }}
           />
         ) : (
@@ -1054,24 +1036,30 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               onDelete={handleDeleteLead}
               onAssign={(userId) => handleAssign(detail.id, userId)}
               onStage={async (next) => {
-                await run(() => crmService.updateLead(detail.id, { stage: next }));
+                await mutateLead(detail.id, { stage: next }, () => crmService.updateLead(detail.id, { stage: next }));
               }}
-              onNote={(body) => run(() => crmService.addNote(detail.id, body))}
+              onNote={(body) =>
+                mutateLead(detail.id, null, async () => {
+                  await crmService.addNote(detail.id, body);
+                  return crmService.getLead(detail.id);
+                })
+              }
               onWhatsApp={(templateId) =>
-                run(async () => {
+                mutateLead(detail.id, { contacted: true }, async () => {
                   const result = await crmService.logWhatsappOpened(detail.id, templateId);
                   const wa = toSafeWhatsAppUrl(result.wa_url);
                   if (wa) {
                     window.open(wa, '_blank', 'noopener,noreferrer');
                   }
+                  return crmService.getLead(detail.id);
                 })
               }
-              onContacted={() => run(() => crmService.markContacted(detail.id))}
-              onFollowUp={(iso) => run(() => crmService.setFollowUp(detail.id, iso))}
+              onContacted={() => mutateLead(detail.id, { contacted: true }, () => crmService.markContacted(detail.id))}
+              onFollowUp={(iso) => mutateLead(detail.id, { next_follow_up_at: iso }, () => crmService.setFollowUp(detail.id, iso))}
               onClaim={() =>
-                run(async () => {
+                mutateLead(detail.id, { assigned_to: user?.id, assigned_to_name: user?.full_name }, async () => {
                   try {
-                    await crmService.claimLead(detail.id);
+                    return await crmService.claimLead(detail.id);
                   } catch (err: any) {
                     if (err instanceof ApiError && err.status === 409) {
                       const msg =
@@ -1092,18 +1080,18 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               }
               onApplyRules={
                 canAssign
-                  ? () => run(() => crmService.applyRules(detail.id))
+                  ? () =>
+                      mutateLead(detail.id, null, async () => {
+                        await crmService.applyRules(detail.id);
+                        return crmService.getLead(detail.id);
+                      })
                   : undefined
               }
               onSaveForm={(payload) =>
-                run(async () => {
-                  const updated = await crmService.updateLead(detail.id, payload);
-                  setDetail((prev) => (prev ? { ...prev, ...updated } : prev));
-                  setLeads((prev) => prev.map((lead) => (lead.id === updated.id ? { ...lead, ...updated } : lead)));
-                })
+                mutateLead(detail.id, payload as Partial<CrmLead>, () => crmService.updateLead(detail.id, payload))
               }
               onTrash={(reason) =>
-                run(async () => {
+                mutateLead(detail.id, { outcome: 'trashed' }, async () => {
                   await crmService.trashLead(detail.id, reason);
                   addToast('Moved to trash', detail.name, 'success');
                   await load();
@@ -1114,9 +1102,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               }}
               onWon={() => openRegisterClient(detail)}
               onReopen={async (leadId, stageName) => {
-                await run(async () => {
-                  await crmService.reopenLead(leadId, { stage: stageName });
+                await mutateLead(leadId, { outcome: null, stage: stageName || 'new' }, async () => {
+                  const res = await crmService.reopenLead(leadId, { stage: stageName });
                   addToast('Lead Reopened', 'Lead has been restored to the active pipeline.', 'info');
+                  return res;
                 });
               }}
               onReloadLead={async () => {

@@ -29,8 +29,9 @@ async def _create_indexes_background():
             name="uniq_campaign_target_date"
         )
 
-        # Unique index on users email
+        # Unique index on users email and user id
         await db_instance.db.users.create_index("email", unique=True, name="uniq_user_email")
+        await db_instance.db.users.create_index("id", unique=True, name="uniq_user_id")
 
         # Compound indexes for fast multi-tenant queries
         await db_instance.db.posts.create_index([("user_id", 1), ("status", 1)])
@@ -163,6 +164,7 @@ async def _create_indexes_background():
             )
             await db_instance.db.crm_leads.create_index([("assigned_to", 1), ("contacted", 1)], name="idx_crm_assignee_contacted")
             await db_instance.db.crm_leads.create_index([("stage", 1)], name="idx_crm_stage")
+            await db_instance.db.crm_leads.create_index([("stage", 1), ("updated_at", -1)], name="idx_crm_stage_updated")
             await db_instance.db.crm_leads.create_index([("outcome", 1)], name="idx_crm_outcome")
             await db_instance.db.crm_leads.create_index([("created_at", -1)], name="idx_crm_created")
             await db_instance.db.crm_leads.create_index([("next_follow_up_at", 1)], name="idx_crm_followup")
@@ -220,6 +222,10 @@ async def _create_indexes_background():
             await db_instance.db.mobile_notifications.create_index(
                 [("user_id", 1), ("created_at", -1)],
                 name="idx_mobile_notif_user",
+            )
+            await db_instance.db.notifications.create_index(
+                [("user_id", 1), ("created_at", -1)],
+                name="idx_notifications_user_created",
             )
         except Exception as e:
             logger.warning(f"Could not create mobile device indexes: {e}")

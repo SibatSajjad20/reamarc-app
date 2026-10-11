@@ -17,6 +17,7 @@ export interface AccessUser {
   department?: string;
   departments?: string[];
   is_active?: boolean;
+  permissions?: any;
 }
 
 export function parseUserDepartments(user?: AccessUser | null): string[] {
@@ -24,6 +25,9 @@ export function parseUserDepartments(user?: AccessUser | null): string[] {
   const rawList: string[] = [];
   if (Array.isArray(user.departments)) {
     rawList.push(...user.departments);
+  }
+  if (user.permissions?.departments && Array.isArray(user.permissions.departments)) {
+    rawList.push(...user.permissions.departments);
   }
   if (typeof user.department === 'string' && user.department) {
     const split = user.department
@@ -50,6 +54,17 @@ export function canAccessContentCalendar(user?: AccessUser | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin') return true;
+  if (role === 'client') return false;
+
+  if (user.permissions) {
+    const summary = user.permissions.summary?.content_calendar;
+    if (summary && summary !== 'none') return true;
+    const mod = user.permissions.modules?.content_calendar;
+    if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
+      return true;
+    }
+  }
+
   if (!TEAM_ROLES.has(role)) return false;
   const depts = parseUserDepartments(user);
   return depts.some((d) => ALLOWED_DEPARTMENTS.has(d));

@@ -19,6 +19,7 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import { Button } from '../../ui/button';
+import { FormFooter } from '../../ui/FormFooter';
 import { Input } from '../../ui/input';
 import { Textarea } from '../../ui/textarea';
 import { StatusPill } from '../../ui/StatusPill';
@@ -674,16 +675,18 @@ export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart 
                   />
                 </div>
 
-                <Button
-                  type="submit"
-                  variant="primary"
-                  className="w-full"
-                  loading={saving}
-                  loadingText="Creating webhook endpoint…"
-                  icon={Plus}
-                >
-                  Create webhook endpoint
-                </Button>
+                <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    className="w-full"
+                    loading={saving}
+                    loadingText="Creating webhook endpoint…"
+                    icon={Plus}
+                  >
+                    Create webhook endpoint
+                  </Button>
+                </FormFooter>
               </form>
             </div>
           </div>
@@ -817,16 +820,18 @@ export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart 
                 />
               </div>
 
-              <Button
-                type="submit"
-                variant="primary"
-                className="w-full"
-                loading={savingPage}
-                loadingText="Connecting page…"
-                icon={Plus}
-              >
-                Connect page
-              </Button>
+              <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  className="w-full"
+                  loading={savingPage}
+                  loadingText="Connecting page…"
+                  icon={Plus}
+                >
+                  Connect page
+                </Button>
+              </FormFooter>
             </form>
           </div>
         </div>
@@ -1013,15 +1018,17 @@ export const CrmSettingsIngest: React.FC<CrmSettingsIngestProps> = ({ fixedPart 
                 />
               </div>
 
-              <Button
-                type="submit"
-                variant="primary"
-                loading={savingConfig}
-                loadingText="Saving scheduler settings…"
-                icon={Check}
-              >
-                Save scheduler settings
-              </Button>
+              <FormFooter className="px-0 py-0 border-t-0 bg-transparent mt-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  loading={savingConfig}
+                  loadingText="Saving scheduler settings…"
+                  icon={Check}
+                >
+                  Save scheduler settings
+                </Button>
+              </FormFooter>
             </form>
 
             {/* WordPress Embed Snippet Generator */}

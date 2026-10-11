@@ -5,7 +5,6 @@ import {
   Edit3,
   ChevronLeft,
   ChevronRight,
-  X,
   Loader2,
 } from 'lucide-react';
 import type {
@@ -22,6 +21,9 @@ import { OffDayBanner } from '../ui/OffDayBanner';
 import { useOffDays } from '../../hooks/useOffDays';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
+import { Button } from '../ui/button';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { getAttendanceMinDate } from '../../constants/attendance';
 import { getDeptBadgeClass } from '../../utils/badgeStyles';
 import { matchesAttendanceStatus } from '../../utils/attendanceFilters';
@@ -632,122 +634,113 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
       </div>
 
       {/* HR Override Dialog Modal */}
-      {editingRow && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-surface rounded-xl border border-border w-full max-w-md p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-border">
-              <h3 className="text-sm font-semibold text-fg flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-accent" />
-                HR Attendance Override
-              </h3>
-              <button
-                type="button"
-                onClick={() => setEditingRow(null)}
-                className="text-fg-muted hover:text-fg p-1 rounded-lg cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <p className="text-xs text-fg-muted">
-              Adjusting record for <strong className="text-fg">{editingRow.employee_name}</strong> on <strong className="text-fg">{selectedDate}</strong>.
-            </p>
-
-            <form onSubmit={handleSaveOverride} className="space-y-3 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <CustomTimePicker
-                    label={`Time In ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : ''}`}
-                    disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
-                    error={overrideErrors.timeIn}
-                    value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideIn}
-                    onChange={handleTimeInChange}
-                  />
-                </div>
-                <div>
-                  <CustomTimePicker
-                    label={`Time Out ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : '(optional)'}`}
-                    disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
-                    error={overrideErrors.timeOut}
-                    value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideOut}
-                    onChange={(val) => {
-                      setOverrideOut(val);
-                      if (overrideErrors.timeOut) setOverrideErrors((prev) => ({ ...prev, timeOut: undefined }));
-                    }}
-                    allowClear={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) === false}
-                    clearTitle="Clear time out (keep day in progress)"
-                  />
-                </div>
-              </div>
-              {!['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) && (
-                <p className="text-[10px] text-fg-muted -mt-1">
-                  Time Out is optional. Click the X to remove checkout so the day stays <strong>In Progress</strong> and the employee can still Check Out.
-                </p>
-              )}
-
-              <div className="grid grid-cols-2 gap-3 items-end">
-                <div>
-                  <NumberStepper
-                    label="Break Duration"
-                    min={0}
-                    max={180}
-                    step={15}
-                    unit="mins"
-                    value={overrideBreak}
-                    onChange={setOverrideBreak}
-                  />
-                </div>
-                <div>
-                  <CustomSelect
-                    label="Status Override"
-                    value={overrideStatus}
-                    onChange={(v) => handleStatusOverrideChange(v as AttendanceStatus)}
-                    options={[
-                      { value: 'present', label: 'Present (On-Time)' },
-                      { value: 'late', label: 'Late Arrival' },
-                      { value: 'wfh', label: 'Work From Home (WFH)' },
-                      { value: 'short_leave', label: 'Short Leave' },
-                      { value: 'sick_leave', label: 'Sick Leave' },
-                      { value: 'annual_leave', label: 'Annual Leave' },
-                      { value: 'absent', label: 'Absent' },
-                    ]}
-                  />
-                </div>
-              </div>
-
+      <FormDialog
+        isOpen={Boolean(editingRow)}
+        onClose={() => setEditingRow(null)}
+        maxWidth="md"
+      >
+        <FormDialogHeader
+          title="HR Attendance Override"
+          subtitle={editingRow ? `Adjusting record for ${editingRow.employee_name} on ${selectedDate}.` : ''}
+          icon={<Edit3 className="w-4 h-4 text-accent" />}
+          onClose={() => setEditingRow(null)}
+        />
+        <form onSubmit={handleSaveOverride} className="flex flex-col flex-1 min-h-0">
+          <FormDialogBody className="space-y-3 text-xs">
+            <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block font-semibold text-fg mb-1">
-                  Audit Reason (Optional)
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Optional reason for manual adjustment (e.g. biometric machine glitch, client visit)..."
-                  value={overrideReason}
-                  onChange={(e) => setOverrideReason(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl bg-subtle border border-border text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
+                <CustomTimePicker
+                  label={`Time In ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : ''}`}
+                  disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
+                  error={overrideErrors.timeIn}
+                  value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideIn}
+                  onChange={handleTimeInChange}
                 />
               </div>
-
-              <div className="flex items-center justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingRow(null)}
-                  className="px-4 py-2 rounded-xl text-fg-muted hover:bg-hover border border-border font-semibold cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSavingOverride}
-                  className="px-4 py-2 rounded-xl bg-accent hover:bg-accent/90 text-accent-fg font-semibold cursor-pointer disabled:opacity-50"
-                >
-                  {isSavingOverride ? 'Saving...' : 'Apply Override'}
-                </button>
+              <div>
+                <CustomTimePicker
+                  label={`Time Out ${['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '(N/A)' : '(optional)'}`}
+                  disabled={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus)}
+                  error={overrideErrors.timeOut}
+                  value={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) ? '' : overrideOut}
+                  onChange={(val) => {
+                    setOverrideOut(val);
+                    if (overrideErrors.timeOut) setOverrideErrors((prev) => ({ ...prev, timeOut: undefined }));
+                  }}
+                  allowClear={['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) === false}
+                  clearTitle="Clear time out (keep day in progress)"
+                />
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+            </div>
+            {!['absent', 'sick_leave', 'casual_leave', 'annual_leave', 'unpaid_leave'].includes(overrideStatus) && (
+              <p className="text-[10px] text-fg-muted -mt-1">
+                Time Out is optional. Click the X to remove checkout so the day stays <strong>In Progress</strong> and the employee can still Check Out.
+              </p>
+            )}
+
+            <div className="grid grid-cols-2 gap-3 items-end">
+              <div>
+                <NumberStepper
+                  label="Break Duration"
+                  min={0}
+                  max={180}
+                  step={15}
+                  unit="mins"
+                  value={overrideBreak}
+                  onChange={setOverrideBreak}
+                />
+              </div>
+              <div>
+                <CustomSelect
+                  label="Status Override"
+                  value={overrideStatus}
+                  onChange={(v) => handleStatusOverrideChange(v as AttendanceStatus)}
+                  options={[
+                    { value: 'present', label: 'Present (On-Time)' },
+                    { value: 'late', label: 'Late Arrival' },
+                    { value: 'wfh', label: 'Work From Home (WFH)' },
+                    { value: 'short_leave', label: 'Short Leave' },
+                    { value: 'sick_leave', label: 'Sick Leave' },
+                    { value: 'annual_leave', label: 'Annual Leave' },
+                    { value: 'absent', label: 'Absent' },
+                  ]}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-fg mb-1">
+                Audit Reason (Optional)
+              </label>
+              <textarea
+                rows={2}
+                placeholder="Optional reason for manual adjustment (e.g. biometric machine glitch, client visit)..."
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl bg-subtle border border-border text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
+              />
+            </div>
+          </FormDialogBody>
+
+          <FormFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => setEditingRow(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isSavingOverride}
+              disabled={isSavingOverride}
+            >
+              Apply Override
+            </Button>
+          </FormFooter>
+        </form>
+      </FormDialog>
     </div>
   );
 };

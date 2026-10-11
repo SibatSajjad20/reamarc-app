@@ -6,10 +6,9 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ViewType } from '../../types';
 import { useAuth } from '../../context/AuthContext';
-import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { attendanceService } from '../../services/attendanceService';
+import { dashboardService } from '../../services/dashboardService';
 import { dailyLogService } from '../../services/dailyLogService';
-import { crmService } from '../../services/crmService';
 import { logExceptionService } from '../../services/logExceptionService';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
@@ -17,7 +16,7 @@ import { useCacheInvalidation } from '../../utils/cacheBus';
 import { canAccessCrm } from '../../utils/crmAccess';
 import { canAccessContentCalendar } from '../../utils/contentCalendarAccess';
 import { canAccessWebsitePipeline } from '../../utils/websiteProjectAccess';
-import { visiblePipelineStages, getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
+import { getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
 
 import type {
   TodayAttendanceResponse,
@@ -31,12 +30,10 @@ import type {
   TeamHoursMember,
   UserLogActivity,
 } from '../../types/dailyLog';
-import type { WebsiteProject } from '../../types/websiteProject';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
-import { DashboardSkeleton } from '../ui/Skeletons';
 import { RequestManagementModal } from '../attendance/RequestManagementModal';
 import { EmployeePunchCard } from '../attendance/EmployeePunchCard';
 
@@ -78,18 +75,20 @@ export type DepartmentCategory = 'sales' | 'website' | 'content' | 'marketing' |
 export function getDepartmentCategory(user?: any): DepartmentCategory {
   if (!user) return 'general';
   const role = (user.role || '').toLowerCase().trim();
-  const dept = (user.department || '').toLowerCase().trim();
+  const primaryDept = (user.primary_department || user.permissions?.primary_department || user.department || '').toLowerCase().trim();
   const depts: string[] = Array.isArray(user.departments)
     ? user.departments.map((d: string) => (d || '').toLowerCase().trim())
-    : [];
-  const all = [dept, ...depts].filter(Boolean);
+    : Array.isArray(user.permissions?.departments)
+      ? user.permissions.departments.map((d: string) => (d || '').toLowerCase().trim())
+      : [];
+  const all = [primaryDept, ...depts].filter(Boolean);
 
   if (role === 'hr' || all.some((d) => d === 'hr')) return 'hr';
-  if (all.some((d) => d === 'sales')) return 'sales';
+  if (primaryDept === 'sales' || all.some((d) => d === 'sales')) return 'sales';
   if (all.some((d) => d === 'ai' || d.includes('ai') || d.includes('artificial'))) return 'ai';
-  if (all.some((d) => d.includes('web') || d.includes('software') || d.includes('dev') || d.includes('seo'))) return 'website';
-  if (all.some((d) => d.includes('content') || d.includes('creative') || d.includes('social'))) return 'content';
-  if (all.some((d) => d.includes('marketing'))) return 'marketing';
+  if (primaryDept.includes('web') || primaryDept.includes('software') || primaryDept.includes('dev') || primaryDept.includes('seo') || all.some((d) => d.includes('web') || d.includes('software') || d.includes('dev') || d.includes('seo'))) return 'website';
+  if (primaryDept.includes('content') || primaryDept.includes('creative') || primaryDept.includes('social') || all.some((d) => d.includes('content') || d.includes('creative') || d.includes('social'))) return 'content';
+  if (primaryDept.includes('marketing') || all.some((d) => d.includes('marketing'))) return 'marketing';
 
   if (role === 'admin' || role === 'operations') return 'sales';
   return 'general';
@@ -101,11 +100,17 @@ export function getDepartmentCategories(user?: any): DepartmentCategory[] {
   if (role === 'admin' || role === 'operations' || role === 'hr') return [];
 
   const rawDepts: string[] = [];
-  if (user.department) rawDepts.push(user.department);
+  if (user.primary_department) rawDepts.push(user.primary_department);
   if (Array.isArray(user.departments)) {
     user.departments.forEach((d: string) => {
       if (d) rawDepts.push(d);
     });
+  } else if (Array.isArray(user.permissions?.departments)) {
+    user.permissions.departments.forEach((d: string) => {
+      if (d) rawDepts.push(d);
+    });
+  } else if (user.department) {
+    rawDepts.push(user.department);
   }
 
   const cats = new Set<DepartmentCategory>();
@@ -143,14 +148,6 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     return `${y}-${m}-${d}`;
   }, [today]);
 
-  const yesterdayIso = useMemo(() => {
-    const prev = new Date(today);
-    prev.setDate(prev.getDate() - 1);
-    const y = prev.getFullYear();
-    const m = String(prev.getMonth() + 1).padStart(2, '0');
-    const d = String(prev.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-  }, [today]);
 
   const currentYear = today.getFullYear();
   const currentMonth = today.getMonth() + 1;
@@ -160,9 +157,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const cacheKey = `${user?.id || 'anon'}-${todayIso}`;
   const initialCache = useMemo(() => getDashboardCache(cacheKey), [cacheKey]);
 
-  // Module load gating
-  const [isGateReady, setIsGateReady] = useState(() => Boolean(initialCache));
-  useModuleLoadGate(!isGateReady);
+  // Summary loading state
+  const [isLoadingSummary, setIsLoadingSummary] = useState(false);
 
   // General state
   const [todayAttendance, setTodayAttendance] = useState<TodayAttendanceResponse | null>(() => initialCache?.todayAttendance ?? null);
@@ -315,76 +311,50 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const loadManagementData = useCallback(async () => {
     if (!isAdmin && !isOps && !isHR) return;
 
-    // Pending requests
     try {
-      const reqs = await attendanceService.getPendingRequests();
+      const promises: Promise<any>[] = [
+        attendanceService.getPendingRequests().catch(() => []),
+        attendanceService.getMissedPunchInquiries({ status: 'pending' }).catch(() => []),
+      ];
+      if (isAdmin) {
+        promises.push(logExceptionService.getSnapshot(undefined, 'week').catch(() => null));
+      }
+
+      const [reqs, inquiries, snap] = await Promise.all(promises);
       setPendingRequests(reqs || []);
-    } catch {}
-
-    // Missed punch inquiries
-    try {
-      const inquiries = await attendanceService.getMissedPunchInquiries({ status: 'pending' });
       setMissedInquiries(inquiries || []);
-    } catch {}
-
-    // Admin week snapshot
-    if (isAdmin) {
-      try {
-        const snap = await logExceptionService.getSnapshot(undefined, 'week');
+      if (isAdmin && snap) {
         setWeekSnapshot(snap);
-      } catch {}
-
-      // Yesterday missing logs
-      try {
-        const ySnap = await logExceptionService.getSnapshot(yesterdayIso, 'today');
-        const unlogged = (ySnap?.people || []).filter((p) => !p.logged);
-        setYesterdayMissingLogCount(unlogged.length);
-        if (unlogged.length > 0) {
-          const deptMap: Record<string, number> = {};
-          unlogged.forEach((p) => {
-            const d = p.department || 'Other';
-            deptMap[d] = (deptMap[d] || 0) + 1;
-          });
-          const text = Object.entries(deptMap)
-            .map(([d, c]) => `${d} ${c}`)
-            .slice(0, 3)
-            .join(' · ');
-          const extra = Object.keys(deptMap).length > 3 ? ` · +${Object.keys(deptMap).length - 3}` : '';
-          setYesterdayMissingSubtext(text + extra);
-        }
-      } catch {}
-    }
-  }, [isAdmin, isOps, isHR, yesterdayIso]);
+      }
+    } catch {}
+  }, [isAdmin, isOps, isHR]);
 
   // 4. Load Non-Management Needs Attention items
   const loadLoggerNeedsAttention = useCallback(async () => {
     if (isAdmin) return;
 
-    // My pending missed punch inquiries
     try {
-      const inquiries = await attendanceService.getMyPendingMissedPunchInquiries();
+      const promises: Promise<any>[] = [
+        attendanceService.getMyPendingMissedPunchInquiries().catch(() => []),
+        (isHR || isLead) ? logExceptionService.getInbox().catch(() => []) : Promise.resolve([]),
+        isLogger
+          ? Promise.all([
+              dailyLogService.getMyLogActivity(7).catch(() => null),
+              dailyLogService.getDayTarget(todayIso).catch(() => null),
+            ])
+          : Promise.resolve([null, null]),
+      ];
+
+      const [inquiries, inbox, [act, dt]] = await Promise.all(promises);
       setMyPendingInquiries(inquiries || []);
-    } catch {}
-
-    // Log exceptions inbox (HR, Team lead)
-    if (isHR || isLead) {
-      try {
-        const inbox = await logExceptionService.getInbox();
+      if (isHR || isLead) {
         setLogExceptionsInboxCount(inbox?.length || 0);
-      } catch {}
-    }
-
-    // Missing logs via my activity
-    if (isLogger) {
-      try {
-        const [act, dt] = await Promise.all([
-          dailyLogService.getMyLogActivity(7),
-          dailyLogService.getDayTarget(todayIso),
-        ]);
+      }
+      if (isLogger) {
         setMyActivity(act);
         setDayTarget(dt);
-      } catch {}
-    }
+      }
+    } catch {}
   }, [isAdmin, isHR, isLead, isLogger, todayIso]);
 
   // 5. Load Weekly Stat Strips (Logged)
@@ -542,21 +512,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const startIso = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}-${String(start.getDate()).padStart(2, '0')}`;
 
     try {
-      // 1. Logged hours
-      const entries = await dailyLogService.getEntries({
-        user_id: user?.id,
-        start_date: startIso,
-        end_date: todayIso,
-        limit: 1000,
-      });
-
-      const loggedMap: Record<string, number> = {};
-      (entries || []).forEach((e) => {
-        const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
-        loggedMap[e.date] = (loggedMap[e.date] || 0) + hrs;
-      });
-
-      // 2. Worked hours from timesheet (query months touched)
+      // 1. Worked hours from timesheet (query months touched)
       const monthsToFetch = new Set<string>();
       let cur = new Date(start);
       while (cur <= today) {
@@ -564,16 +520,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         cur.setDate(cur.getDate() + 1);
       }
 
-      const workedMap: Record<string, number> = {};
-      for (const ym of monthsToFetch) {
+      const monthFetches = Array.from(monthsToFetch).map(async (ym) => {
         const [y, m] = ym.split('-').map(Number);
         try {
-          const ts = await attendanceService.getMyTimesheet(y, m);
-          (ts?.records || []).forEach((r) => {
-            workedMap[r.date] = (r.working_hours_minutes || 0) / 60;
-          });
-        } catch {}
-      }
+          return await attendanceService.getMyTimesheet(y, m);
+        } catch {
+          return null;
+        }
+      });
+
+      // 2. Fetch logged entries and timesheets in parallel
+      const [entries, timesheetResults] = await Promise.all([
+        dailyLogService.getEntries({
+          user_id: user?.id,
+          start_date: startIso,
+          end_date: todayIso,
+          limit: 1000,
+        }).catch(() => []),
+        Promise.all(monthFetches),
+      ]);
+
+      const loggedMap: Record<string, number> = {};
+      (entries || []).forEach((e) => {
+        const hrs = typeof e.hours_utilized === 'number' ? e.hours_utilized : parseFloat(String(e.hours_utilized || 0)) || 0;
+        loggedMap[e.date] = (loggedMap[e.date] || 0) + hrs;
+      });
+
+      const workedMap: Record<string, number> = {};
+      timesheetResults.forEach((ts) => {
+        (ts?.records || []).forEach((r: any) => {
+          workedMap[r.date] = (r.working_hours_minutes || 0) / 60;
+        });
+      });
 
       // Generate day items
       const daysList: MyHoursDay[] = [];
@@ -600,106 +578,64 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
   }, [isAdmin, isOps, isLead, myHoursRange, today, todayIso, user?.id, stableIsDateOff]);
 
-  // 9. Load Pipeline Stage Cards & Pipeline Needs Attention items
-  const loadPipelineStageCards = useCallback(async () => {
-    // 1. Sales Pipeline
-    if (isAdmin || canAccessCrm(user)) {
-      setCrmStagesError(false);
-      try {
-        const [pipeRes, leadsRes] = await Promise.all([
-          crmService.getPipeline(),
-          crmService.listLeads({ limit: 500 }),
-        ]);
+  // 9. Load Pipeline Stage Cards & Pipeline Needs Attention items via /dashboard/summary
+  const loadPipelineStageCards = useCallback(async (force = false) => {
+    setIsLoadingSummary(true);
+    try {
+      const summary = await dashboardService.getSummary(force);
 
-        const stagesList = pipeRes?.stages && pipeRes.stages.length > 0 ? pipeRes.stages : [
+      // 1. Sales Pipeline
+      if (summary.crm) {
+        setCrmStagesError(false);
+        const stagesList = [
           { id: 'new', name: 'New' },
           { id: 'contacted', name: 'Contacted' },
           { id: 'qualified', name: 'Qualified' },
           { id: 'session_booked', name: 'Meeting Booked' },
           { id: 'session_done', name: 'Meeting Completed' },
         ];
-
-        const leads = leadsRes?.items || [];
-        const stageCountsMap: Record<string, number> = {};
-        leads.forEach((l) => {
-          if (l.stage) stageCountsMap[l.stage] = (stageCountsMap[l.stage] || 0) + 1;
-        });
-
-        const counts: StageItem[] = stagesList.map((st: any) => ({
+        const counts: StageItem[] = stagesList.map((st) => ({
           label: st.name,
-          count: stageCountsMap[st.id] || 0,
+          count: summary.crm?.stages[st.id] || 0,
         }));
         setCrmStages(counts);
 
-        // Overdue & Uncontacted leads
-        const now = Date.now();
-        const overdue = leads.filter(
-          (l) => !l.outcome && l.next_follow_up_at && new Date(l.next_follow_up_at).getTime() < now
-        );
-        setOverdueFollowupsCount(overdue.length);
-        if (overdue.length > 0) {
-          setOverdueFollowupsSubtext(
-            overdue
-              .slice(0, 2)
-              .map((l) => l.name || l.company || 'Lead')
-              .join(' · ')
+        if (summary.crm.overdueFollowUps !== undefined) {
+          setOverdueFollowupsCount(summary.crm.overdueFollowUps);
+          if (summary.crm.overdueFollowUps > 0) {
+            setOverdueFollowupsSubtext(`${summary.crm.overdueFollowUps} follow-ups need attention`);
+          } else {
+            setOverdueFollowupsSubtext('');
+          }
+        }
+        if (summary.crm.unassigned !== undefined) {
+          setUncontactedLeadsCount(summary.crm.unassigned);
+          setUncontactedLeadsSubtext(
+            summary.crm.unassigned > 0 ? `${summary.crm.unassigned} awaiting first contact` : ''
           );
         }
-
-        const uncontacted = leads.filter((l) => !l.outcome && !l.contacted);
-        setUncontactedLeadsCount(uncontacted.length);
-        setUncontactedLeadsSubtext(uncontacted.length > 0 ? `${uncontacted.length} awaiting first contact` : '');
-      } catch {
-        setCrmStagesError(true);
+      } else if (isAdmin || canAccessCrm(user)) {
         setCrmStages([]);
       }
-    }
 
-    // 2. Content Calendar
-    if (isAdmin || canAccessContentCalendar(user)) {
-      setContentStagesError(false);
-      try {
-        const visibleStages = visiblePipelineStages(user).filter((s) => s !== 'Posted' && s !== 'Rejected');
-        const calRes = await contentCalendarService.getItems();
-
-        if (isAdmin || isLead) {
-          const countsMap = calRes?.stages_count || {};
-          const counts: StageItem[] = visibleStages.map((st) => ({
-            label: st,
-            count: countsMap[st] || 0,
-          }));
-          setContentStages(counts);
-        } else {
-          // Member: count own assigned items
-          const myItems = (calRes?.items || []).filter(
-            (i: ContentCalendarItem) => i.assignee_id === user?.id || (i as any).design_owner === user?.id
-          );
-          const counts: StageItem[] = visibleStages.map((st) => ({
-            label: st,
-            count: myItems.filter((i) => i.stage === st).length,
-          }));
-          setContentStages(counts);
-        }
-
-        // Calendar Overdue
-        const items = calRes?.items || [];
-        const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
-        setCalendarOverdueCount(overdue.length);
-        if (overdue.length > 0) {
-          const first = overdue[0];
-          const dateStr = first.publish_date || first.design_due || '';
-          setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
-        }
-      } catch {
-        setContentStagesError(true);
+      // 2. Content Calendar
+      if (summary.content) {
+        setContentStagesError(false);
+        const counts: StageItem[] = [
+          { label: 'Content', count: summary.content.stages['Content'] || 0 },
+          { label: 'Creative', count: summary.content.stages['Creative'] || 0 },
+          { label: 'Client Review', count: summary.content.stages['ClientReview'] || 0 },
+          { label: 'Revisions', count: summary.content.stages['Revisions'] || 0 },
+          { label: 'Ready to Post', count: summary.content.stages['ReadyToPost'] || 0 },
+        ];
+        setContentStages(counts);
+      } else if (isAdmin || canAccessContentCalendar(user)) {
         setContentStages([]);
       }
-    }
 
-    // 3. Website Pipeline
-    if (isAdmin || canAccessWebsitePipeline(user)) {
-      setWebsiteStagesError(false);
-      try {
+      // 3. Website Pipeline
+      if (summary.website) {
+        setWebsiteStagesError(false);
         const allStages: { id: string; name: string }[] = [
           { id: 'strategy', name: 'Strategy' },
           { id: 'content', name: 'Content' },
@@ -710,49 +646,67 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           { id: 'client_review', name: 'Client Review' },
           { id: 'production', name: 'Production' },
         ];
-
-        const [projectsRes, tasksRes] = await Promise.all([
-          websiteProjectService.getProjects(),
-          websiteProjectService.getAllTasks({
-            assignee_id: isLead ? undefined : user?.id,
-          }),
-        ]);
-
-        let scopedProjects: WebsiteProject[] = projectsRes?.items || [];
-        if (isMember) {
-          // Member: manager or assigned tasks
-          const taskProjectIds = new Set((tasksRes || []).map((t: any) => t.project_id));
-          scopedProjects = scopedProjects.filter(
-            (p: WebsiteProject) => p.manager_id === user?.id || taskProjectIds.has(p.id)
-          );
-        }
-
-        const countsMap: Record<string, number> = {};
-        scopedProjects.forEach((p: WebsiteProject) => {
-          countsMap[p.stage] = (countsMap[p.stage] || 0) + 1;
-        });
-
         const counts: StageItem[] = allStages.map((st) => ({
           label: st.name,
-          count: countsMap[st.id] || 0,
+          count: summary.website?.stages[st.id] || 0,
         }));
         setWebsiteStages(counts);
-
-        // Website tasks overdue
-        const overdue = (tasksRes || []).filter((t: any) => {
-          return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
-        });
-        setWebsiteOverdueCount(overdue.length);
-      } catch {
-        setWebsiteStagesError(true);
+      } else if (isAdmin || canAccessWebsitePipeline(user)) {
         setWebsiteStages([]);
       }
+
+      // 4. Logs Missing Yesterday
+      if (summary.logs?.missingYesterday !== undefined) {
+        setYesterdayMissingLogCount(summary.logs.missingYesterday);
+        if (summary.logs.missingYesterday > 0) {
+          setYesterdayMissingSubtext(`${summary.logs.missingYesterday} unlogged yesterday`);
+        } else {
+          setYesterdayMissingSubtext('');
+        }
+      }
+    } catch {
+      setCrmStagesError(true);
+      setContentStagesError(true);
+      setWebsiteStagesError(true);
+    } finally {
+      setIsLoadingSummary(false);
     }
-  }, [isAdmin, user, isLead, isMember, todayIso]);
+  }, [isAdmin, user]);
+
+  // 10. Lightweight overdue alerts for Content and Website (run concurrently)
+  const loadOverdueAlerts = useCallback(async () => {
+    const promises: Promise<any>[] = [];
+    if (isAdmin || canAccessContentCalendar(user)) {
+      promises.push(
+        contentCalendarService.getItems().then((calRes) => {
+          const items = calRes?.items || [];
+          const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
+          setCalendarOverdueCount(overdue.length);
+          if (overdue.length > 0) {
+            const first = overdue[0];
+            const dateStr = first.publish_date || first.design_due || '';
+            setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+          }
+        }).catch(() => {})
+      );
+    }
+    if (isAdmin || canAccessWebsitePipeline(user)) {
+      promises.push(
+        websiteProjectService.getAllTasks({
+          assignee_id: isLead ? undefined : user?.id,
+        }).then((tasksRes) => {
+          const overdue = (tasksRes || []).filter((t: any) => {
+            return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
+          });
+          setWebsiteOverdueCount(overdue.length);
+        }).catch(() => {})
+      );
+    }
+    await Promise.allSettled(promises);
+  }, [isAdmin, user, isLead, todayIso]);
 
   // 1. Initial Mount Load (fires once when user/role is established)
   useEffect(() => {
-    let active = true;
     if (!user?.id) return;
 
     async function init() {
@@ -763,6 +717,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         loadLoggerNeedsAttention(),
         loadWeeklyStats(),
         loadPipelineStageCards(),
+        loadOverdueAlerts(),
       ];
 
       if (isLead) {
@@ -771,20 +726,10 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         promises.push(loadMyHours());
       }
 
-      try {
-        await Promise.allSettled(promises);
-      } finally {
-        if (active) {
-          setIsGateReady(true);
-        }
-      }
+      await Promise.allSettled(promises);
     }
 
     void init();
-
-    return () => {
-      active = false;
-    };
   // Only re-run if the active user or role changes, NEVER on internal state updates
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, role]);
@@ -1167,20 +1112,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // Department categories for leads & members
   const deptCategories = useMemo(() => getDepartmentCategories(user), [user]);
 
-  // Gate Loading Skeleton
-  if (!isGateReady) {
-    return (
-      <div className="flex-1 min-h-0 overflow-y-auto w-full">
-        <div className="p-6 max-w-7xl mx-auto space-y-6">
-          <PageHeader
-            title={`${greeting}, ${firstName}`}
-            description={`${formattedHeaderDate} · ${roleSubtitle} · ${workingDaysLeft} of ${totalWorkingDaysInWeek} working days left this week`}
-          />
-          <DashboardSkeleton role={role} />
-        </div>
-      </div>
-    );
-  }
+
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto w-full">
@@ -1285,6 +1217,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
+              isLoading={isLoadingSummary}
               isError={crmStagesError}
             />
             <StageCountCard
@@ -1293,6 +1226,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isLoading={isLoadingSummary}
               isError={contentStagesError}
             />
             <StageCountCard
@@ -1301,6 +1235,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
+              isLoading={isLoadingSummary}
               isError={websiteStagesError}
             />
           </div>
@@ -1510,6 +1445,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isLoading={isLoadingSummary}
               isError={contentStagesError}
               layout="two-col"
             />
@@ -1521,6 +1457,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
+              isLoading={isLoadingSummary}
               isError={crmStagesError}
               layout="two-col"
             />
@@ -1532,6 +1469,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
+              isLoading={isLoadingSummary}
               isError={websiteStagesError}
               layout="two-col"
             />
@@ -1604,6 +1542,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open board"
               onNavigate={() => onNavigateView('crm', 'board')}
               stages={crmStages}
+              isLoading={isLoadingSummary}
               isError={crmStagesError}
               layout="two-col"
             />
@@ -1615,6 +1554,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open calendar"
               onNavigate={() => onNavigateView('content-calendar')}
               stages={contentStages}
+              isLoading={isLoadingSummary}
               isError={contentStagesError}
               layout="two-col"
             />
@@ -1626,6 +1566,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               linkText="Open pipeline"
               onNavigate={() => onNavigateView('website-pipeline', 'board')}
               stages={websiteStages}
+              isLoading={isLoadingSummary}
               isError={websiteStagesError}
               layout="two-col"
             />

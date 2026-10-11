@@ -20,17 +20,10 @@ import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { openFileAttachment, downloadFileAttachment } from '../../utils/fileUrl';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '../ui/dialog';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { Button } from '../ui/button';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 
 export interface CrmDealFormConfig {
   workspace_name: string;
@@ -440,27 +433,30 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
   };
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !isSubmitting) onClose(); }}>
-      <DialogContent maxWidth="lg" className="p-0 overflow-hidden">
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col max-h-[calc(100vh-64px)]">
-          <DialogHeader className="p-5 pb-3 border-b border-border">
-            <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg bg-accent-soft flex items-center justify-center text-accent shrink-0">
-                <Briefcase className="w-4 h-4" />
-              </div>
-              <div>
-                <DialogTitle className="text-h2 font-semibold text-fg">
-                  {isEdit ? 'Edit Deal' : 'Create Deal'}
-                </DialogTitle>
-                <DialogDescription className="text-body text-fg-muted">
-                  {isEdit ? 'Update commercial details for' : 'Open a commercial opportunity for'}{' '}
-                  <span className="font-medium text-fg">{lead.name}</span>
-                </DialogDescription>
-              </div>
+    <FormDialog
+      isOpen={isOpen}
+      onClose={isSubmitting ? undefined : onClose}
+      maxWidth="lg"
+    >
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogHeader>
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-accent-soft flex items-center justify-center text-accent shrink-0">
+              <Briefcase className="w-4 h-4" />
             </div>
-          </DialogHeader>
+            <div>
+              <h2 className="text-h2 font-semibold text-fg">
+                {isEdit ? 'Edit Deal' : 'Create Deal'}
+              </h2>
+              <p className="text-body text-fg-muted">
+                {isEdit ? 'Update commercial details for' : 'Open a commercial opportunity for'}{' '}
+                <span className="font-medium text-fg">{lead.name}</span>
+              </p>
+            </div>
+          </div>
+        </FormDialogHeader>
 
-          <div className="flex-1 overflow-y-auto p-5 space-y-4 custom-scrollbar">
+        <FormDialogBody className="space-y-4">
             {createBlocked && (
               <div className="p-3 rounded-md bg-warning-bg border border-warning-bd text-xs text-warning-fg">
                 This lead is not won yet. Mark it as won before a deal can be created.
@@ -880,50 +876,35 @@ export const CrmProposalModal: React.FC<CrmProposalModalProps> = ({
                 className="w-full text-xs p-2.5 rounded-md border border-border bg-subtle/50 text-fg placeholder:text-fg-muted resize-none focus:outline-none focus:ring-1 focus:ring-accent"
               />
             </div>
-          </div>
+          </FormDialogBody>
 
-          <DialogFooter className="p-4 border-t border-border flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <FormErrorSummaryButton
-                count={Object.keys(fieldErrors).length}
-                onClick={() => {
-                  if (formRef.current) focusFirstError(formRef.current);
-                }}
-              />
-              {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{serverError}</span>
-                </div>
-              )}
-              {isUploading && (
-                <span className="text-small text-fg-muted" aria-live="polite">
-                  Wait for upload to finish
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isSubmitting}
-                loadingText={isEdit ? 'Saving deal…' : 'Creating deal…'}
-                disabled={createBlocked || isUploading}
-              >
-                {isEdit ? 'Save deal' : 'Create deal → proposal'}
-              </Button>
-            </div>
-          </DialogFooter>
+          <FormFooter
+            errorCount={Object.keys(fieldErrors).length}
+            onFocusFirst={() => {
+              if (formRef.current) focusFirstError(formRef.current);
+            }}
+            serverError={serverError}
+            uploading={isUploading}
+          >
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              variant="primary"
+              loading={isSubmitting}
+              loadingText={isEdit ? 'Saving deal…' : 'Creating deal…'}
+              disabled={createBlocked || isUploading}
+            >
+              {isEdit ? 'Save deal' : 'Create deal → proposal'}
+            </Button>
+          </FormFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  );
+      </FormDialog>
+    );
 };

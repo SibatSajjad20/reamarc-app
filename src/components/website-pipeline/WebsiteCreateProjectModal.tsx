@@ -7,12 +7,12 @@ import { WEBSITE_TYPES_LIST } from '../../types/websiteProject';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
-import { Modal } from '../ui/Modal';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { canManageWebsiteProject } from '../../utils/websiteProjectAccess';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
 import { cn } from '../../lib/utils';
 
 interface Props {
@@ -218,12 +218,14 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
   };
 
   return (
-    <Modal
+    <FormDialog
       isOpen={isOpen}
       onClose={onClose}
-      title={
+      maxWidth="xl"
+    >
+      <FormDialogHeader>
         <div className="flex items-center gap-2">
-          <div className="p-2 rounded-xl bg-accent-soft text-accent">
+          <div className="p-2 rounded-xl bg-accent-soft text-accent shrink-0">
             <Globe className="w-5 h-5" />
           </div>
           <div>
@@ -237,19 +239,19 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
                 </span>
               )}
             </div>
+            <p className="text-xs text-fg-muted mt-0.5">
+              {effectiveReadOnly
+                ? 'View project parameters, URLs, and scope.'
+                : project
+                ? 'View and update project parameters, URLs, and brief.'
+                : 'Initializes the 8-stage pipeline and 5 client approval gates.'}
+            </p>
           </div>
         </div>
-      }
-      description={
-        effectiveReadOnly
-          ? 'View project parameters, URLs, and scope.'
-          : project
-          ? 'View and update project parameters, URLs, and brief.'
-          : 'Initializes the 8-stage pipeline and 5 client approval gates.'
-      }
-      maxWidth="xl"
-    >
-      <form ref={formRef} noValidate onSubmit={handleSubmit} className="space-y-4 pt-2">
+      </FormDialogHeader>
+
+      <form ref={formRef} noValidate onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-4">
         <div>
           <label className="block text-xs font-semibold text-fg mb-1">
             Project Name *
@@ -398,55 +400,43 @@ export const WebsiteCreateProjectModal: React.FC<Props> = ({
             className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none ring-0 focus:border-border-strong disabled:bg-surface disabled:cursor-not-allowed disabled:text-fg-muted"
           />
         </div>
+      </FormDialogBody>
 
-        {/* Buttons */}
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pt-3 border-t border-border">
-          <div className="flex items-center gap-2">
-            {Object.keys(fieldErrors).length > 1 && (
-              <FormErrorSummaryButton
-                count={Object.keys(fieldErrors).length}
-                onClick={() => formRef.current && focusFirstError(formRef.current)}
-              />
-            )}
-            {serverError && (
-              <p className="text-xs text-danger-fg flex items-center gap-1.5" role="alert">
-                <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                <span>{serverError}</span>
-              </p>
-            )}
-          </div>
-          <div className="flex items-center justify-end gap-2">
-            {effectiveReadOnly ? (
-              <button
+        <FormFooter
+          errorCount={Object.keys(fieldErrors).length}
+          onFocusFirst={() => formRef.current && focusFirstError(formRef.current)}
+          serverError={serverError}
+        >
+          {effectiveReadOnly ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={onClose}
+            >
+              Close
+            </Button>
+          ) : (
+            <>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={onClose}
-                className="px-5 py-2 rounded-xl bg-hover hover:bg-subtle text-fg text-xs font-semibold transition-colors cursor-pointer border border-border"
               >
-                Close
-              </button>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-fg-muted hover:bg-hover transition-colors cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  loading={isSubmitting}
-                  loadingText={project ? 'Saving Changes…' : 'Creating Project…'}
-                  disabled={Boolean(project) && !isDirty}
-                >
-                  {project ? 'Save Changes' : 'Create Project'}
-                </Button>
-              </>
-            )}
-          </div>
-        </div>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                loading={isSubmitting}
+                loadingText={project ? 'Saving Changes…' : 'Creating Project…'}
+                disabled={Boolean(project) && !isDirty}
+              >
+                {project ? 'Save Changes' : 'Create Project'}
+              </Button>
+            </>
+          )}
+        </FormFooter>
       </form>
-    </Modal>
+    </FormDialog>
   );
 };

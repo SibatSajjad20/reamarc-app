@@ -785,7 +785,11 @@ def assert_no_overlap_or_duplicate(
                 )
 
     dups = find_duplicate_ids(existing, candidate, exclude_id=exclude_id)
-    _ = dups
+    if dups:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="You already logged this task for this date.",
+        )
     _ = overlaps
 
 
@@ -999,7 +1003,7 @@ def calculate_48_working_hours_window(
     2. Window Close = Advances 2 full working days (48 working hours) from target_date,
        skipping Sundays, 1st Saturdays off, and registered Public Holidays.
     """
-    from app.services.workdays import parse_iso_date, weekday_is_workday
+    from app.services.workdays import parse_iso_date, weekday_is_workday, format_off_day_reason
 
     now = now_dt or datetime.now(PKT)
     if now.tzinfo is None:
@@ -1039,7 +1043,7 @@ def calculate_48_working_hours_window(
             "is_expired": True,
             "is_off_day": True,
             "off_day_label": off_info.label,
-            "error": f"Daily logs cannot be submitted on {off_info.label} ({target_date_str}).",
+            "error": format_off_day_reason(off_info, target_d),
             "window_start": window_start.isoformat(),
             "window_end": None,
         }

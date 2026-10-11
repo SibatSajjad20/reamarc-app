@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  X,
   Clock,
   Calendar,
   UserCheck,
@@ -12,7 +11,8 @@ import { useToast } from '../../context/ToastContext';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { Button } from '../ui/button';
 import { focusFirstError } from '../../utils/formFocus';
-import { FormErrorSummaryButton } from '../../hooks/useFormValidation';
+import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 
 interface MissedCheckoutResponseModalProps {
   isOpen: boolean;
@@ -104,39 +104,20 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-overlay animate-in fade-in duration-150">
-      <div
-        className="w-full max-w-[560px] bg-surface rounded-lg shadow-lg border border-border overflow-hidden flex flex-col max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-border flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="p-2 rounded-md bg-warning-bg text-warning-fg border border-warning-bd">
-              <Clock className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-h2 font-semibold text-fg">
-                Missed checkout inquiry
-              </h3>
-              <p className="text-small text-fg-muted">
-                Provide your check-out time to regularize this shift
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isSubmitting}
-            className="p-1 rounded-md text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
-            aria-label="Close dialog"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Content */}
-        <form ref={formRef} onSubmit={handleSubmit} noValidate className="p-5 overflow-y-auto space-y-4">
+    <FormDialog
+      isOpen={isOpen && Boolean(inquiry)}
+      onClose={onClose}
+      maxWidth="xl"
+      className="max-w-[560px]"
+    >
+      <FormDialogHeader
+        title="Missed checkout inquiry"
+        subtitle="Provide your check-out time to regularize this shift"
+        icon={<Clock className="w-5 h-5 text-warning-fg" />}
+        onClose={onClose}
+      />
+      <form ref={formRef} onSubmit={handleSubmit} noValidate className="flex flex-col flex-1 min-h-0">
+        <FormDialogBody className="space-y-4">
           {/* Shift Details Banner */}
           <div className="p-3.5 bg-subtle rounded-md border border-border space-y-2 text-xs">
             <div className="flex items-center justify-between">
@@ -253,42 +234,31 @@ export const MissedCheckoutResponseModal: React.FC<MissedCheckoutResponseModalPr
             )}
           </div>
 
-          {/* Footer */}
-          <div className="flex items-center justify-between gap-2 pt-3 border-t border-border">
-            <div className="flex items-center gap-3">
-              <FormErrorSummaryButton
-                count={Object.keys(fieldErrors).length}
-                onClick={() => {
-                  if (formRef.current) focusFirstError(formRef.current);
-                }}
-              />
-              {serverError && (
-                <div className="flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" />
-                  <span>{serverError}</span>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <Button
-                type="button"
-                variant="secondary"
-                onClick={onClose}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                variant="primary"
-                loading={isSubmitting}
-              >
-                Submit checkout
-              </Button>
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
+        </FormDialogBody>
+        <FormFooter
+          errorCount={Object.keys(fieldErrors).length}
+          onFocusFirst={() => {
+            if (formRef.current) focusFirstError(formRef.current);
+          }}
+          serverError={serverError}
+        >
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={onClose}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="primary"
+            loading={isSubmitting}
+          >
+            Submit checkout
+          </Button>
+        </FormFooter>
+      </form>
+    </FormDialog>
   );
 };

@@ -29,10 +29,11 @@ def is_crm_user(user: Dict[str, Any]) -> bool:
     if flagged is False:
         return False
     role = _role(user)
-    dept = _dept(user)
-    if role in _ALL_LEADS_ROLES or dept in ("operations", "admin"):
+    from app.services.permissions import parse_user_departments, normalize_dept
+    depts = [normalize_dept(d) for d in parse_user_departments(user)]
+    if role in _ALL_LEADS_ROLES or any(d in ("operations", "admin") for d in depts):
         return True
-    if dept == _SALES_DEPT and role in _SALES_ROLES:
+    if _SALES_DEPT in depts and role in _SALES_ROLES:
         return True
     return False
 
@@ -42,23 +43,30 @@ def can_view_all_leads(user: Dict[str, Any]) -> bool:
     if not is_crm_user(user):
         return False
     role = _role(user)
-    dept = _dept(user)
-    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin")
+    from app.services.permissions import parse_user_departments, normalize_dept
+    depts = [normalize_dept(d) for d in parse_user_departments(user)]
+    return role in _ALL_LEADS_ROLES or any(d in ("operations", "admin") for d in depts)
 
 
 def is_sales_team_lead(user: Dict[str, Any]) -> bool:
     if not is_crm_user(user):
         return False
-    return _role(user) in (UserRole.TEAM_LEAD.value, "team_lead") and _dept(user) == _SALES_DEPT
+    from app.services.permissions import parse_user_departments, normalize_dept
+    depts = [normalize_dept(d) for d in parse_user_departments(user)]
+    return _role(user) in (UserRole.TEAM_LEAD.value, "team_lead") and _SALES_DEPT in depts
 
 
 def is_sales_team_person(user: Optional[Dict[str, Any]]) -> bool:
     """Sales department team lead or member. Admin and operations are excluded."""
     if not user:
         return False
-    if _role(user) in _ALL_LEADS_ROLES or _dept(user) in ("operations", "admin"):
+    if _role(user) in _ALL_LEADS_ROLES:
         return False
-    return _dept(user) == _SALES_DEPT and _role(user) in _SALES_ROLES
+    from app.services.permissions import parse_user_departments, normalize_dept
+    depts = [normalize_dept(d) for d in parse_user_departments(user)]
+    if any(d in ("operations", "admin") for d in depts):
+        return False
+    return _SALES_DEPT in depts and _role(user) in _SALES_ROLES
 
 
 def lead_visible_to(

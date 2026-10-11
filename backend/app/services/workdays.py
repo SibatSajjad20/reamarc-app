@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import Dict, Iterable, Optional, Set, Tuple
+from typing import Dict, Iterable, Optional, Set, Tuple, Union
 
 from app.database import get_database
 from app.models.attendance import CalendarEventType
@@ -83,6 +83,25 @@ def classify_with_calendar(
         return DayClassification(True, "first_saturday", "1st Saturday — Rest day")
 
     return DayClassification(False, "workday", "Working day")
+
+
+def format_off_day_reason(classification: DayClassification, d_or_iso: Union[date, str]) -> str:
+    parsed_d = parse_iso_date(d_or_iso)
+    if parsed_d:
+        day_name = parsed_d.strftime("%a")
+        month_name = parsed_d.strftime("%b")
+        day_str = f"{day_name}, {parsed_d.day} {month_name}"
+    else:
+        day_str = str(d_or_iso)[:10]
+
+    if classification.kind == "holiday":
+        title = classification.holiday_title or classification.label
+        return f"{day_str} is a company holiday ({title}). Logs can't be added on holidays."
+    if classification.kind == "sunday":
+        return "Sunday is a rest day. Logs can't be added on rest days."
+    if classification.kind == "first_saturday":
+        return "The 1st Saturday is a rest day. Logs can't be added on rest days."
+    return f"{classification.label}. Logs can't be added on rest days."
 
 
 class OffDayIndex:

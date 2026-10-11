@@ -52,6 +52,7 @@ import { downloadFileAttachment } from '../../utils/fileUrl';
 import { toSafeHttpsUrl } from '../../utils/safeUrl';
 import { CustomSelect } from '../ui/CustomSelect';
 import { OffDayBanner } from '../ui/OffDayBanner';
+import { nearestPastWorkdayIso } from '../../utils/offDays';
 import { useOffDays } from '../../hooks/useOffDays';
 import { getRoleLabel } from '../../utils/badgeStyles';
 import { formatHours, isLogDateExpired } from '../../utils/logTimeChecks';
@@ -192,7 +193,7 @@ export const DailyLogView: React.FC = () => {
   const isLead = user?.role === 'team_lead';
   const canSubmitLogs = user?.role === 'team_member' || user?.role === 'team_lead' || user?.role === 'hr';
   const canExportLogs = isAdmin || isHR || isOperations || isLead;
-  const userDept = user?.department || '';
+  const userDept = user?.primary_department || user?.department || '';
   const departments = DEFAULT_DEPARTMENTS;
 
   // Dual presentation: 'log' (mock 06 card & timeline) vs 'sheet' (configurable table)
@@ -243,6 +244,14 @@ export const DailyLogView: React.FC = () => {
   const [entryModalMode, setEntryModalMode] = useState<'create' | 'edit'>('create');
   const [selectedEntry, setSelectedEntry] = useState<DailyLogEntry | null>(null);
   const [prefilledDate, setPrefilledDate] = useState<string | undefined>(undefined);
+  const [formDate, setFormDate] = useState<string>(() => nearestPastWorkdayIso(getTodayIso()));
+  const [isDayTargetLoading, setIsDayTargetLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (prefilledDate) {
+      setFormDate(prefilledDate);
+    }
+  }, [prefilledDate]);
 
   // User Activity & Missing Days State
   const [myActivity, setMyActivity] = useState<UserLogActivity | null>(() => initialActivity || null);
@@ -463,10 +472,13 @@ export const DailyLogView: React.FC = () => {
   }, [fetchEntries]);
 
   const bannerDate = useMemo(() => {
+    if (viewMode === 'log') {
+      return formDate || getTodayIso();
+    }
     if (datePreset === 'today') return getTodayIso();
     if (datePreset === 'custom' && customStartDate && customStartDate === customEndDate) return customStartDate;
-    return getTodayIso();
-  }, [datePreset, customStartDate, customEndDate]);
+    return formDate || getTodayIso();
+  }, [viewMode, formDate, datePreset, customStartDate, customEndDate]);
 
   const { getOffDay, holidays, workingSaturdays } = useOffDays();
   const viewingSingleDay =
@@ -486,6 +498,7 @@ export const DailyLogView: React.FC = () => {
     const controller = new AbortController();
     dayTargetAbortRef.current = controller;
     const reqId = ++dayTargetReqIdRef.current;
+    setIsDayTargetLoading(true);
 
     try {
       const target = await dailyLogService.getDayTarget(bannerDate, { signal: controller.signal });
@@ -495,6 +508,10 @@ export const DailyLogView: React.FC = () => {
     } catch (err: any) {
       if (reqId === dayTargetReqIdRef.current && err?.name !== 'AbortError') {
         setDayTarget(null);
+      }
+    } finally {
+      if (reqId === dayTargetReqIdRef.current) {
+        setIsDayTargetLoading(false);
       }
     }
   }, [canSubmitLogs, bannerDate]);
@@ -702,6 +719,20 @@ export const DailyLogView: React.FC = () => {
       dailyLogService.invalidateEntries(paramKey);
       return updated;
     });
+
+    if (savedEntry && isOwnEntry(savedEntry) && savedEntry.date === bannerDate && dayTarget) {
+      const hours = Number(savedEntry.hours_utilized) || 0;
+      setDayTarget((prev) => {
+        if (!prev) return null;
+        const newLogged = (prev.logged_hours || 0) + hours;
+        const newRemaining = Math.max(0, (prev.expected_hours || 0) - newLogged);
+        return {
+          ...prev,
+          logged_hours: newLogged,
+          remaining_hours: newRemaining,
+        };
+      });
+    }
 
     refreshDayTarget();
     dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
@@ -1011,7 +1042,7 @@ export const DailyLogView: React.FC = () => {
             name: user.name,
             full_name: user.full_name,
             role: user.role,
-            department: user.department,
+            department: user.primary_department || user.department,
           }
         : null,
     [user]
@@ -1087,8 +1118,9 @@ export const DailyLogView: React.FC = () => {
       {/* ─── Shift Summary Strip (Mock 06 Reference, only for employees who log shifts) ─── */}
       {!isAdmin && !isOperations && (
         <ShiftTasksTracker
-          dayTarget={dayTarget}
-          loading={isLoading && !dayTarget}
+          dayTarget={dayTarget?.date === bannerDate ? dayTarget : null}
+          offDay={getOffDay(dayTarget?.date === bannerDate ? (dayTarget?.date ?? bannerDate) : bannerDate)}
+          loading={isDayTargetLoading || (dayTarget !== null && dayTarget?.date !== bannerDate) || (isLoading && !dayTarget)}
           variant="strip"
         />
       )}
@@ -1256,24 +1288,23 @@ export const DailyLogView: React.FC = () => {
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row gap-4 overflow-hidden">
           {/* Left Card: Add Entry Form (Inline, only for non-admin & non-operations members who log daily shifts) */}
           {!isAdmin && !isOperations && (
-            <div className="w-full lg:w-[440px] shrink-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col overflow-hidden">
+            <div className="w-full lg:w-[440px] shrink-0 bg-surface border border-border rounded-lg shadow-xs flex flex-col h-full min-h-0 overflow-hidden">
               <div className="px-4 py-3 border-b border-border flex items-center justify-between bg-surface shrink-0">
                 <h3 className="text-h3 font-semibold text-fg">Add entry</h3>
                 <span className="text-small text-fg-muted font-numeric">{activeSheet}</span>
               </div>
-              <div className="p-4 flex-1 overflow-y-auto">
-                <DailyLogForm
-                  mode="create"
-                  prefilledDate={prefilledDate}
-                  columns={columns}
-                  activeSheet={activeSheet}
-                  currentUser={modalCurrentUser}
-                  existingEntries={modalExistingEntries}
-                  onSaved={handleEntrySaved}
-                  onRefreshRequired={fetchEntries}
-                  layout="card"
-                />
-              </div>
+              <DailyLogForm
+                mode="create"
+                prefilledDate={prefilledDate}
+                columns={columns}
+                activeSheet={activeSheet}
+                currentUser={modalCurrentUser}
+                existingEntries={modalExistingEntries}
+                onSaved={handleEntrySaved}
+                onRefreshRequired={fetchEntries}
+                layout="card"
+                onDateChange={setFormDate}
+              />
             </div>
           )}
 
@@ -2189,6 +2220,7 @@ export const DailyLogView: React.FC = () => {
         }}
         onSaved={handleEntrySaved}
         onRefreshRequired={fetchEntries}
+        onDateChange={setFormDate}
       />
 
     </div>

@@ -415,31 +415,75 @@ async def lead_counts(user: Dict[str, Any]) -> Dict[str, Any]:
     vis = await visibility_filter(user)
     base: Dict[str, Any] = dict(vis or {})
     open_q = {**base, "outcome": None}
-    incoming = await db.crm_leads.count_documents(open_q)
-    assigned = await db.crm_leads.count_documents({**open_q, "assigned_to": {"$ne": None}})
-    uncontacted = await db.crm_leads.count_documents({**open_q, "contacted": {"$ne": True}})
-    opened_not_confirmed = await db.crm_leads.count_documents(
-        {**open_q, "contacted": {"$ne": True}, "whatsapp_opened_at": {"$ne": None}}
-    )
-    won_q = {**base, "outcome": "won"}
-    won = await db.crm_leads.count_documents(won_q)
-    lost = await db.crm_leads.count_documents({**base, "outcome": "lost"})
+
+    pipeline = [
+        {"$match": base},
+        {
+            "$facet": {
+                "incoming": [
+                    {"$match": {"outcome": None}},
+                    {"$count": "count"},
+                ],
+                "assigned": [
+                    {"$match": {"outcome": None, "assigned_to": {"$ne": None}}},
+                    {"$count": "count"},
+                ],
+                "uncontacted": [
+                    {"$match": {"outcome": None, "contacted": {"$ne": True}}},
+                    {"$count": "count"},
+                ],
+                "opened_not_confirmed": [
+                    {"$match": {"outcome": None, "contacted": {"$ne": True}, "whatsapp_opened_at": {"$ne": None}}},
+                    {"$count": "count"},
+                ],
+                "won": [
+                    {"$match": {"outcome": "won"}},
+                    {"$count": "count"},
+                ],
+                "lost": [
+                    {"$match": {"outcome": "lost"}},
+                    {"$count": "count"},
+                ],
+            }
+        },
+    ]
+
+    async def _run_facet():
+        res = await db.crm_leads.aggregate(pipeline).to_list(1)
+        if not res:
+            return {}
+        f = res[0]
+        return {
+            k: (f[k][0]["count"] if f.get(k) and len(f[k]) > 0 else 0)
+            for k in ["incoming", "assigned", "uncontacted", "opened_not_confirmed", "won", "lost"]
+        }
+
+    async def _calc_contacted_under_15m():
+        cursor = db.crm_leads.find(
+            {**open_q, "contacted": True, "contacted_at": {"$ne": None}, "created_at": {"$ne": None}},
+            {"_id": 0, "created_at": 1, "contacted_at": 1},
+        )
+        cnt = 0
+        for row in await cursor.to_list(2000):
+            try:
+                created = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
+                contacted = datetime.fromisoformat(str(row["contacted_at"]).replace("Z", "+00:00"))
+                if (contacted - created).total_seconds() <= 15 * 60:
+                    cnt += 1
+            except (TypeError, ValueError, KeyError):
+                continue
+        return cnt
+
+    facet_counts, contacted_under_15m = await asyncio.gather(_run_facet(), _calc_contacted_under_15m())
+
+    incoming = facet_counts.get("incoming", 0)
+    assigned = facet_counts.get("assigned", 0)
+    uncontacted = facet_counts.get("uncontacted", 0)
+    opened_not_confirmed = facet_counts.get("opened_not_confirmed", 0)
+    won = facet_counts.get("won", 0)
+    lost = facet_counts.get("lost", 0)
     closed = won + lost
     win_rate = round((won / closed) * 100.0, 1) if closed else None
-
-    contacted_under_15m = 0
-    cursor = db.crm_leads.find(
-        {**open_q, "contacted": True, "contacted_at": {"$ne": None}, "created_at": {"$ne": None}},
-        {"_id": 0, "created_at": 1, "contacted_at": 1},
-    )
-    for row in await cursor.to_list(2000):
-        try:
-            created = datetime.fromisoformat(str(row["created_at"]).replace("Z", "+00:00"))
-            contacted = datetime.fromisoformat(str(row["contacted_at"]).replace("Z", "+00:00"))
-            if (contacted - created).total_seconds() <= 15 * 60:
-                contacted_under_15m += 1
-        except (TypeError, ValueError, KeyError):
-            continue
 
     return {
         "incoming": incoming,
@@ -621,9 +665,14 @@ async def update_lead(lead_id: str, payload: CrmLeadUpdate, user: Dict[str, Any]
     if not fields:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields to update.")
     fields["updated_at"] = _now()
-    await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
-    fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
-    return serialize_lead(fresh or lead)
+    updated_doc = await db.crm_leads.find_one_and_update(
+        {"id": lead_id},
+        {"$set": fields},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_doc:
+        updated_doc.pop("_id", None)
+    return serialize_lead(updated_doc or lead)
 
 
 async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -664,7 +713,9 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed leads cannot be reassigned.")
     updated.pop("_id", None)
     kind = "reassigned" if prev and prev != uid else "assigned"
-    await append_activity(lead_id, kind, f"Assigned to {name}.", user, {"assigned_to": uid, "previous": prev})
+    _dispatch_background_notification(
+        append_activity(lead_id, kind, f"Assigned to {name}.", user, {"assigned_to": uid, "previous": prev})
+    )
     try:
         from app.services.crm_assignment import notify_users
 
@@ -974,18 +1025,25 @@ async def reopen_lead(
         "stage": target_stage,
         "updated_at": now,
     }
-    await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
-    await append_activity(
-        lead_id,
-        "lead_reopened",
-        f"Deal reopened by Admin to stage '{target_stage}'.",
-        user,
-        {"target_stage": target_stage},
+    updated_doc = await db.crm_leads.find_one_and_update(
+        {"id": lead_id},
+        {"$set": fields},
+        return_document=ReturnDocument.AFTER,
     )
-    if note:
-        await append_activity(lead_id, "note", note.strip(), user)
-    fresh = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
-    return serialize_lead(fresh or lead)
+    if updated_doc:
+        updated_doc.pop("_id", None)
+    async def _bg_reopen_activities():
+        await append_activity(
+            lead_id,
+            "lead_reopened",
+            f"Deal reopened by Admin to stage '{target_stage}'.",
+            user,
+            {"target_stage": target_stage},
+        )
+        if note:
+            await append_activity(lead_id, "note", note.strip(), user)
+    _dispatch_background_notification(_bg_reopen_activities())
+    return serialize_lead(updated_doc or lead)
 
 
 async def add_note(lead_id: str, body: str, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -1065,11 +1123,18 @@ async def set_follow_up(
     fields: Dict[str, Any] = {
         "next_follow_up_at": next_follow_up_at or None,
         "follow_up_nagged_at": None,
+        "last_activity_at": now,
         "updated_at": now,
     }
-    await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
+    updated_doc = await db.crm_leads.find_one_and_update(
+        {"id": lead_id},
+        {"$set": fields},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_doc:
+        updated_doc.pop("_id", None)
     if next_follow_up_at:
-        await append_activity(
+        act_coro = append_activity(
             lead_id,
             "follow_up_set",
             f"Follow-up set for {next_follow_up_at}.",
@@ -1077,8 +1142,9 @@ async def set_follow_up(
             {"next_follow_up_at": next_follow_up_at},
         )
     else:
-        await append_activity(lead_id, "follow_up_cleared", "Follow-up cleared.", user)
-    return serialize_lead(await get_lead_or_404(lead_id, user))
+        act_coro = append_activity(lead_id, "follow_up_cleared", "Follow-up cleared.", user)
+    _dispatch_background_notification(act_coro)
+    return serialize_lead(updated_doc or lead)
 
 
 async def mark_contacted(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -1090,13 +1156,20 @@ async def mark_contacted(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     fields: Dict[str, Any] = {
         "contacted": True,
         "contacted_at": lead.get("contacted_at") or now,
+        "last_activity_at": now,
         "updated_at": now,
     }
     if stage == "new" and not lead.get("outcome"):
         fields["stage"] = "contacted"
-    await db.crm_leads.update_one({"id": lead_id}, {"$set": fields})
-    await append_activity(lead_id, "contacted", "Marked as contacted.", user)
-    return serialize_lead(await get_lead_or_404(lead_id, user))
+    updated_doc = await db.crm_leads.find_one_and_update(
+        {"id": lead_id},
+        {"$set": fields},
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated_doc:
+        updated_doc.pop("_id", None)
+    _dispatch_background_notification(append_activity(lead_id, "contacted", "Marked as contacted.", user))
+    return serialize_lead(updated_doc or lead)
 
 
 async def list_activities(lead_id: str, user: Dict[str, Any]) -> List[Dict[str, Any]]:

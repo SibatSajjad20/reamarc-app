@@ -41,7 +41,8 @@ import { websiteProjectService } from '../../services/websiteProjectService';
 import { DriveAttach } from '../ui/DriveAttach';
 import { getBackendFileUrl } from '../../utils/fileUrl';
 import { CustomSelect } from '../ui/CustomSelect';
-import { Modal } from '../ui/Modal';
+import { FormDialog, FormDialogBody } from '../ui/FormDialogLayout';
+import { FormFooter } from '../ui/FormFooter';
 import { healthBadge, cleanLabel } from '../../utils/websiteProjectStyles';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { WebsiteTaskModal } from './WebsiteTaskModal';
@@ -1099,31 +1100,33 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
         )}
 
         {/* Modal: Submit Gate */}
-        <Modal
+        <FormDialog
           isOpen={!!submitGateKey}
           onClose={() => setSubmitGateKey(null)}
           title="Submit Gate for Client Review"
           maxWidth="md"
         >
-          <div className="space-y-4">
-            <p className="text-xs text-fg-muted">
-              This deliverable will be submitted to the client. The project status will switch to Waiting on Client.
-            </p>
-            <textarea
-              placeholder="Optional notes or walkthrough guidance for client..."
-              value={submitNotes}
-              onChange={(e) => setSubmitNotes(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
-            />
-            <div className="flex justify-end gap-2 pt-2">
-              <button
+          <div className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4">
+              <p className="text-xs text-fg-muted">
+                This deliverable will be submitted to the client. The project status will switch to Waiting on Client.
+              </p>
+              <textarea
+                placeholder="Optional notes or walkthrough guidance for client..."
+                value={submitNotes}
+                onChange={(e) => setSubmitNotes(e.target.value)}
+                rows={3}
+                className="w-full px-3 py-2 rounded-xl text-xs border border-border bg-subtle text-fg placeholder:text-fg-muted outline-none focus:border-border-strong"
+              />
+            </FormDialogBody>
+            <FormFooter>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => setSubmitGateKey(null)}
-                className="px-3 py-1.5 rounded-lg text-xs text-fg-muted hover:bg-hover cursor-pointer"
               >
                 Cancel
-              </button>
+              </Button>
               <Button
                 type="button"
                 variant="primary"
@@ -1134,47 +1137,49 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               >
                 Confirm & Submit
               </Button>
-            </div>
+            </FormFooter>
           </div>
-        </Modal>
+        </FormDialog>
 
         {/* Modal: Create Revision Task from Gate */}
-        <Modal
+        <FormDialog
           isOpen={!!revisionGateKey}
           onClose={() => setRevisionGateKey(null)}
           title="Create Revision Task from Feedback"
           maxWidth="md"
         >
-          <div className="space-y-4">
-            <p className="text-xs text-fg-muted">
-              Converts the latest client requested changes into a revision task and bumps the review round.
-            </p>
-            <div>
-              <label className="block text-xs font-semibold text-fg mb-1">
-                Assignee
-              </label>
-              <CustomSelect
-                value={revisionAssigneeId}
-                onChange={setRevisionAssigneeId}
-                options={[
-                  { value: '', label: 'Unassigned' },
-                  ...teamMembers.map((m) => ({
-                    value: m.id,
-                    label: m.full_name || m.name,
-                    description: m.department || m.role,
-                  })),
-                ]}
-                placeholder="Select assignee..."
-              />
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button
+          <div className="flex flex-col flex-1 min-h-0">
+            <FormDialogBody className="space-y-4">
+              <p className="text-xs text-fg-muted">
+                Converts the latest client requested changes into a revision task and bumps the review round.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold text-fg mb-1">
+                  Assignee
+                </label>
+                <CustomSelect
+                  value={revisionAssigneeId}
+                  onChange={setRevisionAssigneeId}
+                  options={[
+                    { value: '', label: 'Unassigned' },
+                    ...teamMembers.map((m) => ({
+                      value: m.id,
+                      label: m.full_name || m.name,
+                      description: m.department || m.role,
+                    })),
+                  ]}
+                  placeholder="Select assignee..."
+                />
+              </div>
+            </FormDialogBody>
+            <FormFooter>
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => setRevisionGateKey(null)}
-                className="px-3 py-1.5 rounded-lg text-xs text-fg-muted hover:bg-hover cursor-pointer"
               >
                 Cancel
-              </button>
+              </Button>
               <Button
                 type="button"
                 variant="primary"
@@ -1185,9 +1190,9 @@ export const WebsiteProjectDrawer: React.FC<Props> = ({
               >
                 Create Revision Task
               </Button>
-            </div>
+            </FormFooter>
           </div>
-        </Modal>
+        </FormDialog>
 
         {/* Modal: Project Overview & Settings */}
         {isOverviewModalOpen && (
