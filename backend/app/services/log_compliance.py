@@ -12,6 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.database import get_database
+from app.models.attendance import NON_LEAVE_REQUEST_TYPES
 from app.models.user import UserRole
 
 SYSTEM_START_DATE = "2026-08-19"
@@ -496,6 +497,7 @@ async def get_expected_log_hours(
             {
                 "user_id": user_id,
                 "status": {"$in": ["approved", "Approved"]},
+                "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
                 "start_date": {"$lte": date_str},
             },
             {"_id": 0},
@@ -656,7 +658,14 @@ async def load_shift_lookup() -> Tuple[Dict[str, dict], Dict[str, dict], dict, d
     if db is not None:
         assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(2000)
         assign_map = {a["user_id"]: a for a in assignments if a.get("user_id")}
-        shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(200)
+        override_ids = [
+            ov.get("shift_id")
+            for a in assignments
+            for ov in (a.get("date_overrides") or [])
+            if ov.get("shift_id")
+        ]
+        shift_q = {"$or": [{"is_active": True}, {"id": {"$in": override_ids}}]} if override_ids else {"is_active": True}
+        shifts = await db.shifts.find(shift_q, {"_id": 0}).to_list(500)
         shift_map = {s["id"]: s for s in shifts if s.get("id")}
         std_doc, hr_doc = resolve_fallback_shifts(shifts)
         if std_doc:
@@ -713,6 +722,7 @@ async def batch_expected_targets(users: List[Dict[str, Any]], dates: List[str]) 
             {
                 "user_id": {"$in": user_ids},
                 "status": {"$in": ["approved", "Approved"]},
+                "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
                 "start_date": {"$lte": newest},
             },
             {"_id": 0},

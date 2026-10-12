@@ -98,6 +98,8 @@ export const RequestDetailsSheet: React.FC<RequestDetailsSheetProps> = ({
         return 'Punch correction request';
       case 'overtime':
         return 'Overtime request';
+      case 'shift_change':
+        return 'Shift change request';
       default:
         return 'Attendance request';
     }
@@ -262,6 +264,83 @@ export const RequestDetailsSheet: React.FC<RequestDetailsSheetProps> = ({
                       <span className="text-fg-muted font-normal"> · shift ended {request.shift_end}</span>
                     )}
                   </dd>
+                </>
+              )}
+
+              {request.request_type === 'shift_change' && (
+                <>
+                  <dt className="text-fg-muted font-medium">Dates</dt>
+                  <dd className="text-fg font-medium">
+                    {request.shift_change_dates && request.shift_change_dates.length > 0
+                      ? `${request.shift_change_dates.join(', ')} (${request.shift_change_dates.length} day${request.shift_change_dates.length > 1 ? 's' : ''})`
+                      : formatPktDateRange(request.start_date, request.end_date)}
+                    {request.same_day && (
+                      <span className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
+                        Same day
+                      </span>
+                    )}
+                  </dd>
+                  <dt className="text-fg-muted font-medium">Requested shift</dt>
+                  <dd className="text-fg font-medium">
+                    {request.requested?.shift_name || (request.requested?.start && request.requested?.end ? `${request.requested.start} – ${request.requested.end}` : 'Custom')}
+                    {request.requested?.expected_hours ? ` (${request.requested.expected_hours}h expected)` : ''}
+                  </dd>
+                  <dt className="text-fg-muted font-medium">Location</dt>
+                  <dd className="text-fg font-medium capitalize">
+                    {request.shift_change_location || 'Office'}
+                    {request.shift_change_location === 'wfh' ? (
+                      <span className="text-xs text-fg-muted font-normal ml-1">
+                        ({request.status === 'approved' ? 'Remote bypass active' : 'Location checks remain until approved'})
+                      </span>
+                    ) : (
+                      <span className="text-xs text-fg-muted font-normal ml-1">(Wi-Fi / Geofence required)</span>
+                    )}
+                  </dd>
+                  {request.current_schedule && request.current_schedule.length > 0 && (
+                    <>
+                      <dt className="text-fg-muted font-medium self-start pt-1">Schedule comparison</dt>
+                      <dd className="text-fg font-medium col-span-2 mt-1">
+                        <div className="rounded border border-border overflow-hidden text-xs">
+                          <table className="w-full text-left">
+                            <thead className="bg-subtle text-fg-muted text-[11px]">
+                              <tr>
+                                <th className="p-1.5">Date</th>
+                                <th className="p-1.5">Current Schedule</th>
+                                <th className="p-1.5">Requested Shift</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border">
+                              {request.current_schedule.map((item, idx) => (
+                                <tr key={idx} className="bg-surface">
+                                  <td className="p-1.5 font-medium">{item.date}</td>
+                                  <td className="p-1.5 text-fg-muted">
+                                    {item.is_rest_day ? (
+                                      <span className="text-amber-600 dark:text-amber-400">Rest day ({item.rest_reason || 'Off'})</span>
+                                    ) : (
+                                      `${item.shift_name || 'Standard'} (${item.start}–${item.end}) · ${item.auto_wfh ? 'WFH' : 'Office'}`
+                                    )}
+                                  </td>
+                                  <td className="p-1.5 font-semibold text-accent-text">
+                                    {request.requested?.start && request.requested?.end
+                                      ? `${request.requested.start}–${request.requested.end}`
+                                      : request.requested?.shift_name} · {request.shift_change_location?.toUpperCase() || 'OFFICE'}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </dd>
+                    </>
+                  )}
+                  {request.cancelled_dates && request.cancelled_dates.length > 0 && (
+                    <>
+                      <dt className="text-fg-muted font-medium">Cancelled dates</dt>
+                      <dd className="text-danger font-medium">
+                        {request.cancelled_dates.join(', ')}
+                      </dd>
+                    </>
+                  )}
                 </>
               )}
 
@@ -590,6 +669,22 @@ export const RequestDetailsSheet: React.FC<RequestDetailsSheetProps> = ({
                   onClick={() => onAppeal?.(request)}
                 >
                   Appeal
+                </Button>
+              </>
+            ) : request.request_type === 'shift_change' && request.status === 'approved' && (isApplicant || canReview) ? (
+              /* Approved Shift Change cancel action (D3) */
+              <>
+                <Button type="button" variant="ghost" size="sm" onClick={onClose}>
+                  Close
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  className="text-danger-fg hover:bg-danger-bg hover:text-danger-fg"
+                  onClick={() => onDelete?.(request, true)}
+                >
+                  Cancel shift change
                 </Button>
               </>
             ) : (

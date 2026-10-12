@@ -30,6 +30,7 @@ from app.models.attendance import (
     LeaveType,
     LeaveStatus,
     CalendarEventType,
+    NON_LEAVE_REQUEST_TYPES,
 )
 from app.services.attendance_calculator import (
     format_minutes_to_hhmm,
@@ -240,6 +241,7 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             approved_leaves = await db.leave_requests.find(
                 {
                     "status": LeaveStatus.APPROVED.value,
+                    "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
                     "start_date": {"$lte": target_date},
                     "end_date": {"$gte": target_date},
                 },

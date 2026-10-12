@@ -25,7 +25,7 @@ import {
 } from 'lucide-react';
 import { BrandMark } from '../ui/BrandMark';
 import { Calendar } from '../ui/calendar';
-import { Button, buttonVariants } from '../ui/button';
+import { Button } from '../ui/button';
 import { cn } from '../../lib/utils';
 import { API_BASE_URL } from '../../services/apiClient';
 import { LEAD_HELP_WITH, LEAD_INDUSTRIES, LEAD_START_TIMELINES } from '../crm/qualificationOptions';
@@ -475,8 +475,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     return params.get('theme') || theme;
   }, [theme]);
 
-  // Selected Inquiry Topic: 'branding_and_marketing' | 'jobs_and_career' | 'collaboration_and_partnership'
-  const [topic, setTopic] = useState<MeetingTopic>(() => {
+  // Selected Inquiry Topic: 'branding_and_marketing' | 'jobs_and_career' | 'collaboration_and_partnership' | null
+  const [topic, setTopic] = useState<MeetingTopic | null>(() => {
     const params = new URLSearchParams(window.location.search);
     const q = (params.get('topic') || params.get('intent') || params.get('type') || params.get('tab') || '').toLowerCase();
     if (q.includes('job') || q.includes('career') || q.includes('interview') || q.includes('hiring') || q.includes('vacanc') || q.includes('hr')) {
@@ -485,8 +485,14 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     if (q.includes('collab') || q.includes('partner') || q.includes('alliance') || q.includes('ceo')) {
       return 'collaboration_and_partnership';
     }
-    return 'branding_and_marketing';
+    if (q.includes('brand') || q.includes('market')) {
+      return 'branding_and_marketing';
+    }
+    return null;
   });
+
+  // Scroll reference for right column to reset scroll position on step transition
+  const rightColRef = useRef<HTMLDivElement>(null);
 
   // Steps: 1 = date & slot, 2 = brief form, 3 = confirmation
   const [step, setStep] = useState<Step>(1);
@@ -584,7 +590,15 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     };
   }, [isTopicDropdownOpen]);
 
+  useEffect(() => {
+    if (rightColRef.current) {
+      rightColRef.current.scrollTop = 0;
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step, topic]);
+
   const selectedTopicOption = useMemo(() => {
+    if (!topic) return null;
     return TOPIC_OPTIONS.find((o) => o.value === topic) || TOPIC_OPTIONS[0];
   }, [topic]);
 
@@ -599,9 +613,22 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
     return false;
   };
 
+  const handleResetTopic = () => {
+    setTopic(null);
+    setStep(1);
+    setSelectedSlot(null);
+    setBookingResult(null);
+    setBookingError(null);
+    setFieldErrors({});
+    setIsTopicDropdownOpen(false);
+  };
+
   const handleTopicChange = (newTopic: MeetingTopic) => {
     setTopic(newTopic);
     setIsTopicDropdownOpen(false);
+    setStep(1);
+    setSelectedSlot(null);
+    setBookingResult(null);
     setSelectedServices([]);
     setHelpOther('');
     setBookingError(null);
@@ -626,6 +653,13 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
       if (candidateCountryCode && !countryCode) setCountryCode(candidateCountryCode);
     }
   };
+
+  // Safety fallback: if on step 2 without date or slot, revert back to step 1
+  useEffect(() => {
+    if (step === 2 && (!selectedDate || !selectedSlot)) {
+      setStep(1);
+    }
+  }, [step, selectedDate, selectedSlot]);
 
   // Fetch scheduler public config on mount
   useEffect(() => {
@@ -992,24 +1026,139 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
 
   const displayTitle = config.title || 'Book a meeting';
 
+  const isStep2 = step === 2 && Boolean(selectedDate && selectedSlot);
+  const isStep3 = step === 3 && Boolean(bookingResult);
+
   return (
     <div
       className={cn(
         isDark ? 'dark' : '',
-        'min-h-screen flex items-center justify-center font-sans antialiased',
-        isEmbed ? 'bg-transparent p-0' : 'bg-canvas text-fg p-3 sm:p-6 md:p-8'
+        'min-h-screen flex flex-col justify-start items-center font-sans antialiased py-6 sm:py-10 px-3 sm:px-6',
+        isEmbed ? 'bg-transparent p-0' : 'bg-canvas text-fg'
       )}
     >
-      {/* 960px 2-column card (§ 13.19) */}
-      <div
-        className={cn(
-          'w-full max-w-[960px] bg-surface rounded-xl border border-border shadow-xs overflow-hidden',
-          isEmbed ? 'border border-border' : ''
-        )}
-      >
-        <div className="flex flex-col md:flex-row">
-          {/* LEFT COLUMN (320px on desktop): Meeting summary (§ 13.19) */}
-          <div className="w-full md:w-80 md:min-w-[320px] md:max-w-[320px] shrink-0 border-b md:border-b-0 md:border-r border-border p-6 bg-surface flex flex-col justify-between">
+      {/* 1. INITIAL VIEW (when topic is not yet selected): Centered card forcing purpose selection */}
+      {!topic ? (
+        <div className="w-full max-w-[480px] my-auto bg-surface rounded-2xl border border-border shadow-md p-6 sm:p-8 space-y-6">
+          {/* Brand mark + Wordmark */}
+          <div className="flex items-center gap-2.5">
+            <BrandMark size={28} />
+            <span className="font-semibold text-base text-fg tracking-tight">Reamarc</span>
+          </div>
+
+          {/* Host Avatar & Name */}
+          <div className="flex items-center gap-3 pt-1">
+            <div className="w-10 h-10 rounded-full bg-accent-soft text-accent-text flex items-center justify-center text-xs font-semibold shrink-0">
+              {hostInitials}
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs text-fg-muted uppercase tracking-wider font-medium">Host</div>
+              <div className="text-sm font-semibold text-fg truncate">{config.host_name}</div>
+            </div>
+          </div>
+
+          {/* Meeting Title & Meta */}
+          <div className="space-y-2 pt-1">
+            <h1 className="text-lg font-semibold text-fg tracking-tight leading-snug">
+              {displayTitle}
+            </h1>
+
+            <div className="flex flex-col gap-1.5 text-xs text-fg-muted">
+              <div className="flex items-center gap-2">
+                <Clock className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                <span>{config.duration_minutes} min duration</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Video className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                <span>Google Meet, Zoom, Teams or Office</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Description */}
+          <div className="text-xs text-fg-muted leading-relaxed whitespace-pre-line border-t border-border pt-3">
+            {config.description}
+          </div>
+
+          {/* Topic / Purpose Selector: interactive cards forcing selection */}
+          <div className="border-t border-border pt-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold uppercase tracking-wider text-fg-muted block">
+                Purpose / Topic
+              </label>
+              <span className="text-[10px] uppercase font-semibold text-accent bg-accent-soft px-2 py-0.5 rounded-full">
+                Required
+              </span>
+            </div>
+
+            <p className="text-xs text-fg-muted">
+              Please choose a purpose to view availability and schedule your meeting.
+            </p>
+
+            <div className="space-y-2 pt-1">
+              {TOPIC_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleTopicChange(opt.value)}
+                    className="w-full p-3.5 rounded-xl border border-border hover:border-accent hover:bg-accent-soft/30 transition-all text-left flex items-start gap-3.5 group cursor-pointer"
+                  >
+                    <div className="w-9 h-9 rounded-lg bg-surface border border-border flex items-center justify-center shrink-0 group-hover:border-accent group-hover:text-accent transition-colors">
+                      <Icon className="w-4 h-4 text-fg-muted group-hover:text-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-xs font-semibold text-fg group-hover:text-accent flex items-center justify-between">
+                        <span>{opt.label}</span>
+                        <ArrowRight className="w-3.5 h-3.5 text-fg-faint group-hover:text-accent transition-transform group-hover:translate-x-0.5" />
+                      </div>
+                      <div className="text-[11px] text-fg-muted mt-0.5">{opt.description}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Left Column Footer note */}
+          <div className="pt-4 border-t border-border flex items-center gap-2 text-xs text-fg-faint">
+            <ShieldCheck className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+            <span>Mon – Sat (Asia/Karachi PKT)</span>
+          </div>
+        </div>
+      ) : (
+        /* 2. TWO-COLUMN VIEW (after purpose is selected) */
+        <div
+          className={cn(
+            'w-full max-w-[960px] my-auto bg-surface rounded-xl border border-border shadow-xs overflow-visible relative flex flex-col md:flex-row',
+            isEmbed ? 'border border-border' : ''
+          )}
+        >
+          {/* Mobile compact header banner when topic is selected (< md screens) */}
+          <div className="md:hidden border-b border-border p-4 bg-surface flex items-center justify-between">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <BrandMark size={24} />
+              <div className="min-w-0">
+                <div className="text-xs font-semibold text-fg truncate">{config.host_name}</div>
+                <div className="text-[11px] text-fg-muted flex items-center gap-1.5 truncate">
+                  <span>{config.duration_minutes}m</span>
+                  <span>•</span>
+                  <span className="text-accent font-medium truncate">{selectedTopicOption?.label}</span>
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleResetTopic}
+              className="text-xs font-medium text-accent hover:underline px-2.5 py-1 rounded-md bg-accent-soft shrink-0 ml-2 cursor-pointer"
+            >
+              Change
+            </button>
+          </div>
+
+          {/* LEFT COLUMN (Desktop only - 320px on desktop): Meeting summary */}
+          <div className="hidden md:flex md:w-80 md:min-w-[320px] md:max-w-[320px] shrink-0 border-b md:border-b-0 md:border-r border-border p-6 bg-surface flex-col justify-between relative">
             <div className="space-y-5">
               {/* Brand mark + Wordmark */}
               <div className="flex items-center gap-2.5">
@@ -1053,8 +1202,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   : config.description}
               </div>
 
-              {/* Topic / Purpose Selector */}
-              <div className="border-t border-border pt-3 space-y-1.5" ref={topicDropdownRef}>
+              {/* Topic / Purpose Selector: positioned upward so it is never clipped */}
+              <div className="border-t border-border pt-3 space-y-1.5 relative z-30" ref={topicDropdownRef}>
                 <label className="text-xs font-semibold uppercase tracking-wider text-fg-muted block">
                   Purpose / Topic
                 </label>
@@ -1070,8 +1219,10 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     )}
                   >
                     <div className="flex items-center gap-2 min-w-0">
-                      <selectedTopicOption.icon className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-                      <span className="truncate">{selectedTopicOption.label}</span>
+                      {selectedTopicOption && (
+                        <selectedTopicOption.icon className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                      )}
+                      <span className="truncate">{selectedTopicOption?.label || 'Select purpose'}</span>
                     </div>
                     <ChevronDown
                       className={cn('w-3.5 h-3.5 text-fg-muted transition-transform shrink-0', isTopicDropdownOpen && 'rotate-180 text-fg')}
@@ -1079,7 +1230,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   </button>
 
                   {isTopicDropdownOpen && (
-                    <div className="absolute left-0 right-0 top-full mt-1.5 z-50 p-1 rounded-lg bg-surface border border-border shadow-md space-y-0.5">
+                    <div className="absolute left-0 right-0 bottom-full mb-2 z-50 p-1.5 rounded-xl bg-surface border border-border shadow-xl space-y-1">
                       {TOPIC_OPTIONS.map((opt) => {
                         const isSelected = topic === opt.value;
                         const Icon = opt.icon;
@@ -1089,13 +1240,16 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                             type="button"
                             onClick={() => handleTopicChange(opt.value)}
                             className={cn(
-                              'w-full px-2.5 py-2 rounded-md text-left transition-colors flex items-start gap-2.5 cursor-pointer',
+                              'w-full px-2.5 py-2 rounded-lg text-left transition-colors flex items-start gap-2.5 cursor-pointer',
                               isSelected ? 'bg-accent-soft text-accent-text font-medium' : 'hover:bg-hover text-fg'
                             )}
                           >
                             <Icon className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                            <div className="min-w-0">
-                              <div className="text-xs leading-tight font-medium">{opt.label}</div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-xs leading-tight font-medium flex items-center justify-between">
+                                <span>{opt.label}</span>
+                                {isSelected && <Check className="w-3.5 h-3.5 text-accent shrink-0" />}
+                              </div>
                               <div className="text-[10px] text-fg-muted mt-0.5 leading-tight">{opt.description}</div>
                             </div>
                           </button>
@@ -1108,25 +1262,34 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             </div>
 
             {/* Left Column Footer note */}
-            <div className="pt-6 border-t border-border mt-6 flex items-center gap-2 text-xs text-fg-faint">
-              <ShieldCheck className="w-3.5 h-3.5 text-fg-muted shrink-0" />
-              <span>Mon – Sat (Asia/Karachi PKT)</span>
+            <div className="pt-6 border-t border-border mt-6 flex items-center justify-between text-xs text-fg-faint">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+                <span>Mon – Sat (PKT)</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleResetTopic}
+                className="text-[11px] text-fg-muted hover:text-accent hover:underline transition-colors cursor-pointer"
+              >
+                Reset
+              </button>
             </div>
           </div>
 
-          {/* RIGHT COLUMN: Calendar / Form / Confirmation (§ 13.19) */}
-          <div className="flex-1 p-5 sm:p-6 bg-surface overflow-y-auto">
+          {/* RIGHT COLUMN: Calendar / Form / Confirmation */}
+          <div ref={rightColRef} className="flex-1 p-5 sm:p-6 md:p-7 bg-surface overflow-y-auto">
             {/* STEP 1: Date & Time Picker */}
-            {topic !== 'jobs_and_career' && step === 1 && (
-              <div className="space-y-6">
+            {topic !== 'jobs_and_career' && !isStep2 && !isStep3 && (
+              <div className="space-y-5">
                 <div>
-                  <h2 className="text-sm font-semibold text-fg">Select date and time</h2>
+                  <h2 className="text-base font-semibold text-fg tracking-tight">Select date and time</h2>
                   <p className="text-xs text-fg-muted mt-0.5">Choose an available date and time slot for your session.</p>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-                  {/* Calendar Widget */}
-                  <div className="border border-border rounded-lg p-2.5 bg-surface">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+                  {/* Calendar Card */}
+                  <div className="border border-border rounded-xl p-3.5 sm:p-4 bg-surface flex flex-col items-center justify-start shadow-2xs">
                     <Calendar
                       mode="single"
                       selected={selectedDate || undefined}
@@ -1136,73 +1299,86 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                       month={currentMonth}
                       onMonthChange={setCurrentMonth}
                       disabled={(date) => isDateDisabled(date)}
-                      className="p-0 bg-transparent text-fg"
+                      className="p-0 bg-transparent text-fg w-full max-w-[280px]"
                       classNames={{
-                        month_caption: 'flex justify-center pt-0 relative items-center mb-2',
-                        caption_label: 'text-xs font-semibold text-fg',
-                        day: 'h-8 w-8 text-center text-xs p-0 relative',
+                        month_caption: 'flex justify-center pt-0 relative items-center mb-3',
+                        caption_label: 'text-xs font-semibold text-fg tracking-tight',
+                        nav: 'flex items-center gap-1',
+                        button_previous: 'absolute left-0 top-0 h-7 w-7 p-0 flex items-center justify-center rounded-md border border-border bg-surface text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer',
+                        button_next: 'absolute right-0 top-0 h-7 w-7 p-0 flex items-center justify-center rounded-md border border-border bg-surface text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer',
+                        month_grid: 'w-full border-collapse',
+                        weekdays: 'flex justify-between mb-1',
+                        weekday: 'text-fg-muted w-8 h-8 font-medium text-[11px] text-center select-none flex items-center justify-center',
+                        week: 'flex w-full mt-1 justify-between',
+                        day: 'h-8 w-8 text-center text-xs p-0 relative flex items-center justify-center',
                         day_button: cn(
-                          buttonVariants({ variant: 'ghost' }),
-                          'h-8 w-8 p-0 font-medium text-fg aria-selected:opacity-100 hover:bg-hover rounded-md select-none font-numeric'
+                          'h-8 w-8 p-0 font-medium text-fg hover:bg-hover rounded-lg select-none font-numeric flex items-center justify-center transition-colors cursor-pointer',
+                          'disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent'
                         ),
-                        selected: 'bg-accent text-white hover:bg-accent hover:text-white focus:bg-accent focus:text-white rounded-md font-semibold',
-                        disabled: 'text-fg-faint opacity-35 cursor-not-allowed no-underline',
+                        selected: '!bg-accent !text-white rounded-lg font-semibold [&>button]:!text-white [&>button]:!bg-accent [&>button]:font-semibold shadow-xs',
+                        today: 'border border-accent rounded-lg [&>button]:!text-accent [&>button]:font-bold data-[selected=true]:[&>button]:!text-white',
+                        disabled: 'text-fg-faint opacity-35 cursor-not-allowed no-underline [&>button]:cursor-not-allowed [&>button]:text-fg-faint',
+                        outside: 'text-fg-faint opacity-40',
                       }}
                     />
                   </div>
 
-                  {/* Time Slots Column */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between border-b border-border pb-2">
+                  {/* Time Slots Card */}
+                  <div className="border border-border rounded-xl p-3.5 sm:p-4 bg-surface flex flex-col shadow-2xs min-h-[340px]">
+                    <div className="flex items-center justify-between border-b border-border pb-3 mb-3 shrink-0">
                       <div className="text-xs font-semibold text-fg flex items-center gap-1.5">
-                        <Clock className="w-3.5 h-3.5 text-fg-muted" />
+                        <Clock className="w-3.5 h-3.5 text-accent" />
                         <span>Available times</span>
                       </div>
                       {selectedDate && (
-                        <span className="text-xs text-fg-muted font-numeric font-medium">
+                        <span className="text-[11px] font-medium text-accent bg-accent-soft px-2.5 py-0.5 rounded-full font-numeric">
                           {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                         </span>
                       )}
                     </div>
 
                     {loadingSlots ? (
-                      <div className="flex flex-col items-center justify-center p-8 text-fg-muted">
+                      <div className="flex flex-col items-center justify-center flex-1 p-8 text-fg-muted">
                         <Loader2 className="w-5 h-5 animate-spin text-accent mb-2" />
                         <span className="text-xs">Checking availability…</span>
                       </div>
                     ) : slots.length === 0 || !slots.some((s) => s.available) ? (
-                      <div className="flex flex-col items-center justify-center p-8 border border-dashed border-border rounded-lg text-center">
+                      <div className="flex flex-col items-center justify-center flex-1 p-6 border border-dashed border-border rounded-lg text-center">
                         <CalendarIcon className="w-6 h-6 text-fg-faint mb-2" />
                         <p className="text-xs font-medium text-fg">No available slots for this date</p>
                         <p className="text-xs text-fg-muted mt-0.5">Please choose another day on the calendar.</p>
                       </div>
                     ) : (
-                      <div className="grid grid-cols-2 gap-2 max-h-[320px] overflow-y-auto pr-1">
-                        {slots.map((slot) => {
-                          const isSelected = selectedSlot?.time === slot.time;
-                          return (
-                            <button
-                              key={slot.time}
-                              type="button"
-                              disabled={!slot.available}
-                              onClick={() => {
-                                setSelectedSlot(slot);
-                                setStep(2);
-                              }}
-                              className={cn(
-                                'h-10 px-3 rounded-md border text-xs font-medium transition-colors flex items-center justify-between cursor-pointer select-none font-numeric',
-                                isSelected
-                                  ? 'bg-accent text-white border-accent'
-                                  : slot.available
-                                  ? 'border-border text-fg hover:border-border-strong hover:bg-hover'
-                                  : 'border-border/30 text-fg-faint bg-subtle cursor-not-allowed opacity-40'
-                              )}
-                            >
-                              <span>{slot.label}</span>
-                              {slot.available && <ArrowRight className="w-3 h-3 text-fg-muted" />}
-                            </button>
-                          );
-                        })}
+                      <div className="flex-1 max-h-[280px] overflow-y-auto pr-1">
+                        <div className="grid grid-cols-2 gap-2">
+                          {slots.map((slot) => {
+                            const isSelected = selectedSlot?.time === slot.time;
+                            return (
+                              <button
+                                key={slot.time}
+                                type="button"
+                                disabled={!slot.available}
+                                onClick={() => {
+                                  setSelectedSlot(slot);
+                                  setStep(2);
+                                }}
+                                className={cn(
+                                  'h-10 px-3 rounded-lg border text-xs font-medium transition-all flex items-center justify-between cursor-pointer select-none font-numeric group',
+                                  isSelected
+                                    ? 'bg-accent text-white border-accent shadow-xs'
+                                    : slot.available
+                                    ? 'border-border text-fg hover:border-accent hover:bg-accent-soft/20 active:scale-[0.98]'
+                                    : 'border-border/30 text-fg-faint bg-subtle cursor-not-allowed opacity-40'
+                                )}
+                              >
+                                <span>{slot.label}</span>
+                                {slot.available && (
+                                  <ArrowRight className="w-3 h-3 text-fg-muted group-hover:text-accent group-hover:translate-x-0.5 transition-all" />
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1211,51 +1387,55 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             )}
 
             {/* STEP 2: Booking Details Form */}
-            {topic !== 'jobs_and_career' && step === 2 && selectedDate && selectedSlot && (
+            {topic !== 'jobs_and_career' && isStep2 && selectedDate && selectedSlot && (
               <form onSubmit={handleConfirmBooking} noValidate className="space-y-5">
-                {/* Header with Back button */}
+                {/* Header with Back button and Step indicator */}
                 <div className="flex items-center justify-between border-b border-border pb-3">
-                  <div>
-                    <h2 className="text-sm font-semibold text-fg">Enter your details</h2>
-                    <p className="text-xs text-fg-muted mt-0.5">Please provide your contact information and meeting details.</p>
-                  </div>
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="inline-flex items-center gap-1 text-xs text-fg-muted hover:text-fg font-medium transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg font-medium transition-colors cursor-pointer py-1 px-2.5 -ml-2 rounded-lg hover:bg-hover border border-border/60"
                   >
                     <ArrowLeft className="w-3.5 h-3.5" />
-                    <span>Back</span>
+                    <span>Back to date & time</span>
                   </button>
+                  <span className="text-[11px] font-medium text-accent bg-accent-soft px-2.5 py-0.5 rounded-full">
+                    Step 2 of 2
+                  </span>
+                </div>
+
+                <div>
+                  <h2 className="text-base font-semibold text-fg tracking-tight">Enter your details</h2>
+                  <p className="text-xs text-fg-muted mt-0.5">Please provide your contact information to finalize your booking.</p>
                 </div>
 
                 {/* Selected Time Pill */}
-                <div className="flex items-center justify-between p-3 rounded-md bg-subtle border border-border text-xs">
-                  <div className="flex items-center gap-2 text-fg">
+                <div className="flex items-center justify-between p-3 rounded-lg bg-surface border border-border text-xs shadow-2xs">
+                  <div className="flex items-center gap-2 text-fg min-w-0">
                     <CalendarIcon className="w-4 h-4 text-accent shrink-0" />
-                    <span className="font-numeric">
+                    <span className="font-numeric truncate">
                       {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' })}
                       {' at '}
-                      <strong>{selectedSlot.label}</strong> (PKT)
+                      <strong className="text-accent">{selectedSlot.label}</strong> (PKT)
                     </span>
                   </div>
                   <button
                     type="button"
                     onClick={() => setStep(1)}
-                    className="text-xs font-medium text-accent hover:underline cursor-pointer"
+                    className="text-xs font-medium text-accent hover:underline cursor-pointer shrink-0 ml-2"
                   >
                     Change
                   </button>
                 </div>
 
                 {bookingError && (
-                  <div role="alert" className="p-3 rounded-md bg-danger-bg border border-danger-bd text-danger-fg text-xs font-medium">
+                  <div role="alert" className="p-3 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs font-medium">
                     {bookingError}
                   </div>
                 )}
 
                 {isLikelyJobSeeker && (
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-md bg-warning-bg border border-warning-bd text-warning-fg text-xs gap-2">
+                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-3 rounded-lg bg-warning-bg border border-warning-bd text-warning-fg text-xs gap-2">
                     <span>Applying for a job? Please select Jobs &amp; Careers instead of booking a client meeting.</span>
                     <button
                       type="button"
@@ -1267,8 +1447,8 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   </div>
                 )}
 
+                {/* Row 1: Full Name & Work Email */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Full Name */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg flex items-center gap-1.5">
                       <User className="w-3.5 h-3.5 text-fg-muted" />
@@ -1280,13 +1460,18 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                       autoComplete="name"
                       placeholder="e.g. Sarah Jenkins"
                       value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                      onChange={(e) => {
+                        setName(e.target.value);
+                        if (fieldErrors.name) setFieldErrors((prev) => ({ ...prev, name: '' }));
+                      }}
+                      className={cn(
+                        'w-full h-10 px-3 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent transition-colors',
+                        fieldErrors.name ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                      )}
                     />
                     {fieldErrors.name && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.name}</p>}
                   </div>
 
-                  {/* Business Email */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg flex items-center gap-1.5">
                       <Mail className="w-3.5 h-3.5 text-fg-muted" />
@@ -1298,13 +1483,21 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                       autoComplete="email"
                       placeholder="e.g. sarah@company.com"
                       value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (fieldErrors.email) setFieldErrors((prev) => ({ ...prev, email: '' }));
+                      }}
+                      className={cn(
+                        'w-full h-10 px-3 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent transition-colors',
+                        fieldErrors.email ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                      )}
                     />
                     {fieldErrors.email && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.email}</p>}
                   </div>
+                </div>
 
-                  {/* Phone / WhatsApp */}
+                {/* Row 2: Phone & Company */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg flex items-center gap-1.5">
                       <Phone className="w-3.5 h-3.5 text-fg-muted" />
@@ -1318,14 +1511,19 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                         autoComplete="tel"
                         placeholder="300 1234567"
                         value={phone}
-                        onChange={(e) => setPhone(e.target.value)}
-                        className="flex-1 h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent min-w-0 font-mono"
+                        onChange={(e) => {
+                          setPhone(e.target.value);
+                          if (fieldErrors.phone) setFieldErrors((prev) => ({ ...prev, phone: '' }));
+                        }}
+                        className={cn(
+                          'flex-1 h-10 px-3 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent min-w-0 font-mono transition-colors',
+                          fieldErrors.phone ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                        )}
                       />
                     </div>
                     {fieldErrors.phone && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.phone}</p>}
                   </div>
 
-                  {/* Company */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg">
                       <span>Company Name</span> <span className="text-danger-fg">*</span>
@@ -1335,52 +1533,74 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                       autoComplete="organization"
                       placeholder="e.g. Acme Corp"
                       value={company}
-                      onChange={(e) => setCompany(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent"
+                      onChange={(e) => {
+                        setCompany(e.target.value);
+                        if (fieldErrors.company) setFieldErrors((prev) => ({ ...prev, company: '' }));
+                      }}
+                      className={cn(
+                        'w-full h-10 px-3 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent transition-colors',
+                        fieldErrors.company ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                      )}
                     />
                     {fieldErrors.company && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.company}</p>}
                   </div>
+                </div>
 
-                  {/* Industry */}
+                {/* Row 3: Industry & Website */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg">
                       <span>Business Industry</span> <span className="text-danger-fg">*</span>
                     </label>
                     <FormSelect
                       value={industry}
-                      onChange={setIndustry}
+                      onChange={(val) => {
+                        setIndustry(val);
+                        if (fieldErrors.industry) setFieldErrors((prev) => ({ ...prev, industry: '' }));
+                      }}
                       placeholder="Select industry"
                       options={LEAD_INDUSTRIES.map((item) => ({ value: item, label: item }))}
                     />
                     {fieldErrors.industry && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.industry}</p>}
                   </div>
 
-                  {/* Website */}
                   <div className="space-y-1">
-                    <label className="text-xs font-medium text-fg">
-                      <span>Website / URL</span> {!noWebsite && <span className="text-danger-fg">*</span>}
-                    </label>
-                    <input
-                      type="url"
-                      disabled={noWebsite}
-                      placeholder="https://example.com"
-                      value={website}
-                      onChange={(e) => setWebsite(e.target.value)}
-                      className="w-full h-10 px-3 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent disabled:opacity-50"
-                    />
-                    {fieldErrors.website && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.website}</p>}
-                    <div className="pt-1">
-                      <FormOption
-                        checked={noWebsite}
-                        label="No website yet"
-                        onToggle={() => {
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-medium text-fg">
+                        <span>Website / URL</span> {!noWebsite && <span className="text-danger-fg">*</span>}
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => {
                           setNoWebsite((prev) => {
                             if (!prev) setWebsite('');
                             return !prev;
                           });
+                          if (fieldErrors.website) setFieldErrors((prev) => ({ ...prev, website: '' }));
                         }}
-                      />
+                        className={cn(
+                          'text-[11px] transition-colors cursor-pointer select-none',
+                          noWebsite ? 'text-accent font-medium' : 'text-fg-muted hover:text-fg'
+                        )}
+                      >
+                        {noWebsite ? '✓ No website yet' : 'No website yet?'}
+                      </button>
                     </div>
+                    <input
+                      type="url"
+                      disabled={noWebsite}
+                      placeholder={noWebsite ? 'No website (selected)' : 'https://example.com'}
+                      value={website}
+                      onChange={(e) => {
+                        setWebsite(e.target.value);
+                        if (fieldErrors.website) setFieldErrors((prev) => ({ ...prev, website: '' }));
+                      }}
+                      className={cn(
+                        'w-full h-10 px-3 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent disabled:opacity-50 disabled:bg-subtle transition-colors',
+                        fieldErrors.website ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                      )}
+                    />
+                    {fieldErrors.website && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.website}</p>}
                   </div>
                 </div>
 
@@ -1420,22 +1640,24 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   )}
                 </div>
 
+                {/* Row 4: Timeline and Meeting Method */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Start Timeline */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg">
                       <span>Target Start Timeline</span> <span className="text-danger-fg">*</span>
                     </label>
                     <FormSelect
                       value={startTimeline}
-                      onChange={setStartTimeline}
+                      onChange={(val) => {
+                        setStartTimeline(val);
+                        if (fieldErrors.start) setFieldErrors((prev) => ({ ...prev, start: '' }));
+                      }}
                       placeholder="Select timeline"
                       options={LEAD_START_TIMELINES.map((item) => ({ value: item, label: item }))}
                     />
                     {fieldErrors.start && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.start}</p>}
                   </div>
 
-                  {/* Meeting Mode */}
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-fg">
                       <span>Preferred Meeting Method</span> <span className="text-danger-fg">*</span>
@@ -1457,14 +1679,20 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                     rows={3}
                     placeholder="Briefly describe what you are looking to achieve..."
                     value={note}
-                    onChange={(e) => setNote(e.target.value)}
-                    className="w-full p-2.5 rounded-md text-xs bg-surface border border-border text-fg placeholder:text-fg-faint focus:outline-hidden focus:border-border-strong focus:ring-1 focus:ring-accent resize-none leading-relaxed"
+                    onChange={(e) => {
+                      setNote(e.target.value);
+                      if (fieldErrors.note) setFieldErrors((prev) => ({ ...prev, note: '' }));
+                    }}
+                    className={cn(
+                      'w-full p-2.5 rounded-md text-xs bg-surface border text-fg placeholder:text-fg-faint focus:outline-hidden focus:ring-1 focus:ring-accent resize-none leading-relaxed transition-colors',
+                      fieldErrors.note ? 'border-danger-bd' : 'border-border focus:border-border-strong'
+                    )}
                   />
                   {fieldErrors.note && <p role="alert" className="text-xs font-medium text-danger-fg">{fieldErrors.note}</p>}
                 </div>
 
                 {/* Action Buttons */}
-                <div className="flex items-center justify-between pt-2 border-t border-border">
+                <div className="flex items-center justify-between pt-3 border-t border-border mt-6">
                   <button
                     type="button"
                     onClick={() => setStep(1)}
@@ -1476,7 +1704,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
                   <Button
                     type="submit"
                     variant="primary"
-                    className="h-10 px-6"
+                    className="h-10 px-6 font-medium cursor-pointer"
                     loading={submitting}
                     loadingText="Confirming booking…"
                     trailingIcon={ArrowRight}
@@ -1488,7 +1716,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             )}
 
             {/* STEP 3: Confirmation Screen (§ 13.19) */}
-            {topic !== 'jobs_and_career' && step === 3 && bookingResult && (
+            {topic !== 'jobs_and_career' && isStep3 && bookingResult && (
               <div className="text-center py-6 space-y-5">
                 {/* Success Tile */}
                 <div className="w-10 h-10 rounded-full bg-success-bg text-success-fg flex items-center justify-center mx-auto">
@@ -1804,7 +2032,7 @@ export function PublicSchedulerView({ theme = 'light' }: { theme?: 'dark' | 'lig
             )}
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

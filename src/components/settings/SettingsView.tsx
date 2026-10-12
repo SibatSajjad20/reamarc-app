@@ -28,7 +28,6 @@ import { CrmSettingsTemplates } from '@/components/crm/settings/CrmSettingsTempl
 import { CrmSettingsRules } from '@/components/crm/settings/CrmSettingsRules';
 
 // Content Calendar Sections
-import { ContentCalendarDisplaySection } from './sections/ContentCalendarDisplaySection';
 import { ContentCalendarFieldsSection } from './sections/ContentCalendarFieldsSection';
 
 // Performance Marketing Section
@@ -73,8 +72,19 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [setTrail, sectionMeta]);
 
   return (
-    <div className="flex-1 flex flex-col h-full min-w-0 overflow-y-auto bg-canvas">
-      <div className={cn("w-full mx-auto px-4 sm:px-6 py-6 pb-28 space-y-6", currentSection === 'leave-quotas' ? 'max-w-6xl' : 'max-w-[1000px]')}>
+    <div
+      className={cn(
+        "flex-1 flex flex-col h-full min-w-0 bg-canvas",
+        currentSection === 'profile' ? "overflow-y-hidden" : "overflow-y-auto"
+      )}
+    >
+      <div
+        className={cn(
+          "w-full mx-auto px-4 sm:px-6 py-6 space-y-6",
+          currentSection === 'profile' ? "pb-6" : "pb-28",
+          currentSection === 'leave-quotas' ? 'max-w-6xl' : 'max-w-[1000px]'
+        )}
+      >
         <PageHeader
           title={sectionMeta.label}
           description={sectionMeta.description}
@@ -113,9 +123,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           {currentSection === 'message-templates' && <CrmSettingsTemplates />}
           {currentSection === 'lead-routing' && <CrmSettingsRules />}
 
-          {currentSection === 'content-calendar-display' && (
-            <ContentCalendarDisplaySection />
-          )}
           {currentSection === 'content-calendar-fields' && (
             <ContentCalendarFieldsSection />
           )}

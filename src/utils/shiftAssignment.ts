@@ -82,6 +82,11 @@ export function normalizeDateOverrides(rows: DateShiftOverride[]): DateShiftOver
       date: row.date,
       shift_id: row.shift_id || null,
       auto_wfh: row.auto_wfh ?? null,
+      source: row.source,
+      request_id: row.request_id,
+      working_day: row.working_day,
+      custom_start: row.custom_start,
+      custom_end: row.custom_end,
     });
   }
   return out;

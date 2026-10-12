@@ -31,21 +31,21 @@ export function Calendar({
           'absolute right-1 top-1 h-7 w-7 bg-transparent p-0 opacity-70 hover:opacity-100 text-fg-muted'
         ),
         month_grid: 'w-full border-collapse space-y-1',
-        weekdays: 'flex',
-        weekday: 'text-fg-muted rounded-md w-9 font-normal text-xs text-center select-none',
-        week: 'flex w-full mt-1',
-        day: 'h-9 w-9 text-center text-sm p-0 relative focus-within:relative focus-within:z-20',
+        weekdays: 'flex justify-between',
+        weekday: 'text-fg-muted rounded-md w-8 h-8 font-normal text-xs text-center select-none flex items-center justify-center',
+        week: 'flex w-full mt-1 justify-between',
+        day: 'h-8 w-8 text-center text-sm p-0 relative focus-within:relative focus-within:z-20 flex items-center justify-center',
         day_button: cn(
           buttonVariants({ variant: 'ghost' }),
-          'h-9 w-9 p-0 font-normal aria-selected:opacity-100 hover:bg-hover rounded-md select-none font-numeric'
+          'h-8 w-8 p-0 font-normal hover:bg-hover rounded-md select-none font-numeric flex items-center justify-center cursor-pointer transition-colors'
         ),
         range_end: 'range-end',
         selected: cn(
-          'bg-accent text-accent-fg hover:bg-accent hover:text-accent-fg focus:bg-accent focus:text-accent-fg rounded-md'
+          'bg-accent text-white hover:bg-accent hover:text-white focus:bg-accent focus:text-white rounded-md [&>button]:!text-white [&>button]:text-white'
         ),
-        today: 'border border-accent text-accent font-semibold',
+        today: 'border border-accent rounded-md [&>button]:!text-accent [&>button]:font-semibold data-[selected=true]:[&>button]:!text-white',
         outside: 'text-fg-faint opacity-50',
-        disabled: 'text-fg-faint opacity-30 cursor-not-allowed line-through',
+        disabled: 'text-fg-faint opacity-30 cursor-not-allowed line-through [&>button]:cursor-not-allowed',
         range_middle: 'aria-selected:bg-accent-soft aria-selected:text-accent-text rounded-none',
         hidden: 'invisible',
         ...classNames,

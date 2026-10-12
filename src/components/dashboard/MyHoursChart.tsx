@@ -76,6 +76,7 @@ export const MyHoursChart: React.FC<MyHoursChartProps> = ({
             </span>
           </div>
           <SegmentedControl
+            size="sm"
             value={range}
             onValueChange={(val: string) => onRangeChange(val as '7D' | '14D' | '30D')}
             options={[
@@ -83,7 +84,6 @@ export const MyHoursChart: React.FC<MyHoursChartProps> = ({
               { value: '14D', label: '14D' },
               { value: '30D', label: '30D' },
             ]}
-            className="h-7 text-xs"
           />
         </div>
       </div>

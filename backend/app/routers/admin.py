@@ -67,8 +67,25 @@ def _format_member_resp(doc: dict) -> dict:
         role_val = UserRole.TEAM_MEMBER
 
     dept = doc.get("department")
-    if role_val in (UserRole.ADMIN, UserRole.HR, UserRole.OPERATIONS):
+    if role_val in (UserRole.ADMIN, UserRole.OPERATIONS):
         dept = "All"
+        depts = ["All"]
+    elif role_val == UserRole.HR:
+        dept = "HR"
+        depts = ["HR"]
+    elif role_val == UserRole.CLIENT:
+        dept = None
+        depts = []
+    else:
+        depts = (
+            [str(d).strip() for d in doc.get("departments") if d and str(d).strip()]
+            if isinstance(doc.get("departments"), list) and doc.get("departments")
+            else (
+                [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept, flags=re.IGNORECASE) if p.strip()]
+                if dept and dept not in ("All", "Unassigned")
+                else ([dept] if dept else [])
+            )
+        )
 
     raw_emp = str(doc.get("employment_type") or EmploymentType.CONTRACT.value).lower()
     try:
@@ -83,15 +100,7 @@ def _format_member_resp(doc: dict) -> dict:
         "role": role_val,
         "phone": member_phone_from_doc(doc),
         "department": dept,
-        "departments": (
-            [str(d).strip() for d in doc.get("departments") if d and str(d).strip()]
-            if isinstance(doc.get("departments"), list) and doc.get("departments")
-            else (
-                [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept, flags=re.IGNORECASE) if p.strip()]
-                if dept and dept not in ("All", "Unassigned")
-                else ([dept] if dept else [])
-            )
-        ),
+        "departments": depts,
         "joining_date": doc.get("joining_date"),
         "employment_type": employment_type,
         "probation_start_date": doc.get("probation_start_date"),
@@ -510,13 +519,16 @@ async def create_member(
     )
     hashed_pwd = get_password_hash(raw_pwd)
 
-    # Auto set department: "All" for Admin/Operations, "HR" for HR
+    # Auto set department: "All" for Admin/Operations, "HR" for HR, None for Client
     if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
         dept_val = "All"
         depts_list = ["All"]
     elif member_in.role == UserRole.HR:
-        dept_val = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
-        depts_list = [dept_val]
+        dept_val = "HR"
+        depts_list = ["HR"]
+    elif member_in.role == UserRole.CLIENT:
+        dept_val = None
+        depts_list = []
     else:
         if member_in.departments and len(member_in.departments) > 0:
             depts_list = [d.strip() for d in member_in.departments if d and d.strip()]
@@ -542,7 +554,7 @@ async def create_member(
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
         "departments": depts_list,
-        "joining_date": member_in.joining_date.strip(),
+        "joining_date": member_in.joining_date.strip() if member_in.joining_date else None,
         "employment_type": member_in.employment_type.value,
         "probation_start_date": member_in.probation_start_date,
         "probation_end_date": member_in.probation_end_date,
@@ -629,21 +641,22 @@ async def update_member(
         elif member_in.role == UserRole.HR:
             update_fields["department"] = "HR"
             update_fields["departments"] = ["HR"]
-    if member_in.departments is not None:
-        cleaned_depts = [d.strip() for d in member_in.departments if d and d.strip()]
-        update_fields["departments"] = cleaned_depts
-        if member_in.department is None:
-            update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
-    if member_in.department is not None:
-        target_role = member_in.role.value if member_in.role else existing_user.get("role")
-        if target_role in ("admin", "operations", UserRole.ADMIN.value, UserRole.OPERATIONS.value):
-            update_fields["department"] = "All"
-            update_fields["departments"] = ["All"]
-        elif target_role in ("hr", UserRole.HR.value):
-            dept_val = member_in.department.strip() if (member_in.department and member_in.department != "All") else "HR"
-            update_fields["department"] = dept_val
-            update_fields["departments"] = [dept_val]
-        else:
+        elif member_in.role == UserRole.CLIENT:
+            update_fields["department"] = None
+            update_fields["departments"] = []
+
+    target_role = member_in.role.value if member_in.role else existing_user.get("role")
+    is_special_role = target_role in (
+        "admin", "operations", "hr", "client",
+        UserRole.ADMIN.value, UserRole.OPERATIONS.value, UserRole.HR.value, UserRole.CLIENT.value
+    )
+    if not is_special_role:
+        if member_in.departments is not None:
+            cleaned_depts = [d.strip() for d in member_in.departments if d and d.strip()]
+            update_fields["departments"] = cleaned_depts
+            if member_in.department is None:
+                update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
+        if member_in.department is not None:
             cleaned_str = member_in.department.strip()
             update_fields["department"] = cleaned_str
             if member_in.departments is None:
@@ -666,7 +679,7 @@ async def update_member(
     elif member_in.role is not None:
         update_fields["workspace_ids"] = []
     if member_in.joining_date is not None:
-        update_fields["joining_date"] = member_in.joining_date.strip()
+        update_fields["joining_date"] = member_in.joining_date.strip() if member_in.joining_date else None
     if member_in.employment_type is not None:
         update_fields["employment_type"] = member_in.employment_type.value
         if member_in.employment_type == EmploymentType.CONTRACT:

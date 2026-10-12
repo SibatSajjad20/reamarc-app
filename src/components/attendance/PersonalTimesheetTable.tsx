@@ -492,9 +492,23 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
                     {/* Shift */}
                     <td className="py-2 px-3 text-fg-muted whitespace-nowrap">
-                      {isHoliday
-                        ? record?.shift_name || record?.notes || 'Public holiday'
-                        : record?.shift_name || (isSunday ? 'Sunday rest' : isFirstSaturday ? '1st Sat rest' : defaultShiftName)}
+                      <div className="flex items-center gap-1.5">
+                        <span>
+                          {isHoliday
+                            ? record?.shift_name || record?.notes || 'Public holiday'
+                            : record?.shift_name || (isSunday ? 'Sunday rest' : isFirstSaturday ? '1st Sat rest' : defaultShiftName)}
+                        </span>
+                        {record?.shift_changed && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                            Shift changed
+                          </span>
+                        )}
+                        {record?.shift_change_status === 'pending' && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                            Pending
+                          </span>
+                        )}
+                      </div>
                     </td>
 
                     {/* Punch In */}

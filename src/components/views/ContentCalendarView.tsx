@@ -31,6 +31,7 @@ import { ContentCalendarDrawer } from '../content-calendar/ContentCalendarDrawer
 import { ContentCalendarModal } from '../content-calendar/ContentCalendarModal';
 import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarImportModal';
 import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
+import { ContentCalendarDisplayPopover } from '../content-calendar/ContentCalendarDisplayPopover';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { CustomSelect } from '../ui/CustomSelect';
 import { SegmentedControl } from '../ui/SegmentedControl';
@@ -233,7 +234,7 @@ export const ContentCalendarView: React.FC = () => {
   const [editingItem, setEditingItem] = useState<ContentCalendarItem | null>(null);
 
   // Zoom & Row Height Display Preferences
-  const [zoomLevel] = useState<number>(() => {
+  const [zoomLevel, setZoomLevel] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_zoom');
       if (saved) {
@@ -244,7 +245,7 @@ export const ContentCalendarView: React.FC = () => {
     return DEFAULT_ZOOM;
   });
 
-  const [defaultRowHeight] = useState<number>(() => {
+  const [defaultRowHeight, setDefaultRowHeight] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('reamarc_cc_row_height');
       if (saved) {
@@ -255,7 +256,41 @@ export const ContentCalendarView: React.FC = () => {
     return DEFAULT_ROW_HEIGHT;
   });
 
-  const [rowHeightsResetKey] = useState<number>(0);
+  const [rowHeightsResetKey, setRowHeightsResetKey] = useState<number>(0);
+
+  const handleZoomChange = (nextZoom: number) => {
+    const clamped = Math.max(75, Math.min(125, nextZoom));
+    setZoomLevel(clamped);
+    try {
+      localStorage.setItem('reamarc_cc_zoom', String(clamped));
+      window.dispatchEvent(new Event('storage'));
+    } catch {}
+  };
+
+  const handleRowHeightChange = (nextHeight: number) => {
+    const clamped = Math.max(28, Math.min(80, nextHeight));
+    setDefaultRowHeight(clamped);
+    try {
+      localStorage.setItem('reamarc_cc_row_height', String(clamped));
+      window.dispatchEvent(new Event('storage'));
+    } catch {}
+  };
+
+  const handleResetRowHeights = () => {
+    try {
+      localStorage.removeItem('reamarc_cc_row_heights');
+      window.dispatchEvent(new Event('storage'));
+    } catch {}
+    setRowHeightsResetKey((k) => k + 1);
+    addToast('Row heights reset', 'Manual row height adjustments cleared.', 'success');
+  };
+
+  const handleResetDisplayDefaults = () => {
+    handleZoomChange(100);
+    handleRowHeightChange(40);
+    handleResetRowHeights();
+    addToast('Display reset', 'Display options reset to 100% zoom and 40px row height.', 'info');
+  };
 
   // Export / Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -596,6 +631,18 @@ export const ContentCalendarView: React.FC = () => {
                 <Upload className="w-3.5 h-3.5 mr-1" />
                 <span>Import</span>
               </Button>
+
+              {/* Display Options (Sheet view only) */}
+              {viewMode === 'table' && (
+                <ContentCalendarDisplayPopover
+                  zoomLevel={zoomLevel}
+                  onZoomChange={handleZoomChange}
+                  defaultRowHeight={defaultRowHeight}
+                  onRowHeightChange={handleRowHeightChange}
+                  onResetRowHeights={handleResetRowHeights}
+                  onResetDefaults={handleResetDisplayDefaults}
+                />
+              )}
 
             </div>
           </div>

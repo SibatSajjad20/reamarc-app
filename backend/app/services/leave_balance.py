@@ -293,7 +293,13 @@ async def _in_app_usage(user_id: str, year: int) -> tuple[float, float, float, f
         apply_daily_calc_fields,
     )
     assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
-    all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
+    override_ids = [
+        ov.get("shift_id")
+        for ov in ((assignment or {}).get("date_overrides") or [])
+        if ov.get("shift_id")
+    ]
+    shift_q = {"$or": [{"is_active": True}, {"id": {"$in": override_ids}}]} if override_ids else {"is_active": True}
+    all_shifts = await db.shifts.find(shift_q, {"_id": 0}).to_list(200)
     shifts_by_id = {s["id"]: s for s in all_shifts}
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
     assigned_shift_id = (assignment or {}).get("shift_id")
@@ -443,7 +449,7 @@ async def list_balances(year: Optional[int] = None) -> List[LeaveBalanceResponse
             "work_hours": 1,
         },
     ).to_list(10000)
-    shift_task = db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
+    shift_task = db.shifts.find({}, {"_id": 0}).to_list(500)
     asgn_task = db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
 
     off_index, bal_docs, req_docs, att_docs, all_shifts, all_assignments = await asyncio.gather(

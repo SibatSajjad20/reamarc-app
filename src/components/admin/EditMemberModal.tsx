@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Shield,
 } from 'lucide-react';
 import { FormDialog, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
@@ -13,6 +14,7 @@ import { Button, IconButton } from '../ui/button';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { ToggleSwitch } from '../ui/ToggleSwitch';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { CustomSelect } from '../ui/CustomSelect';
 import type { UserRole } from '../../types/auth';
 import type { AdminMember, EmploymentType, UpdateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
@@ -76,7 +78,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isActive, setIsActive] = useState(true);
   const [copied, setCopied] = useState(false);
-  const [workspaceIds, setWorkspaceIds] = useState<string[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string>('');
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -103,7 +105,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setPassword('');
       setShowPassword(false);
       setIsActive(member.is_active !== undefined ? member.is_active : true);
-      setWorkspaceIds(member.workspace_ids || []);
+      setSelectedWorkspaceId(member.workspace_ids?.[0] || '');
       setCopied(false);
       setFieldErrors({});
       setServerError(null);
@@ -140,12 +142,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     );
   };
 
-  const handleSelectClient = (client: Workspace) => {
-    setWorkspaceIds((prev) =>
-      prev.includes(client.id) ? prev.filter((id) => id !== client.id) : [...prev, client.id]
-    );
-  };
-
   const validate = (): Record<string, string> => {
     const errs: Record<string, string> = {};
     if (!fullName.trim()) {
@@ -159,10 +155,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     if (phone.trim() && !normalizedPhone) {
       errs.phone = 'Invalid phone number format';
     }
-    if (role === 'client' && workspaceIds.length === 0) {
-      errs.workspaceIds = 'Please select at least one client workspace to link';
+    if (role === 'client' && !selectedWorkspaceId) {
+      errs.workspaceId = 'Please select a client workspace';
     }
-    if (role !== 'client' && selectedDepartments.length === 0 && role !== 'admin' && role !== 'operations') {
+    if (role !== 'client' && role !== 'admin' && role !== 'operations' && role !== 'hr' && selectedDepartments.length === 0) {
       errs.departments = 'Please select at least one department';
     }
     return errs;
@@ -187,6 +183,23 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     const normalizedEmail = email.trim().toLowerCase();
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
 
+    let deptValue: string | undefined = undefined;
+    let deptsList: string[] = [];
+
+    if (role === 'client') {
+      deptValue = undefined;
+      deptsList = [];
+    } else if (role === 'hr') {
+      deptValue = 'HR';
+      deptsList = ['HR'];
+    } else if (role === 'operations' || role === 'admin') {
+      deptValue = 'All';
+      deptsList = ['All'];
+    } else {
+      deptValue = selectedDepartments[0] || 'Website';
+      deptsList = selectedDepartments;
+    }
+
     try {
       setIsSubmitting(true);
       const payload: UpdateMemberPayload = {
@@ -194,12 +207,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         email: normalizedEmail,
         phone: normalizedPhone,
         role,
-        department: selectedDepartments[0] || 'Website',
-        departments: selectedDepartments,
+        department: deptValue,
+        departments: deptsList,
         joining_date: role === 'client' ? null : joiningDate.trim() || null,
         employment_type: role === 'client' ? 'contract' : employmentType,
         is_active: isActive,
-        workspace_ids: role === 'client' ? workspaceIds : [],
+        workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
       };
       if (password.trim()) {
         payload.password = password.trim();
@@ -320,15 +333,17 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               )}
             </div>
 
-            <div>
-              <label className="block text-ui font-medium text-fg mb-1.5">
-                Joining date
-              </label>
-              <CustomDatePicker
-                value={joiningDate}
-                onChange={setJoiningDate}
-              />
-            </div>
+            {role !== 'client' && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Joining date
+                </label>
+                <CustomDatePicker
+                  value={joiningDate}
+                  onChange={setJoiningDate}
+                />
+              </div>
+            )}
           </div>
 
           {/* Row 3: Role (2-column RadioCards) */}
@@ -368,43 +383,45 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             </div>
           </div>
 
-          {/* Row 4: Client Workspaces picker (when role is client) */}
+          {/* Row 4: Client Workspace picker (when role is client) */}
           {role === 'client' && (
             <div>
-              <label className="block text-ui font-medium text-fg mb-1">
-                Linked workspaces <span className="text-danger-fg">*</span>
+              <label className="block text-ui font-medium text-fg mb-1.5">
+                Client workspace <span className="text-danger-fg">*</span>
               </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-36 overflow-y-auto p-1">
-                {activeClients.map((client) => {
-                  const selected = workspaceIds.includes(client.id);
-                  return (
-                    <button
-                      key={client.id}
-                      type="button"
-                      onClick={() => handleSelectClient(client)}
-                      className={`p-2.5 rounded-md text-xs border text-left cursor-pointer transition flex items-center justify-between ${
-                        selected
-                          ? 'bg-accent-soft border-accent text-accent-text font-medium'
-                          : 'bg-surface border-border text-fg hover:bg-hover'
-                      }`}
-                    >
-                      <span className="truncate">{client.name}</span>
-                      {selected && <Check className="w-3.5 h-3.5 text-accent shrink-0 ml-2" />}
-                    </button>
-                  );
-                })}
-              </div>
-              {fieldErrors.workspaceIds && (
+              {activeClients.length === 0 ? (
+                <p className="text-ui text-warning-fg">No active client workspaces found. Please create a client workspace first.</p>
+              ) : (
+                <CustomSelect
+                  value={selectedWorkspaceId}
+                  onChange={(val) => {
+                    setSelectedWorkspaceId(val);
+                    if (hasSubmitted && val) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.workspaceId; return n; });
+                    }
+                  }}
+                  options={activeClients.map((client) => ({
+                    value: client.id,
+                    label: client.name,
+                  }))}
+                  placeholder="Select client workspace..."
+                  aria-invalid={!!fieldErrors.workspaceId}
+                />
+              )}
+              <p className="text-caption text-fg-muted mt-1.5">
+                Select the client workspace this account is being created for. Only one workspace can be selected.
+              </p>
+              {fieldErrors.workspaceId && (
                 <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{fieldErrors.workspaceIds}</span>
+                  <span>{fieldErrors.workspaceId}</span>
                 </div>
               )}
             </div>
           )}
 
           {/* Row 5: Departments multi-select (when role is internal) */}
-          {role !== 'client' && (
+          {role !== 'client' && role !== 'operations' && role !== 'hr' && role !== 'admin' && (
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
                 Departments <span className="text-fg-muted font-normal">· select one or more</span>
@@ -443,22 +460,39 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
             </div>
           )}
 
-          {/* Row 6: Employment type + Account Status */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
-            <div>
-              <label className="block text-ui font-medium text-fg mb-1.5">
-                Employment type
-              </label>
-              <SegmentedControl
-                size="sm"
-                value={employmentType}
-                onValueChange={(val) => setEmploymentType(val as EmploymentType)}
-                options={[
-                  { value: 'probation', label: 'Probation' },
-                  { value: 'contract', label: 'Contract' },
-                ]}
-              />
+          {/* Informational banners for HR and Operations */}
+          {role === 'hr' && (
+            <div className="p-3 rounded-lg bg-surface border border-border text-fg text-ui flex items-center gap-2.5">
+              <Shield className="w-4 h-4 text-accent shrink-0" />
+              <span>HR role has global access across all departments for logs and attendance.</span>
             </div>
+          )}
+
+          {role === 'operations' && (
+            <div className="p-3 rounded-lg bg-surface border border-border text-fg text-ui flex items-center gap-2.5">
+              <Shield className="w-4 h-4 text-accent shrink-0" />
+              <span>Operations role has global access across all departments and workspaces.</span>
+            </div>
+          )}
+
+          {/* Row 6: Employment type + Account Status */}
+          <div className={role === 'client' ? 'pt-1' : 'grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1'}>
+            {role !== 'client' && (
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Employment type
+                </label>
+                <SegmentedControl
+                  size="sm"
+                  value={employmentType}
+                  onValueChange={(val) => setEmploymentType(val as EmploymentType)}
+                  options={[
+                    { value: 'probation', label: 'Probation' },
+                    { value: 'contract', label: 'Contract' },
+                  ]}
+                />
+              </div>
+            )}
 
             <div className="flex flex-col justify-end">
               <label className="block text-ui font-medium text-fg mb-1.5">

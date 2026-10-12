@@ -16,6 +16,7 @@ import {
   HelpCircle,
   Eye,
   MoreVertical,
+  ArrowLeftRight,
 } from 'lucide-react';
 import type { AttendanceRequest, RequestStatus } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
@@ -125,7 +126,8 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
         (typeFilter === 'short_leave' && req.request_type === 'short_leave') ||
         (typeFilter === 'wfh' && req.request_type === 'wfh') ||
         (typeFilter === 'regularization' && req.request_type === 'regularization') ||
-        (typeFilter === 'overtime' && req.request_type === 'overtime');
+        (typeFilter === 'overtime' && req.request_type === 'overtime') ||
+        (typeFilter === 'shift_change' && req.request_type === 'shift_change');
 
       const matchesStatus =
         statusFilter === 'All' || req.status.toLowerCase() === statusFilter.toLowerCase();
@@ -366,6 +368,17 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
             {req.overtime_minutes ? ` (+${String(Math.floor(req.overtime_minutes / 60)).padStart(2, '0')}:${String(req.overtime_minutes % 60).padStart(2, '0')})` : ''}
           </span>
         );
+      case 'shift_change':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium bg-purple-50 text-purple-700 border border-purple-200 dark:bg-purple-950/40 dark:text-purple-300 dark:border-purple-800">
+            <ArrowLeftRight className="w-3 h-3" /> Shift change
+            {req.same_day ? (
+              <span className="ml-1 px-1 py-0.2 rounded text-[10px] font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200">
+                Same day
+              </span>
+            ) : null}
+          </span>
+        );
       default:
         return null;
     }
@@ -438,6 +451,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                 { value: 'wfh', label: 'Type: WFH' },
                 { value: 'regularization', label: 'Type: Correction' },
                 { value: 'overtime', label: 'Type: Overtime' },
+                { value: 'shift_change', label: 'Type: Shift change' },
               ]}
             />
           </div>
@@ -601,6 +615,19 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                             <p className="font-semibold">{req.start_date}</p>
                             <p className="text-xs text-fg-muted font-numeric">
                               Shift end {req.shift_end || '—'} → Out {req.check_out || '—'}
+                            </p>
+                          </div>
+                        ) : req.request_type === 'shift_change' ? (
+                          <div>
+                            <p className="font-semibold">
+                              {req.shift_change_dates && req.shift_change_dates.length > 1
+                                ? `${req.shift_change_dates[0]} to ${req.shift_change_dates[req.shift_change_dates.length - 1]} (${req.shift_change_dates.length} days)`
+                                : req.start_date}
+                            </p>
+                            <p className="text-xs text-fg-muted">
+                              {req.requested?.shift_name || (req.requested?.start && req.requested?.end ? `${req.requested.start} – ${req.requested.end}` : 'Custom shift')}
+                              {' · '}
+                              <span className="capitalize">{req.shift_change_location || 'Office'}</span>
                             </p>
                           </div>
                         ) : req.start_date === req.end_date ? (

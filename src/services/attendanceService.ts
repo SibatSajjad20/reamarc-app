@@ -23,6 +23,7 @@ import type {
   LeaveBalance,
   AttendanceConfig,
   ShiftAssignment,
+  ShiftChangePreviewResponse,
 } from '../types/attendance';
 
 export interface AttendanceCacheEntry<T> {
@@ -334,6 +335,53 @@ class AttendanceService {
     this.requestsCache.clear();
     emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
     return res;
+  }
+
+  /**
+   * Preview a Shift Change request before submission
+   */
+  public async getShiftChangePreview(params: {
+    dates: string[];
+    shift_id?: string;
+    location?: string;
+    custom_start?: string;
+    custom_end?: string;
+    overnight?: boolean;
+  }): Promise<ShiftChangePreviewResponse> {
+    const query = new URLSearchParams();
+    query.set('dates', params.dates.join(','));
+    if (params.shift_id) query.set('shift_id', params.shift_id);
+    if (params.location) query.set('location', params.location);
+    if (params.custom_start) query.set('custom_start', params.custom_start);
+    if (params.custom_end) query.set('custom_end', params.custom_end);
+    if (params.overnight) query.set('overnight', 'true');
+    return apiClient.get<ShiftChangePreviewResponse>(`/leaves/shift-change/preview?${query.toString()}`);
+  }
+
+  /**
+   * Cancel an approved or pending shift change request (or specific dates)
+   */
+  public async cancelShiftChange(requestId: string, dates?: string[]): Promise<boolean> {
+    const query = dates && dates.length > 0 ? `?dates=${dates.join(',')}` : '';
+    const res = await apiClient.delete<{ success: boolean }>(`/leaves/requests/${requestId}${query}`);
+    this.requestsCache.clear();
+    this.matrixCache.clear();
+    this.monthlySummaryCache.clear();
+    this.employeeTimesheetCache.clear();
+    emitInvalidation(['requests', 'approvals', 'attendance', 'dashboard', 'notifications']);
+    return res.success;
+  }
+
+  /**
+   * Get the current user's approved working-day override dates (ISO strings)
+   */
+  public async getMyWorkingOverrides(): Promise<string[]> {
+    try {
+      const res = await apiClient.get<string[]>('/attendance/my-working-overrides');
+      return Array.isArray(res) ? res : [];
+    } catch {
+      return [];
+    }
   }
 
   /**

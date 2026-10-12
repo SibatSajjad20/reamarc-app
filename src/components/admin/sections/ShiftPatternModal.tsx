@@ -224,6 +224,7 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
               <div className="space-y-1 pt-1">
                 {overrides.map((row) => {
                   const shift = shifts.find((s) => s.id === row.shift_id);
+                  const isFromRequest = row.source === 'shift_change';
                   return (
                     <div
                       key={row.date}
@@ -231,8 +232,13 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
                     >
                       <div className="flex items-center gap-2">
                         <span className="text-fg font-medium">
-                          {row.date} · {shift?.name || 'Default shift'}
+                          {row.date} · {shift?.name || (row.custom_start && row.custom_end ? `Custom (${row.custom_start} - ${row.custom_end})` : 'Default shift')}
                         </span>
+                        {isFromRequest && (
+                          <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                            From request
+                          </span>
+                        )}
                         {row.auto_wfh === true && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-accent-soft text-accent-text border border-accent-pill-bd">
                             WFH
@@ -244,14 +250,18 @@ export const ShiftPatternModal: React.FC<ShiftPatternModalProps> = ({
                           </span>
                         )}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => setOverrides((prev) => prev.filter((item) => item.date !== row.date))}
-                        className="text-fg-muted hover:text-danger-fg transition-colors p-1"
-                        aria-label="Remove override"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {isFromRequest ? (
+                        <span className="text-[10px] text-fg-muted italic pr-1">Read-only</span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setOverrides((prev) => prev.filter((item) => item.date !== row.date))}
+                          className="text-fg-muted hover:text-danger-fg transition-colors p-1"
+                          aria-label="Remove override"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      )}
                     </div>
                   );
                 })}

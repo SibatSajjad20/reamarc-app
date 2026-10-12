@@ -7,10 +7,10 @@ from app.models.attendance import LeaveType, LeaveStatus
 
 
 class LeaveCreateRequest(BaseModel):
-    leave_type: LeaveType = Field(..., description="Type of request: sick, casual, annual, unpaid, wfh, short_leave, missed_punch_regularization, overtime")
-    start_date: str = Field(..., description="Start date of leave or event in YYYY-MM-DD format")
-    end_date: str = Field(..., description="End date of leave or event in YYYY-MM-DD format")
-    reason: str = Field(..., description="Detailed explanation or justification for the request")
+    leave_type: LeaveType = Field(..., description="Type of request: sick, casual, annual, unpaid, wfh, short_leave, missed_punch_regularization, overtime, shift_change")
+    start_date: Optional[str] = Field(default=None, description="Start date of leave or event in YYYY-MM-DD format")
+    end_date: Optional[str] = Field(default=None, description="End date of leave or event in YYYY-MM-DD format")
+    reason: Optional[str] = Field(default="", description="Detailed explanation or justification for the request")
     
     # Specific fields for Short Leave (1 - 3 hours)
     short_leave_hours: Optional[float] = Field(default=None, ge=0.5, le=4.0, description="Duration in hours for short leave (1.0 to 3.0)")
@@ -29,6 +29,14 @@ class LeaveCreateRequest(BaseModel):
     shift_end: Optional[str] = Field(default=None, description="Assigned shift end HH:MM")
     check_out: Optional[str] = Field(default=None, description="Actual checkout HH:MM")
 
+    # Specific fields for Shift Change
+    shift_change_dates: Optional[List[str]] = Field(default=None, description="1-14 dates: single day or contiguous range")
+    shift_change_location: Optional[str] = Field(default="office", description="'office' | 'wfh'")
+    shift_change_shift_id: Optional[str] = Field(default=None, description="Shift template id")
+    shift_change_custom_start: Optional[str] = Field(default=None, description="Custom start HH:MM")
+    shift_change_custom_end: Optional[str] = Field(default=None, description="Custom end HH:MM")
+    shift_change_overnight: Optional[bool] = Field(default=False, description="Overnight flag for custom times")
+
     @model_validator(mode="before")
     @classmethod
     def normalize_incoming_fields(cls, data: Any) -> Any:
@@ -43,7 +51,7 @@ class LeaveCreateRequest(BaseModel):
             data["leave_type"] = LeaveType.MISSED_PUNCH_REGULARIZATION.value
         elif req_type == "leave":
             data["leave_type"] = category or LeaveType.CASUAL.value
-        elif req_type in ("wfh", "short_leave", "sick", "casual", "annual", "unpaid", "overtime"):
+        elif req_type in ("wfh", "short_leave", "sick", "casual", "annual", "unpaid", "overtime", "shift_change"):
             data["leave_type"] = req_type
 
         # 2. Normalize regularization check-in / check-out aliases
@@ -63,6 +71,20 @@ class LeaveCreateRequest(BaseModel):
             except Exception:
                 pass
 
+        # 4. Normalize shift_change start_date/end_date if omitted but shift_change_dates provided
+        raw_lt = data.get("leave_type")
+        lt_str = getattr(raw_lt, "value", str(raw_lt) if raw_lt is not None else "")
+        req_type_str = str(data.get("request_type") or "")
+        if "shift_change" in (lt_str.lower(), req_type_str.lower()):
+            sc_dates = data.get("shift_change_dates")
+            if sc_dates and isinstance(sc_dates, list) and len(sc_dates) > 0:
+                s_dates = sorted([str(d) for d in sc_dates if d])
+                if s_dates:
+                    if not data.get("start_date"):
+                        data["start_date"] = s_dates[0]
+                    if not data.get("end_date"):
+                        data["end_date"] = s_dates[-1]
+
         data.pop("user_id", None)
         data.pop("status", None)
         data.pop("is_approved", None)
@@ -75,6 +97,17 @@ class LeaveCreateRequest(BaseModel):
     def validate_dates_and_times(self) -> "LeaveCreateRequest":
         from app.services.workdays import parse_iso_date
         import re as _re
+
+        lt = self.leave_type.value if isinstance(self.leave_type, LeaveType) else str(self.leave_type)
+        is_sc = lt == LeaveType.SHIFT_CHANGE.value
+
+        if is_sc and self.shift_change_dates:
+            sorted_dates = sorted([str(d) for d in self.shift_change_dates if d])
+            if sorted_dates:
+                if not self.start_date:
+                    self.start_date = sorted_dates[0]
+                if not self.end_date:
+                    self.end_date = sorted_dates[-1]
 
         def _iso(field: str, value: Optional[str], required: bool = False) -> Optional[str]:
             if value is None or value == "":
@@ -93,8 +126,8 @@ class LeaveCreateRequest(BaseModel):
                 raise ValueError(f"{field} must be HH:MM (24-hour)")
             return str(value).strip()
 
-        self.start_date = _iso("start_date", self.start_date, required=True) or self.start_date
-        self.end_date = _iso("end_date", self.end_date, required=True) or self.end_date
+        self.start_date = _iso("start_date", self.start_date, required=not is_sc) or self.start_date
+        self.end_date = _iso("end_date", self.end_date, required=not is_sc) or self.end_date
         self.regularization_date = _iso("regularization_date", self.regularization_date)
         self.overtime_date = _iso("overtime_date", self.overtime_date)
         self.short_leave_start_time = _hhmm("short_leave_start_time", self.short_leave_start_time)
@@ -105,6 +138,13 @@ class LeaveCreateRequest(BaseModel):
         self.original_check_out = _hhmm("original_check_out", self.original_check_out)
         self.shift_end = _hhmm("shift_end", self.shift_end)
         self.check_out = _hhmm("check_out", self.check_out)
+        self.shift_change_custom_start = _hhmm("shift_change_custom_start", self.shift_change_custom_start)
+        self.shift_change_custom_end = _hhmm("shift_change_custom_end", self.shift_change_custom_end)
+
+        lt = self.leave_type.value if isinstance(self.leave_type, LeaveType) else str(self.leave_type)
+        if lt != LeaveType.SHIFT_CHANGE.value and not (self.reason and self.reason.strip()):
+            raise ValueError("reason is required for leave requests")
+
         return self
 
 
@@ -157,6 +197,28 @@ class LeaveStatusEditRequest(BaseModel):
     reason: str = Field(..., min_length=3, description="Mandatory reason for modifying the status")
 
 
+class ShiftScheduleDetail(BaseModel):
+    date: str
+    shift_id: Optional[str] = None
+    shift_name: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    auto_wfh: bool = False
+    is_rest_day: bool = False
+    rest_reason: Optional[str] = None
+
+
+class ShiftRequestedDetail(BaseModel):
+    shift_id: Optional[str] = None
+    shift_name: Optional[str] = None
+    start: Optional[str] = None
+    end: Optional[str] = None
+    location: str = "office"
+    break_duration_minutes: int = 60
+    expected_hours: float = 8.0
+    is_night_shift: bool = False
+
+
 class LeaveResponse(BaseModel):
     id: str
     user_id: str
@@ -168,7 +230,7 @@ class LeaveResponse(BaseModel):
     leave_category: Optional[str] = None
     start_date: str
     end_date: str
-    reason: str
+    reason: Optional[str] = ""
     status: LeaveStatus = LeaveStatus.PENDING
     short_leave_hours: Optional[float] = None
     short_leave_duration_hours: Optional[float] = None
@@ -188,6 +250,17 @@ class LeaveResponse(BaseModel):
     overtime_minutes: Optional[int] = None
     shift_end: Optional[str] = None
     check_out: Optional[str] = None
+    shift_change_dates: Optional[List[str]] = None
+    shift_change_location: Optional[str] = None
+    shift_change_shift_id: Optional[str] = None
+    shift_change_custom_start: Optional[str] = None
+    shift_change_custom_end: Optional[str] = None
+    shift_change_overnight: Optional[bool] = None
+    current_schedule: Optional[List[ShiftScheduleDetail]] = None
+    requested: Optional[ShiftRequestedDetail] = None
+    same_day: Optional[bool] = None
+    applied_at: Optional[str] = None
+    cancelled_dates: Optional[List[str]] = None
     reviewed_by_id: Optional[str] = None
     reviewed_by_name: Optional[str] = None
     review_comments: Optional[str] = None
@@ -238,3 +311,18 @@ class LeaveResponse(BaseModel):
             data["rejection_reason"] = data["review_comments"]
 
         return data
+
+
+class ShiftChangePreviewItem(BaseModel):
+    date: str
+    current_schedule: ShiftScheduleDetail
+    requested: ShiftRequestedDetail
+    conflict: Optional[str] = None
+    cut_off: Optional[str] = None
+    same_day: bool = False
+    is_rest_day: bool = False
+
+
+class ShiftChangePreviewResponse(BaseModel):
+    items: List[ShiftChangePreviewItem]
+

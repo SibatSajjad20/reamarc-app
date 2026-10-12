@@ -456,6 +456,8 @@ class ContentCalendarListResponse(BaseModel):
 
 
 class ContentCalendarConstantsResponse(BaseModel):
+    model_config = {"extra": "allow"}
+
     campaign_types: List[str]
     creative_types: List[str]
     content_types: Optional[List[str]] = None
@@ -467,9 +469,13 @@ class ContentCalendarConstantsResponse(BaseModel):
     setup_statuses: List[str]
     pipeline_stages: List[str]
     design_owners: Optional[List[str]] = None
+    custom_field_configs: Optional[List[Dict[str, Any]]] = None
+    removed_fields: Optional[List[str]] = None
 
 
 class ContentCalendarConstantsUpdate(BaseModel):
+    model_config = {"extra": "allow"}
+
     creative_types: Optional[List[str]] = None
     campaign_types: Optional[List[str]] = None
     content_types: Optional[List[str]] = None
@@ -480,6 +486,8 @@ class ContentCalendarConstantsUpdate(BaseModel):
     approval_statuses: Optional[List[str]] = None
     setup_statuses: Optional[List[str]] = None
     design_owners: Optional[List[str]] = None
+    custom_field_configs: Optional[List[Dict[str, Any]]] = None
+    removed_fields: Optional[List[str]] = None
 
 
 class BatchUpdateItem(BaseModel):

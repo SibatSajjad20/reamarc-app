@@ -211,6 +211,8 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
   };
 
   const handleSelectToday = () => {
+    if (minDate && todayIso < minDate) return;
+    if (maxDate && todayIso > maxDate) return;
     if (offDayMode === 'disable' && getOffDay(todayIso).isOff) return;
     onChange(todayIso);
     setIsOpen(false);

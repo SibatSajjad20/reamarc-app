@@ -8,6 +8,7 @@ import {
   Wifi,
   RefreshCw,
   Plus,
+  Clock,
 } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../../types/attendance';
 import type { ViewType } from '../../types';
@@ -121,6 +122,9 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
 
   // Inline callout note when something is wrong
   const alertNote = (() => {
+    if (todayData?.shift_change && (todayData.shift_change.status === 'pending' || todayData.shift_change.status === 'needs_info') && todayData.shift_change.same_day) {
+      return 'Shift change pending approval before check-in. Wi-Fi and GPS rules apply.';
+    }
     if (record?.is_late && record.late_minutes) {
       return `Checked in ${record.late_minutes} min after shift start.`;
     }
@@ -142,17 +146,24 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   if (isLoading && !todayData) {
     if (variant === 'your-day') {
       return (
-        <div className={cn('bg-surface border border-border rounded-lg shadow-xs p-4 space-y-3', className)}>
-          <div className="flex items-center justify-between pb-2 border-b border-border">
-            <Skeleton className="w-20 h-4 rounded-sm" />
-            <Skeleton className="w-24 h-4 rounded-full" />
+        <div className={cn('bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between', className)}>
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Skeleton className="w-20 h-4 rounded-sm" />
+              <Skeleton className="w-24 h-5 rounded-full" />
+            </div>
+            <div className="space-y-1">
+              <Skeleton className="w-24 h-7 rounded-sm" />
+              <Skeleton className="w-36 h-3 rounded-sm" />
+            </div>
+            {!isOps && (
+              <div className="mt-3 space-y-1">
+                <Skeleton className="w-28 h-3 rounded-sm" />
+                <Skeleton className="w-full h-1.5 rounded-full" />
+              </div>
+            )}
           </div>
-          <div className="space-y-1">
-            <Skeleton className="w-28 h-7 rounded-sm" />
-            <Skeleton className="w-20 h-3 rounded-sm" />
-          </div>
-          {!isOps && <Skeleton className="w-full h-1.5 rounded-full" />}
-          <div className="flex gap-2 pt-1">
+          <div className="flex gap-2 pt-3 mt-3 border-t border-border/50">
             <Skeleton className="flex-1 h-8 rounded-md" />
             {!isOps && <Skeleton className="flex-1 h-8 rounded-md" />}
           </div>
@@ -172,142 +183,181 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   }
 
   if (variant === 'your-day') {
+    const subtitleText = (() => {
+      if (isCheckedOut) {
+        return `Checked out ${formatCheckTime(punchOut)}${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+      }
+      if (isCheckedIn) {
+        return `Since ${formatCheckTime(punchIn)}${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+      }
+      if (isOffDay) {
+        return 'No check-in required today';
+      }
+      if (isAbsentLocked) {
+        return 'Shift ended without check-in';
+      }
+      if (checkInClosed) {
+        return 'Check-in window closed';
+      }
+      return `Check in to start your day${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+    })();
+
+    const offButtonLabel = (() => {
+      if (!offDayLabel) return 'Rest day';
+      if (offDayLabel.includes('—')) return offDayLabel.split('—')[1].trim();
+      if (offDayLabel.toLowerCase().includes('rest')) return 'Rest day';
+      return offDayLabel;
+    })();
+
     return (
-      <div className={cn('bg-surface border border-border rounded-lg shadow-xs overflow-hidden flex flex-col justify-between', className)}>
-        {/* Header */}
-        <div className="flex items-center justify-between px-4 pt-3.5 pb-2 border-b border-border">
-          <div className="flex items-center gap-2">
-            <h3 className="text-ui font-semibold text-fg">Your day</h3>
-            <StatusPill
-              variant={statusPill.variant}
-              dot
-              label={statusPill.label}
-            />
-          </div>
-          {shiftSubtitle && (
-            <div className="text-xs text-fg-muted font-numeric">
-              {shiftSubtitle}
+      <div className={cn('bg-surface border border-border rounded-lg shadow-xs p-4 flex flex-col justify-between', className)}>
+        <div>
+          {/* Header */}
+          <div className="flex items-center justify-between gap-2 mb-2 min-h-[22px]">
+            <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium">
+              <Clock className="w-3.5 h-3.5 text-fg-muted shrink-0" />
+              <span className="whitespace-nowrap">Your day</span>
             </div>
+            <div className="flex items-center gap-1.5">
+              {todayData?.shift_change && (todayData.shift_change.status === 'pending' || todayData.shift_change.status === 'needs_info') && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  Shift change pending
+                </span>
+              )}
+              {((record?.shift_changed || todayData?.record?.shift_changed) || (todayData?.shift_change && todayData.shift_change.status === 'approved')) && (
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                  Shift changed
+                </span>
+              )}
+              <StatusPill
+                variant={statusPill.variant}
+                dot
+                label={statusPill.label}
+              />
+            </div>
+          </div>
+
+          {/* Shift change comparison preview */}
+          {todayData?.shift_change && (todayData.shift_change.status === 'pending' || todayData.shift_change.status === 'needs_info') && todayData.shift_change.requested_shift && (
+            <div className="mb-2 p-2 rounded-md bg-subtle border border-border text-[11px] text-fg-muted flex items-center justify-between">
+              <span className="font-medium text-fg">Requested:</span>
+              <span className="font-numeric">
+                {todayData.shift_change.requested_shift.name || `${todayData.shift_change.requested_shift.start_time} – ${todayData.shift_change.requested_shift.end_time}`} ({todayData.shift_change.location === 'wfh' ? 'WFH' : 'Office'})
+              </span>
+            </div>
+          )}
+
+          {/* Time at work KPI */}
+          <div>
+            <div className="text-kpi font-semibold text-fg font-numeric tracking-tight flex items-baseline gap-1">
+              {isCheckedIn || isCheckedOut ? (
+                <>
+                  <span>{elapsedAtWork}</span>
+                  <span className="text-base font-normal text-fg-muted">at work</span>
+                </>
+              ) : (
+                <>
+                  <span>0h</span>
+                  <span className="text-base font-normal text-fg-muted">at work</span>
+                </>
+              )}
+            </div>
+            <p className="text-xs text-fg-muted mt-0.5 font-numeric truncate" title={subtitleText}>
+              {subtitleText}
+            </p>
+          </div>
+
+          {/* Logged Xh of Yh (loggers only) */}
+          {!isOps && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between text-xs text-fg-muted mb-1 font-numeric">
+                {expectedHours !== undefined && expectedHours > 0 && !isOffDay ? (
+                  <>
+                    <span>
+                      Logged {formatHours(loggedHours ?? 0)} of {formatHours(expectedHours)}
+                    </span>
+                    <span>
+                      {Math.min(100, Math.round(((loggedHours ?? 0) / expectedHours) * 100))}%
+                    </span>
+                  </>
+                ) : (
+                  <span>Logged {formatHours(loggedHours ?? 0)}</span>
+                )}
+              </div>
+              {expectedHours !== undefined && expectedHours > 0 && !isOffDay && (
+                <div className="h-1 w-full bg-subtle rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-accent rounded-full transition-all duration-300"
+                    style={{
+                      width: `${Math.min(100, Math.round(((loggedHours ?? 0) / expectedHours) * 100))}%`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Inline alert note (compact Callout) */}
+          {alertNote && (
+            <Callout variant="warning" className="p-2 text-xs mt-2.5">
+              {alertNote}
+            </Callout>
           )}
         </div>
 
-        <div className="p-4 space-y-3 flex-1 flex flex-col justify-between">
-          <div className="space-y-3">
-            {/* Body */}
-            <div>
-              <div className="text-kpi font-semibold text-fg font-numeric tracking-tight flex items-baseline gap-1.5">
-                {isCheckedIn || isCheckedOut ? (
-                  <>
-                    <span>{elapsedAtWork}</span>
-                    <span className="text-sm font-normal text-fg-muted">at work</span>
-                  </>
-                ) : (
-                  <span>—</span>
-                )}
-              </div>
-              <div className="text-xs text-fg-muted mt-0.5 font-numeric">
-                {isCheckedOut ? (
-                  `checked out ${formatCheckTime(punchOut)}`
-                ) : isCheckedIn ? (
-                  `since ${formatCheckTime(punchIn)}`
-                ) : (
-                  'Check in to start your day'
-                )}
-              </div>
-            </div>
-
-            {/* Logged Xh of Yh (loggers only) */}
-            {!isOps && (
-              <div>
-                <div className="flex items-center justify-between text-xs text-fg-muted mb-1 font-numeric">
-                  {expectedHours !== undefined && expectedHours > 0 ? (
-                    <>
-                      <span>
-                        Logged {formatHours(loggedHours ?? 0)} of {formatHours(expectedHours)}
-                      </span>
-                      <span>
-                        {Math.min(100, Math.round(((loggedHours ?? 0) / expectedHours) * 100))}%
-                      </span>
-                    </>
-                  ) : (
-                    <span>Logged {formatHours(loggedHours ?? 0)}</span>
-                  )}
-                </div>
-                {expectedHours !== undefined && expectedHours > 0 && (
-                  <div className="h-1 w-full bg-subtle rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-accent rounded-full transition-all duration-300"
-                      style={{
-                        width: `${Math.min(100, Math.round(((loggedHours ?? 0) / expectedHours) * 100))}%`,
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Amber inline note (compact Callout) */}
-            {alertNote && (
-              <Callout variant="warning" className="p-2 text-xs">
-                {alertNote}
-              </Callout>
-            )}
-          </div>
-
-          {/* Footer Action Buttons */}
-          <div className="flex items-center gap-2 pt-2">
-            {isOffDay ? (
-              <Button variant="secondary" size="sm" disabled className="flex-1" icon={CalendarOff}>
-                {offDayLabel}
-              </Button>
-            ) : !isCheckedIn ? (
-              checkInClosed ? (
-                <Button variant="secondary" size="sm" disabled className="flex-1">
-                  {isAbsentLocked ? 'Shift ended — absent' : 'Check-in closed'}
-                </Button>
-              ) : (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="flex-1"
-                  onClick={handleCheckIn}
-                  disabled={isSubmitting || isLoading || securityBlocksCheckIn}
-                  loading={isSubmitting}
-                  icon={LogIn}
-                >
-                  {isSubmitting ? (verificationStep || 'Verifying…') : 'Check in'}
-                </Button>
-              )
-            ) : isCheckedOut ? (
-              <Button variant="secondary" size="sm" disabled className="flex-1" icon={CheckCircle2}>
-                Shift completed
+        {/* Footer Action Buttons */}
+        <div className="flex items-center gap-2 pt-3 mt-3 border-t border-border/50">
+          {isOffDay ? (
+            <Button variant="secondary" size="sm" disabled className="flex-1" icon={CalendarOff}>
+              {offButtonLabel}
+            </Button>
+          ) : !isCheckedIn ? (
+            checkInClosed ? (
+              <Button variant="secondary" size="sm" disabled className="flex-1">
+                {isAbsentLocked ? 'Shift ended — absent' : 'Check-in closed'}
               </Button>
             ) : (
               <Button
                 variant="secondary"
                 size="sm"
                 className="flex-1"
-                onClick={handleCheckOut}
-                disabled={isSubmitting}
+                onClick={handleCheckIn}
+                disabled={isSubmitting || isLoading || securityBlocksCheckIn}
                 loading={isSubmitting}
-                icon={LogOut}
+                icon={LogIn}
               >
-                {isSubmitting ? (verificationStep || 'Submitting…') : 'Check out'}
+                {isSubmitting ? (verificationStep || 'Verifying…') : 'Check in'}
               </Button>
-            )}
+            )
+          ) : isCheckedOut ? (
+            <Button variant="secondary" size="sm" disabled className="flex-1" icon={CheckCircle2}>
+              Shift completed
+            </Button>
+          ) : (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="flex-1"
+              onClick={handleCheckOut}
+              disabled={isSubmitting}
+              loading={isSubmitting}
+              icon={LogOut}
+            >
+              {isSubmitting ? (verificationStep || 'Submitting…') : 'Check out'}
+            </Button>
+          )}
 
-            {!isOps && (
-              <Button
-                variant="primary"
-                size="sm"
-                className="flex-1"
-                onClick={() => onNavigateView?.('daily-log')}
-                icon={Plus}
-              >
-                Log work
-              </Button>
-            )}
-          </div>
+          {!isOps && (
+            <Button
+              variant="primary"
+              size="sm"
+              className="flex-1"
+              onClick={() => onNavigateView?.('daily-log')}
+              icon={Plus}
+            >
+              Log work
+            </Button>
+          )}
         </div>
 
         {renderVarianceModal()}
@@ -327,6 +377,16 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {todayData?.shift_change && (todayData.shift_change.status === 'pending' || todayData.shift_change.status === 'needs_info') && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+              Shift change pending
+            </span>
+          )}
+          {((record?.shift_changed || todayData?.record?.shift_changed) || (todayData?.shift_change && todayData.shift_change.status === 'approved')) && (
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+              Shift changed
+            </span>
+          )}
           <span
             className={cn(
               'inline-flex items-center gap-1.5 h-[22px] px-2.5 rounded-full text-xs font-medium shrink-0',

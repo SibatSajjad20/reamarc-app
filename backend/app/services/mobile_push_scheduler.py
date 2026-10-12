@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 
 from app.database import get_database
-from app.models.attendance import LeaveStatus
+from app.models.attendance import LeaveStatus, NON_LEAVE_REQUEST_TYPES
 from app.services import attendance_service, push_service
 
 logger = logging.getLogger("app.mobile_push_scheduler")
@@ -53,7 +53,7 @@ async def _on_approved_full_leave(db, user_id: str, date_str: str) -> bool:
             "status": LeaveStatus.APPROVED.value,
             "start_date": {"$lte": date_str},
             "end_date": {"$gte": date_str},
-            "leave_type": {"$nin": ["wfh", "short_leave", "missed_punch_regularization", "overtime"]},
+            "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES | {"wfh", "short_leave"})},
         },
         {"_id": 1},
     )

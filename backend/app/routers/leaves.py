@@ -15,6 +15,7 @@ from app.schemas.leave import (
     LeaveResponse,
     LeaveBalanceResponse,
     LeaveBalanceUpdateRequest,
+    ShiftChangePreviewResponse,
 )
 from app.schemas.error import ErrorResponse
 from app.core.security import (
@@ -36,6 +37,31 @@ router = APIRouter(
         500: {"model": ErrorResponse, "description": "Internal Server Error"},
     }
 )
+
+
+@router.get("/shift-change/preview", response_model=ShiftChangePreviewResponse)
+async def preview_shift_change(
+    dates: str = Query(..., description="Comma-separated ISO dates"),
+    shift_id: Optional[str] = Query(None),
+    location: str = Query("office"),
+    custom_start: Optional[str] = Query(None),
+    custom_end: Optional[str] = Query(None),
+    overnight: bool = Query(False),
+    current_user: dict = Depends(require_internal_user),
+):
+    """
+    Preview comparison, cutoff, and conflicts for shift change request dates.
+    """
+    date_list = [d.strip() for d in dates.split(",") if d.strip()]
+    return await attendance_service.preview_shift_change(
+        user=current_user,
+        dates=date_list,
+        shift_id=shift_id,
+        location=location,
+        custom_start=custom_start,
+        custom_end=custom_end,
+        overnight=overnight,
+    )
 
 
 @router.post("/requests", response_model=LeaveResponse, status_code=status.HTTP_201_CREATED)

@@ -28,6 +28,7 @@ from app.models.attendance import (
     ShiftType,
     BonusRecommendation,
     CalendarEventType,
+    NON_LEAVE_REQUEST_TYPES,
 )
 from app.schemas.shift import (
     ShiftBase,
@@ -62,6 +63,10 @@ from app.schemas.leave import (
     LeaveCreateRequest,
     LeaveReviewRequest,
     LeaveResponse,
+    ShiftScheduleDetail,
+    ShiftRequestedDetail,
+    ShiftChangePreviewItem,
+    ShiftChangePreviewResponse,
 )
 from app.schemas.company_calendar import (
     CalendarEventCreate,
@@ -1153,8 +1158,9 @@ async def get_all_shifts(include_inactive: bool = False) -> List[ShiftResponse]:
     if db is None:
         return []
 
-    await ensure_default_shifts()
-    query = {} if include_inactive else {"is_active": True}
+    query = {"hidden": {"$ne": True}}
+    if not include_inactive:
+        query["is_active"] = True
     docs = await db.shifts.find(query, {"_id": 0}).to_list(100)
     return [ShiftResponse(**d) for d in docs]
 
@@ -1297,7 +1303,14 @@ async def assign_user_shift(assignment: ShiftAssignmentRequest) -> dict:
             str(key): rule.model_dump() for key, rule in assignment.weekday_rules.items()
         }
     if assignment.date_overrides is not None:
-        doc["date_overrides"] = [override.model_dump() for override in assignment.date_overrides]
+        existing_assign = await db.user_shift_assignments.find_one({"user_id": assignment.user_id}, {"_id": 0})
+        preserved_sc = [
+            ov for ov in (existing_assign.get("date_overrides") or [])
+            if ov.get("source") == "shift_change"
+        ] if existing_assign else []
+        new_overrides = [override.model_dump() for override in assignment.date_overrides]
+        new_dates = {o.get("date") for o in new_overrides}
+        doc["date_overrides"] = new_overrides + [ov for ov in preserved_sc if ov.get("date") not in new_dates]
 
     await db.user_shift_assignments.update_one(
         {"user_id": assignment.user_id},
@@ -1324,18 +1337,57 @@ async def get_shift_for_user(
     user_id: str,
     department: Optional[str] = None,
     date_str: Optional[str] = None,
+    include_pending: bool = False,
 ) -> ShiftResponse:
     """
     Finds the active shift for a given user on a calendar date (PKT today if omitted):
     1. Date override, then weekday rule, then legacy assignment.shift_id.
     2. Fallback to HR shift if department is 'HR'.
     3. Fallback to the seeded Standard Shift (never a later custom template).
+    4. If include_pending=True, provisional shift from pending shift change if present.
     """
     db = get_database()
     all_shifts = await ensure_default_shifts()
     target_date = date_str or get_current_date_str()
 
     if db is not None:
+        if include_pending:
+            pending_sc = await db.leave_requests.find_one({
+                "user_id": user_id,
+                "status": "pending",
+                "leave_type": "shift_change",
+                "$or": [
+                    {"shift_change_dates": target_date},
+                    {"start_date": {"$lte": target_date}, "end_date": {"$gte": target_date}},
+                ],
+            }, {"_id": 0})
+            if pending_sc:
+                requested = pending_sc.get("requested") or {}
+                shift_id = pending_sc.get("shift_change_shift_id") or requested.get("shift_id")
+                custom_start = pending_sc.get("shift_change_custom_start") or requested.get("start")
+                custom_end = pending_sc.get("shift_change_custom_end") or requested.get("end")
+                if shift_id:
+                    shift_doc = next((s for s in (all_shifts or []) if s.get("id") == shift_id), None)
+                    if not shift_doc and db is not None:
+                        shift_doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+                    if shift_doc and shift_doc.get("is_active", True):
+                        return ShiftResponse(**shift_doc)
+                elif custom_start and custom_end:
+                    normal_shift = await get_shift_for_user(user_id, department, target_date, include_pending=False)
+                    grace = normal_shift.grace_period_minutes if normal_shift else 30
+                    return ShiftResponse(
+                        id=f"prov_{pending_sc.get('id')}",
+                        name=requested.get("shift_name") or f"Custom Shift ({custom_start} - {custom_end})",
+                        shift_type=ShiftType.CUSTOM.value,
+                        start_time=custom_start,
+                        end_time=custom_end,
+                        is_night_shift=bool(requested.get("is_night_shift")),
+                        break_duration_minutes=requested.get("break_duration_minutes", 60),
+                        grace_period_minutes=grace,
+                        expected_hours=requested.get("expected_hours", 8.0),
+                        is_active=True,
+                    )
+
         assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
         if assignment:
             resolved = resolve_shift_assignment_for_date(assignment, target_date)
@@ -1747,7 +1799,7 @@ async def get_approved_leave_for_date(user_id: str, date_str: str) -> Optional[d
 
     return await db.leave_requests.find_one({
         "user_id": user_id,
-        "leave_type": {"$nin": ["missed_punch_regularization", "regularization", "overtime"]},
+        "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
         "status": LeaveStatus.APPROVED.value,
         "start_date": {"$lte": date_str},
         "end_date": {"$gte": date_str},
@@ -1933,8 +1985,8 @@ async def process_check_in(
     date_str = get_current_date_str()
     time_str = get_current_time_str()
 
-    from app.services.workdays import classify_date
-    day_info = await classify_date(date_str)
+    from app.services.workdays import classify_date_for_user
+    day_info = await classify_date_for_user(user_id, date_str, include_pending=True)
     if day_info.is_off:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -1964,7 +2016,7 @@ async def process_check_in(
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
 
     # 3. Shift window: nobody may punch in after their shift has ended
-    shift = await get_shift_for_user(user_id, department, date_str)
+    shift = await get_shift_for_user(user_id, department, date_str, include_pending=True)
     if is_shift_window_closed(shift, now=None, shift_date=date_str) and not custom_time:
         lock_date = closed_shift_attendance_date(shift)
         if lock_date == date_str:
@@ -2060,6 +2112,24 @@ async def process_check_in(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
+
+    sc_req = await db.leave_requests.find_one({
+        "user_id": user_id,
+        "leave_type": "shift_change",
+        "status": {"$in": ["pending", "approved", "appealed", "needs_info"]},
+        "$or": [{"shift_change_dates": date_str}, {"start_date": {"$lte": date_str}, "end_date": {"$gte": date_str}}],
+    })
+    if sc_req:
+        sc_st = str(sc_req.get("status") or "").lower()
+        if sc_st in ("pending", "appealed", "needs_info"):
+            record_doc["provisional"] = True
+            record_doc["shift_change_request_id"] = sc_req.get("id")
+            record_doc["shift_change_status"] = "pending"
+        elif sc_st == "approved":
+            record_doc["provisional"] = False
+            record_doc["shift_change_request_id"] = sc_req.get("id")
+            record_doc["shift_change_status"] = "approved"
+            record_doc["shift_changed"] = True
 
     open_punch_filter = {
         "user_id": user_id,
@@ -2419,13 +2489,13 @@ async def get_today_status(
                 {"_id": 0}
             )
 
-    from app.services.workdays import classify_date, attendance_status_for_off_day
+    from app.services.workdays import classify_date_for_user, attendance_status_for_off_day
 
     shift, is_wfh, sec_settings, day_info = await asyncio.gather(
-        get_shift_for_user(user_id, department, target_date),
+        get_shift_for_user(user_id, department, target_date, include_pending=True),
         is_wfh_approved_for_date(user_id, target_date),
         get_security_settings(),
-        classify_date(target_date),
+        classify_date_for_user(user_id, target_date, include_pending=True),
     )
     whitelist = collect_whitelist_entries(sec_settings)
     effective_ip = resolve_effective_client_ip(client_ip, detected_public_ip)
@@ -2553,6 +2623,33 @@ async def get_today_status(
 
     u_role = str(user.get("role") or "").lower()
     is_mgmt = u_role in ("admin", "hr", "operations")
+
+    sc_doc = None
+    if db is not None:
+        try:
+            import inspect
+            res = db.leave_requests.find_one({
+                "user_id": user_id,
+                "leave_type": "shift_change",
+                "status": {"$in": ["pending", "approved", "appealed", "needs_info"]},
+                "$or": [{"shift_change_dates": target_date}, {"start_date": {"$lte": target_date}, "end_date": {"$gte": target_date}}],
+            }, {"_id": 0})
+            if inspect.isawaitable(res):
+                sc_doc = await res
+            elif isinstance(res, dict):
+                sc_doc = res
+        except Exception:
+            sc_doc = None
+    shift_change_payload = None
+    if sc_doc:
+        shift_change_payload = {
+            "request_id": sc_doc.get("id"),
+            "status": sc_doc.get("status"),
+            "requested_shift": sc_doc.get("requested") or {},
+            "location": sc_doc.get("shift_change_location", "office"),
+            "same_day": bool(sc_doc.get("same_day")),
+        }
+
     return TodayAttendanceResponse(
         record=record_res,
         shift=shift,
@@ -2573,6 +2670,7 @@ async def get_today_status(
         is_off_day=day_info.is_off,
         off_day_kind=day_info.kind if day_info.is_off else None,
         off_day_label=day_info.label if day_info.is_off else None,
+        shift_change=shift_change_payload,
     )
 
 
@@ -2602,7 +2700,13 @@ async def get_my_timesheet(
         min_date = get_effective_start_date()
         employee_start = get_employee_attendance_start(user)
         assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
-        for raw in await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100):
+        override_ids = [
+            ov.get("shift_id")
+            for ov in ((assignment or {}).get("date_overrides") or [])
+            if ov.get("shift_id")
+        ]
+        shift_q = {"$or": [{"is_active": True}, {"id": {"$in": override_ids}}]} if override_ids else {"is_active": True}
+        for raw in await db.shifts.find(shift_q, {"_id": 0}).to_list(200):
             try:
                 parsed = ShiftResponse(**raw)
                 shifts_by_id[parsed.id] = parsed
@@ -2748,6 +2852,14 @@ async def get_my_timesheet(
                                 )
                 elif cin and cout:
                     apply_daily_calc_fields(d, rec_shift)
+
+            override_is_sc = any(
+                ov.get("date") == rec_date and ov.get("source") == "shift_change"
+                for ov in ((assignment or {}).get("date_overrides") or [])
+            )
+            if override_is_sc or d.get("shift_change_request_id") or d.get("shift_changed"):
+                d["shift_changed"] = True
+                d["shift_change_status"] = d.get("shift_change_status") or "approved"
 
             records.append(AttendanceRecordResponse.from_mongo(d))
 
@@ -2994,10 +3106,10 @@ async def get_daily_matrix(
     records_list = await db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000)
     records_by_user = {r["user_id"]: r for r in records_list}
 
-    # 3. Fetch approved leaves covering date (excluding missed punch regularization)
+    # 3. Fetch approved leaves covering date (excluding non-leave requests)
     leaves_list = await db.leave_requests.find({
         "status": LeaveStatus.APPROVED.value,
-        "leave_type": {"$nin": ["missed_punch_regularization", "regularization", "overtime"]},
+        "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
         "start_date": {"$lte": target_date},
         "end_date": {"$gte": target_date},
     }, {"_id": 0}).to_list(1000)
@@ -3023,6 +3135,27 @@ async def get_daily_matrix(
 
     all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
     user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
+
+    needed_shift_ids = set()
+    for a in all_assignments:
+        for ov in (a.get("date_overrides") or []):
+            if ov.get("date") == target_date and ov.get("shift_id"):
+                needed_shift_ids.add(ov["shift_id"])
+    for r in records_list:
+        if r.get("shift_id"):
+            needed_shift_ids.add(r["shift_id"])
+    missing_shift_ids = [sid for sid in needed_shift_ids if sid not in shifts_by_id]
+    if missing_shift_ids:
+        extra_shifts = await db.shifts.find({"id": {"$in": missing_shift_ids}}, {"_id": 0}).to_list(100)
+        for es in extra_shifts:
+            shifts_by_id[es["id"]] = es
+
+    sc_list = await db.leave_requests.find({
+        "leave_type": "shift_change",
+        "status": {"$in": ["approved", "pending", "appealed", "needs_info"]},
+        "$or": [{"shift_change_dates": target_date}, {"start_date": {"$lte": target_date}, "end_date": {"$gte": target_date}}],
+    }, {"_id": 0}).to_list(1000)
+    sc_by_user = {sc["user_id"]: sc for sc in sc_list}
 
     rows: List[DailyMatrixRow] = []
     present_count = 0
@@ -3071,6 +3204,18 @@ async def get_daily_matrix(
             )
         )
         is_leave_wfh = bool(approved_leave and str(approved_leave.get("leave_type", "")).lower() in ("wfh", LeaveType.WFH.value))
+
+        user_sc = sc_by_user.get(u_id)
+        override_is_sc = any(
+            ov.get("date") == target_date and ov.get("source") == "shift_change"
+            for ov in ((user_assignment_map.get(u_id) or {}).get("date_overrides") or [])
+        )
+        has_sc = bool(override_is_sc or user_sc or (rec and (rec.get("shift_change_request_id") or rec.get("shift_changed"))))
+        sc_status = (rec.get("shift_change_status") if rec else None) or (user_sc.get("status") if user_sc else ("approved" if override_is_sc else None))
+        user_has_working_override = any(
+            ov.get("date") == target_date and (ov.get("working_day") is True or ov.get("source") == "shift_change")
+            for ov in ((user_assignment_map.get(u_id) or {}).get("date_overrides") or [])
+        )
 
         if rec:
             if record_punch_times(rec)[0]:
@@ -3176,9 +3321,9 @@ async def get_daily_matrix(
                         ))
                 elif is_holiday and raw_status in HOLIDAY_PRESERVE_LEAVE_STATUSES:
                     status_enum = AttendanceStatus(raw_status)
-                elif is_sunday and not rec.get("punch_in") and not rec.get("check_in"):
+                elif is_sunday and not user_has_working_override and not rec.get("punch_in") and not rec.get("check_in"):
                     status_enum = AttendanceStatus.SUNDAY_OFF
-                elif is_first_sat and not rec.get("punch_in") and not rec.get("check_in"):
+                elif is_first_sat and not user_has_working_override and not rec.get("punch_in") and not rec.get("check_in"):
                     status_enum = AttendanceStatus.FIRST_SATURDAY_OFF
                 elif raw_status in keep_status:
                     status_enum = AttendanceStatus(raw_status)
@@ -3246,6 +3391,8 @@ async def get_daily_matrix(
                 pending_overtime_minutes=int(rec.get("pending_overtime_minutes") or 0),
                 undertime_reason=rec.get("undertime_reason"),
                 overtime_reason=rec.get("overtime_reason"),
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
         elif approved_leave:
@@ -3285,6 +3432,8 @@ async def get_daily_matrix(
                 is_wfh_approved=(l_type == LeaveType.WFH.value or l_type == "wfh"),
                 notes=approved_leave.get("reason"),
                 record_id=None,
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
         elif is_holiday:
@@ -3313,9 +3462,11 @@ async def get_daily_matrix(
                 is_wfh_approved=False,
                 notes=calendar_event.get("title") if calendar_event else "Public Holiday",
                 record_id=None,
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
-        elif is_sunday:
+        elif is_sunday and not user_has_working_override:
             rows.append(DailyMatrixRow(
                 user_id=u_id,
                 employee_code=u_code,
@@ -3341,9 +3492,11 @@ async def get_daily_matrix(
                 is_wfh_approved=False,
                 notes=None,
                 record_id=None,
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
-        elif is_first_sat:
+        elif is_first_sat and not user_has_working_override:
             rows.append(DailyMatrixRow(
                 user_id=u_id,
                 employee_code=u_code,
@@ -3369,6 +3522,8 @@ async def get_daily_matrix(
                 is_wfh_approved=False,
                 notes=None,
                 record_id=None,
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
         else:
@@ -3408,6 +3563,8 @@ async def get_daily_matrix(
                 is_wfh_approved=bool(auto_wfh),
                 notes=None,
                 record_id=None,
+                shift_changed=has_sc,
+                shift_change_status=sc_status,
             ))
 
     on_time_count = max(0, present_count - late_count)
@@ -3617,6 +3774,8 @@ def _format_request_type_label(req_dict: dict) -> str:
         return "Punch Correction"
     elif lt == "overtime":
         return "Overtime"
+    elif lt == "shift_change":
+        return "Shift Change"
     elif lt == "sick":
         return "Sick Leave"
     elif lt == "casual":
@@ -3629,6 +3788,17 @@ def _format_request_type_label(req_dict: dict) -> str:
 
 
 def _format_request_date_label(req_dict: dict) -> str:
+    lt = str(req_dict.get("leave_type") or "").lower()
+    if lt == "shift_change" and req_dict.get("shift_change_dates"):
+        dates = req_dict.get("shift_change_dates") or []
+        if len(dates) == 1:
+            try:
+                d_obj = datetime.strptime(dates[0], "%Y-%m-%d")
+                return d_obj.strftime("%a %d %b")
+            except Exception:
+                return dates[0]
+        elif len(dates) > 1:
+            return f"{dates[0]} to {dates[-1]}"
     start = req_dict.get("start_date") or req_dict.get("regularization_date") or ""
     end = req_dict.get("end_date") or start
     if start and end and start != end:
@@ -3639,6 +3809,715 @@ def _format_request_date_label(req_dict: dict) -> str:
 # ──────────────────────────────────────────────────────────
 # 7. LEAVE MANAGEMENT & DYNAMIC SYNCHRONIZATION
 # ──────────────────────────────────────────────────────────
+
+async def _validate_and_build_shift_change(
+    user: dict,
+    req: Union[LeaveCreateRequest, dict],
+    existing_id: Optional[str] = None,
+) -> Tuple[List[str], Dict[str, Any], List[Dict[str, Any]], bool]:
+    """
+    Validates a shift change request per rules D1-D6:
+    - 1 to 14 dates, <= 31 days ahead, not in past
+    - Cutoff: D submitted before D-1 23:00 PKT; if D == today, allowed with same_day=True; else 422
+    - Conflicts (409): approved non-WFH leave, company holiday (D6), existing pending/approved shift_change, checked out attendance
+    - Template / Custom (D1): span 2h-12h, break 60m if span >= 6h else 0, expected hours = span - break
+    - Night collision (D4): night shift ending after D+1's normal start blocked (409)
+    Returns: (dates, requested_dict, current_schedule, same_day)
+    """
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable")
+
+    user_id = str(user.get("id") or user.get("_id") or "")
+    user_dept = user.get("department")
+    now_pkt = get_now_pkt()
+    today_str = now_pkt.strftime("%Y-%m-%d")
+
+    # 1. Dates
+    if isinstance(req, dict):
+        dates = req.get("shift_change_dates") or []
+        start_d = req.get("start_date")
+        end_d = req.get("end_date") or start_d
+        location = req.get("shift_change_location") or "office"
+        shift_id = req.get("shift_change_shift_id")
+        custom_start = req.get("shift_change_custom_start")
+        custom_end = req.get("shift_change_custom_end")
+        overnight = bool(req.get("shift_change_overnight"))
+    else:
+        dates = req.shift_change_dates or []
+        start_d = req.start_date
+        end_d = req.end_date or start_d
+        location = req.shift_change_location or "office"
+        shift_id = req.shift_change_shift_id
+        custom_start = req.shift_change_custom_start
+        custom_end = req.shift_change_custom_end
+        overnight = bool(req.shift_change_overnight)
+
+    if not dates and start_d:
+        dates = list(iter_date_range(start_d, end_d))
+
+    # Deduplicate and sort
+    dates = sorted(list(set(dates)))
+    if len(dates) < 1 or len(dates) > 14:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Shift change requests support between 1 and 14 dates.",
+        )
+
+    from app.services.workdays import parse_iso_date, classify_date
+
+    max_future_date = (now_pkt + timedelta(days=31)).date()
+    for d_str in dates:
+        d_obj = parse_iso_date(d_str)
+        if not d_obj:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Invalid date {d_str}")
+        if d_obj > max_future_date:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Date {d_str} is more than 31 days in advance.",
+            )
+
+    # 2. Cutoff per date
+    same_day = False
+    for d_str in dates:
+        if d_str < today_str:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Cannot request shift change for past date {d_str}.",
+            )
+        elif d_str == today_str:
+            same_day = True
+        else:
+            # Future date D: must be submitted before D-1 23:00 PKT
+            d_obj = parse_iso_date(d_str)
+            cutoff_date = d_obj - timedelta(days=1)
+            cutoff_dt = datetime(cutoff_date.year, cutoff_date.month, cutoff_date.day, 23, 0, tzinfo=PKT_TIMEZONE)
+            if now_pkt > cutoff_dt:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Cut-off passed: requests for {d_str} must be submitted before 23:00 PKT on {cutoff_date.isoformat()}.",
+                )
+
+    # 3. Conflicts (409)
+    for d_str in dates:
+        # (a) Approved non-WFH leave covering d_str
+        existing_leave = await db.leave_requests.find_one({
+            "user_id": user_id,
+            "status": LeaveStatus.APPROVED.value,
+            "start_date": {"$lte": d_str},
+            "end_date": {"$gte": d_str},
+            "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES) + ["wfh", LeaveType.WFH.value]},
+        })
+        if existing_leave:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Cannot request shift change on {d_str}: you have an approved leave scheduled.",
+            )
+
+        # (b) Company holiday (D6)
+        day_cls = await classify_date(d_str)
+        if day_cls.kind == "holiday":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Shift change is not permitted on company holidays ({day_cls.label} on {d_str}).",
+            )
+
+        # (c) Another pending or approved shift_change covering d_str
+        conflict_query: Dict[str, Any] = {
+            "user_id": user_id,
+            "leave_type": "shift_change",
+            "status": {"$in": ["pending", "approved", "appealed", "needs_info"]},
+            "$or": [
+                {"shift_change_dates": d_str},
+                {"start_date": {"$lte": d_str}, "end_date": {"$gte": d_str}},
+            ],
+        }
+        if existing_id:
+            conflict_query["id"] = {"$ne": existing_id}
+        existing_sc = await db.leave_requests.find_one(conflict_query)
+        if existing_sc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Another shift change request is already active for {d_str}.",
+            )
+
+        # (d) Existing attendance record for d_str already checked out
+        att_rec = await db.attendance_records.find_one({"user_id": user_id, "date": d_str})
+        if att_rec and (att_rec.get("check_out") or att_rec.get("punch_out")):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Attendance record for {d_str} is already checked out. Use a punch correction.",
+            )
+
+    # 4. Template / Custom (D1)
+    if custom_start and custom_end:
+        start_m = parse_time_to_minutes(custom_start)
+        end_m = parse_time_to_minutes(custom_end)
+        if overnight:
+            if end_m >= start_m:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Overnight shift must end on the following day (end time earlier than start time).",
+                )
+            span_m = (1440 - start_m) + end_m
+        else:
+            if end_m <= start_m:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="End time must be after start time unless overnight is selected.",
+                )
+            span_m = end_m - start_m
+
+        span_hours = span_m / 60.0
+        if span_hours < 2.0 or span_hours > 12.0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Shift duration must be between 2 and 12 hours (got {span_hours:.1f} hours).",
+            )
+        break_mins = 60 if span_hours >= 6.0 else 0
+        expected_hours = round((span_m - break_mins) / 60.0, 2)
+        requested_dict = {
+            "shift_id": "custom",
+            "shift_name": f"Custom ({custom_start} - {custom_end})",
+            "start": custom_start,
+            "end": custom_end,
+            "location": location,
+            "break_duration_minutes": break_mins,
+            "expected_hours": expected_hours,
+            "is_night_shift": overnight,
+        }
+    elif shift_id:
+        shift_doc = await db.shifts.find_one({"id": shift_id, "hidden": {"$ne": True}}, {"_id": 0})
+        if not shift_doc or not shift_doc.get("is_active", True):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Shift template '{shift_id}' not found or inactive.",
+            )
+        custom_start = shift_doc.get("start_time")
+        custom_end = shift_doc.get("end_time")
+        overnight = bool(shift_doc.get("is_night_shift"))
+        break_mins = int(shift_doc.get("break_duration_minutes", 60))
+        expected_hours = float(shift_doc.get("expected_hours", 8.0))
+        requested_dict = {
+            "shift_id": shift_doc["id"],
+            "shift_name": shift_doc.get("name", "Shift"),
+            "start": custom_start,
+            "end": custom_end,
+            "location": location,
+            "break_duration_minutes": break_mins,
+            "expected_hours": expected_hours,
+            "is_night_shift": overnight,
+        }
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Either a shift template or custom start/end times must be provided.",
+        )
+
+    # 5. Night collision (D4)
+    if overnight:
+        for d_str in dates:
+            d_obj = parse_iso_date(d_str)
+            next_d_obj = d_obj + timedelta(days=1)
+            next_d_str = next_d_obj.strftime("%Y-%m-%d")
+            if next_d_str not in dates:
+                next_day_cls = await classify_date(next_d_str)
+                if not next_day_cls.is_off:
+                    next_shift = await get_shift_for_user(user_id, user_dept, next_d_str)
+                    next_start_m = parse_time_to_minutes(next_shift.start_time)
+                    req_end_m = parse_time_to_minutes(custom_end)
+                    if req_end_m > next_start_m:
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail=f"Shift change on {d_str} ends at {custom_end}, which runs into your next shift on {next_d_str} (starts at {next_shift.start_time}).",
+                        )
+
+    # 6. Current schedule snapshot
+    current_schedule = []
+    for d_str in dates:
+        cur_shift = await get_shift_for_user(user_id, user_dept, d_str)
+        cur_auto_wfh = await is_wfh_approved_for_date(user_id, d_str)
+        cur_cls = await classify_date(d_str)
+        current_schedule.append({
+            "date": d_str,
+            "shift_id": cur_shift.id,
+            "shift_name": cur_shift.name,
+            "start": cur_shift.start_time,
+            "end": cur_shift.end_time,
+            "auto_wfh": cur_auto_wfh,
+            "is_rest_day": cur_cls.is_off,
+            "rest_reason": cur_cls.label if cur_cls.is_off else None,
+        })
+
+    return dates, requested_dict, current_schedule, same_day
+
+
+async def preview_shift_change(
+    user: dict,
+    dates: List[str],
+    shift_id: Optional[str] = None,
+    location: str = "office",
+    custom_start: Optional[str] = None,
+    custom_end: Optional[str] = None,
+    overnight: bool = False,
+) -> ShiftChangePreviewResponse:
+    """Preview comparison and validation for shift change without mutating data."""
+    db = get_database()
+    user_id = str(user.get("id") or user.get("_id") or "")
+    user_dept = user.get("department")
+    now_pkt = get_now_pkt()
+    today_str = now_pkt.strftime("%Y-%m-%d")
+
+    dates = sorted(list(set(dates)))
+    from app.services.workdays import parse_iso_date, classify_date
+
+    req_detail = ShiftRequestedDetail(
+        shift_id=shift_id or "custom",
+        shift_name="Custom Shift" if (custom_start and custom_end) else "Shift",
+        start=custom_start,
+        end=custom_end,
+        location=location,
+        is_night_shift=overnight,
+        break_duration_minutes=60,
+        expected_hours=8.0,
+    )
+    if custom_start and custom_end:
+        try:
+            s_m = parse_time_to_minutes(custom_start)
+            e_m = parse_time_to_minutes(custom_end)
+            span_m = ((1440 - s_m) + e_m) if overnight else (e_m - s_m)
+            span_h = span_m / 60.0
+            b_m = 60 if span_h >= 6.0 else 0
+            exp_h = round((span_m - b_m) / 60.0, 2)
+            req_detail.break_duration_minutes = b_m
+            req_detail.expected_hours = exp_h
+            req_detail.shift_name = f"Custom ({custom_start} - {custom_end})"
+        except Exception:
+            pass
+    elif shift_id and db is not None:
+        s_doc = await db.shifts.find_one({"id": shift_id}, {"_id": 0})
+        if s_doc:
+            req_detail.shift_name = s_doc.get("name", "Shift")
+            req_detail.start = s_doc.get("start_time")
+            req_detail.end = s_doc.get("end_time")
+            req_detail.break_duration_minutes = int(s_doc.get("break_duration_minutes", 60))
+            req_detail.expected_hours = float(s_doc.get("expected_hours", 8.0))
+            req_detail.is_night_shift = bool(s_doc.get("is_night_shift"))
+
+    items = []
+    for d_str in dates:
+        cur_shift = await get_shift_for_user(user_id, user_dept, d_str)
+        cur_auto_wfh = await is_wfh_approved_for_date(user_id, d_str)
+        cur_cls = await classify_date(d_str)
+
+        sched_detail = ShiftScheduleDetail(
+            date=d_str,
+            shift_id=cur_shift.id,
+            shift_name=cur_shift.name,
+            start=cur_shift.start_time,
+            end=cur_shift.end_time,
+            auto_wfh=cur_auto_wfh,
+            is_rest_day=cur_cls.is_off,
+            rest_reason=cur_cls.label if cur_cls.is_off else None,
+        )
+
+        conflict = None
+        d_obj = parse_iso_date(d_str)
+        if not d_obj:
+            conflict = "Invalid date"
+        elif d_str < today_str:
+            conflict = "Date is in the past"
+        elif cur_cls.kind == "holiday":
+            conflict = f"Company holiday: {cur_cls.label}"
+        elif db is not None:
+            existing_leave = await db.leave_requests.find_one({
+                "user_id": user_id,
+                "status": LeaveStatus.APPROVED.value,
+                "start_date": {"$lte": d_str},
+                "end_date": {"$gte": d_str},
+                "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES) + ["wfh", LeaveType.WFH.value]},
+            })
+            if existing_leave:
+                conflict = "Approved leave scheduled"
+            else:
+                existing_sc = await db.leave_requests.find_one({
+                    "user_id": user_id,
+                    "leave_type": "shift_change",
+                    "status": {"$in": ["pending", "approved", "appealed", "needs_info"]},
+                    "$or": [{"shift_change_dates": d_str}, {"start_date": {"$lte": d_str}, "end_date": {"$gte": d_str}}],
+                })
+                if existing_sc:
+                    conflict = "Another active shift change exists"
+
+        cutoff_str = None
+        if d_obj:
+            cutoff_date = d_obj - timedelta(days=1)
+            cutoff_str = f"{cutoff_date.isoformat()} 23:00 PKT"
+
+        items.append(ShiftChangePreviewItem(
+            date=d_str,
+            current_schedule=sched_detail,
+            requested=req_detail,
+            conflict=conflict,
+            cut_off=cutoff_str,
+            same_day=(d_str == today_str),
+            is_rest_day=cur_cls.is_off,
+        ))
+
+    return ShiftChangePreviewResponse(items=items)
+
+
+async def recalc_attendance_for_date(user_id: str, date_str: str) -> Optional[dict]:
+    """
+    Recalculates attendance record for user on date_str using resolved shift (override-aware).
+    Updates late_minutes, is_late, late_strike, work_hours, status and clears provisional flag.
+    """
+    db = get_database()
+    if db is None:
+        return None
+
+    rec = await db.attendance_records.find_one({"user_id": user_id, "date": date_str})
+    if not rec:
+        return None
+
+    user = await db.users.find_one({"id": user_id}, {"_id": 0}) or {}
+    user_dept = user.get("department")
+    shift = await get_shift_for_user(user_id, user_dept, date_str)
+    is_wfh = await is_wfh_approved_for_date(user_id, date_str)
+
+    cin = rec.get("check_in") or rec.get("punch_in")
+    cout = rec.get("check_out") or rec.get("punch_out")
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    if cin and cout:
+        _claimed, settled, _gate, _ot, _ut, _s, _e = compute_settled_checkout(
+            cin,
+            cout,
+            shift,
+            extra={
+                "is_wfh": is_wfh,
+                "is_short_leave": bool(rec.get("is_short_leave")),
+                "short_leave_hours": float(rec.get("short_leave_hours") or 0.0),
+            },
+            auto_approve=True,
+        )
+        hour_fields = settled_to_record_fields(settled)
+        calc_res = calculate_daily_attendance(
+            check_in_time=cin,
+            check_out_time=cout,
+            **shift_calc_kwargs(shift, {"is_wfh": is_wfh}),
+        )
+        status_val = AttendanceStatus.WFH if is_wfh else calc_res.status
+    elif cin:
+        calc_res = calculate_daily_attendance(
+            check_in_time=cin,
+            check_out_time=None,
+            **shift_calc_kwargs(shift, {"is_wfh": is_wfh}),
+        )
+        hour_fields = {
+            "working_hours_minutes": calc_res.work_minutes,
+            "work_hours": calc_res.work_hours,
+            "work_duration_formatted": calc_res.work_duration_formatted,
+            "overtime_minutes": 0,
+            "overtime_hours": 0.0,
+            "overtime_formatted": "0h 00m",
+            "undertime_minutes": calc_res.undertime_minutes,
+            "undertime_hours": calc_res.undertime_hours,
+            "undertime_formatted": calc_res.undertime_formatted,
+            "pending_overtime_minutes": 0,
+            "claimed_overtime_minutes": 0,
+            "overtime_status": "not_applicable",
+        }
+        status_val = AttendanceStatus.WFH if is_wfh else calc_res.status
+    else:
+        calc_res = calculate_daily_attendance(
+            check_in_time=None,
+            check_out_time=None,
+            **shift_calc_kwargs(shift, {"is_wfh": is_wfh}),
+        )
+        hour_fields = {
+            "working_hours_minutes": 0,
+            "work_hours": 0.0,
+            "work_duration_formatted": "0h 00m",
+            "overtime_minutes": 0,
+            "overtime_hours": 0.0,
+            "overtime_formatted": "0h 00m",
+            "undertime_minutes": calc_res.undertime_minutes,
+            "undertime_hours": calc_res.undertime_hours,
+            "undertime_formatted": calc_res.undertime_formatted,
+            "pending_overtime_minutes": 0,
+            "claimed_overtime_minutes": 0,
+            "overtime_status": "not_applicable",
+        }
+        status_val = AttendanceStatus.ABSENT
+
+    sc_req = await db.leave_requests.find_one({
+        "user_id": user_id,
+        "leave_type": "shift_change",
+        "$or": [{"shift_change_dates": date_str}, {"start_date": {"$lte": date_str}, "end_date": {"$gte": date_str}}],
+    })
+
+    update_doc: Dict[str, Any] = {
+        "shift_id": shift.id,
+        "shift_name": shift.name,
+        "break_minutes": shift.break_duration_minutes if (cin and cout) else 0,
+        **hour_fields,
+        "late_minutes": calc_res.late_minutes,
+        "is_late": calc_res.is_late,
+        "late_strike": calc_res.late_strike,
+        "status": status_val.value if isinstance(status_val, AttendanceStatus) else str(status_val),
+        "is_wfh": is_wfh,
+        "provisional": False,
+        "updated_at": now_iso,
+    }
+
+    if sc_req:
+        st = str(sc_req.get("status") or "").lower()
+        if st in (LeaveStatus.APPROVED.value, "approved"):
+            update_doc["shift_change_status"] = "approved"
+            update_doc["shift_change_request_id"] = sc_req.get("id")
+            update_doc["shift_changed"] = True
+        elif st in (LeaveStatus.CANCELLED.value, LeaveStatus.REJECTED.value, "cancelled", "rejected"):
+            update_doc["shift_change_status"] = None
+            update_doc["shift_change_request_id"] = None
+            update_doc["shift_changed"] = False
+    else:
+        update_doc["shift_change_status"] = None
+        update_doc["shift_change_request_id"] = None
+        update_doc["shift_changed"] = False
+
+    await db.attendance_records.update_one(
+        {"user_id": user_id, "date": date_str},
+        {"$set": update_doc}
+    )
+
+    try:
+        from app.services.log_compliance import recompute_day_score
+        await recompute_day_score(user_id, date_str)
+    except Exception:
+        pass
+
+    return await db.attendance_records.find_one({"user_id": user_id, "date": date_str}, {"_id": 0})
+
+
+async def apply_shift_change(req_doc: dict, reviewer_name: str) -> None:
+    """
+    Applies shift change on approval:
+    1. Creates hidden shift if custom start/end.
+    2. Upserts date_overrides on user_shift_assignments.
+    3. Recalculates existing attendance records for the dates.
+    4. Marks request applied_at.
+    """
+    db = get_database()
+    if db is None:
+        return
+
+    req_id = req_doc.get("id")
+    target_user_id = req_doc.get("user_id")
+    dates = req_doc.get("shift_change_dates") or []
+    if not dates and req_doc.get("start_date"):
+        dates = list(iter_date_range(req_doc.get("start_date"), req_doc.get("end_date") or req_doc.get("start_date")))
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    custom_start = req_doc.get("shift_change_custom_start")
+    custom_end = req_doc.get("shift_change_custom_end")
+    is_custom = bool(custom_start and custom_end)
+
+    if is_custom:
+        hidden_shift_id = f"sc_{req_id}"
+        overnight = bool(req_doc.get("shift_change_overnight"))
+        start_m = parse_time_to_minutes(custom_start)
+        end_m = parse_time_to_minutes(custom_end)
+        span_m = ((1440 - start_m) + end_m) if overnight else (end_m - start_m)
+        span_h = span_m / 60.0
+        break_mins = 60 if span_h >= 6.0 else 0
+        expected_hours = round((span_m - break_mins) / 60.0, 2)
+
+        normal_shift = await get_shift_for_user(target_user_id, req_doc.get("department"))
+        grace = normal_shift.grace_period_minutes if normal_shift else 15
+
+        hidden_shift_doc = {
+            "id": hidden_shift_id,
+            "name": f"Custom ({custom_start} - {custom_end})",
+            "shift_type": ShiftType.CUSTOM.value,
+            "start_time": custom_start,
+            "end_time": custom_end,
+            "is_night_shift": overnight,
+            "break_duration_minutes": break_mins,
+            "grace_period_minutes": grace,
+            "expected_hours": expected_hours,
+            "hidden": True,
+            "source": "shift_change",
+            "is_active": True,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        await db.shifts.update_one(
+            {"id": hidden_shift_id},
+            {"$set": hidden_shift_doc},
+            upsert=True,
+        )
+        target_shift_id = hidden_shift_id
+    else:
+        target_shift_id = req_doc.get("shift_change_shift_id")
+
+    from app.services.workdays import classify_date
+    new_overrides = []
+    for d_str in dates:
+        d_cls = await classify_date(d_str)
+        new_overrides.append({
+            "date": d_str,
+            "shift_id": target_shift_id,
+            "auto_wfh": (req_doc.get("shift_change_location") == "wfh"),
+            "source": "shift_change",
+            "request_id": req_id,
+            "working_day": True if d_cls.is_off else None,
+            "custom_start": custom_start,
+            "custom_end": custom_end,
+        })
+
+    # Ensure user_shift_assignments doc exists
+    asgn = await db.user_shift_assignments.find_one({"user_id": target_user_id})
+    if not asgn:
+        std_shift = await db.shifts.find_one({"is_active": True, "hidden": {"$ne": True}})
+        default_id = std_shift["id"] if std_shift else "shift_std_01"
+        await db.user_shift_assignments.insert_one({
+            "user_id": target_user_id,
+            "shift_id": default_id,
+            "weekday_rules": {},
+            "date_overrides": [],
+        })
+
+    # Pull existing entries for this request or dates
+    await db.user_shift_assignments.update_one(
+        {"user_id": target_user_id},
+        {"$pull": {
+            "date_overrides": {
+                "$or": [
+                    {"request_id": req_id},
+                    {"date": {"$in": dates}, "source": "shift_change"},
+                ]
+            }
+        }}
+    )
+
+    # Push new overrides
+    await db.user_shift_assignments.update_one(
+        {"user_id": target_user_id},
+        {"$push": {"date_overrides": {"$each": new_overrides}}}
+    )
+
+    # Mark request applied
+    await db.leave_requests.update_one(
+        {"id": req_id},
+        {"$set": {"applied_at": now_iso}}
+    )
+
+    # Recalculate attendance records for each date
+    for d_str in dates:
+        await recalc_attendance_for_date(target_user_id, d_str)
+
+    invalidate_shifts_cache()
+
+
+async def rollback_shift_change(req_doc: dict) -> None:
+    """Reverts shift change on reject or cancel."""
+    db = get_database()
+    if db is None:
+        return
+
+    req_id = req_doc.get("id")
+    target_user_id = req_doc.get("user_id")
+    dates = req_doc.get("shift_change_dates") or []
+    if not dates and req_doc.get("start_date"):
+        dates = list(iter_date_range(req_doc.get("start_date"), req_doc.get("end_date") or req_doc.get("start_date")))
+
+    await db.user_shift_assignments.update_one(
+        {"user_id": target_user_id},
+        {"$pull": {"date_overrides": {"request_id": req_id}}}
+    )
+
+    hidden_shift_id = f"sc_{req_id}"
+    await db.shifts.update_one(
+        {"id": hidden_shift_id},
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc).isoformat()}}
+    )
+
+    for d_str in dates:
+        await recalc_attendance_for_date(target_user_id, d_str)
+
+    invalidate_shifts_cache()
+
+
+async def cancel_shift_change(
+    request_id: str,
+    actor_user: dict,
+    dates_to_cancel: Optional[List[str]] = None,
+) -> bool:
+    """
+    Cancels shift change request or specific dates per rule D3:
+    - Employees can cancel future approved dates themselves (D > today PKT).
+    - Cancelling today or past dates is HR/admin only.
+    """
+    db = get_database()
+    if db is None:
+        return True
+
+    req_doc = await db.leave_requests.find_one({"id": request_id})
+    if not req_doc:
+        return True
+
+    actor_role = str(actor_user.get("role") or "team_member").lower()
+    is_admin_or_hr = actor_role in ("admin", "hr", "operations")
+    today_pkt = get_current_date_str()
+
+    all_dates = req_doc.get("shift_change_dates") or []
+    target_dates = dates_to_cancel or all_dates
+
+    req_status = str(req_doc.get("status") or "").lower()
+    is_approved = (req_status in (LeaveStatus.APPROVED.value, "approved"))
+
+    if is_approved and not is_admin_or_hr:
+        for d in target_dates:
+            if d <= today_pkt:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Employees can only cancel future shift change dates. Contact HR to cancel today or past dates.",
+                )
+
+    target_user_id = req_doc.get("user_id")
+    await db.user_shift_assignments.update_one(
+        {"user_id": target_user_id},
+        {"$pull": {"date_overrides": {"request_id": request_id, "date": {"$in": target_dates}}}}
+    )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    already_cancelled = set(req_doc.get("cancelled_dates") or [])
+    new_cancelled = list(already_cancelled.union(target_dates))
+
+    update_fields: Dict[str, Any] = {
+        "cancelled_dates": new_cancelled,
+        "updated_at": now_iso,
+    }
+    if set(new_cancelled) >= set(all_dates) or not is_approved:
+        update_fields["status"] = LeaveStatus.CANCELLED.value
+        hidden_id = f"sc_{request_id}"
+        await db.shifts.update_one(
+            {"id": hidden_id},
+            {"$set": {"is_active": False, "updated_at": now_iso}}
+        )
+
+    await db.leave_requests.update_one(
+        {"id": request_id},
+        {"$set": update_fields}
+    )
+
+    for d in target_dates:
+        await recalc_attendance_for_date(target_user_id, d)
+
+    invalidate_shifts_cache()
+    return True
+
 
 async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResponse:
     """
@@ -3699,6 +4578,9 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
                 )
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=msg)
 
+        elif lt in (LeaveType.SHIFT_CHANGE.value, "shift_change"):
+            pass
+
         elif lt not in (LeaveType.OVERTIME.value, "overtime"):
             workdays_in_range = sum(
                 1 for d in iter_date_range(req.start_date, req.end_date or req.start_date)
@@ -3727,6 +4609,14 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
                 req.regularization_date or req.start_date,
                 req.regularization_check_out,
             )
+
+    sc_dates = None
+    sc_requested = None
+    sc_current_sched = None
+    sc_same_day = False
+    if lt in (LeaveType.SHIFT_CHANGE.value, "shift_change"):
+        sc_dates, sc_requested, sc_current_sched, sc_same_day = await _validate_and_build_shift_change(user, req)
+
     await assert_leave_quota(
         user,
         lt,
@@ -3748,6 +4638,15 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
     req_dict["created_at"] = now_iso
     req_dict["updated_at"] = now_iso
 
+    if lt in (LeaveType.SHIFT_CHANGE.value, "shift_change"):
+        req_dict["shift_change_dates"] = sc_dates
+        req_dict["start_date"] = sc_dates[0]
+        req_dict["end_date"] = sc_dates[-1]
+        req_dict["requested"] = sc_requested
+        req_dict["current_schedule"] = sc_current_sched
+        req_dict["same_day"] = sc_same_day
+        req_dict["shift_change_location"] = sc_requested.get("location", "office")
+
     if lt in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization"):
         orig_in, orig_out = await _snapshot_attendance_punches(
             user_id, req.regularization_date or req.start_date
@@ -3764,21 +4663,28 @@ async def submit_leave_request(user: dict, req: LeaveCreateRequest) -> LeaveResp
     await db.leave_requests.insert_one(req_dict)
     created_doc = await db.leave_requests.find_one({"id": req_dict["id"]}, {"_id": 0})
 
-    # Dispatch mobile push notification to HR & Operations (excluding admin)
+    # Dispatch mobile push notification to HR & Operations (excluding admin) in background
     try:
         hr_ops_ids = await push_service.get_hr_and_ops_user_ids()
         notify_ids = [uid for uid in hr_ops_ids if uid != user_id]
         if notify_ids:
             type_lbl = _format_request_type_label(req_dict)
             date_lbl = _format_request_date_label(req_dict)
-            await push_service.dispatch_to_users(
-                user_ids=notify_ids,
-                title=f"New {type_lbl} Request 📥",
-                body=f"{user_name} submitted a {type_lbl.lower()} request for {date_lbl}.",
-                kind="leave_submitted",
-                sender_id=user_id,
-                sender_name=user_name,
-                sender_role=req_dict.get("user_role"),
+            if lt in (LeaveType.SHIFT_CHANGE.value, "shift_change"):
+                prefix = "[Needs approval before check-in] " if req_dict.get("same_day") else ""
+                title = f"{prefix}Shift change request · {user_name} · {date_lbl}"
+            else:
+                title = f"New {type_lbl} Request 📥"
+            asyncio.create_task(
+                push_service.dispatch_to_users(
+                    user_ids=notify_ids,
+                    title=title,
+                    body=f"{user_name} submitted a {type_lbl.lower()} request for {date_lbl}.",
+                    kind="leave_submitted",
+                    sender_id=user_id,
+                    sender_name=user_name,
+                    sender_role=req_dict.get("user_role"),
+                )
             )
     except Exception as exc:
         logger.warning("Failed to dispatch push notification for submitted request %s: %s", req_dict.get("id"), exc)
@@ -3905,6 +4811,11 @@ async def _sync_attendance_record_for_request(
     shift = await get_shift_for_user(target_user_id, user_dept, review_date)
 
     if new_status_str == LeaveStatus.APPROVED.value:
+        # 0. Shift Change Approval
+        if leave_type_val in (LeaveType.SHIFT_CHANGE.value, "shift_change") or request_type_val == "shift_change":
+            await apply_shift_change(req, reviewer_name)
+            return
+
         # 1. Missed Punch Regularization Dynamic Recalculation
         if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization") or request_type_val in ("regularization", "missed_punch_regularization"):
             reg_date = req.get("regularization_date") or req.get("start_date")
@@ -4145,6 +5056,11 @@ async def _sync_attendance_record_for_request(
                         pass
 
     elif new_status_str in (LeaveStatus.REJECTED.value, LeaveStatus.CANCELLED.value):
+        # 0. Shift Change Reversal
+        if leave_type_val in (LeaveType.SHIFT_CHANGE.value, "shift_change") or request_type_val == "shift_change":
+            await rollback_shift_change(req)
+            return
+
         # 1. Missed Punch Regularization Reversal
         if leave_type_val in (LeaveType.MISSED_PUNCH_REGULARIZATION.value, "missed_punch_regularization") or request_type_val in ("regularization", "missed_punch_regularization"):
             reg_date = req.get("regularization_date") or req.get("start_date")
@@ -4516,6 +5432,10 @@ async def review_leave_request(
     except Exception as exc:
         logger.warning("Failed to dispatch push notification for reviewed request %s: %s", request_id, exc)
 
+    fresh_doc = await db.leave_requests.find_one({"id": request_id}, {"_id": 0})
+    if fresh_doc:
+        result = fresh_doc
+
     return LeaveResponse(**result)
 
 
@@ -4786,6 +5706,12 @@ async def delete_leave_request(request_id: str, current_user: dict) -> bool:
         "appealed",
         "needs_info",
     )
+
+    if str(existing.get("leave_type") or "").lower() == "shift_change":
+        await cancel_shift_change(request_id, current_user)
+        if is_in_flight:
+            await db.leave_requests.delete_one({"id": request_id})
+        return True
 
     if is_in_flight:
         # In-flight request withdrawn/cancelled before completion: hard delete from everyone's view

@@ -1121,7 +1121,7 @@ async def create_entry(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily logs cannot be submitted for future dates (Today is {today_iso})."
             )
-        from app.services.workdays import classify_date
+        from app.services.workdays import classify_date, classify_date_for_user
         from app.services.log_compliance import (
             hours_from_start_end,
             load_user_day_entries,
@@ -1130,7 +1130,7 @@ async def create_entry(
         )
 
         day_info, window_res, existing_same_day = await asyncio.gather(
-            classify_date(entry_in.date),
+            classify_date_for_user(current_user["id"], entry_in.date),
             compute_log_submission_window(
                 user_id=current_user["id"],
                 target_date_str=entry_in.date,
@@ -1287,8 +1287,8 @@ async def update_entry(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Daily log date cannot be set to a future date (Today is {today_iso})."
             )
-        from app.services.workdays import classify_date, format_off_day_reason
-        day_info = await classify_date(dt_str)
+        from app.services.workdays import classify_date, classify_date_for_user, format_off_day_reason
+        day_info = await classify_date_for_user(entry.get("user_id") or current_user["id"], dt_str)
         if day_info.is_off:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

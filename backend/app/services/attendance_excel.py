@@ -24,6 +24,7 @@ from app.models.attendance import (
     LeaveStatus,
     BonusRecommendation,
     CalendarEventType,
+    NON_LEAVE_REQUEST_TYPES,
 )
 from app.schemas.shift import ShiftResponse
 from app.services.attendance_calculator import (
@@ -209,6 +210,7 @@ async def generate_multi_tab_attendance_workbook(
         all_leaves = await db.leave_requests.find(
             {
                 "status": LeaveStatus.APPROVED.value,
+                "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
                 "start_date": {"$lte": end_of_month},
                 "end_date": {"$gte": start_of_month},
             },

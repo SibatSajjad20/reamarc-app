@@ -9,6 +9,7 @@ export type AttendanceStatusBucket =
   | 'Absent'
   | 'Missed punch'
   | 'Not checked in'
+  | 'Shift changed'
   | 'Off';
 
 export const isLeaveStatus = (status: string): boolean => {
@@ -59,6 +60,9 @@ export const matchesAttendanceStatus = (
       return row.status === 'missed_punch';
     case 'Not checked in':
       return row.status === 'awaiting_checkin';
+    case 'Shift changed':
+    case 'ShiftChanged':
+      return Boolean(row.shift_changed);
     case 'Off':
       return isOffStatus(row.status);
     default:

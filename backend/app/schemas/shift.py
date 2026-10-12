@@ -51,6 +51,8 @@ class ShiftUpdate(BaseModel):
     is_night_shift: Optional[bool] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
+    hidden: Optional[bool] = None
+    source: Optional[str] = None
 
 
 class ShiftResponse(ShiftBase):
@@ -73,6 +75,11 @@ class DateShiftOverride(BaseModel):
         default=None,
         description="If set, overrides weekday auto-WFH for this date only",
     )
+    source: Optional[str] = Field(default="hr", description="'hr' | 'shift_change'")
+    request_id: Optional[str] = Field(default=None, description="Request ID if created via shift_change")
+    working_day: Optional[bool] = Field(default=None, description="True when turning a rest day into a working day")
+    custom_start: Optional[str] = Field(default=None, description="Custom start time HH:MM")
+    custom_end: Optional[str] = Field(default=None, description="Custom end time HH:MM")
 
 
 class ShiftAssignmentRequest(BaseModel):

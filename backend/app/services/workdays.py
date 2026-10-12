@@ -187,6 +187,44 @@ async def classify_date(value) -> DayClassification:
     return index.classify(parsed)
 
 
+async def classify_date_for_user(
+    user_id: Optional[str],
+    value: Any,
+    include_pending: bool = False,
+) -> DayClassification:
+    """
+    Returns company classification, except when the user has an approved override
+    with working_day=True (or a pending one, for check-in only if include_pending=True),
+    in which case returns a workday labelled 'Shift change'.
+    """
+    parsed = parse_iso_date(value)
+    if parsed is None:
+        return DayClassification(True, "holiday", "Invalid date")
+    iso_date = parsed.isoformat()
+    db = get_database()
+    if db is not None and user_id:
+        assign = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
+        if assign:
+            for ov in (assign.get("date_overrides") or []):
+                if ov.get("date") == iso_date:
+                    if ov.get("working_day") is True or ov.get("source") == "shift_change":
+                        return DayClassification(False, "workday", "Shift change")
+        if include_pending:
+            pending_sc = await db.leave_requests.find_one({
+                "user_id": user_id,
+                "status": "pending",
+                "leave_type": "shift_change",
+                "$or": [
+                    {"shift_change_dates": iso_date},
+                    {"start_date": {"$lte": iso_date}, "end_date": {"$gte": iso_date}},
+                ],
+            })
+            if pending_sc:
+                return DayClassification(False, "workday", "Shift change")
+
+    return await classify_date(parsed)
+
+
 async def is_company_workday(value) -> bool:
     return (await classify_date(value)).is_workday
 

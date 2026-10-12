@@ -32,6 +32,8 @@ export interface ShiftTemplate {
   expected_hours?: number;
   description?: string;
   is_active?: boolean;
+  hidden?: boolean;
+  source?: string;
 }
 
 export type AttendanceStatus =
@@ -95,6 +97,10 @@ export interface AttendanceRecord {
   created_at?: string;
   updated_at?: string;
   quota_warning?: string | null;
+  shift_change_request_id?: string;
+  shift_change_status?: string;
+  provisional?: boolean;
+  shift_changed?: boolean;
 }
 
 export interface DailyMatrixEmployeeRow {
@@ -125,6 +131,8 @@ export interface DailyMatrixEmployeeRow {
   pending_overtime_minutes?: number;
   undertime_reason?: string | null;
   overtime_reason?: string | null;
+  shift_changed?: boolean;
+  shift_change_status?: string;
 }
 
 export interface DailyMatrixSummary {
@@ -211,9 +219,48 @@ export interface PersonalTimesheetResponse {
   summary: MonthlyPunctualityRow;
 }
 
-export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization' | 'overtime';
+export type RequestType = 'leave' | 'short_leave' | 'wfh' | 'regularization' | 'overtime' | 'shift_change';
 export type LeaveCategory = 'sick' | 'casual' | 'annual' | 'unpaid';
 export type RequestStatus = 'pending' | 'needs_info' | 'approved' | 'rejected' | 'appealed' | 'cancelled';
+
+export interface ShiftScheduleDetail {
+  date: string;
+  shift_id?: string;
+  shift_name?: string;
+  start?: string;
+  end?: string;
+  auto_wfh: boolean;
+  is_rest_day: boolean;
+  rest_reason?: string;
+}
+
+export interface ShiftRequestedDetail {
+  shift_id?: string;
+  shift_name?: string;
+  start?: string;
+  end?: string;
+  location: string;
+  break_duration_minutes: number;
+  expected_hours: number;
+  is_night_shift: boolean;
+}
+
+export interface ShiftChangePreviewItem {
+  date: string;
+  current_schedule: ShiftScheduleDetail;
+  requested: ShiftRequestedDetail;
+  conflict?: string;
+  cut_off?: string;
+  same_day: boolean;
+  is_rest_day: boolean;
+}
+
+export interface ShiftChangePreviewResponse {
+  items: ShiftChangePreviewItem[];
+  has_conflicts: boolean;
+  same_day: boolean;
+  warning?: string;
+}
 
 export interface AttendanceRequestStatusHistory {
   from_status: string;
@@ -252,6 +299,17 @@ export interface AttendanceRequest {
   overtime_minutes?: number;
   shift_end?: string;
   check_out?: string;
+  shift_change_dates?: string[];
+  shift_change_location?: 'office' | 'wfh';
+  shift_change_shift_id?: string;
+  shift_change_custom_start?: string;
+  shift_change_custom_end?: string;
+  shift_change_overnight?: boolean;
+  current_schedule?: ShiftScheduleDetail[];
+  requested?: ShiftRequestedDetail;
+  same_day?: boolean;
+  applied_at?: string;
+  cancelled_dates?: string[];
   reason: string;
   status: RequestStatus;
   reviewed_by?: string;
@@ -345,6 +403,13 @@ export interface TodayAttendanceResponse {
   is_off_day?: boolean;
   off_day_kind?: 'sunday' | 'first_saturday' | 'holiday' | string | null;
   off_day_label?: string | null;
+  shift_change?: {
+    request_id?: string;
+    status?: string;
+    requested_shift?: any;
+    location?: string;
+    same_day?: boolean;
+  };
 }
 
 export interface CheckoutGate {
@@ -387,8 +452,8 @@ export interface CreateLeavePayload {
   request_type?: RequestType;
   leave_type?: string;
   leave_category?: LeaveCategory;
-  start_date: string;
-  end_date: string;
+  start_date?: string;
+  end_date?: string;
   short_leave_start_time?: string;
   short_leave_end_time?: string;
   short_leave_duration_hours?: number;
@@ -403,7 +468,13 @@ export interface CreateLeavePayload {
   original_punch_out?: string | null;
   original_check_in?: string | null;
   original_check_out?: string | null;
-  reason: string;
+  shift_change_dates?: string[];
+  shift_change_location?: 'office' | 'wfh';
+  shift_change_shift_id?: string;
+  shift_change_custom_start?: string;
+  shift_change_custom_end?: string;
+  shift_change_overnight?: boolean;
+  reason?: string;
 }
 
 export interface ReviewLeavePayload {
@@ -454,6 +525,11 @@ export interface DateShiftOverride {
   date: string;
   shift_id?: string | null;
   auto_wfh?: boolean | null;
+  source?: 'hr' | 'shift_change';
+  request_id?: string;
+  working_day?: boolean;
+  custom_start?: string;
+  custom_end?: string;
 }
 
 export interface ShiftAssignment {

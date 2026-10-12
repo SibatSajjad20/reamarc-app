@@ -112,3 +112,19 @@ export function useCacheInvalidation(
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [keysKey]);
 }
+
+/**
+ * Invalidate all domains affected by a Shift Change mutation (submit, review, cancel)
+ */
+export function invalidateShiftChange(_dates?: string[]): void {
+  emitInvalidation([
+    'requests',
+    'approvals',
+    'attendance',
+    'daily-log',
+    'exceptions',
+    'dashboard',
+    'notifications',
+  ]);
+}
+

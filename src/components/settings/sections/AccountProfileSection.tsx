@@ -37,27 +37,34 @@ export const AccountProfileSection: React.FC = () => {
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
 
+  const isAdmin = user?.role === 'admin' || (user?.role as string)?.toLowerCase() === 'admin';
   const initialName = user?.full_name || user?.name || '';
   const initialPhone = user?.phone || user?.phone_number || '';
-  const email = user?.email || '';
+  const initialEmail = user?.email || '';
 
   const [fullName, setFullName] = useState(initialName);
   const [phone, setPhone] = useState(initialPhone);
+  const [email, setEmail] = useState(initialEmail);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     setFullName(user?.full_name || user?.name || '');
     setPhone(user?.phone || user?.phone_number || '');
+    setEmail(user?.email || '');
   }, [user]);
 
   const isDirty = useMemo(() => {
-    return fullName.trim() !== initialName.trim() || phone.trim() !== initialPhone.trim();
-  }, [fullName, phone, initialName, initialPhone]);
+    const nameChanged = fullName.trim() !== initialName.trim();
+    const phoneChanged = phone.trim() !== initialPhone.trim();
+    const emailChanged = isAdmin && email.trim().toLowerCase() !== initialEmail.trim().toLowerCase();
+    return nameChanged || phoneChanged || emailChanged;
+  }, [fullName, phone, email, initialName, initialPhone, initialEmail, isAdmin]);
 
   const handleDiscard = () => {
     setFullName(initialName);
     setPhone(initialPhone);
+    setEmail(initialEmail);
     setErrorMessage(null);
   };
 
@@ -67,12 +74,19 @@ export const AccountProfileSection: React.FC = () => {
       setErrorMessage('Full name is required.');
       return;
     }
+    if (isAdmin && !email.trim()) {
+      setErrorMessage('Email address cannot be empty.');
+      return;
+    }
 
     setIsSaving(true);
     try {
       await authService.updateProfile({
         full_name: fullName.trim(),
         phone: phone.trim(),
+        ...(isAdmin && email.trim().toLowerCase() !== initialEmail.trim().toLowerCase()
+          ? { email: email.trim().toLowerCase() }
+          : {}),
       });
       await refreshUser();
       addToast('Profile updated', 'Your personal details have been saved.', 'success');
@@ -178,8 +192,15 @@ export const AccountProfileSection: React.FC = () => {
   };
 
   const roleName = getRoleDisplayName(user?.role);
+  const normalizedRole = (user?.role as string)?.toLowerCase();
   const departmentLabel =
-    user?.departments && user.departments.length > 0
+    normalizedRole === 'admin' || normalizedRole === 'operations'
+      ? 'All'
+      : normalizedRole === 'hr'
+      ? 'HR'
+      : normalizedRole === 'client'
+      ? '—'
+      : user?.departments && user.departments.length > 0
       ? user.departments.join(', ')
       : user?.department || 'General';
   const formattedJoined = formatJoinedDate(user?.joining_date);
@@ -301,13 +322,18 @@ export const AccountProfileSection: React.FC = () => {
               Email address
             </label>
             <Input
+              type="email"
               value={email}
-              readOnly
-              disabled
-              className="bg-subtle text-fg-muted cursor-not-allowed"
+              onChange={isAdmin ? (e) => setEmail(e.target.value) : undefined}
+              readOnly={!isAdmin}
+              disabled={!isAdmin}
+              className={cn(!isAdmin && "bg-subtle text-fg-muted cursor-not-allowed")}
+              placeholder="admin@example.com"
             />
             <p className="text-caption text-fg-muted mt-1">
-              Contact an administrator to change your email address.
+              {isAdmin
+                ? "As an administrator, you can change your email address."
+                : "Contact an administrator to change your email address."}
             </p>
           </div>
         </div>

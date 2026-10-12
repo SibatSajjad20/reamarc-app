@@ -27,16 +27,24 @@ export function useOffDays(extraMonths?: MonthKey[]) {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all(
-      years.map((y) =>
+    Promise.all([
+      ...years.map((y) =>
         attendanceService.getCalendarMonth(y).catch(() => ({
           events: [],
           holidays: [] as string[],
           working_saturdays: [] as string[],
         })),
       ),
-    ).then((pages) => {
+      attendanceService.getMyWorkingOverrides().catch(() => [] as string[]),
+    ]).then((results) => {
       if (cancelled) return;
+      const myWorkingOverrides = results[results.length - 1] as string[];
+      const pages = results.slice(0, results.length - 1) as Array<{
+        events?: any[];
+        holidays?: string[];
+        working_saturdays?: string[];
+      }>;
+
       const nextHolidays = new Set<string>();
       const nextWorking = new Set<string>();
       const nextTitles: Record<string, string> = {};
@@ -53,6 +61,11 @@ export function useOffDays(extraMonths?: MonthKey[]) {
           }
         });
       });
+      // Merge approved working-day overrides (e.g. rest day converted to working day via shift change)
+      if (Array.isArray(myWorkingOverrides)) {
+        myWorkingOverrides.forEach((d) => nextWorking.add(d));
+      }
+
       setHolidays(nextHolidays);
       setWorkingSaturdays(nextWorking);
       setHolidayTitles(nextTitles);

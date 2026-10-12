@@ -66,7 +66,7 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
-  if (role === 'client') return false;
+  if (role === 'client' || role === 'hr') return false;
 
   if (user.permissions) {
     const summary = user.permissions.summary?.website;
@@ -75,6 +75,11 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
     if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
       return true;
     }
+    return false;
+  }
+
+  if (role !== 'team_lead' && role !== 'lead' && role !== 'team_member' && role !== 'member') {
+    return false;
   }
 
   const depts = parseUserDepartments(user);
@@ -91,7 +96,7 @@ export function canManageWebsiteProject(
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
-  if (role === 'client') return false;
+  if (role === 'client' || role === 'hr') return false;
 
   if (user.permissions?.modules?.website) {
     const mod = user.permissions.modules.website;

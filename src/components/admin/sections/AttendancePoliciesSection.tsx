@@ -44,7 +44,7 @@ import { CustomTimePicker } from '../../ui/CustomTimePicker';
 import { NumberStepper } from '../../ui/NumberStepper';
 import { ToggleSwitch } from '../../ui/ToggleSwitch';
 import { getAttendanceMinDate } from '../../../constants/attendance';
-import { getDeptBadgeClass, getRoleBadgeClass } from '../../../utils/badgeStyles';
+import { getRoleBadgeClass } from '../../../utils/badgeStyles';
 import { ShiftPatternModal } from './ShiftPatternModal';
 import { hasWeekPattern, resolveAssignmentForDate, todayIsoLocal, weekdayKeyFromIso } from '../../../utils/shiftAssignment';
 import { formatHours } from '../../../utils/logTimeChecks';
@@ -921,7 +921,6 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 <thead className="bg-subtle border-b border-border text-fg-muted font-medium">
                   <tr>
                     <th className="py-2 px-4">Employee</th>
-                    <th className="py-2 px-4">Department</th>
                     <th className="py-2 px-4">Role</th>
                     <th className="py-2 px-4">Default Shift</th>
                     <th className="py-2 px-4">Today</th>
@@ -931,14 +930,14 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                 <tbody className="divide-y divide-border">
                   {isLoadingRoster ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-fg-muted">
+                      <td colSpan={5} className="py-12 text-center text-fg-muted">
                         <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2 text-accent" />
                         Loading team members…
                       </td>
                     </tr>
                   ) : filteredMembers.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-fg-muted">
+                      <td colSpan={5} className="py-8 text-center text-fg-muted">
                         No team members found.
                       </td>
                     </tr>
@@ -967,11 +966,6 @@ export const AttendancePoliciesSection: React.FC<AttendancePoliciesSectionProps>
                             >
                               {member.full_name || (member as any).name || 'User'}
                             </div>
-                          </td>
-                          <td className="py-2 px-4 whitespace-nowrap">
-                            <span className={getDeptBadgeClass(member.department)}>
-                              {member.department || 'General'}
-                            </span>
                           </td>
                           <td className="py-2 px-4 whitespace-nowrap">
                             <span className={`${getRoleBadgeClass(member.role)} capitalize`}>

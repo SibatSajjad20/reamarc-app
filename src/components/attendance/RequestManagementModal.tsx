@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   AlertCircle,
   FileEdit,
+  ArrowLeftRight,
 } from 'lucide-react';
 import type {
   RequestType,
@@ -15,12 +16,14 @@ import type {
   AttendanceRecord,
   ShiftTemplate,
   LeaveBalance,
+  ShiftChangePreviewResponse,
 } from '../../types/attendance';
 import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
+import { SegmentedControl } from '../ui/SegmentedControl';
 import { Button } from '../ui/button';
 import { Callout } from '../ui/Callout';
 import { cn } from '../../lib/utils';
@@ -30,6 +33,7 @@ import { parseTimeToMinutes, formatHours } from '../../utils/logTimeChecks';
 import { focusFirstError } from '../../utils/formFocus';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
+import { invalidateShiftChange } from '../../utils/cacheBus';
 
 interface RequestManagementModalProps {
   isOpen: boolean;
@@ -53,9 +57,18 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const [minDate, setMinDate] = useState(getAttendanceMinDate());
   const [leaveBalance, setLeaveBalance] = useState<LeaveBalance | null>(null);
 
-  // Today ISO string
+  // Today and Tomorrow ISO strings
   const getTodayIso = () => {
     const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+
+  const getTomorrowIso = () => {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
@@ -66,6 +79,22 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     const today = getTodayIso();
     return lastWorkday(today, minDate) || today;
   }, [minDate, lastWorkday]);
+
+  const getInitialUpcomingWorkday = useCallback(() => {
+    const tomorrow = getTomorrowIso();
+    const d = new Date(`${tomorrow}T00:00:00`);
+    for (let i = 0; i < 30; i++) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      const iso = `${y}-${m}-${day}`;
+      if (!isOffDay(iso)) {
+        return iso;
+      }
+      d.setDate(d.getDate() + 1);
+    }
+    return tomorrow;
+  }, [isOffDay]);
 
   // Current PKT time helper
   const getCurrentTimePkt = () => {
@@ -78,13 +107,13 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     }).format(now);
   };
 
-  // Form State: Full Leave
+  // Form State: Full Leave (tomorrow onwards)
   const [leaveCategory, setLeaveCategory] = useState<LeaveCategory>('annual');
-  const [leaveStartDate, setLeaveStartDate] = useState(getTodayIso());
-  const [leaveEndDate, setLeaveEndDate] = useState(getTodayIso());
+  const [leaveStartDate, setLeaveStartDate] = useState(getTomorrowIso());
+  const [leaveEndDate, setLeaveEndDate] = useState(getTomorrowIso());
   const [leaveReason, setLeaveReason] = useState('');
 
-  // Form State: Short Leave
+  // Form State: Short Leave (today or upcoming)
   const [shortLeaveDate, setShortLeaveDate] = useState(getTodayIso());
   const [shortLeaveStartTime, setShortLeaveStartTime] = useState(getCurrentTimePkt());
   const [shortLeaveDuration, setShortLeaveDuration] = useState(2.0);
@@ -92,9 +121,9 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const [isLeavingEarly, setIsLeavingEarly] = useState(true);
   const [userShift, setUserShift] = useState<ShiftTemplate | null>(null);
 
-  // Form State: WFH
-  const [wfhStartDate, setWfhStartDate] = useState(getTodayIso());
-  const [wfhEndDate, setWfhEndDate] = useState(getTodayIso());
+  // Form State: WFH (tomorrow onwards)
+  const [wfhStartDate, setWfhStartDate] = useState(getTomorrowIso());
+  const [wfhEndDate, setWfhEndDate] = useState(getTomorrowIso());
   const [wfhReason, setWfhReason] = useState('');
 
   // Form State: Missed Punch Regularization
@@ -103,6 +132,21 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
   const [regularizeIn, setRegularizeIn] = useState('09:30');
   const [regularizeOut, setRegularizeOut] = useState('18:30');
   const [regularizeReason, setRegularizeReason] = useState('');
+
+  // Form State: Shift Change
+  const [shiftChangeMode, setShiftChangeMode] = useState<'single' | 'range'>('single');
+  const [shiftChangeDate, setShiftChangeDate] = useState(getTomorrowIso());
+  const [shiftChangeStartDate, setShiftChangeStartDate] = useState(getTomorrowIso());
+  const [shiftChangeEndDate, setShiftChangeEndDate] = useState(getTomorrowIso());
+  const [shiftChangeLocation, setShiftChangeLocation] = useState<'office' | 'wfh'>('office');
+  const [shiftChangeShiftId, setShiftChangeShiftId] = useState<string>('');
+  const [shiftChangeCustomStart, setShiftChangeCustomStart] = useState('10:00');
+  const [shiftChangeCustomEnd, setShiftChangeCustomEnd] = useState('18:00');
+  const [shiftChangeOvernight, setShiftChangeOvernight] = useState(false);
+  const [shiftChangeReason, setShiftChangeReason] = useState('');
+  const [availableShifts, setAvailableShifts] = useState<ShiftTemplate[]>([]);
+  const [previewData, setPreviewData] = useState<ShiftChangePreviewResponse | null>(null);
+  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
 
   const formRef = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -116,9 +160,10 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     setFieldErrors({});
     setServerError(null);
     const initDate = getInitialWorkday();
+    const upcomingDate = getInitialUpcomingWorkday();
     if (initialRecord?.date) {
       setRegularizeDate(initialRecord.date);
-      setShortLeaveDate(initialRecord.date);
+      setShortLeaveDate(initialRecord.date >= getTodayIso() ? initialRecord.date : getTodayIso());
       const existingIn = initialRecord.punch_in || initialRecord.check_in;
       const existingOut = initialRecord.punch_out || initialRecord.check_out;
       if (existingIn) {
@@ -132,11 +177,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         setCorrectionTarget('time_in');
       }
     } else {
-      setLeaveStartDate(initDate);
-      setLeaveEndDate(initDate);
-      setShortLeaveDate(initDate);
-      setWfhStartDate(initDate);
-      setWfhEndDate(initDate);
+      setLeaveStartDate(upcomingDate);
+      setLeaveEndDate(upcomingDate);
+      setShortLeaveDate(getTodayIso());
+      setWfhStartDate(upcomingDate);
+      setWfhEndDate(upcomingDate);
       setRegularizeDate(initDate);
     }
     attendanceService
@@ -155,7 +200,102 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         }
       })
       .catch(() => {});
+    attendanceService
+      .getShifts()
+      .then((shifts) => {
+        const active = shifts.filter((s) => s.is_active && !s.hidden);
+        setAvailableShifts(active);
+        if (active.length > 0) {
+          setShiftChangeShiftId((prev) => prev || active[0].id);
+        }
+      })
+      .catch(() => {});
   }, [isOpen, defaultTab, initialRecord, getInitialWorkday]);
+
+  // Derived dates list for shift change
+  const shiftChangeDatesList = useCallback((): string[] => {
+    if (shiftChangeMode === 'single') {
+      return shiftChangeDate ? [shiftChangeDate] : [];
+    }
+    if (!shiftChangeStartDate || !shiftChangeEndDate || shiftChangeEndDate < shiftChangeStartDate) {
+      return [];
+    }
+    const list: string[] = [];
+    const cur = new Date(`${shiftChangeStartDate}T00:00:00`);
+    const end = new Date(`${shiftChangeEndDate}T00:00:00`);
+    let count = 0;
+    while (cur <= end && count <= 14) {
+      const y = cur.getFullYear();
+      const m = String(cur.getMonth() + 1).padStart(2, '0');
+      const d = String(cur.getDate()).padStart(2, '0');
+      list.push(`${y}-${m}-${d}`);
+      cur.setDate(cur.getDate() + 1);
+      count++;
+    }
+    return list;
+  }, [shiftChangeMode, shiftChangeDate, shiftChangeStartDate, shiftChangeEndDate]);
+
+  // Custom times calculations for Shift Change (D1)
+  const isCustomShift = shiftChangeShiftId === 'custom';
+  const customStartM = parseTimeToMinutes(shiftChangeCustomStart) ?? 600;
+  const customEndM = parseTimeToMinutes(shiftChangeCustomEnd) ?? 1080;
+  const customSpanM = shiftChangeOvernight
+    ? (1440 - customStartM + customEndM)
+    : Math.max(0, customEndM - customStartM);
+  const customSpanHours = Math.round((customSpanM / 60) * 100) / 100;
+  const customBreakMinutes = customSpanHours >= 6.0 ? 60 : 0;
+  const customExpectedHours = Math.max(0, Math.round(((customSpanM - customBreakMinutes) / 60) * 100) / 100);
+
+  // Live preview fetcher for Shift Change
+  useEffect(() => {
+    if (activeTab !== 'shift_change') {
+      return;
+    }
+    const dates = shiftChangeDatesList();
+    if (dates.length === 0) {
+      setPreviewData(null);
+      return;
+    }
+    let cancelled = false;
+    setIsLoadingPreview(true);
+    attendanceService
+      .getShiftChangePreview({
+        dates,
+        shift_id: isCustomShift ? undefined : shiftChangeShiftId,
+        location: shiftChangeLocation,
+        custom_start: isCustomShift ? shiftChangeCustomStart : undefined,
+        custom_end: isCustomShift ? shiftChangeCustomEnd : undefined,
+        overnight: isCustomShift ? shiftChangeOvernight : undefined,
+      })
+      .then((res) => {
+        if (!cancelled) {
+          setPreviewData(res);
+          setIsLoadingPreview(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPreviewData(null);
+          setIsLoadingPreview(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeTab,
+    shiftChangeMode,
+    shiftChangeDate,
+    shiftChangeStartDate,
+    shiftChangeEndDate,
+    shiftChangeShiftId,
+    shiftChangeLocation,
+    shiftChangeCustomStart,
+    shiftChangeCustomEnd,
+    shiftChangeOvernight,
+    isCustomShift,
+    shiftChangeDatesList,
+  ]);
 
   // Derived shift and duration calculations for Short Leave
   const shiftEndTime = userShift?.end_time?.substring(0, 5) || '18:30';
@@ -240,6 +380,13 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
     const errs: Record<string, string> = {};
 
     if (activeTab === 'leave') {
+      const tomorrow = getTomorrowIso();
+      if (!leaveStartDate || leaveStartDate < tomorrow) {
+        errs.leaveStartDate = 'Full leave cannot be requested for previous days or today. Only upcoming days can be selected.';
+      }
+      if (leaveEndDate && leaveEndDate < leaveStartDate) {
+        errs.leaveEndDate = 'End date cannot be earlier than start date.';
+      }
       if (!leaveReason.trim()) {
         errs.leaveReason = 'Please provide a reason for the leave application.';
       }
@@ -248,6 +395,10 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         errs.leaveReason = quotaErr;
       }
     } else if (activeTab === 'short_leave') {
+      const today = getTodayIso();
+      if (!shortLeaveDate || shortLeaveDate < today) {
+        errs.shortLeaveDate = 'Short leave cannot be requested for previous days. Please select today or an upcoming day.';
+      }
       if (!shortLeaveReason.trim()) {
         errs.shortLeaveReason = 'Please provide a reason for short leave.';
       }
@@ -267,6 +418,13 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
         errs.shortLeaveDate = `Cannot request short leave on a non-working day (${getOffDay(shortLeaveDate).label}).`;
       }
     } else if (activeTab === 'wfh') {
+      const tomorrow = getTomorrowIso();
+      if (!wfhStartDate || wfhStartDate < tomorrow) {
+        errs.wfhStartDate = 'Work from home requests cannot be submitted for previous days or today. Only upcoming days can be selected.';
+      }
+      if (wfhEndDate && wfhEndDate < wfhStartDate) {
+        errs.wfhEndDate = 'End date cannot be earlier than start date.';
+      }
       if (!wfhReason.trim()) {
         errs.wfhReason = 'Please specify your deliverables and reason for WFH.';
       }
@@ -291,6 +449,41 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       }
       if (isOffDay(regularizeDate)) {
         errs.regularizeDate = `Cannot regularize punch on a non-working day (${getOffDay(regularizeDate).label}).`;
+      }
+    } else if (activeTab === 'shift_change') {
+      const today = getTodayIso();
+      const dates = shiftChangeDatesList();
+
+      if (dates.length === 0) {
+        errs.shiftChangeDates = 'Please select at least one date.';
+      } else if (dates.length > 14) {
+        errs.shiftChangeDates = 'Shift change requests cannot exceed 14 consecutive days.';
+      } else if (dates.some((d) => d < today)) {
+        errs.shiftChangeDates = 'Shift change cannot be requested for past dates.';
+      }
+
+      if (shiftChangeMode === 'range' && shiftChangeEndDate < shiftChangeStartDate) {
+        errs.shiftChangeEndDate = 'End date cannot be earlier than start date.';
+      }
+
+      if (!shiftChangeShiftId) {
+        errs.shiftChangeShiftId = 'Please select a shift or choose Custom times.';
+      } else if (shiftChangeShiftId === 'custom') {
+        const isTime = (t: string) => /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+        if (!isTime(shiftChangeCustomStart)) {
+          errs.shiftChangeCustomStart = 'Start time must be HH:MM (24-hour).';
+        }
+        if (!isTime(shiftChangeCustomEnd)) {
+          errs.shiftChangeCustomEnd = 'End time must be HH:MM (24-hour).';
+        }
+        if (!shiftChangeOvernight && shiftChangeCustomEnd <= shiftChangeCustomStart) {
+          errs.shiftChangeCustomEnd = 'End time must be after start time, or toggle "Ends next day".';
+        }
+        if (customSpanHours < 2.0) {
+          errs.shiftChangeCustomEnd = 'Shift duration must be at least 2 hours.';
+        } else if (customSpanHours > 12.0) {
+          errs.shiftChangeCustomEnd = 'Shift duration cannot exceed 12 hours.';
+        }
       }
     }
 
@@ -347,6 +540,21 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
           end_date: wfhEndDate,
           reason: wfhReason.trim(),
         };
+      } else if (activeTab === 'shift_change') {
+        const dates = shiftChangeDatesList();
+        payload = {
+          leave_type: 'shift_change',
+          request_type: 'shift_change',
+          shift_change_dates: dates,
+          shift_change_location: shiftChangeLocation,
+          shift_change_shift_id: isCustomShift ? undefined : shiftChangeShiftId,
+          shift_change_custom_start: isCustomShift ? shiftChangeCustomStart : undefined,
+          shift_change_custom_end: isCustomShift ? shiftChangeCustomEnd : undefined,
+          shift_change_overnight: isCustomShift ? shiftChangeOvernight : undefined,
+          start_date: dates[0],
+          end_date: dates[dates.length - 1],
+          reason: shiftChangeReason.trim(),
+        };
       } else {
         payload = {
           leave_type: 'missed_punch_regularization',
@@ -368,6 +576,9 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
       }
 
       await attendanceService.createRequest(payload);
+      if (activeTab === 'shift_change') {
+        invalidateShiftChange(shiftChangeDatesList());
+      }
       addToast('Request sent', 'Your team lead or HR will review it.', 'success');
       onSuccess();
       onClose();
@@ -406,6 +617,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 { id: 'short_leave', label: 'Short leave', desc: 'Up to 4h departure or mid-shift', icon: Clock },
                 { id: 'wfh', label: 'Work from home', desc: 'Remote work exemption', icon: Home },
                 { id: 'regularization', label: 'Punch correction', desc: 'Fix missed check-in or out', icon: FileEdit },
+                { id: 'shift_change', label: 'Shift change', desc: 'Adjust shift times or location', icon: ArrowLeftRight },
               ].map((item) => {
                 const Icon = item.icon;
                 const isSelected = activeTab === item.id;
@@ -420,6 +632,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                     }}
                     className={cn(
                       'p-2.5 rounded-lg border text-left transition-colors cursor-pointer flex flex-col justify-between gap-1',
+                      item.id === 'shift_change' ? 'col-span-2' : '',
                       isSelected
                         ? 'border-accent bg-accent-soft-2'
                         : 'border-border bg-surface hover:bg-subtle'
@@ -453,6 +666,11 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   <strong>Leave balance notice:</strong> This request requires {countWorkingDays(leaveStartDate, leaveEndDate)} day(s), which exceeds your remaining {leaveBalance.annual_remaining} annual days. Your balance will become negative and settled at year-end.
                 </Callout>
               )}
+              {leaveCategory === 'sick' && leaveBalance && leaveBalance.sick_remaining < countWorkingDays(leaveStartDate, leaveEndDate) && (
+                <Callout variant="warning">
+                  <strong>Leave balance notice:</strong> This request requires {countWorkingDays(leaveStartDate, leaveEndDate)} day(s), which exceeds your remaining {leaveBalance.sick_remaining} sick day(s). Sick leave cannot exceed available quota.
+                </Callout>
+              )}
               <div>
                 <label className="block text-label font-medium text-fg mb-1.5">
                   Leave category
@@ -480,16 +698,27 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <CustomDatePicker
                   offDayMode="disable"
                   label="Start date"
-                  minDate={minDate}
+                  minDate={getTomorrowIso()}
+                  error={fieldErrors.leaveStartDate}
                   value={leaveStartDate}
-                  onChange={setLeaveStartDate}
+                  onChange={(v) => {
+                    setLeaveStartDate(v);
+                    if (fieldErrors.leaveStartDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.leaveStartDate; return n; });
+                    if (v && leaveEndDate && leaveEndDate < v) {
+                      setLeaveEndDate(v);
+                    }
+                  }}
                 />
                 <CustomDatePicker
                   offDayMode="disable"
                   label="End date"
-                  minDate={leaveStartDate || minDate}
+                  minDate={leaveStartDate && leaveStartDate > getTomorrowIso() ? leaveStartDate : getTomorrowIso()}
+                  error={fieldErrors.leaveEndDate}
                   value={leaveEndDate}
-                  onChange={setLeaveEndDate}
+                  onChange={(v) => {
+                    setLeaveEndDate(v);
+                    if (fieldErrors.leaveEndDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.leaveEndDate; return n; });
+                  }}
                 />
               </div>
 
@@ -578,7 +807,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                     <CustomDatePicker
                       offDayMode="disable"
                       label="Date"
-                      minDate={minDate}
+                      minDate={getTodayIso()}
                       error={fieldErrors.shortLeaveDate}
                       value={shortLeaveDate}
                       onChange={(v) => {
@@ -661,7 +890,7 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                     <CustomDatePicker
                       offDayMode="disable"
                       label="Date"
-                      minDate={minDate}
+                      minDate={getTodayIso()}
                       error={fieldErrors.shortLeaveDate}
                       value={shortLeaveDate}
                       onChange={(v) => {
@@ -750,16 +979,27 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                 <CustomDatePicker
                   offDayMode="disable"
                   label="Start date"
-                  minDate={minDate}
+                  minDate={getTomorrowIso()}
+                  error={fieldErrors.wfhStartDate}
                   value={wfhStartDate}
-                  onChange={setWfhStartDate}
+                  onChange={(v) => {
+                    setWfhStartDate(v);
+                    if (fieldErrors.wfhStartDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.wfhStartDate; return n; });
+                    if (v && wfhEndDate && wfhEndDate < v) {
+                      setWfhEndDate(v);
+                    }
+                  }}
                 />
                 <CustomDatePicker
                   offDayMode="disable"
                   label="End date"
-                  minDate={wfhStartDate || minDate}
+                  minDate={wfhStartDate && wfhStartDate > getTomorrowIso() ? wfhStartDate : getTomorrowIso()}
+                  error={fieldErrors.wfhEndDate}
                   value={wfhEndDate}
-                  onChange={setWfhEndDate}
+                  onChange={(v) => {
+                    setWfhEndDate(v);
+                    if (fieldErrors.wfhEndDate) setFieldErrors((prev) => { const n = { ...prev }; delete n.wfhEndDate; return n; });
+                  }}
                 />
               </div>
 
@@ -910,6 +1150,307 @@ export const RequestManagementModal: React.FC<RequestManagementModalProps> = ({
                   </p>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* TAB 5: SHIFT CHANGE */}
+          {activeTab === 'shift_change' && (
+            <div className="space-y-4">
+              <Callout variant="info">
+                Request temporary changes to your scheduled shift times or location (Office vs WFH). Requests must be submitted before 23:00 PKT on the day prior. Same-day requests require manager approval before check-in.
+              </Callout>
+
+              {/* Single vs Range Mode Selector */}
+              <div>
+                <label className="block text-label font-medium text-fg mb-1.5">
+                  Request duration
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShiftChangeMode('single');
+                      if (fieldErrors.shiftChangeDates) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeDates; return n; });
+                      }
+                    }}
+                    className={cn(
+                      'py-2 px-3 rounded-md font-medium text-ui transition-colors border text-center cursor-pointer',
+                      shiftChangeMode === 'single'
+                        ? 'bg-accent-soft-2 border-accent text-accent-text font-semibold'
+                        : 'bg-surface border-border text-fg hover:bg-subtle'
+                    )}
+                  >
+                    Single day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShiftChangeMode('range');
+                      if (fieldErrors.shiftChangeDates) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeDates; return n; });
+                      }
+                    }}
+                    className={cn(
+                      'py-2 px-3 rounded-md font-medium text-ui transition-colors border text-center cursor-pointer',
+                      shiftChangeMode === 'range'
+                        ? 'bg-accent-soft-2 border-accent text-accent-text font-semibold'
+                        : 'bg-surface border-border text-fg hover:bg-subtle'
+                    )}
+                  >
+                    Date range (up to 14 days)
+                  </button>
+                </div>
+              </div>
+
+              {/* Date pickers */}
+              {shiftChangeMode === 'single' ? (
+                <div>
+                  <CustomDatePicker
+                    label="Date"
+                    minDate={getTodayIso()}
+                    error={fieldErrors.shiftChangeDates}
+                    value={shiftChangeDate}
+                    onChange={(v) => {
+                      setShiftChangeDate(v);
+                      if (fieldErrors.shiftChangeDates) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeDates; return n; });
+                      }
+                    }}
+                  />
+                  {shiftChangeDate === getTodayIso() && (
+                    <p className="mt-1 text-micro text-amber-600 dark:text-amber-400 flex items-center gap-1 font-medium">
+                      <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                      Same-day shift change requires approval before check-in.
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <CustomDatePicker
+                    label="Start date"
+                    minDate={getTodayIso()}
+                    error={fieldErrors.shiftChangeDates}
+                    value={shiftChangeStartDate}
+                    onChange={(v) => {
+                      setShiftChangeStartDate(v);
+                      if (fieldErrors.shiftChangeDates) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeDates; return n; });
+                      }
+                      if (v && shiftChangeEndDate && shiftChangeEndDate < v) {
+                        setShiftChangeEndDate(v);
+                      }
+                    }}
+                  />
+                  <CustomDatePicker
+                    label="End date"
+                    minDate={shiftChangeStartDate || getTodayIso()}
+                    error={fieldErrors.shiftChangeEndDate}
+                    value={shiftChangeEndDate}
+                    onChange={(v) => {
+                      setShiftChangeEndDate(v);
+                      if (fieldErrors.shiftChangeEndDate) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeEndDate; return n; });
+                      }
+                    }}
+                  />
+                </div>
+              )}
+
+              {/* Location Selector (SegmentedControl) */}
+              <div>
+                <label className="block text-label font-medium text-fg mb-1.5">
+                  Location
+                </label>
+                <SegmentedControl
+                  value={shiftChangeLocation}
+                  onValueChange={(v: string) => setShiftChangeLocation(v as 'office' | 'wfh')}
+                  options={[
+                    { value: 'office', label: 'Office' },
+                    { value: 'wfh', label: 'Work from home' },
+                  ]}
+                />
+                <p className="mt-1 text-micro text-fg-muted">
+                  {shiftChangeLocation === 'wfh'
+                    ? 'Location checks are relaxed once approved. Wi-Fi and GPS rules still apply while pending.'
+                    : 'Check-in requires connection to office Wi-Fi and valid GPS within office geofence.'}
+                </p>
+              </div>
+
+              {/* Shift Selector */}
+              <div>
+                <CustomSelect
+                  label="Requested shift"
+                  value={shiftChangeShiftId}
+                  onChange={(v) => {
+                    setShiftChangeShiftId(v);
+                    if (fieldErrors.shiftChangeShiftId) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeShiftId; return n; });
+                    }
+                  }}
+                  options={[
+                    ...availableShifts.map((s) => ({
+                      value: s.id,
+                      label: `${s.name} (${s.start_time} – ${s.end_time})`,
+                    })),
+                    { value: 'custom', label: 'Custom times…' },
+                  ]}
+                  error={fieldErrors.shiftChangeShiftId}
+                />
+              </div>
+
+              {/* Custom Times Fields */}
+              {isCustomShift && (
+                <div className="p-3.5 rounded-lg bg-subtle border border-border space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <CustomTimePicker
+                      label="Start time"
+                      required
+                      error={fieldErrors.shiftChangeCustomStart}
+                      value={shiftChangeCustomStart}
+                      onChange={(v) => {
+                        setShiftChangeCustomStart(v);
+                        if (fieldErrors.shiftChangeCustomStart) {
+                          setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeCustomStart; return n; });
+                        }
+                      }}
+                    />
+                    <CustomTimePicker
+                      label="End time"
+                      required
+                      error={fieldErrors.shiftChangeCustomEnd}
+                      value={shiftChangeCustomEnd}
+                      onChange={(v) => {
+                        setShiftChangeCustomEnd(v);
+                        if (fieldErrors.shiftChangeCustomEnd) {
+                          setFieldErrors((prev) => { const n = { ...prev }; delete n.shiftChangeCustomEnd; return n; });
+                        }
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-2 cursor-pointer text-label text-fg select-none">
+                      <input
+                        type="checkbox"
+                        checked={shiftChangeOvernight}
+                        onChange={(e) => setShiftChangeOvernight(e.target.checked)}
+                        className="rounded border-border text-accent focus:ring-accent"
+                      />
+                      <span>Ends next day (night shift)</span>
+                    </label>
+                  </div>
+
+                  {/* Calculated summary card */}
+                  <div className="p-2.5 rounded bg-surface border border-border flex items-center justify-between text-xs">
+                    <div>
+                      <span className="text-fg-muted">Duration:</span>{' '}
+                      <span className="font-semibold text-fg font-numeric">{customSpanHours}h</span>
+                      {customBreakMinutes > 0 && (
+                        <span className="text-fg-muted ml-2">
+                          (Break: <span className="font-numeric">{customBreakMinutes}m</span>)
+                        </span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-fg-muted">Expected work:</span>{' '}
+                      <span className="font-semibold text-accent font-numeric">{customExpectedHours}h</span>
+                    </div>
+                  </div>
+
+                  {customSpanHours < 2.0 && (
+                    <p className="text-small text-danger-fg flex items-center gap-1 font-medium">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      Shift span must be at least 2 hours.
+                    </p>
+                  )}
+                  {customSpanHours > 12.0 && (
+                    <p className="text-small text-danger-fg flex items-center gap-1 font-medium">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                      Shift span cannot exceed 12 hours.
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Comparison Preview from /preview */}
+              {previewData && previewData.items && previewData.items.length > 0 && (
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between text-label font-medium text-fg">
+                    <span>Schedule comparison</span>
+                    {isLoadingPreview && (
+                      <span className="text-micro text-fg-muted">Updating…</span>
+                    )}
+                  </div>
+
+                  {previewData.warning && (
+                    <Callout variant="warning">{previewData.warning}</Callout>
+                  )}
+                  {previewData.same_day && (
+                    <Callout variant="warning">
+                      Same-day request needs approval before check-in. Wi-Fi and GPS rules apply until approved.
+                    </Callout>
+                  )}
+
+                  <div className="rounded-lg border border-border bg-subtle/40 divide-y divide-border overflow-hidden">
+                    {previewData.items.map((item) => (
+                      <div key={item.date} className="p-2.5 flex items-center justify-between gap-3 text-xs">
+                        <div>
+                          <div className="font-semibold text-fg font-numeric flex items-center gap-1.5">
+                            <span>{item.date}</span>
+                            {item.is_rest_day && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-accent-soft text-accent-text font-normal">
+                                Rest day → Work
+                              </span>
+                            )}
+                            {item.same_day && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] bg-amber-500/10 text-amber-600 dark:text-amber-400 font-normal">
+                                Today
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-micro text-fg-muted mt-0.5 font-numeric">
+                            Current: {item.current_schedule.shift_name || (item.current_schedule.is_rest_day ? 'Rest day' : 'Standard')} {item.current_schedule.start ? `(${item.current_schedule.start} – ${item.current_schedule.end})` : ''} · {item.current_schedule.auto_wfh ? 'WFH' : 'Office'}
+                          </div>
+                          {item.conflict && (
+                            <p className="text-micro text-danger-fg mt-0.5 font-medium">
+                              Conflict: {item.conflict}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right">
+                          <div className="font-semibold text-accent font-numeric">
+                            {item.requested.start} – {item.requested.end}
+                          </div>
+                          <div className="text-micro text-fg-muted mt-0.5">
+                            {item.requested.location === 'wfh' ? 'WFH' : 'Office'} · {item.requested.expected_hours}h exp{item.requested.break_duration_minutes > 0 ? ` (${item.requested.break_duration_minutes}m break)` : ''}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Optional Reason */}
+              <div>
+                <label htmlFor="shiftChangeReason" className="block text-label font-medium text-fg mb-1">
+                  Reason (optional)
+                </label>
+                <textarea
+                  id="shiftChangeReason"
+                  rows={2}
+                  placeholder="Explain why you are requesting this shift or location change..."
+                  value={shiftChangeReason}
+                  onChange={(e) => setShiftChangeReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md bg-surface border border-border-strong text-fg placeholder:text-fg-faint text-body focus-visible:focus-ring"
+                />
+              </div>
+
+              {/* Footer cutoff notice */}
+              <p className="text-micro text-fg-muted leading-relaxed">
+                Requests for tomorrow must be submitted before 23:00 PKT. Same-day requests are provisional until reviewed by your team lead or HR.
+              </p>
             </div>
           )}
 

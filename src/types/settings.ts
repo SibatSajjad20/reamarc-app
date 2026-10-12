@@ -13,7 +13,6 @@ export type SettingsSectionSlug =
   | 'booking-scheduler'
   | 'message-templates'
   | 'lead-routing'
-  | 'content-calendar-display'
   | 'content-calendar-fields'
   | 'ad-accounts';
 

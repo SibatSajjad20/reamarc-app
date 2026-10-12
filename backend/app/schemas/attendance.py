@@ -145,6 +145,10 @@ class AttendanceRecordResponse(BaseModel):
         default=None,
         description="Soft warning when an approved leave request still covers this date after an HR override",
     )
+    shift_change_request_id: Optional[str] = None
+    shift_change_status: Optional[str] = None
+    provisional: Optional[bool] = None
+    shift_changed: Optional[bool] = None
 
     @classmethod
     def from_mongo(cls, data: Dict[str, Any]) -> "AttendanceRecordResponse":
@@ -206,6 +210,7 @@ class TodayAttendanceResponse(BaseModel):
     is_off_day: bool = False
     off_day_kind: Optional[str] = None
     off_day_label: Optional[str] = None
+    shift_change: Optional[Dict[str, Any]] = None
 
 
 class DailyMatrixSummary(BaseModel):
@@ -248,6 +253,8 @@ class DailyMatrixRow(BaseModel):
     pending_overtime_minutes: int = 0
     undertime_reason: Optional[str] = None
     overtime_reason: Optional[str] = None
+    shift_changed: bool = False
+    shift_change_status: Optional[str] = None
 
 
 class DailyMatrixResponse(BaseModel):

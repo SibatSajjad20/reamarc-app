@@ -33,6 +33,15 @@ class LeaveType(str, Enum):
     SHORT_LEAVE = "short_leave"
     MISSED_PUNCH_REGULARIZATION = "missed_punch_regularization"
     OVERTIME = "overtime"
+    SHIFT_CHANGE = "shift_change"
+
+
+NON_LEAVE_REQUEST_TYPES = {
+    "missed_punch_regularization",
+    "regularization",
+    "overtime",
+    "shift_change",
+}
 
 
 class LeaveStatus(str, Enum):

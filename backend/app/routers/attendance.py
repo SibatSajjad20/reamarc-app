@@ -183,6 +183,26 @@ async def get_today_attendance(
     )
 
 
+@router.get("/my-working-overrides", response_model=List[str])
+async def get_my_working_overrides(
+    current_user: dict = Depends(require_internal_user),
+):
+    """Returns list of ISO dates where the current user has an approved working-day override."""
+    from app.core.database import get_database
+    db = get_database()
+    if db is None:
+        return []
+    assign = await db.user_shift_assignments.find_one({"user_id": current_user["id"]}, {"_id": 0})
+    if not assign:
+        return []
+    working_dates = []
+    for ov in (assign.get("date_overrides") or []):
+        if ov.get("working_day") is True or ov.get("source") == "shift_change":
+            if ov.get("date"):
+                working_dates.append(ov["date"])
+    return sorted(list(set(working_dates)))
+
+
 class AttendanceConfigResponse(BaseModel):
     go_live_date: str
     test_start_date: str

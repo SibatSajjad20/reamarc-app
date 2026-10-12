@@ -132,14 +132,6 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
 
   // Content calendar
   {
-    slug: 'content-calendar-display',
-    group: 'content-calendar',
-    groupLabel: 'Content calendar',
-    label: 'Display',
-    description: 'Table zoom magnification and default row heights.',
-    isAllowed: (user) => canAccessContentCalendar(user),
-  },
-  {
     slug: 'content-calendar-fields',
     group: 'content-calendar',
     groupLabel: 'Content calendar',

@@ -59,7 +59,6 @@ import {
   Calendar,
   MessageSquare,
   GitFork,
-  Eye,
   Tags,
   Megaphone,
 } from 'lucide-react';
@@ -82,7 +81,6 @@ const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ classNam
   'booking-scheduler': Calendar,
   'message-templates': MessageSquare,
   'lead-routing': GitFork,
-  'content-calendar-display': Eye,
   'content-calendar-fields': Tags,
   'ad-accounts': Megaphone,
 };

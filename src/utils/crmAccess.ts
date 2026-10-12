@@ -33,6 +33,9 @@ export function canAccessCrm(user?: {
   if (role === 'admin' || role === 'operations') {
     return true;
   }
+  if (role === 'client' || role === 'hr') {
+    return false;
+  }
 
   // Permissions resolver precedence
   if (user.permissions) {
@@ -42,6 +45,7 @@ export function canAccessCrm(user?: {
     if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
       return true;
     }
+    return false;
   }
 
   const depts = parseDepts(user);

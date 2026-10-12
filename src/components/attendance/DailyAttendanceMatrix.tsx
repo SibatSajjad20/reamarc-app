@@ -333,6 +333,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               { value: 'Leaves', label: 'Approved Leaves' },
               { value: 'Missed', label: 'Missed Punch' },
               { value: 'Absent', label: 'Absent' },
+              { value: 'Shift changed', label: 'Shift Changed' },
             ]}
           />
         </div>
@@ -492,7 +493,14 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
                         {/* Shift */}
                         <td className="py-3 px-4 text-fg-muted whitespace-nowrap">
-                          {row.shift_name}
+                          <div className="flex items-center gap-1.5">
+                            <span>{row.shift_name}</span>
+                            {row.shift_changed && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                                Shift changed
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Punch In */}

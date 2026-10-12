@@ -302,10 +302,19 @@ async def update_my_profile(
         new_email = str(profile_in.email).lower().strip()
         stored_email = str(user_doc.get("email") or "").lower().strip()
         if new_email and new_email != stored_email:
-            raise HTTPException(
-                status_code=400,
-                detail="Email changes must be requested through HR.",
-            )
+            caller_role = _normalize_role(user_doc.get("role") or current_user.get("role"))
+            if caller_role != "admin":
+                raise HTTPException(
+                    status_code=400,
+                    detail="Email changes must be requested through HR.",
+                )
+            conflict = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
+            if conflict:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Email is already taken by another user.",
+                )
+            update_fields["email"] = new_email
 
     if profile_in.phone is not None and profile_in.phone.strip():
         update_fields["phone"] = profile_in.phone.strip()
