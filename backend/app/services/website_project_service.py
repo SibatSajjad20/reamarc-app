@@ -1160,6 +1160,12 @@ async def create_file_record(db, project_id: str, payload: WebsiteFileCreate, ac
     if not project or not can_view_project(actor, project):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
 
+    if is_client(actor):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Clients are not permitted to attach file records.",
+        )
+
     file_id = f"wfile_{uuid4().hex[:10]}"
     now = _now_iso()
 
@@ -1186,6 +1192,28 @@ async def create_file_record(db, project_id: str, payload: WebsiteFileCreate, ac
         f"Added file/link '{payload.name}' to folder '{payload.folder.capitalize()}'.",
         actor,
         meta={"file_id": file_id},
+    )
+
+    # Dispatch notification to PM and task assignee (if any)
+    recipients: List[str] = []
+    if project.get("manager_id"):
+        recipients.append(str(project["manager_id"]))
+    if payload.task_id:
+        task = await db.website_project_tasks.find_one({"id": payload.task_id})
+        if task and task.get("assignee_id"):
+            recipients.append(str(task["assignee_id"]))
+
+    folder_label = (payload.folder or "assets").capitalize()
+    actor_name = actor.get("full_name") or actor.get("name") or "User"
+    await _notify_event(
+        db,
+        project=project,
+        recipients=recipients,
+        title="New file attached",
+        body=f"{actor_name} attached '{payload.name}' to folder '{folder_label}'.",
+        actor_id=str(actor.get("id") or ""),
+        kind="website_file_uploaded",
+        data={"file_id": file_id, "folder": payload.folder, "project_id": project_id},
     )
 
     doc.pop("_id", None)

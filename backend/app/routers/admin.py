@@ -456,17 +456,18 @@ async def remind_member_log(
             logger.error(f"[Admin] Email sending failed for {member['email']}: {e}")
 
     now_iso = now.isoformat()
-    notif_doc = {
-        "id": f"notif_{uuid.uuid4().hex[:10]}",
-        "user_id": user_id,
-        "title": "Daily Log Submission Reminder",
-        "message": req.custom_message
-        or f"Reminder to submit daily log for {formatted_missing}",
-        "missing_dates": missing_dates,
-        "created_at": now_iso,
-        "read": False,
-    }
-    await db.notifications.insert_one(notif_doc)
+    reminder_body = req.custom_message or f"Reminder to submit daily log for {formatted_missing}"
+    from app.services.push_service import dispatch_to_users
+    await dispatch_to_users(
+        user_ids=[user_id],
+        title="Daily Log Submission Reminder",
+        body=reminder_body,
+        kind="admin_reminder",
+        sender_id=str(current_user.get("id") or ""),
+        sender_name=current_user.get("full_name") or current_user.get("name") or "Administrator",
+        sender_role=current_user.get("role"),
+        data={"missing_dates": missing_dates},
+    )
 
     return {
         "success": True,

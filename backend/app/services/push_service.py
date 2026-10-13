@@ -82,6 +82,23 @@ async def list_notifications(user_id: str, limit: int = 50) -> list:
     db = get_database()
     if db is None:
         return []
+
+    # Transparent migration of any orphaned records in db.notifications for this user
+    try:
+        orphan_docs = await db.notifications.find({"user_id": user_id}).to_list(100)
+        if orphan_docs:
+            for od in orphan_docs:
+                await store_notification(
+                    user_id=user_id,
+                    title=od.get("title") or "Notification",
+                    body=od.get("message") or od.get("body") or "",
+                    kind="admin_alert",
+                    data={"missing_dates": od.get("missing_dates")} if "missing_dates" in od else {},
+                )
+            await db.notifications.delete_many({"user_id": user_id})
+    except Exception as e:
+        logger.warning(f"Error checking legacy notifications: {e}")
+
     docs = (
         await db.mobile_notifications.find({"user_id": user_id}, {"_id": 0})
         .sort("created_at", -1)
@@ -216,6 +233,31 @@ async def dispatch_to_users(
             f"Browser push queued for {web_sent}."
         ),
     }
+
+
+async def try_claim_scheduled_push(user_id: str, date_str: str, kind: str) -> bool:
+    """
+    Atomically claims a scheduled push for (user_id, date, kind).
+    Prevents duplicate dispatches when multiple server workers run the reminder tick.
+    Returns True if successfully claimed by this worker, False if already claimed.
+    """
+    db = get_database()
+    if db is None:
+        return False
+    try:
+        await db.mobile_push_receipts.insert_one(
+            {
+                "id": f"pr_{uuid.uuid4().hex[:12]}",
+                "user_id": user_id,
+                "date": date_str,
+                "kind": kind,
+                "sent_at": _now_iso(),
+            }
+        )
+        return True
+    except Exception:
+        # DuplicateKeyError or existing entry
+        return False
 
 
 async def already_sent(user_id: str, date_str: str, kind: str) -> bool:

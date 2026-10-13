@@ -44,38 +44,44 @@ import asyncio
 async def lifespan(app: FastAPI):
     await connect_to_mongo()
 
-    # Run data cleanups and checks in background so uvicorn binds to $PORT immediately
+    # Run data initializations and migrations in background so uvicorn binds to $PORT immediately
     async def _run_startup_cleanup():
-        try:
-            db = get_database()
-            if db is not None:
+        db = get_database()
+        if db is None:
+            return
+
+        # Optional guarded epoch cleanup (only if explicitly enabled via environment)
+        import os
+        if os.getenv("RUN_EPOCH_CLEANUP", "").lower() in ("true", "1"):
+            try:
                 await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
                 await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
                 from app.services.attendance_golive import purge_pre_go_live_attendance
                 await purge_pre_go_live_attendance()
-                # Ensure HR users have department "HR"
-                await db.users.update_many(
-                    {"role": {"$in": ["hr", "HR"]}, "$or": [{"department": "All"}, {"department": None}, {"department": ""}]},
-                    {"$set": {"department": "HR"}}
-                )
-                hr_users = await db.users.find({"role": {"$in": ["hr", "HR"]}}, {"id": 1, "full_name": 1, "name": 1}).to_list(100)
-                import re as _re
-                for h in hr_users:
-                    h_name = h.get("full_name") or h.get("name")
-                    if h_name:
-                        await db.daily_log_entries.update_many(
-                            {"$or": [{"user_id": h.get("id")}, {"resource_name": {"$regex": f"^{_re.escape(h_name)}$", "$options": "i"}}], "department": {"$in": ["All", "", None]}},
-                            {"$set": {"department": "HR"}}
-                        )
-                # Persist any leftover on-disk uploads into Mongo GridFS (survives Render redeploys)
-                from app.core.uploads import migrate_disk_uploads_to_gridfs
-                await migrate_disk_uploads_to_gridfs(db)
-                from app.services.content_calendar_service import ensure_indexes
-                await ensure_indexes(db)
-                from scripts.migrate_permissions import run_permissions_migration
-                await run_permissions_migration(db)
-        except Exception as err:
-            logging.getLogger(__name__).warning(f"Epoch log purge / HR dept update warning: {err}")
+                logging.getLogger(__name__).info("Explicit epoch log purge completed.")
+            except Exception as epoch_err:
+                logging.getLogger(__name__).warning(f"Epoch log purge warning: {epoch_err}")
+
+        # Persist any leftover on-disk uploads into Mongo GridFS (survives Render redeploys)
+        try:
+            from app.core.uploads import migrate_disk_uploads_to_gridfs
+            await migrate_disk_uploads_to_gridfs(db)
+        except Exception as upload_err:
+            logging.getLogger(__name__).warning(f"Uploads migration warning: {upload_err}")
+
+        # Ensure content calendar indexes
+        try:
+            from app.services.content_calendar_service import ensure_indexes
+            await ensure_indexes(db)
+        except Exception as idx_err:
+            logging.getLogger(__name__).warning(f"Content calendar indexes warning: {idx_err}")
+
+        # Run permissions migration and seeding
+        try:
+            from app.services.permissions_migration import run_permissions_migration
+            await run_permissions_migration(db)
+        except Exception as perm_err:
+            logging.getLogger(__name__).exception(f"Permissions migration failed: {perm_err}")
 
     cleanup_task = asyncio.create_task(_run_startup_cleanup())
 

@@ -95,7 +95,7 @@ async def _notify_late_at_grace(user, shift, start, today: str, grace: int) -> N
     display = name.split()[0] if name else "there"
     start_label = getattr(shift, "start_time", None) or start.strftime("%H:%M")
 
-    if not await _late_personal_already_sent(uid, today):
+    if await push_service.try_claim_scheduled_push(uid, today, "late_checkin"):
         await push_service.dispatch_to_users(
             [uid],
             "You are late",
@@ -106,9 +106,8 @@ async def _notify_late_at_grace(user, shift, start, today: str, grace: int) -> N
             ),
             kind="late_checkin",
         )
-        await push_service.mark_sent(uid, today, "late_checkin")
 
-    if await push_service.already_sent(uid, today, "employee_late_staff"):
+    if not await push_service.try_claim_scheduled_push(uid, today, "employee_late_staff"):
         return
 
     recipients = await push_service.resolve_attendance_alert_recipients(
@@ -126,7 +125,6 @@ async def _notify_late_at_grace(user, shift, start, today: str, grace: int) -> N
             ),
             kind="employee_late",
         )
-    await push_service.mark_sent(uid, today, "employee_late_staff")
 
 
 async def run_mobile_reminder_tick() -> None:
@@ -165,39 +163,36 @@ async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> No
 
     if not on_leave_today and is_workday_today:
         if _in_window(now, start - timedelta(minutes=10), before_minutes=1, after_minutes=1):
-            if not await push_service.already_sent(uid, today, "pre_shift"):
-                if not await _has_check_in(db, uid, today):
+            if not await _has_check_in(db, uid, today):
+                if await push_service.try_claim_scheduled_push(uid, today, "pre_shift"):
                     await push_service.dispatch_to_users(
                         [uid],
                         "Shift starts soon",
                         f"Hi {name.split()[0]}, your shift starts at {shift.start_time}. Open the app to check in.",
                         kind="pre_shift",
                     )
-                    await push_service.mark_sent(uid, today, "pre_shift")
 
         if _in_window(now, start + timedelta(minutes=grace), before_minutes=1, after_minutes=2):
             if not await _has_check_in(db, uid, today):
                 await _notify_late_at_grace(user, shift, start, today, grace)
 
         if _in_window(now, end, before_minutes=1, after_minutes=2):
-            if not await push_service.already_sent(uid, today, "checkout"):
-                if await _still_checked_in(db, uid, today):
+            if await _still_checked_in(db, uid, today):
+                if await push_service.try_claim_scheduled_push(uid, today, "checkout"):
                     await push_service.dispatch_to_users(
                         [uid],
                         "Time to check out",
                         f"Your shift ends at {shift.end_time}. Open the app to check out.",
                         kind="checkout",
                     )
-                    await push_service.mark_sent(uid, today, "checkout")
 
     if now.hour >= 10 and await is_workday_for_date(yesterday):
-        if not await push_service.already_sent(uid, yesterday, "missed_yesterday"):
-            if not await _on_approved_full_leave(db, uid, yesterday):
-                if not await _has_check_in(db, uid, yesterday):
+        if not await _on_approved_full_leave(db, uid, yesterday):
+            if not await _has_check_in(db, uid, yesterday):
+                if await push_service.try_claim_scheduled_push(uid, yesterday, "missed_yesterday"):
                     await push_service.dispatch_to_users(
                         [uid],
                         "Yesterday's attendance is missing",
                         "You did not check in yesterday. Open Requests to submit a correction if needed.",
                         kind="missed_yesterday",
                     )
-                    await push_service.mark_sent(uid, yesterday, "missed_yesterday")

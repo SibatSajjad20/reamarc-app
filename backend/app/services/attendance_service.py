@@ -4516,6 +4516,27 @@ async def cancel_shift_change(
         await recalc_attendance_for_date(target_user_id, d)
 
     invalidate_shifts_cache()
+
+    # Notify employee if cancelled by HR / another user
+    actor_id = str(actor_user.get("id") or "")
+    if actor_id != str(target_user_id):
+        actor_name = actor_user.get("full_name") or actor_user.get("name") or "HR"
+        dates_label = ", ".join(target_dates)
+        try:
+            from app.services import push_service
+            await push_service.dispatch_to_users(
+                user_ids=[str(target_user_id)],
+                title="Shift Change Cancelled",
+                body=f"Your shift change for {dates_label} was cancelled by {actor_name}.",
+                kind="shift_change_cancelled",
+                sender_id=actor_id,
+                sender_name=actor_name,
+                sender_role=actor_user.get("role"),
+                data={"request_id": request_id, "dates": target_dates},
+            )
+        except Exception as notif_err:
+            logger.warning(f"Failed to dispatch shift change cancellation notification: {notif_err}")
+
     return True
 
 

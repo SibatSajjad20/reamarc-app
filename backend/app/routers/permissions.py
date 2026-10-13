@@ -487,6 +487,19 @@ async def update_user_permissions(
 
     if audit_records:
         await db.permission_audit.insert_many(audit_records)
+        if str(actor_id) != str(user_id):
+            try:
+                from app.services.push_service import dispatch_to_users
+                await dispatch_to_users(
+                    user_ids=[user_id],
+                    title="Permissions Updated",
+                    body=f"Your department and module access permissions have been updated by {actor_name}.",
+                    kind="permission_change",
+                    sender_id=actor_id,
+                    sender_name=actor_name,
+                )
+            except Exception as notif_err:
+                logger.warning(f"Failed to dispatch permissions update notification: {notif_err}")
 
     # Return refreshed user context
     updated_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
@@ -540,6 +553,21 @@ async def reset_user_overrides(
             "reason": f"Reset overrides" + (f" for {department}" if department else ""),
         }
     )
+    # Notify user of permission reset if performed by another actor
+    if str(actor_id) != str(user_id):
+        try:
+            from app.services.push_service import dispatch_to_users
+            dept_suffix = f" for {department}" if department else ""
+            await dispatch_to_users(
+                user_ids=[user_id],
+                title="Permissions Reset",
+                body=f"Your permission overrides{dept_suffix} have been reset to role defaults by {actor_name}.",
+                kind="permission_change",
+                sender_id=actor_id,
+                sender_name=actor_name,
+            )
+        except Exception as notif_err:
+            logger.warning(f"Failed to dispatch permissions reset notification: {notif_err}")
 
     ctx = await load_context(u, db=db)
     return {

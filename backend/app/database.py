@@ -30,8 +30,45 @@ async def _create_indexes_background():
         )
 
         # Unique index on users email and user id
-        await db_instance.db.users.create_index("email", unique=True, name="uniq_user_email")
-        await db_instance.db.users.create_index("id", unique=True, name="uniq_user_id")
+        try:
+            await db_instance.db.users.create_index("email", unique=True, name="uniq_user_email")
+        except Exception as e:
+            logger.warning(f"Could not create unique user email index: {e}")
+
+        try:
+            # 1. Backfill any user records missing string 'id' using str(_id)
+            cursor = db_instance.db.users.find(
+                {"$or": [{"id": None}, {"id": ""}, {"id": {"$exists": False}}]},
+                {"_id": 1}
+            )
+            async for doc in cursor:
+                if "_id" in doc:
+                    await db_instance.db.users.update_one(
+                        {"_id": doc["_id"]},
+                        {"$set": {"id": str(doc["_id"])}}
+                    )
+
+            # 2. Check for duplicate IDs to avoid silent aborts
+            dup_pipeline = [
+                {"$match": {"id": {"$exists": True, "$ne": None}}},
+                {"$group": {"_id": "$id", "count": {"$sum": 1}}},
+                {"$match": {"count": {"$gt": 1}}}
+            ]
+            duplicates = await db_instance.db.users.aggregate(dup_pipeline).to_list(10)
+            if duplicates:
+                logger.error(
+                    f"Duplicate user IDs found in database: {[d['_id'] for d in duplicates]}. "
+                    "Skipping uniq_user_id index until duplicates are resolved."
+                )
+            else:
+                await db_instance.db.users.create_index(
+                    "id",
+                    unique=True,
+                    name="uniq_user_id",
+                    partialFilterExpression={"id": {"$type": "string", "$gt": ""}}
+                )
+        except Exception as e:
+            logger.warning(f"Could not create unique user id index: {e}")
 
         # Compound indexes for fast multi-tenant queries
         await db_instance.db.posts.create_index([("user_id", 1), ("status", 1)])
@@ -259,14 +296,6 @@ async def _create_indexes_background():
         except Exception as e:
             logger.warning(f"Could not create Website Project Pipeline indexes: {e}")
 
-        # Legacy role cleanup only. Never rewrite live client accounts.
-        try:
-            await db_instance.db.users.update_many(
-                {"role": {"$in": ["editor", "viewer", "member"]}},
-                {"$set": {"role": "team_member"}}
-            )
-        except Exception:
-            pass
 
         logger.info("MongoDB background index initialization completed.")
     except Exception as e:

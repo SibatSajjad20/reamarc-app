@@ -66,7 +66,7 @@ def can_create_project(user: Dict[str, Any] | None) -> bool:
     if is_admin_or_ops(user) or is_website_lead(user):
         return True
     role = _normalize(user.get("role"))
-    if role in ("team_lead", "lead", "pm", "project_manager"):
+    if role in ("pm", "project_manager"):
         return True
     depts = get_user_departments(user)
     return bool(depts & WEBSITE_DEPARTMENTS)

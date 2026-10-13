@@ -546,15 +546,16 @@ async def act_on_exception(
         else:
             verb = "add the missing time on your daily log"
         message = f"{actor_name} asked you to {verb} for {date_str}."
-        await db.notifications.insert_one({
-            "id": f"notif_{uuid.uuid4().hex[:10]}",
-            "user_id": user_id,
-            "title": "Daily log follow-up",
-            "message": message,
-            "missing_dates": [date_str],
-            "created_at": now_iso,
-            "read": False,
-        })
+        from app.services.push_service import dispatch_to_users
+        await dispatch_to_users(
+            user_ids=[user_id],
+            title="Daily log follow-up",
+            body=message,
+            kind="log_exception_followup",
+            sender_id=actor_id,
+            sender_name=actor_name,
+            data={"missing_dates": [date_str], "date": date_str, "action": action},
+        )
 
     return {
         "success": True,
