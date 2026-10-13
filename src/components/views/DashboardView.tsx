@@ -14,9 +14,6 @@ import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { usePermissions } from '../../hooks/usePermissions';
-import { canAccessCrm } from '../../utils/crmAccess';
-import { canAccessContentCalendar } from '../../utils/contentCalendarAccess';
-import { canAccessWebsitePipeline } from '../../utils/websiteProjectAccess';
 import { getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
 
 import type {

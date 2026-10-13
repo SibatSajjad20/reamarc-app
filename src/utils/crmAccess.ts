@@ -4,6 +4,7 @@
 
 export function canAccessCrm(user?: {
   role?: string;
+  department?: string;
   crm_enabled?: boolean;
   permissions?: any;
 } | null): boolean {
@@ -29,6 +30,7 @@ export function canAccessCrm(user?: {
 
 export function canAssignCrmLeads(user?: {
   role?: string;
+  department?: string;
   crm_enabled?: boolean;
   permissions?: any;
 } | null): boolean {

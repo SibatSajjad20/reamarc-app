@@ -265,7 +265,8 @@
 @layer base {
   *, ::before, ::after { border-color: var(--border); box-sizing: border-box; }
   html {
-    font-size: 16px;            /* scale fix: no zoom, 16px root (§2.6) */
+    font-size: 16px;
+    zoom: 0.9;                  /* Default 90% zoom level across the entire application */
     -webkit-text-size-adjust: 100%;
     height: 100%;
   }

@@ -25,8 +25,6 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { usePermissions } from './hooks/usePermissions';
-import { ShieldAlert } from 'lucide-react';
-import { Button } from './components/ui/button';
 import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
