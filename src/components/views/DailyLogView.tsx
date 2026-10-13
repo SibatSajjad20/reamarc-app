@@ -30,6 +30,7 @@ import {
   DropdownMenuSeparator,
 } from '../ui/dropdown-menu';
 import { dailyLogService } from '../../services/dailyLogService';
+import { dailyLogViewCache } from '../../utils/dailyLogViewCache';
 import { logExceptionService } from '../../services/logExceptionService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import type {
@@ -210,10 +211,10 @@ export const DailyLogView: React.FC = () => {
     return [];
   }, [userDept]);
 
-  const initialSheets = dailyLogService.getCachedSheets()?.data;
-  const initialColumns = dailyLogService.getCachedColumns()?.data;
-  const initialActivity = dailyLogService.getCachedActivity()?.data;
-  const hasCached = dailyLogService.hasInitialCache();
+  const initialSheets = dailyLogViewCache.getCachedSheets()?.data;
+  const initialColumns = dailyLogViewCache.getCachedColumns()?.data;
+  const initialActivity = dailyLogViewCache.getCachedActivity()?.data;
+  const hasCached = dailyLogViewCache.hasInitialCache();
 
   const [columns, setColumns] = useState<DailyLogColumn[]>(() => initialColumns || DEFAULT_COLUMNS);
   const [entries, setEntries] = useState<DailyLogEntry[]>([]);
@@ -369,8 +370,8 @@ export const DailyLogView: React.FC = () => {
 
     const params = buildFilterParams();
     const paramKey = JSON.stringify(params);
-    const cachedEntries = dailyLogService.getCachedEntries(paramKey);
-    const hasSoftCache = Boolean(cachedEntries && dailyLogService.hasInitialCache());
+    const cachedEntries = dailyLogViewCache.getCachedEntries(paramKey);
+    const hasSoftCache = Boolean(cachedEntries && dailyLogViewCache.hasInitialCache());
 
     if (hasSoftCache) {
       if (cachedEntries) setEntries(cachedEntries.data);
@@ -391,14 +392,14 @@ export const DailyLogView: React.FC = () => {
 
       if (activity) {
         setMyActivity(activity);
-        dailyLogService.setCachedActivity(activity);
+        dailyLogViewCache.setCachedActivity(activity);
       }
 
       if (sheets) {
-        dailyLogService.setCachedSheets(sheets);
+        dailyLogViewCache.setCachedSheets(sheets);
       }
       if (logs) {
-        dailyLogService.setCachedEntries(paramKey, logs);
+        dailyLogViewCache.setCachedEntries(paramKey, logs);
       }
 
       const allSheetSet = new Set<string>(sheets || []);
@@ -431,7 +432,7 @@ export const DailyLogView: React.FC = () => {
             finalCols.push(deptCol);
           }
         }
-        dailyLogService.setCachedColumns(finalCols);
+        dailyLogViewCache.setCachedColumns(finalCols);
         setColumns(finalCols);
         setColumnWidths((prev) => {
           const next = { ...prev };
@@ -715,8 +716,8 @@ export const DailyLogView: React.FC = () => {
       } else {
         updated = [savedEntry, ...prev];
       }
-      dailyLogService.replaceCachedEntries(paramKey, updated);
-      dailyLogService.invalidateEntries(paramKey);
+      dailyLogViewCache.replaceCachedEntries(paramKey, updated);
+      dailyLogViewCache.invalidateEntries(paramKey);
       return updated;
     });
 
@@ -779,8 +780,8 @@ export const DailyLogView: React.FC = () => {
 
     try {
       await dailyLogService.deleteEntry(entryId);
-      dailyLogService.replaceCachedEntries(paramKey, updatedEntries);
-      dailyLogService.invalidateEntries(paramKey);
+      dailyLogViewCache.replaceCachedEntries(paramKey, updatedEntries);
+      dailyLogViewCache.invalidateEntries(paramKey);
       refreshDayTarget();
       dailyLogService.getMyLogActivity(7).then(setMyActivity).catch(() => {});
       fetchEntries();
@@ -788,7 +789,7 @@ export const DailyLogView: React.FC = () => {
       console.error('Failed to delete daily log entry:', err);
       setEntries(entriesSnapshot);
       setDayTarget(dayTargetSnapshot);
-      dailyLogService.replaceCachedEntries(paramKey, entriesSnapshot);
+      dailyLogViewCache.replaceCachedEntries(paramKey, entriesSnapshot);
       addToast('Could not delete entry', err?.message || 'Try again.', 'error');
     }
   };

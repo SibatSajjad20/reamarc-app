@@ -55,6 +55,7 @@ class UserPermissionsUpdateRequest(BaseModel):
     primary_department: Optional[str] = None
     departments: Optional[List[str]] = None
     overrides: List[OverrideItem] = []
+    capability_overrides: Optional[Dict[str, bool]] = None
 
 
 def _now_iso() -> str:
@@ -358,6 +359,7 @@ async def get_user_permissions(user_id: str, current_user: dict = Depends(requir
             "avatar_url": u.get("avatar_url"),
         },
         "overrides": overrides,
+        "capability_overrides": u.get("capability_overrides") or {},
         "effective": effective_map(ctx),
     }
 
@@ -407,6 +409,33 @@ async def update_user_permissions(
     if payload.departments is not None:
         update_user_fields["departments"] = payload.departments
         update_user_fields["department"] = ", ".join(payload.departments)
+
+    if payload.capability_overrides is not None:
+        from app.services.permissions import CAPABILITIES
+
+        cleaned_caps = {
+            key: bool(val)
+            for key, val in payload.capability_overrides.items()
+            if key in CAPABILITIES
+        }
+        old_caps = u.get("capability_overrides") or {}
+        update_user_fields["capability_overrides"] = cleaned_caps
+        await db.permission_audit.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "at": now,
+                "actor_id": actor_id,
+                "actor_name": actor_name,
+                "target_type": "user",
+                "target_id": user_id,
+                "target_name": target_name,
+                "department": None,
+                "module": "capabilities.approve_won_deal",
+                "before": str(old_caps.get("approve_won_deal", "default")),
+                "after": str(cleaned_caps.get("approve_won_deal", "default")),
+                "reason": "Capability override updated",
+            }
+        )
 
     if update_user_fields:
         await db.users.update_one({"$or": [{"id": user_id}, {"_id": user_id}]}, {"$set": update_user_fields})

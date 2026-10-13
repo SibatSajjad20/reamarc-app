@@ -2,7 +2,6 @@
 API Router for Website Project Pipeline module.
 Provides endpoints for projects, tasks, approval gates, file links, and activity logs.
 """
-import asyncio
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from app.core.limiter import limiter
@@ -354,7 +353,7 @@ async def get_website_project_picker_config(
     task_id: Optional[str] = Query(None, description="Optional task ID to check task assignee access"),
     current_user: dict = Depends(get_current_user),
 ):
-    """Returns credentials, active OAuth access token, and client website folder ID for Google Picker."""
+    """Returns Picker API keys and the client website folder ID. Org Drive tokens stay server-side."""
     db = get_database()
     project = await db.website_projects.find_one({"id": project_id})
     if not project:
@@ -385,18 +384,15 @@ async def get_website_project_picker_config(
         workspace_id=project.get("workspace_id"),
         project_name=project.get("name"),
     )
-    token = await asyncio.to_thread(gdrive.get_access_token)
-    from app.config import settings
-    client_id = (settings.GOOGLE_DRIVE_WEB_CLIENT_ID or settings.GOOGLE_DRIVE_CLIENT_ID or "").strip()
     response.headers["Cache-Control"] = "no-store"
-    return {
-        "developer_key": (settings.GOOGLE_DRIVE_API_KEY or "").strip(),
-        "client_id": client_id,
-        "app_id": client_id.split("-")[0] if "-" in client_id else "",
-        "access_token": token,
-        "folder_id": folder_id,
-        "root_folder_id": await gdrive._ensure_root(db),
-    }
+    return gdrive.picker_public_payload(
+        folder_id,
+        await gdrive._ensure_root(db),
+        actor=current_user,
+        item_id=project_id,
+        workspace_id=project.get("workspace_id"),
+        context="website",
+    )
 
 
 # ==========================================
@@ -456,15 +452,38 @@ async def attach_files_from_drive(
             detail="You do not have permission to attach Drive files to this project.",
         )
 
+    from app.services import google_drive_service as gdrive
+
+    dest_folder_id = None
+    if gdrive.configured():
+        dest_folder_id = await gdrive.ensure_website_folder(
+            db,
+            client_name=project.get("client_name"),
+            workspace_id=project.get("workspace_id"),
+            project_name=project.get("name"),
+        )
+
     results: List[Dict[str, Any]] = []
     for f in payload.files:
+        file_id = f.id
+        name = f.name
+        mime_type = f.mimeType
+        size_bytes = f.sizeBytes
+        external_url = f.url
+        if gdrive.configured() and file_id:
+            meta = await gdrive.ingest_picked_file(file_id, dest_folder_id)
+            file_id = str(meta.get("id") or file_id)
+            name = meta.get("name") or name
+            mime_type = meta.get("mimeType") or mime_type
+            size_bytes = int(meta.get("size") or size_bytes or 0)
+            external_url = meta.get("webViewLink") or external_url
         file_payload = WebsiteFileCreate(
             folder=payload.folder,
-            name=f.name,
-            storage_key=f"drive:{f.id}",
-            external_url=f.url,
-            file_size=f.sizeBytes,
-            mime_type=f.mimeType,
+            name=name,
+            storage_key=f"drive:{file_id}",
+            external_url=external_url,
+            file_size=size_bytes,
+            mime_type=mime_type,
             task_id=payload.task_id,
             gate_id=payload.gate_id,
         )

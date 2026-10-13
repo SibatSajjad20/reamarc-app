@@ -11,6 +11,7 @@ import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
 import { CrmView } from './components/views/CrmView';
+import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
 import { WebsitePipelineView } from './components/views/WebsitePipelineView';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
@@ -132,6 +133,7 @@ function AppInner() {
   const canSeeExceptions = perms.can('exceptions', 'department');
   const canSeeActiveClients = perms.can('active_clients', 'view');
   const canSeeCrm = perms.can('sales', 'own');
+  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = perms.can('website', 'view');
   const canAssign = perms.can('sales', 'all');
@@ -147,6 +149,7 @@ function AppInner() {
     'attendance',
     'exceptions',
     'crm',
+    'won-deal-approvals',
     'content-calendar',
     'website-pipeline',
     'portal',
@@ -272,6 +275,16 @@ function AppInner() {
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
         }
+      } else if (currentPath === 'won-deal-approvals' || currentPath === 'won_deal_approvals') {
+        if (canSeeWonDealApprovals) {
+          setCurrentView('won-deal-approvals');
+          localStorage.setItem('reamarc_active_view', 'won-deal-approvals');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else if (currentPath === 'crm' || currentPath.startsWith('crm/') || currentPath === 'leads' || currentPath.startsWith('leads/')) {
         if (canSeeCrm) {
           const segments = currentPath.split('/');
@@ -390,6 +403,11 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'won-deal-approvals' && !canSeeWonDealApprovals) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'crm' && !canSeeCrm) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -422,7 +440,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeContentCalendar, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
     let allowedViews: ViewType[] = [];
@@ -432,6 +450,7 @@ function AppInner() {
     if (isClient) allowedViews.push('portal');
     if (canSeeActiveClients) allowedViews.push('active-clients');
     if (canSeeCrm) allowedViews.push('crm');
+    if (canSeeWonDealApprovals) allowedViews.push('won-deal-approvals');
     if (canSeeContentCalendar) allowedViews.push('content-calendar');
     if (canSeeWebsitePipeline) allowedViews.push('website-pipeline');
     if (!isClient) {
@@ -832,6 +851,12 @@ function AppInner() {
             </div>
           )}
 
+          {currentView === 'won-deal-approvals' && canSeeWonDealApprovals && (
+            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+              <WonDealApprovalsView />
+            </div>
+          )}
+
           {currentView === 'crm' && canSeeCrm && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <CrmView
@@ -957,6 +982,7 @@ function AppInner() {
         onSignOut={handleSignOut}
         canSeeActiveClients={canSeeActiveClients}
         canSeeCrm={canSeeCrm}
+        canSeeWonDealApprovals={canSeeWonDealApprovals}
         canSeeMarketing={canSeeMarketing}
         canSeeContentCalendar={canSeeContentCalendar}
         canSeeWebsitePipeline={canSeeWebsitePipeline}

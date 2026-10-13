@@ -88,6 +88,7 @@ export default function RootLayout() {
             <Stack.Screen name="login" />
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="pipeline" />
+            <Stack.Screen name="won-deals" />
             <Stack.Screen name="daily-log" />
             <Stack.Screen name="review" />
           </Stack>

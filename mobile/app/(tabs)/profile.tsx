@@ -3,7 +3,9 @@ import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import { useRouter } from 'expo-router';
 import { useAuth } from '../../src/context/AuthContext';
+import { canSeeWonDealApprovals } from '../../src/lib/roles';
 import { api } from '../../src/lib/api';
 import { colors, API_URL } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
@@ -18,6 +20,8 @@ type Device = {
 
 export default function ProfileScreen() {
   const { user, logout, deviceUuid } = useAuth();
+  const router = useRouter();
+  const showWonDeals = canSeeWonDealApprovals(user);
   const [device, setDevice] = useState<Device | null>(null);
   const [diagOpen, setDiagOpen] = useState(false);
 
@@ -51,6 +55,13 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
+
+        {showWonDeals ? (
+          <Pressable style={styles.card} onPress={() => router.push('/won-deals')}>
+            <Text style={styles.label}>Won-deal approvals</Text>
+            <Text style={styles.muted}>Confirm deals that sales marked as won. Sales pipeline stays hidden.</Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.label}>Authorized device</Text>

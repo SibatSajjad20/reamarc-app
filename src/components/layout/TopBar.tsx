@@ -143,6 +143,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           { label: 'Team' },
           { label: 'Daily log', onClick: () => onSelectView('daily-log') },
         ];
+      case 'won-deal-approvals':
+        return [
+          { label: 'Clients' },
+          { label: 'Won-deal approvals', onClick: () => onSelectView('won-deal-approvals') },
+        ];
       case 'exceptions':
         return [
           { label: 'Team' },

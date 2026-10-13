@@ -1,11 +1,7 @@
 import { apiClient } from './apiClient';
-import { BoundedCache, type CacheEntry } from '../utils/cache';
-import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
-
-const dlColumnsCache = new BoundedCache<DailyLogColumn[]>(2);
-const dlSheetsCache = new BoundedCache<string[]>(2);
-const dlEntriesCache = new BoundedCache<DailyLogEntry[]>(10);
-const dlActivityCache = new BoundedCache<import('../types/dailyLog').UserLogActivity>(2);
+import { emitInvalidation } from '../utils/cacheBus';
+import { dailyLogViewCache } from '../utils/dailyLogViewCache';
+import type { CacheEntry } from '../utils/cache';
 import type {
   DailyLogEntry,
   DailyLogColumn,
@@ -26,7 +22,7 @@ export const dailyLogService = {
 
   async updateColumns(columns: DailyLogColumn[]): Promise<DailyLogColumn[]> {
     const res = await apiClient.put<DailyLogColumn[]>('/daily-log/columns', columns);
-    dlColumnsCache.clear();
+    dailyLogViewCache.clearCachedColumns();
     emitInvalidation(['daily-log', 'dashboard', 'settings']);
     return res;
   },
@@ -84,24 +80,24 @@ export const dailyLogService = {
 
   async createEntry(payload: CreateDailyLogEntryPayload): Promise<DailyLogEntry> {
     const res = await apiClient.post<DailyLogEntry>('/daily-log/entries', payload);
-    dailyLogService.invalidateEntries();
-    dlActivityCache.clear();
+    dailyLogViewCache.invalidateEntries();
+    dailyLogViewCache.clearCachedActivity();
     emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
     return res;
   },
 
   async updateEntry(id: string, payload: UpdateDailyLogEntryPayload): Promise<DailyLogEntry> {
     const res = await apiClient.put<DailyLogEntry>(`/daily-log/entries/${id}`, payload);
-    dailyLogService.invalidateEntries();
-    dlActivityCache.clear();
+    dailyLogViewCache.invalidateEntries();
+    dailyLogViewCache.clearCachedActivity();
     emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
     return res;
   },
 
   async deleteEntry(id: string): Promise<{ message: string }> {
     const res = await apiClient.delete<{ message: string }>(`/daily-log/entries/${id}`);
-    dailyLogService.invalidateEntries();
-    dlActivityCache.clear();
+    dailyLogViewCache.invalidateEntries();
+    dailyLogViewCache.clearCachedActivity();
     emitInvalidation(['daily-log', 'dashboard', 'exceptions']);
     return res;
   },
@@ -137,56 +133,42 @@ export const dailyLogService = {
   },
 
   getCachedColumns(): CacheEntry<DailyLogColumn[]> | undefined {
-    return dlColumnsCache.get('columns');
+    return dailyLogViewCache.getCachedColumns();
   },
   setCachedColumns(data: DailyLogColumn[]): void {
-    dlColumnsCache.set('columns', data);
+    dailyLogViewCache.setCachedColumns(data);
   },
   getCachedSheets(): CacheEntry<string[]> | undefined {
-    return dlSheetsCache.get('sheets');
+    return dailyLogViewCache.getCachedSheets();
   },
   setCachedSheets(data: string[]): void {
-    dlSheetsCache.set('sheets', data);
+    dailyLogViewCache.setCachedSheets(data);
   },
   getCachedEntries(key: string): CacheEntry<DailyLogEntry[]> | undefined {
-    return dlEntriesCache.get(key);
+    return dailyLogViewCache.getCachedEntries(key);
   },
   setCachedEntries(key: string, data: DailyLogEntry[]): void {
-    dlEntriesCache.set(key, data);
+    dailyLogViewCache.setCachedEntries(key, data);
   },
   replaceCachedEntries(key: string, list: DailyLogEntry[]): void {
-    dlEntriesCache.set(key, list);
+    dailyLogViewCache.replaceCachedEntries(key, list);
   },
   invalidateEntries(exceptKey?: string): void {
-    if (!exceptKey) {
-      dlEntriesCache.clear();
-      return;
-    }
-    const current = dlEntriesCache.get(exceptKey);
-    dlEntriesCache.clear();
-    if (current) {
-      dlEntriesCache.set(exceptKey, current.data);
-    }
+    dailyLogViewCache.invalidateEntries(exceptKey);
   },
   getCachedActivity(): CacheEntry<import('../types/dailyLog').UserLogActivity> | undefined {
-    return dlActivityCache.get('activity');
+    return dailyLogViewCache.getCachedActivity();
   },
   setCachedActivity(data: import('../types/dailyLog').UserLogActivity): void {
-    dlActivityCache.set('activity', data);
+    dailyLogViewCache.setCachedActivity(data);
   },
   hasInitialCache(): boolean {
-    return dlEntriesCache.size() > 0;
+    return dailyLogViewCache.hasInitialCache();
   },
   clearAllCaches(): void {
-    dlColumnsCache.clear();
-    dlSheetsCache.clear();
-    dlEntriesCache.clear();
-    dlActivityCache.clear();
+    dailyLogViewCache.clearAllCaches();
   },
 };
-
-// Register for app-wide cache sweep on logout and user switch
-registerCacheClearer(() => dailyLogService.clearAllCaches());
 
 
 

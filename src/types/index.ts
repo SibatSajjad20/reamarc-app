@@ -1,4 +1,4 @@
-export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'content-calendar' | 'website-pipeline' | 'portal' | 'settings';
+export type ViewType = 'dashboard' | 'admin' | 'marketing' | 'daily-log' | 'attendance' | 'profile' | 'exceptions' | 'active-clients' | 'crm' | 'won-deal-approvals' | 'content-calendar' | 'website-pipeline' | 'portal' | 'settings';
 
 export * from './attendance';
 export * from './websiteProject';

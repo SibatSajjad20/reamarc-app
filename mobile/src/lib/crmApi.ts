@@ -246,4 +246,33 @@ export const crmApi = {
       method: 'POST',
     });
   },
+
+  async listWonDealApprovals(): Promise<
+    Array<{
+      id: string;
+      title: string;
+      value: number;
+      currency: string;
+      won_date: string;
+      sales_owner_name: string;
+      lead_or_company_name: string;
+      won_note: string;
+    }>
+  > {
+    return api('/crm/approvals/won-deals');
+  },
+
+  async approveWonDealApproval(dealId: string): Promise<unknown> {
+    return api(`/crm/approvals/won-deals/${encodeURIComponent(dealId)}/approve`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  async rejectWonDealApproval(dealId: string, reason: string): Promise<unknown> {
+    return api(`/crm/approvals/won-deals/${encodeURIComponent(dealId)}/reject`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    });
+  },
 };

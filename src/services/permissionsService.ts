@@ -60,11 +60,13 @@ export interface UserPermissionsProfile {
     updated_at?: string;
     updated_by?: string;
   }>;
+  capability_overrides?: Record<string, boolean>;
   effective: {
     primary_department: string;
     departments: string[];
     modules: Record<string, Record<string, string>>;
     summary: Record<string, string>;
+    capabilities?: Record<string, boolean>;
     role: string;
     is_admin: boolean;
     is_lead: boolean;
@@ -173,6 +175,7 @@ export const permissionsService = {
       primary_department?: string;
       departments?: string[];
       overrides: UserOverrideItem[];
+      capability_overrides?: Record<string, boolean>;
     }
   ): Promise<{ message: string; effective: any }> {
     return apiClient.put<{ message: string; effective: any }>(

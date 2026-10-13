@@ -21,23 +21,37 @@ export function canAccessCrm(user?: {
   role?: string | null;
   department?: string | null;
   crm_enabled?: boolean | null;
+  permissions?: { summary?: { sales?: string } } | null;
 } | null): boolean {
   if (!user) return false;
   if (user.crm_enabled === false) return false;
+  const sales = user.permissions?.summary?.sales;
+  if (sales != null) {
+    return sales !== 'none';
+  }
   const role = normalizeRole(user.role);
-  const dept = String(user.department || '').toLowerCase().trim();
+  return role === 'admin' || role === 'super_admin';
+}
 
-  // Admin and Operations have full access
-  if (role === 'admin' || role === 'super_admin' || role === 'operations' || dept === 'operations' || dept === 'admin') {
-    return true;
-  }
+export function canApproveWonDeals(user?: {
+  role?: string | null;
+  permissions?: {
+    summary?: { sales?: string };
+    capabilities?: { approve_won_deal?: boolean };
+  } | null;
+} | null): boolean {
+  return Boolean(user?.permissions?.capabilities?.approve_won_deal);
+}
 
-  // Only team leads and team members of Sales department
-  if (dept === 'sales' && (role === 'team_lead' || role === 'team_member' || role === 'member')) {
-    return true;
-  }
-
-  return false;
+export function canSeeWonDealApprovals(user?: {
+  role?: string | null;
+  crm_enabled?: boolean | null;
+  permissions?: {
+    summary?: { sales?: string };
+    capabilities?: { approve_won_deal?: boolean };
+  } | null;
+} | null): boolean {
+  return canApproveWonDeals(user) && !canAccessCrm(user);
 }
 
 export function canReopenCrmLeads(user?: {

@@ -188,7 +188,7 @@ async def get_my_working_overrides(
     current_user: dict = Depends(require_internal_user),
 ):
     """Returns list of ISO dates where the current user has an approved working-day override."""
-    from app.core.database import get_database
+    from app.database import get_database
     db = get_database()
     if db is None:
         return []

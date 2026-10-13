@@ -32,6 +32,7 @@ from app.services.permissions import (
     MODULE_LEVELS,
     parse_user_departments,
     normalize_dept,
+    migrate_ops_exceptions_access,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -166,6 +167,24 @@ async def run_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, 
     return summary
 
 
+async def run_ops_exceptions_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, Any]:
+    client = AsyncIOMotorClient(mongo_url)
+    db = client[db_name]
+    logger.info(
+        "Operations exceptions migration (mode: %s)",
+        "APPLY" if apply else "DRY-RUN",
+    )
+    result = await migrate_ops_exceptions_access(db, apply=apply)
+    logger.info(
+        "Ops exceptions: status=%s planned=%s applied=%s",
+        result.get("status"),
+        result.get("planned"),
+        result.get("applied"),
+    )
+    client.close()
+    return result
+
+
 def main():
     parser = argparse.ArgumentParser(description="Migrate access control defaults (Phase 3).")
     group = parser.add_mutually_exclusive_group()
@@ -178,11 +197,22 @@ def main():
     is_apply = bool(args.apply)
 
     res = asyncio.run(run_migration(args.db, args.url, is_apply))
+    ops = asyncio.run(run_ops_exceptions_migration(args.db, args.url, is_apply))
     print(f"\n--- MIGRATION RESULT ({'APPLY' if is_apply else 'DRY-RUN'}) ---")
     print(f"Status: {res['status']}")
     print(f"Role defaults affected: {res.get('role_permissions_diff_count', 0)}")
     print(f"Users backfilled: {res.get('users_backfilled_count', 0)}")
-    if not is_apply and res.get("status") == "DRY_RUN_COMPLETE":
+    print(f"\n--- OPS EXCEPTIONS (access_ops_exceptions_v1) ---")
+    print(f"Status: {ops.get('status')}")
+    print(f"Planned changes: {ops.get('planned', 0)}")
+    print(f"Applied changes: {ops.get('applied', 0)}")
+    if ops.get("changes"):
+        for change in ops["changes"]:
+            print(
+                f"  {change.get('role')}.{change.get('module')}: "
+                f"{change.get('before')} -> {change.get('after')}"
+            )
+    if not is_apply:
         print("\nTo apply these changes, re-run with: python scripts/migrate_access_defaults.py --apply")
 
 

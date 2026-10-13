@@ -353,7 +353,7 @@ async def get_drive_picker_config(
     response: Response,
     current_user: dict = Depends(require_content_calendar_user),
 ):
-    """Returns credentials, active OAuth access token, and campaign folder ID for Google Picker."""
+    """Returns Picker API keys and folder IDs. Org Drive tokens stay server-side."""
     db = get_database()
     item = await content_calendar_service.get_item_by_id(db, item_id, viewer=current_user)
     if not item:
@@ -375,7 +375,13 @@ async def get_drive_picker_config(
             detail="Google Drive integration is not configured on this server.",
         )
     response.headers["Cache-Control"] = "no-store"
-    return await gdrive.get_picker_config(db, item_id=item_id, category="Content")
+    return await gdrive.get_picker_config(
+        db,
+        item_id=item_id,
+        category="Content",
+        actor=current_user,
+        context="content_calendar",
+    )
 
 
 @router.post("/{item_id}/assets/from-drive", response_model=ContentCalendarItemResponse)

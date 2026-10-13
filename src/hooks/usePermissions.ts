@@ -82,6 +82,10 @@ export function usePermissions() {
     canAccessContentCalendar: can('content_calendar', 'view'),
     canAccessWebsitePipeline: can('website', 'view'),
     canAccessCrm: can('sales', 'own'),
+    canApproveWonDeal: Boolean(permissions?.capabilities?.approve_won_deal),
+    canSeeWonDealApprovals:
+      Boolean(permissions?.capabilities?.approve_won_deal) &&
+      (permissions?.summary?.sales || 'none') === 'none',
     canAccessActiveClients: can('active_clients', 'view'),
     canAccessAds: can('ads', 'view'),
     isContentLead: user?.role === 'admin' || can('content_calendar', 'manage', 'content'),

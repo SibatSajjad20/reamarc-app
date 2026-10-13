@@ -16,6 +16,7 @@ from app.services.permissions import (
     SYSTEM_ROLE_DEFAULTS,
     parse_user_departments,
     invalidate_role_defaults_cache,
+    migrate_ops_exceptions_access,
 )
 
 logger = logging.getLogger(__name__)
@@ -143,6 +144,9 @@ async def run_permissions_migration(db=None) -> Dict[str, Any]:
                 "reason": "Defaults seeded (migration)",
             }
         )
+
+    ops_ex = await migrate_ops_exceptions_access(db, apply=True)
+    report["ops_exceptions_migration"] = ops_ex
 
     logger.info("Permissions migration completed: %s", report)
     return report

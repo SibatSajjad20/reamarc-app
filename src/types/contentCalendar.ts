@@ -162,7 +162,6 @@ export interface DrivePickerConfig {
   developer_key: string;
   client_id: string;
   app_id: string;
-  access_token: string;
   folder_id?: string;
   root_folder_id?: string;
 }

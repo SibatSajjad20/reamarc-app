@@ -155,6 +155,15 @@ ADS_DEPTS: Set[str] = {
     "ads",
 }
 
+# Named capabilities layered on top of module levels (not a sales-module grant).
+CAPABILITIES: Dict[str, Dict[str, Any]] = {
+    "approve_won_deal": {
+        "default_roles": ("admin", "operations"),
+    },
+}
+
+OPS_EXCEPTIONS_MIGRATION_ID = "access_ops_exceptions_v1"
+
 # Base system default role permissions matrix (plan §2.4)
 SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
     "admin": {
@@ -338,6 +347,123 @@ _ROLE_DEFAULTS_CACHE: Optional[Dict[str, Dict[str, str]]] = None
 def invalidate_role_defaults_cache():
     global _ROLE_DEFAULTS_CACHE
     _ROLE_DEFAULTS_CACHE = None
+
+
+def _capability_role(user: Optional[Dict[str, Any]]) -> str:
+    role = str((user or {}).get("role") or "").lower().strip()
+    if role == "member":
+        return "team_member"
+    return role
+
+
+def has_capability(user: Optional[Dict[str, Any]], capability: str) -> bool:
+    """Resolve a named capability with optional per-user override."""
+    if not user or user.get("is_active") is False:
+        return False
+    spec = CAPABILITIES.get(capability)
+    if not spec:
+        return False
+    overrides = user.get("capability_overrides")
+    if isinstance(overrides, dict) and capability in overrides:
+        return bool(overrides.get(capability))
+    return _capability_role(user) in spec.get("default_roles", ())
+
+
+def require_capability(capability: str):
+    """FastAPI dependency: current user must hold the named capability."""
+
+    async def _dependency(current_user: Dict[str, Any] = Depends(get_current_user)) -> dict:
+        ctx = await load_context(current_user)
+        if not has_capability(ctx.user, capability):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Missing capability: {capability}.",
+            )
+        return ctx.user
+
+    return _dependency
+
+
+async def migrate_ops_exceptions_access(db, apply: bool = True) -> Dict[str, Any]:
+    """Idempotent: operations exceptions none → all. Marker access_ops_exceptions_v1."""
+    import uuid
+
+    report: Dict[str, Any] = {
+        "status": "NO_DB",
+        "planned": 0,
+        "applied": 0,
+        "changes": [],
+    }
+    if db is None:
+        return report
+
+    marker = await db.migrations.find_one({"id": OPS_EXCEPTIONS_MIGRATION_ID})
+    if marker:
+        report["status"] = "ALREADY_APPLIED"
+        return report
+
+    doc = await db.role_permissions.find_one({"role": "operations", "module": "exceptions"})
+    stored = str((doc or {}).get("level") or "").strip() if doc else ""
+    if doc is not None and stored == "none":
+        report["changes"].append(
+            {
+                "role": "operations",
+                "module": "exceptions",
+                "before": "none",
+                "after": "all",
+            }
+        )
+        report["planned"] = 1
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    if apply:
+        if report["planned"]:
+            await db.role_permissions.update_one(
+                {"role": "operations", "module": "exceptions"},
+                {
+                    "$set": {
+                        "role": "operations",
+                        "module": "exceptions",
+                        "level": "all",
+                        "updated_at": now_iso,
+                        "updated_by": "system",
+                        "migration_id": OPS_EXCEPTIONS_MIGRATION_ID,
+                    }
+                },
+            )
+            await db.permission_audit.insert_one(
+                {
+                    "id": str(uuid.uuid4()),
+                    "at": now_iso,
+                    "actor_id": "system",
+                    "actor_name": "System",
+                    "target_type": "role",
+                    "target_id": "operations",
+                    "target_name": "operations",
+                    "department": None,
+                    "module": "exceptions",
+                    "before": "none",
+                    "after": "all",
+                    "reason": "Operations exceptions inbox (access_ops_exceptions_v1)",
+                }
+            )
+            report["applied"] = 1
+        await db.migrations.update_one(
+            {"id": OPS_EXCEPTIONS_MIGRATION_ID},
+            {
+                "$set": {
+                    "id": OPS_EXCEPTIONS_MIGRATION_ID,
+                    "applied_at": now_iso,
+                    "changes": report["applied"],
+                }
+            },
+            upsert=True,
+        )
+        invalidate_role_defaults_cache()
+        report["status"] = "APPLIED"
+    else:
+        report["status"] = "DRY_RUN_COMPLETE"
+    return report
 
 
 async def load_role_defaults(db=None) -> Dict[str, Dict[str, str]]:
@@ -655,11 +781,16 @@ def effective_map(ctx: Union[PermCtx, Dict[str, Any]]) -> Dict[str, Any]:
 
         summary[mod] = highest_lvl
 
+    capabilities = {
+        name: has_capability(ctx.user, name) for name in CAPABILITIES.keys()
+    }
+
     return {
         "primary_department": ctx.primary_department,
         "departments": ctx.departments,
         "modules": per_dept_modules,
         "summary": summary,
+        "capabilities": capabilities,
         "role": ctx.role,
         "is_admin": ctx.role == "admin",
         "is_lead": ctx.role in ("team_lead", "lead"),

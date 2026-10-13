@@ -64,9 +64,11 @@ import {
   Phone,
   Globe,
   AlertCircle,
+  Handshake,
 } from 'lucide-react';
 import { useOffDays } from '../../hooks/useOffDays';
 import { getDashboardCache, setDashboardCache } from '../../utils/dashboardCache';
+import { crmApprovalsService } from '../../services/crmApprovalsService';
 
 export type DepartmentCategory = 'sales' | 'website' | 'content' | 'marketing' | 'hr' | 'ai' | 'general';
 
@@ -197,6 +199,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // CRM follow-ups / uncontacted
   const [overdueFollowupsCount, setOverdueFollowupsCount] = useState(() => initialCache?.overdueFollowupsCount ?? 0);
+  const [pendingWonDealsCount, setPendingWonDealsCount] = useState(0);
   const [overdueFollowupsSubtext, setOverdueFollowupsSubtext] = useState(() => initialCache?.overdueFollowupsSubtext ?? '');
   const [uncontactedLeadsCount, setUncontactedLeadsCount] = useState(() => initialCache?.uncontactedLeadsCount ?? 0);
   const [uncontactedLeadsSubtext, setUncontactedLeadsSubtext] = useState(() => initialCache?.uncontactedLeadsSubtext ?? '');
@@ -733,6 +736,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, role]);
 
+  useEffect(() => {
+    if (!perms.canApproveWonDeal) {
+      setPendingWonDealsCount(0);
+      return;
+    }
+    let cancelled = false;
+    crmApprovalsService
+      .listPending()
+      .then((rows) => {
+        if (!cancelled) setPendingWonDealsCount(rows.length);
+      })
+      .catch(() => {
+        if (!cancelled) setPendingWonDealsCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [perms.canApproveWonDeal, user?.id]);
+
   // 2. Range change for Team Hours (§3b)
   const isFirstMountTeamRange = useRef(true);
   useEffect(() => {
@@ -1035,6 +1057,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         onAction: () => onNavigateView('crm', 'followup'),
       });
     }
+    if (perms.canApproveWonDeal && pendingWonDealsCount > 0) {
+      list.push({
+        id: 'won_deals_awaiting_approval',
+        icon: Handshake,
+        title: `${pendingWonDealsCount} won deals awaiting approval`,
+        subtitle: 'Sales marked these as won',
+        actionLabel: 'Review',
+        onAction: () =>
+          onNavigateView(perms.canSeeWonDealApprovals ? 'won-deal-approvals' : 'crm', perms.canSeeWonDealApprovals ? undefined : 'deals'),
+      });
+    }
     if (perms.can('sales', 'own') && uncontactedLeadsCount > 0) {
       list.push({
         id: 'uncontacted_leads',
@@ -1097,6 +1130,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     logExceptionsInboxCount,
     myPendingInquiries,
     overdueFollowupsCount,
+    pendingWonDealsCount,
     overdueFollowupsSubtext,
     uncontactedLeadsCount,
     uncontactedLeadsSubtext,

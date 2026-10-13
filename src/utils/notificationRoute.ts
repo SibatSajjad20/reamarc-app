@@ -18,7 +18,9 @@ export function viewForNotificationKind(kind: string | undefined, userRole?: str
     return 'portal';
   }
   const name = (kind || '').toLowerCase();
-  if (name === 'crm_lead' || name.startsWith('crm')) return 'crm';
+  if (name === 'crm_lead' || name.startsWith('crm')) {
+    return role === 'operations' ? 'won-deal-approvals' : 'crm';
+  }
   if (ATTENDANCE_KINDS.has(name) || name.startsWith('leave_') || name.startsWith('attendance_')) {
     return 'attendance';
   }
@@ -35,6 +37,7 @@ export function viewFromNotificationPath(path: string): ViewType | null {
   if (typeof path !== 'string' || !path.startsWith('/') || path.startsWith('//')) return null;
   const segment = path.replace(/^\/+|\/+$/g, '').split('/')[0]?.toLowerCase();
   if (segment === 'crm') return 'crm';
+  if (segment === 'won-deal-approvals' || segment === 'won_deal_approvals') return 'won-deal-approvals';
   if (segment === 'attendance') return 'attendance';
   if (segment === 'content-calendar' || segment === 'content_calendar' || segment === 'calendar') return 'content-calendar';
   if (segment === 'website-pipeline' || segment === 'website_pipeline' || segment === 'website') return 'website-pipeline';

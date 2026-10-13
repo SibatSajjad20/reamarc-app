@@ -47,6 +47,7 @@ import {
   ArrowLeft,
   User,
   ShieldCheck,
+  Handshake,
   Bell,
   Palette,
   CalendarCheck,
@@ -226,6 +227,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const canSeeExceptions = perms.can('exceptions', 'department');
   const canSeeActiveClients = perms.can('active_clients', 'view');
   const canSeeCrm = perms.can('sales', 'own');
+  const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = perms.can('website', 'view');
   const isManagementRole = isAdmin || isHR || isOperations;
@@ -344,6 +346,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 id: 'active-clients' as ViewType,
                 label: 'Active clients',
                 icon: Building2,
+              },
+            ]
+          : []),
+        ...(canSeeWonDealApprovals
+          ? [
+              {
+                id: 'won-deal-approvals' as ViewType,
+                label: 'Won-deal approvals',
+                icon: Handshake,
               },
             ]
           : []),

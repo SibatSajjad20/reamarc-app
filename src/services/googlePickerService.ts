@@ -1,9 +1,13 @@
 /**
  * Google Drive Picker Service.
- * Dynamically loads Google Picker API and presents the official Google Drive
- * file picker dialog (with Recent, Upload, My Drive, and Starred tabs).
+ * Loads GIS for a per-user drive.file token, then presents the official picker.
+ * Org Drive credentials never leave the server.
  */
 import type { DrivePickerConfig, DrivePickedFile } from '../types/contentCalendar';
+
+const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
+const GIS_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
+const GAPI_SCRIPT_SRC = 'https://apis.google.com/js/api.js';
 
 declare global {
   interface Window {
@@ -13,6 +17,7 @@ declare global {
 }
 
 let gapiLoadingPromise: Promise<void> | null = null;
+let gisLoadingPromise: Promise<void> | null = null;
 
 function loadGapiScript(): Promise<void> {
   if (typeof window === 'undefined') {
@@ -26,10 +31,10 @@ function loadGapiScript(): Promise<void> {
   }
 
   gapiLoadingPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+    const existing = document.querySelector(`script[src="${GAPI_SCRIPT_SRC}"]`);
     if (!existing) {
       const script = document.createElement('script');
-      script.src = 'https://apis.google.com/js/api.js';
+      script.src = GAPI_SCRIPT_SRC;
       script.async = true;
       script.defer = true;
       script.onload = () => {
@@ -64,6 +69,67 @@ function loadGapiScript(): Promise<void> {
   return gapiLoadingPromise;
 }
 
+function loadGisScript(): Promise<void> {
+  if (typeof window === 'undefined') {
+    return Promise.reject(new Error('Window unavailable'));
+  }
+  if (window.google?.accounts?.oauth2) {
+    return Promise.resolve();
+  }
+  if (gisLoadingPromise) {
+    return gisLoadingPromise;
+  }
+
+  gisLoadingPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${GIS_SCRIPT_SRC}"]`);
+    const onReady = () => {
+      if (window.google?.accounts?.oauth2) {
+        resolve();
+        return;
+      }
+      reject(new Error('Google Identity Services failed to load'));
+    };
+    if (!existing) {
+      const script = document.createElement('script');
+      script.src = GIS_SCRIPT_SRC;
+      script.async = true;
+      script.defer = true;
+      script.onload = onReady;
+      script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
+      document.body.appendChild(script);
+    } else if (window.google?.accounts?.oauth2) {
+      resolve();
+    } else {
+      existing.addEventListener('load', onReady);
+    }
+  });
+
+  return gisLoadingPromise;
+}
+
+async function requestDriveFileAccessToken(clientId: string): Promise<string> {
+  await loadGisScript();
+  const oauth2 = window.google?.accounts?.oauth2;
+  if (!oauth2?.initTokenClient) {
+    throw new Error('Google Identity Services is not ready.');
+  }
+
+  return new Promise((resolve, reject) => {
+    const tokenClient = oauth2.initTokenClient({
+      client_id: clientId,
+      scope: DRIVE_FILE_SCOPE,
+      callback: (resp: { access_token?: string; error?: string; error_description?: string }) => {
+        if (resp?.error || !resp?.access_token) {
+          reject(new Error(resp?.error_description || resp?.error || 'Google Drive sign-in was cancelled.'));
+          return;
+        }
+        resolve(resp.access_token);
+      },
+    });
+    tokenClient.requestAccessToken({ prompt: '' });
+  });
+}
+
 export interface OpenDrivePickerOptions {
   config: DrivePickerConfig;
   targetFolderId?: string;
@@ -73,16 +139,19 @@ export interface OpenDrivePickerOptions {
 export async function openGoogleDrivePicker(
   options: OpenDrivePickerOptions
 ): Promise<DrivePickedFile[] | null> {
-  const { config, targetFolderId, multiSelect = true } = options;
+  const { config, multiSelect = true } = options;
 
   if (!config.developer_key) {
     throw new Error('Google Developer API Key is not configured.');
   }
-  if (!config.access_token) {
-    throw new Error('Google Drive access token unavailable.');
+  if (!config.client_id) {
+    throw new Error('Google Drive OAuth client ID is not configured.');
   }
 
-  await loadGapiScript();
+  const [userToken] = await Promise.all([
+    requestDriveFileAccessToken(config.client_id),
+    loadGapiScript(),
+  ]);
 
   const google = window.google;
   if (!google || !google.picker) {
@@ -91,26 +160,11 @@ export async function openGoogleDrivePicker(
 
   return new Promise((resolve, reject) => {
     try {
-      const folderId = targetFolderId || config.folder_id;
-
-      // 1. Recent tab
       const recentView = new google.picker.DocsView(google.picker.ViewId.RECENTLY_PICKED);
-
-      // 2. Upload tab (Google's native drag & drop / device upload into target Drive folder)
       const uploadView = new google.picker.DocsUploadView();
-      if (folderId) {
-        uploadView.setParent(folderId);
-      }
-
-      // 3. My Drive / Items tab (allows browsing and selecting files)
       const docsView = new google.picker.DocsView(google.picker.ViewId.DOCS)
         .setIncludeFolders(true)
         .setSelectFolderEnabled(false);
-      if (folderId) {
-        docsView.setParent(folderId);
-      }
-
-      // 4. Starred tab
       const starredView = new google.picker.DocsView(google.picker.ViewId.DOCS)
         .setStarred(true);
 
@@ -120,7 +174,7 @@ export async function openGoogleDrivePicker(
         .addView(uploadView)
         .addView(docsView)
         .addView(starredView)
-        .setOAuthToken(config.access_token)
+        .setOAuthToken(userToken)
         .setDeveloperKey(config.developer_key)
         .setCallback((data: any) => {
           if (data.action === google.picker.Action.PICKED) {

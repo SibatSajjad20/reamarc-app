@@ -321,7 +321,7 @@ def _file_meta(file_id: str) -> Dict[str, Any]:
         .files()
         .get(
             fileId=file_id,
-            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,videoMediaMetadata,imageMediaMetadata",
+            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,parents,videoMediaMetadata,imageMediaMetadata",
             supportsAllDrives=True,
         )
         .execute()
@@ -611,7 +611,7 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
 
 
 def get_access_token() -> str:
-    """Returns a valid Google OAuth access token for the configured account."""
+    """Server-side org Drive token only. Never send this to the browser."""
     creds = _credentials()
     from google.auth.transport.requests import Request
 
@@ -621,17 +621,63 @@ def get_access_token() -> str:
     return creds.token
 
 
-async def get_picker_config(
-    db,
+def _ingest_picked_file_sync(file_id: str, dest_folder_id: Optional[str] = None) -> Dict[str, Any]:
+    """Verify the org Drive user can see the file, then copy it into the client folder."""
+    from googleapiclient.errors import HttpError
+
+    try:
+        meta = _file_meta(file_id)
+    except HttpError as exc:
+        code = getattr(getattr(exc, "resp", None), "status", None)
+        if code in (403, 404):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This Drive file is not accessible to Reamarc. Share it with the workspace Drive account, or pick a file already in the client folder.",
+            ) from exc
+        raise _drive_http_error(exc, "read picked file") from exc
+
+    parents = meta.get("parents") or []
+    if dest_folder_id and dest_folder_id not in parents:
+        try:
+            copied = (
+                _service()
+                .files()
+                .copy(
+                    fileId=file_id,
+                    body={"name": meta.get("name"), "parents": [dest_folder_id]},
+                    fields="id,name,mimeType,size,webViewLink,thumbnailLink",
+                    supportsAllDrives=True,
+                )
+                .execute()
+            )
+            return copied or meta
+        except HttpError as exc:
+            code = getattr(getattr(exc, "resp", None), "status", None)
+            if code in (403, 404):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Could not copy this Drive file into the client folder. Share it with the workspace Drive account.",
+                ) from exc
+            raise _drive_http_error(exc, "copy picked file") from exc
+    return meta
+
+
+async def ingest_picked_file(file_id: str, dest_folder_id: Optional[str] = None) -> Dict[str, Any]:
+    return await asyncio.to_thread(_ingest_picked_file_sync, file_id, dest_folder_id)
+
+
+def picker_public_payload(
+    folder_id: Optional[str],
+    root_id: Optional[str],
+    actor: Optional[Dict[str, Any]] = None,
     item_id: Optional[str] = None,
-    client_name: Optional[str] = None,
     workspace_id: Optional[str] = None,
-    category: str = "Content",
+    context: str = "",
 ) -> Dict[str, Any]:
-    """Generates the configuration payload required by Google Picker API on the frontend."""
+    """Browser picker payload. Never includes the org Drive access_token."""
+    from datetime import datetime, timezone
     from app.config import settings
 
-    token = await asyncio.to_thread(get_access_token)
     api_key = (settings.GOOGLE_DRIVE_API_KEY or "").strip()
     client_id = (
         settings.GOOGLE_DRIVE_WEB_CLIENT_ID
@@ -640,6 +686,34 @@ async def get_picker_config(
     ).strip()
     app_id = client_id.split("-")[0] if "-" in client_id else ""
 
+    logger.info(
+        "drive picker-config issued user_id=%s item_id=%s workspace_id=%s context=%s at=%s",
+        (actor or {}).get("id"),
+        item_id,
+        workspace_id,
+        context,
+        datetime.now(timezone.utc).isoformat(),
+    )
+
+    return {
+        "developer_key": api_key,
+        "client_id": client_id,
+        "app_id": app_id,
+        "folder_id": folder_id,
+        "root_folder_id": root_id,
+    }
+
+
+async def get_picker_config(
+    db,
+    item_id: Optional[str] = None,
+    client_name: Optional[str] = None,
+    workspace_id: Optional[str] = None,
+    category: str = "Content",
+    actor: Optional[Dict[str, Any]] = None,
+    context: str = "",
+) -> Dict[str, Any]:
+    """Picker payload for the browser. No org access_token — GIS drive.file is requested client-side."""
     target_folder_id = None
     if item_id:
         item = await db[_ITEMS].find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
@@ -653,15 +727,14 @@ async def get_picker_config(
         target_folder_id = await _ensure_root(db)
 
     root_id = await _ensure_root(db)
-
-    return {
-        "developer_key": api_key,
-        "client_id": client_id,
-        "app_id": app_id,
-        "access_token": token,
-        "folder_id": target_folder_id,
-        "root_folder_id": root_id,
-    }
+    return picker_public_payload(
+        target_folder_id,
+        root_id,
+        actor=actor,
+        item_id=item_id,
+        workspace_id=workspace_id,
+        context=context or category,
+    )
 
 
 async def fetch_file_metadata(file_id: str) -> Dict[str, Any]:

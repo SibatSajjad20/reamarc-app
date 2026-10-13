@@ -96,6 +96,81 @@ def _db():
     return db
 
 
+WON_APPROVAL_FIELDS = (
+    "id",
+    "title",
+    "value",
+    "currency",
+    "won_date",
+    "sales_owner_name",
+    "lead_or_company_name",
+    "won_note",
+)
+
+
+async def _lead_for_won_approval(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
+    from app.services.permissions import has_capability
+    from app.services.crm_leads import get_lead_or_404
+
+    if has_capability(user, "approve_won_deal"):
+        db = _db()
+        doc = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
+        return doc
+    return await get_lead_or_404(lead_id, user)
+
+
+def serialize_won_approval(deal: Dict[str, Any], lead: Optional[Dict[str, Any]] = None, owner_name: str = "") -> Dict[str, Any]:
+    company = (lead or {}).get("company") or (lead or {}).get("name") or ""
+    return {
+        "id": deal.get("id"),
+        "title": deal.get("title") or "Deal",
+        "value": float(deal.get("value") or 0.0),
+        "currency": deal.get("currency") or "PKR",
+        "won_date": deal.get("won_at") or deal.get("updated_at") or deal.get("expected_close_date") or "",
+        "sales_owner_name": owner_name or (lead or {}).get("assigned_to_name") or "",
+        "lead_or_company_name": company,
+        "won_note": deal.get("notes") or "",
+    }
+
+
+async def list_pending_won_approvals(_user: Dict[str, Any]) -> List[Dict[str, Any]]:
+    db = _db()
+    deals = await db.crm_deals.find(
+        {"approval_status": "pending_operations"},
+        {"_id": 0},
+    ).sort("updated_at", -1).to_list(200)
+    if not deals:
+        return []
+
+    lead_ids = [d.get("lead_id") for d in deals if d.get("lead_id")]
+    leads = await db.crm_leads.find(
+        {"id": {"$in": lead_ids}},
+        {"_id": 0, "id": 1, "name": 1, "company": 1, "assigned_to": 1, "assigned_to_name": 1},
+    ).to_list(400)
+    lead_map = {str(l.get("id")): l for l in leads}
+
+    owner_ids = [str(l.get("assigned_to")) for l in leads if l.get("assigned_to")]
+    owner_map: Dict[str, str] = {}
+    if owner_ids:
+        users = await db.users.find(
+            {"id": {"$in": owner_ids}},
+            {"_id": 0, "id": 1, "full_name": 1, "name": 1, "email": 1},
+        ).to_list(400)
+        for u in users:
+            uid = str(u.get("id") or "")
+            owner_map[uid] = u.get("full_name") or u.get("name") or u.get("email") or ""
+
+    out: List[Dict[str, Any]] = []
+    for deal in deals:
+        lead = lead_map.get(str(deal.get("lead_id") or ""))
+        owner_id = str((lead or {}).get("assigned_to") or "")
+        owner_name = owner_map.get(owner_id) or (lead or {}).get("assigned_to_name") or ""
+        out.append(serialize_won_approval(deal, lead, owner_name))
+    return out
+
+
 def _normalize_deal_stage(stage: Optional[str]) -> str:
     raw = (stage or "opportunity_created").strip()
     if raw in DEAL_OPEN_STAGES:
@@ -665,9 +740,10 @@ async def approve_won_deal(
     payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Operations confirms a deal that was marked won. This does not create a client workspace."""
-    from app.services.crm_leads import append_activity, get_lead_or_404
+    from app.services.crm_leads import append_activity
+    from app.services.permissions import has_capability
 
-    if not can_manage_outcomes(user):
+    if not has_capability(user, "approve_won_deal"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operations and admins can approve won deals.")
 
     db = _db()
@@ -678,7 +754,7 @@ async def approve_won_deal(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Deal is not marked as won.")
 
     lead_id = existing["lead_id"]
-    lead = await get_lead_or_404(lead_id, user)
+    lead = await _lead_for_won_approval(lead_id, user)
     payload = payload or {}
 
     # Merge optional overrides into the deal before conversion
@@ -738,6 +814,72 @@ async def approve_won_deal(
             )
         except Exception as err:
             logger.warning("Failed to notify rep on deal approval: %s", err)
+
+    return serialize_deal(updated, lead)
+
+
+async def reject_won_deal(
+    deal_id: str,
+    user: Dict[str, Any],
+    *,
+    reason: str,
+) -> Dict[str, Any]:
+    """Send a pending won deal back to sales with a required reason."""
+    from app.services.permissions import has_capability
+    from app.services.crm_leads import append_activity
+
+    if not has_capability(user, "approve_won_deal"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only operations and admins can reject won deals.")
+    note = (reason or "").strip()
+    if not note:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A reject reason is required.")
+
+    db = _db()
+    existing = await db.crm_deals.find_one({"id": deal_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deal not found.")
+    if existing.get("approval_status") != "pending_operations":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Deal is not awaiting operations approval.")
+
+    lead_id = existing["lead_id"]
+    lead = await _lead_for_won_approval(lead_id, user)
+    now = _now()
+    updated = await db.crm_deals.find_one_and_update(
+        {"id": deal_id},
+        {
+            "$set": {
+                "status": "open",
+                "approval_status": "rejected",
+                "payment_cleared": False,
+                "updated_at": now,
+            }
+        },
+        return_document=ReturnDocument.AFTER,
+    )
+    if updated:
+        updated.pop("_id", None)
+    else:
+        updated = {**existing, "status": "open", "approval_status": "rejected"}
+
+    await append_activity(
+        lead_id,
+        "deal_won_rejected",
+        f"Operations rejected won deal '{existing.get('title')}': {note}",
+        user,
+        {"deal_id": deal_id, "reason": note},
+    )
+
+    if lead.get("assigned_to"):
+        try:
+            from app.services.crm_assignment import notify_users
+            await notify_users(
+                [lead["assigned_to"]],
+                "Won deal sent back",
+                f"Operations rejected '{existing.get('title')}': {note}",
+                data={"type": "crm_lead", "lead_id": lead_id},
+            )
+        except Exception as err:
+            logger.warning("Failed to notify rep on deal rejection: %s", err)
 
     return serialize_deal(updated, lead)
 

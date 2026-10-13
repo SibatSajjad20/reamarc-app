@@ -19,6 +19,7 @@ import {
   LayoutDashboard,
   Building2,
   Contact,
+  Handshake,
   TrendingUp,
   CalendarDays,
   Globe,
@@ -56,6 +57,7 @@ interface CommandPaletteProps {
   onSignOut: () => void;
   canSeeActiveClients: boolean;
   canSeeCrm: boolean;
+  canSeeWonDealApprovals?: boolean;
   canSeeMarketing: boolean;
   canSeeContentCalendar: boolean;
   canSeeWebsitePipeline: boolean;
@@ -90,6 +92,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
   onSignOut,
   canSeeActiveClients,
   canSeeCrm,
+  canSeeWonDealApprovals = false,
   canSeeMarketing,
   canSeeContentCalendar,
   canSeeWebsitePipeline,
@@ -122,6 +125,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     dashboard: { label: 'Dashboard', icon: LayoutDashboard },
     'active-clients': { label: 'Active clients', icon: Building2 },
     crm: { label: 'Sales pipeline', icon: Contact },
+    'won-deal-approvals': { label: 'Won-deal approvals', icon: Handshake },
     marketing: { label: 'Performance marketing', icon: TrendingUp },
     'content-calendar': { label: 'Content calendar', icon: CalendarDays },
     'website-pipeline': { label: 'Website pipeline', icon: Globe },
@@ -192,6 +196,15 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
             >
               <Building2 size={16} className="text-fg-muted shrink-0" />
               <span>Active clients</span>
+            </CommandItem>
+          )}
+          {canSeeWonDealApprovals && (
+            <CommandItem
+              onSelect={() => handleSelectPage('won-deal-approvals')}
+              className="flex items-center gap-2.5 h-9 px-3 text-[13px] rounded-md cursor-pointer"
+            >
+              <Handshake size={16} className="text-fg-muted shrink-0" />
+              <span>Won-deal approvals</span>
             </CommandItem>
           )}
           {canSeeCrm && (

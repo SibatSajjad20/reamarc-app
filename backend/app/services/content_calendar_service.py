@@ -1217,9 +1217,10 @@ async def attach_drive_assets(
     user_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email") if viewer else None
 
     from app.services import google_drive_service as gdrive
+    dest_folder_id = None
     if gdrive.configured():
         try:
-            await gdrive.ensure_item_folder(db, presented)
+            dest_folder_id = await gdrive.ensure_item_folder(db, presented)
         except Exception as exc:
             logger.warning("Could not ensure item folder for drive assets: %s", exc)
 
@@ -1240,19 +1241,17 @@ async def attach_drive_assets(
         role = f.get("role") or default_role
 
         if gdrive.configured():
-            try:
-                meta = await gdrive.fetch_file_metadata(drive_file_id)
-                if meta:
-                    filename = meta.get("name") or filename
-                    safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename) or safe_fname
-                    mime_type = meta.get("mimeType") or mime_type
-                    size_bytes = int(meta.get("size") or size_bytes or 0)
-                    drive_url = meta.get("webViewLink") or drive_url
-                    thumb = meta.get("thumbnailLink")
-                    if thumb and not _is_generic_drive_icon(thumb):
-                        thumbnail_url = thumb
-            except Exception as exc:
-                logger.info("Drive file meta fetch non-fatal: %s", exc)
+            meta = await gdrive.ingest_picked_file(drive_file_id, dest_folder_id)
+            if meta:
+                drive_file_id = str(meta.get("id") or drive_file_id)
+                filename = meta.get("name") or filename
+                safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename) or safe_fname
+                mime_type = meta.get("mimeType") or mime_type
+                size_bytes = int(meta.get("size") or size_bytes or 0)
+                drive_url = meta.get("webViewLink") or drive_url
+                thumb = meta.get("thumbnailLink")
+                if thumb and not _is_generic_drive_icon(thumb):
+                    thumbnail_url = thumb
 
         ext = Path(filename).suffix.lower()
         if (mime_type and mime_type.startswith("image/")) or ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"):

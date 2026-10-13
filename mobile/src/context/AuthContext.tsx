@@ -42,6 +42,10 @@ export type AuthUser = {
   department?: string | null;
   designation?: string | null;
   crm_enabled?: boolean | null;
+  permissions?: {
+    summary?: { sales?: string; [key: string]: string | undefined };
+    capabilities?: { approve_won_deal?: boolean };
+  } | null;
 };
 
 type AuthContextValue = {

@@ -101,6 +101,8 @@ export const MemberOverridesSheet: React.FC<MemberOverridesSheetProps> = ({
   const [overrides, setOverrides] = useState<Record<string, Record<string, string>>>({});
   const [originalOverrides, setOriginalOverrides] = useState<Record<string, Record<string, string>>>({});
   const [showAddDept, setShowAddDept] = useState(false);
+  const [approveWonDeal, setApproveWonDeal] = useState(false);
+  const [originalApproveWonDeal, setOriginalApproveWonDeal] = useState(false);
 
   useEffect(() => {
     if (!userId) {
@@ -128,6 +130,12 @@ export const MemberOverridesSheet: React.FC<MemberOverridesSheetProps> = ({
         });
         setOverrides(ovMap);
         setOriginalOverrides(JSON.parse(JSON.stringify(ovMap)));
+        const cap =
+          data.effective?.capabilities?.approve_won_deal ??
+          data.capability_overrides?.approve_won_deal ??
+          false;
+        setApproveWonDeal(Boolean(cap));
+        setOriginalApproveWonDeal(Boolean(cap));
       } catch (err: any) {
         setError(err?.response?.data?.detail || err.message || 'Failed to load user permissions');
       } finally {
@@ -153,6 +161,9 @@ export const MemberOverridesSheet: React.FC<MemberOverridesSheetProps> = ({
     });
   });
   if (profile && primaryDept !== profile.user.primary_department) {
+    unsavedCount++;
+  }
+  if (approveWonDeal !== originalApproveWonDeal) {
     unsavedCount++;
   }
 
@@ -200,6 +211,7 @@ export const MemberOverridesSheet: React.FC<MemberOverridesSheetProps> = ({
         primary_department: primaryDept,
         departments,
         overrides: overrideList,
+        capability_overrides: { approve_won_deal: approveWonDeal },
       });
 
       onSaved?.();
@@ -265,6 +277,15 @@ export const MemberOverridesSheet: React.FC<MemberOverridesSheetProps> = ({
             )}
           </div>
 
+          <label className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              className="rounded border-border"
+              checked={approveWonDeal}
+              onChange={(e) => setApproveWonDeal(e.target.checked)}
+            />
+            Won-deal approvals (operations capability)
+          </label>
           <p className="text-xs text-muted-foreground">
             Access per department. Secondary departments start restricted.
           </p>

@@ -531,7 +531,6 @@ class DrivePickerConfigResponse(BaseModel):
     developer_key: str
     client_id: str
     app_id: str
-    access_token: str
     folder_id: Optional[str] = None
     root_folder_id: Optional[str] = None
 
