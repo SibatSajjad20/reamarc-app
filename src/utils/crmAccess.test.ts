@@ -34,8 +34,8 @@ const opsViewer = withSales('operations', 'all');
 assert(canAccessCrm(opsViewer), 'Operations with sales view must have CRM access');
 assert(!canAssignCrmLeads(opsViewer), 'Operations must NOT be able to assign leads');
 
-const opsUser = withNoSales('operations');
-assert(!canAccessCrm(opsUser), 'Operations must NOT have CRM access without sales permission');
+const opsUser = { role: 'operations' };
+assert(canAccessCrm(opsUser), 'Operations must have company-wide view of sales');
 assert(!canAssignCrmLeads(opsUser), 'Operations must NOT be able to assign leads');
 
 // 3. Sales Team Lead access

@@ -1,6 +1,7 @@
 import { canAccessContentCalendar } from './contentCalendarAccess';
 import { canCreateCampaign } from './contentCalendarWorkflow';
 import { getRoleLabel } from './badgeStyles';
+import { userCan } from '../hooks/usePermissions';
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -21,6 +22,14 @@ assert(canAccessContentCalendar({ role: 'admin', department: 'All' }), 'Admin mu
 assert(canAccessContentCalendar(withCal('team_lead', 'manage')), 'Content team lead must have access');
 assert(canAccessContentCalendar(withCal('team_member', 'own_stages')), 'Content member must have access');
 assert(canAccessContentCalendar(withCal('operations', 'view')), 'Operations view must have access');
+assert(canAccessContentCalendar({ role: 'operations' }), 'Operations must see calendar without permissions payload');
+assert(userCan({ role: 'operations' }, 'sales', 'own'), 'Operations must see sales without permissions payload');
+assert(userCan({ role: 'operations' }, 'website', 'view'), 'Operations must see website without permissions payload');
+assert(userCan({ role: 'operations' }, 'active_clients', 'view'), 'Operations must see active clients');
+assert(userCan({ role: 'operations' }, 'exceptions', 'department'), 'Operations must see exceptions');
+assert(userCan({ role: 'operations' }, 'ads', 'view'), 'Operations must see performance marketing');
+assert(!userCan({ role: 'operations' }, 'content_calendar', 'manage'), 'Operations must not manage calendar');
+assert(!userCan({ role: 'hr' }, 'sales', 'own'), 'HR must not see sales');
 
 assert(!canAccessContentCalendar(withCal('team_lead', 'none')), 'Sales team lead must be denied');
 assert(!canAccessContentCalendar({ role: 'hr', permissions: { summary: { content_calendar: 'none' } } }), 'HR must be denied');

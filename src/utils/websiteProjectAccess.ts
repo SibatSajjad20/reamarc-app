@@ -18,6 +18,7 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin') return true;
   if (role === 'client' || role === 'hr') return false;
+  if (role === 'operations') return true;
 
   if (user.permissions) {
     const summary = user.permissions.summary?.website;

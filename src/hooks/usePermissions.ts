@@ -12,6 +12,18 @@ const MODULE_LEVEL_RANKS: Record<string, Record<string, number>> = {
   ads: { none: 0, view: 1, manage: 2 },
 };
 
+/** Company-wide operations access. Used when /auth/me is missing or incomplete. */
+export const OPERATIONS_MODULE_LEVELS: Record<string, string> = {
+  daily_log: 'all',
+  attendance: 'all',
+  exceptions: 'all',
+  content_calendar: 'view',
+  website: 'view',
+  sales: 'all',
+  active_clients: 'view',
+  ads: 'view',
+};
+
 function levelGte(module: string, current: string | undefined, target: string): boolean {
   if (!current) return false;
   const ranks = MODULE_LEVEL_RANKS[module];
@@ -19,6 +31,42 @@ function levelGte(module: string, current: string | undefined, target: string): 
   const cRank = ranks[current] ?? -1;
   const tRank = ranks[target] ?? 0;
   return cRank >= tRank;
+}
+
+export function userCan(
+  user: { role?: string; is_active?: boolean; permissions?: any } | null | undefined,
+  module: string,
+  minLevel: string,
+  department?: string,
+): boolean {
+  if (!user || user.is_active === false) return false;
+  const role = String(user.role || '').toLowerCase();
+  if (role === 'admin') return true;
+  if (role === 'client') return false;
+  if (role === 'operations' || user.permissions?.view_only) {
+    return levelGte(module, OPERATIONS_MODULE_LEVELS[module] || 'none', minLevel);
+  }
+
+  const permissions = user.permissions;
+  if (!permissions) return false;
+
+  let currentLevel: string | undefined;
+  if (department) {
+    const modPerms = permissions.modules?.[module];
+    currentLevel =
+      modPerms?.[department] || modPerms?.[department.toLowerCase()] || permissions.summary?.[module];
+  } else {
+    currentLevel = permissions.summary?.[module];
+  }
+
+  if (!currentLevel) {
+    const modPerms = permissions.modules?.[module];
+    if (modPerms) {
+      currentLevel = Object.values(modPerms).find((lvl) => lvl && lvl !== 'none') as string | undefined;
+    }
+  }
+
+  return levelGte(module, currentLevel || 'none', minLevel);
 }
 
 export function usePermissions() {
@@ -29,34 +77,9 @@ export function usePermissions() {
   }, [user]);
 
   const can = useMemo(() => {
-    return (module: string, minLevel: string, department?: string): boolean => {
-      if (!user || user.is_active === false) return false;
-      const role = String(user.role || '').toLowerCase();
-      if (role === 'admin') return true;
-      if (role === 'client') return false;
-
-      if (!permissions) {
-        // Deny access if permissions payload is not yet loaded (must follow /auth/me)
-        return false;
-      }
-
-      const modPerms = permissions.modules?.[module];
-      if (!modPerms) return false;
-
-      let currentLevel: string | undefined;
-      if (department) {
-        currentLevel = modPerms[department] || modPerms[department.toLowerCase()];
-      } else {
-        currentLevel = permissions.summary?.[module];
-      }
-
-      if (!currentLevel) {
-        currentLevel = permissions.summary?.[module] || 'none';
-      }
-
-      return levelGte(module, currentLevel, minLevel);
-    };
-  }, [user, permissions]);
+    return (module: string, minLevel: string, department?: string): boolean =>
+      userCan(user, module, minLevel, department);
+  }, [user]);
 
   const primaryDepartment = useMemo(() => {
     return user?.primary_department || permissions?.primary_department || user?.departments?.[0] || '';
@@ -85,8 +108,10 @@ export function usePermissions() {
     canAccessWebsitePipeline: can('website', 'view'),
     canAccessCrm: can('sales', 'own'),
     isViewOnly: role === 'operations' || Boolean(permissions?.view_only),
-    canApproveWonDeal: Boolean(permissions?.capabilities?.approve_won_deal),
-    canSeeWonDealApprovals: Boolean(permissions?.capabilities?.approve_won_deal),
+    canApproveWonDeal:
+      role === 'operations' || Boolean(permissions?.capabilities?.approve_won_deal),
+    canSeeWonDealApprovals:
+      role === 'operations' || Boolean(permissions?.capabilities?.approve_won_deal),
     canAccessActiveClients: can('active_clients', 'view'),
     canAccessAds: can('ads', 'view'),
     isContentLead: user?.role === 'admin' || can('content_calendar', 'manage', 'content'),

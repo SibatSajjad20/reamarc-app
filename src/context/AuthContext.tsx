@@ -105,6 +105,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       window.history.replaceState(null, '', `/${initialView}`);
     }
     setUser(res.user);
+    try {
+      const currentUser = await authService.getMe();
+      setUser(currentUser);
+    } catch {
+      // Login user payload is enough to render; /auth/me refresh is best-effort.
+    }
     closeAuthModal();
   };
 

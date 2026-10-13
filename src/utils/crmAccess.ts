@@ -14,6 +14,7 @@ export function canAccessCrm(user?: {
 
   if (role === 'admin') return true;
   if (role === 'client' || role === 'hr') return false;
+  if (role === 'operations') return true;
 
   const summary = user.permissions?.summary?.sales;
   if (summary) return summary !== 'none';

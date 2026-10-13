@@ -74,6 +74,27 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(resolve(ctx, "sales"), "none")
         self.assertEqual(resolve(ctx, "ads"), "none")
 
+    def test_login_user_payload_includes_operations_modules(self):
+        from app.routers.auth import _build_user_response
+
+        payload = _build_user_response(
+            {
+                "id": "ops-login",
+                "email": "ops@example.com",
+                "full_name": "Ops",
+                "role": "operations",
+                "department": "All",
+                "departments": ["All"],
+            }
+        )
+        summary = payload["permissions"]["summary"]
+        self.assertEqual(summary["sales"], "all")
+        self.assertEqual(summary["content_calendar"], "view")
+        self.assertEqual(summary["website"], "view")
+        self.assertEqual(summary["active_clients"], "view")
+        self.assertEqual(summary["exceptions"], "all")
+        self.assertTrue(payload["permissions"]["view_only"])
+
     def test_operations_role_defaults(self):
         """Operations can view every module. Department does not narrow that."""
         user = {

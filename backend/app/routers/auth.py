@@ -95,7 +95,16 @@ def _token_payload(access_token: str, refresh_token: str, user_doc: dict, includ
 
 def _build_user_response(user_doc: dict) -> dict:
     role_str = _normalize_role(user_doc.get("role"))
-    from app.services.permissions import parse_user_departments, get_user_primary_department
+    from app.services.permissions import (
+        parse_user_departments,
+        get_user_primary_department,
+        load_ctx,
+        effective_map,
+    )
+    safe = {k: v for k, v in (user_doc or {}).items() if not str(k).startswith("_")}
+    if "role" in safe:
+        safe["role"] = role_str
+    ctx = load_ctx(safe)
     return {
         "id": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
@@ -104,6 +113,7 @@ def _build_user_response(user_doc: dict) -> dict:
         "department": user_doc.get("department"),
         "departments": parse_user_departments(user_doc),
         "primary_department": get_user_primary_department(user_doc),
+        "permissions": effective_map(ctx),
         "designation": user_doc.get("designation"),
         "joining_date": user_doc.get("joining_date"),
         "employment_type": user_doc.get("employment_type") or "contract",
