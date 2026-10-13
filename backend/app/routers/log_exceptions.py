@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
+import re
 import uuid
 
 from app.core.security import get_current_user, require_management_role, require_roles
@@ -48,7 +49,7 @@ router = APIRouter(
     tags=["Daily Log Exceptions"],
 )
 
-require_lead_or_hr = require_roles(["team_lead", "hr"])
+require_lead_or_hr = require_roles(["admin", "operations", "hr", "team_lead"])
 
 
 def _clean_reopen_note(note: Optional[str], previously_accepted: Optional[float]) -> Optional[str]:

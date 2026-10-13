@@ -5,9 +5,6 @@ import { dailyLogService } from '@/services/dailyLogService';
 import { useCacheInvalidation } from '@/utils/cacheBus';
 import { getRoleDisplayName } from '@/lib/roleLabel';
 import { usePermissions } from '@/hooks/usePermissions';
-import { canAccessCrm } from '@/utils/crmAccess';
-import { canAccessContentCalendar } from '@/utils/contentCalendarAccess';
-import { canAccessWebsitePipeline } from '@/utils/websiteProjectAccess';
 import type { CrmSubSection } from '@/types/crm';
 import type { AttendanceSubSection } from '@/types/attendance';
 import type { AdminSectionType } from '@/types/admin';
@@ -227,19 +224,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.canAccessActiveClients;
-  const canSeeCrm = perms.canAccessCrm || canAccessCrm(user);
-  const canSeeContentCalendar = perms.canAccessContentCalendar || canAccessContentCalendar(user);
-  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline || canAccessWebsitePipeline(user);
+  const canSeeActiveClients = perms.can('active_clients', 'view');
+  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeContentCalendar = perms.can('content_calendar', 'view');
+  const canSeeWebsitePipeline = perms.can('website', 'view');
   const isManagementRole = isAdmin || isHR || isOperations;
 
-  const canSeeMarketing =
-    isAdmin ||
-    perms.can('ads', 'view') ||
-    perms.departments.some((d: string) => {
-      const lower = d.toLowerCase().trim();
-      return lower === 'seo' || lower === 'performance marketing';
-    });
+  const canSeeMarketing = perms.can('ads', 'view');
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';

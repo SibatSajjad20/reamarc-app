@@ -36,17 +36,7 @@ export function usePermissions() {
       if (role === 'client') return false;
 
       if (!permissions) {
-        // Fallback if permissions payload not yet populated: role heuristics
-        if (role === 'operations') {
-          if (module === 'website' || module === 'sales' || module === 'daily_log' || module === 'attendance') return true;
-          if (module === 'active_clients') return minLevel === 'view';
-          return false;
-        }
-        if (role === 'hr') {
-          if (module === 'daily_log' || module === 'attendance' || module === 'exceptions') return true;
-          if (module === 'active_clients') return minLevel === 'view';
-          return false;
-        }
+        // Deny access if permissions payload is not yet loaded (must follow /auth/me)
         return false;
       }
 

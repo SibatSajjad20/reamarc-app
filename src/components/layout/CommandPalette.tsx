@@ -433,7 +433,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
                       <span>Admin: Log compliance</span>
                     </CommandItem>
                   )}
-                  {(isAdmin || user?.role === 'operations') && (
+                  {(isAdmin || canSeeActiveClients) && (
                     <CommandItem
                       onSelect={() => {
                         onSelectView('admin');

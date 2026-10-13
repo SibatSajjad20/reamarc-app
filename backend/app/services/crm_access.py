@@ -9,7 +9,7 @@ from app.core.security import get_current_user
 from app.database import get_database
 from app.models.user import UserRole
 
-_ALL_LEADS_ROLES = {UserRole.ADMIN.value, UserRole.OPERATIONS.value, "admin", "operations"}
+# Legacy constant kept only for is_sales_team_person / can_assign_leads which still use role checks
 _SALES_ROLES = {UserRole.TEAM_LEAD.value, UserRole.TEAM_MEMBER.value, UserRole.MEMBER.value, "team_lead", "team_member", "member"}
 _SALES_DEPT = "sales"
 
@@ -23,50 +23,52 @@ def _dept(user: Dict[str, Any]) -> str:
 
 
 def is_crm_user(user: Dict[str, Any]) -> bool:
+    """A user can access CRM if they have at least `own` level on the sales module.
+
+    Admin gets this automatically via the resolver.
+    """
     if not user or not user.get("is_active", True):
         return False
     flagged = user.get("crm_enabled")
     if flagged is False:
         return False
-    role = _role(user)
-    from app.services.permissions import parse_user_departments, normalize_dept
-    depts = [normalize_dept(d) for d in parse_user_departments(user)]
-    if role in _ALL_LEADS_ROLES or any(d in ("operations", "admin") for d in depts):
-        return True
-    if _SALES_DEPT in depts and role in _SALES_ROLES:
-        return True
-    return False
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    lvl = resolve(ctx, "sales")
+    return level_gte("sales", lvl, "own")
 
 
 def can_view_all_leads(user: Dict[str, Any]) -> bool:
-    """Admin and operations see every lead, whoever it is assigned to."""
-    if not is_crm_user(user):
+    """Admin and sales leads (or users with sales=all override) see every lead."""
+    if not user:
         return False
-    role = _role(user)
-    from app.services.permissions import parse_user_departments, normalize_dept
-    depts = [normalize_dept(d) for d in parse_user_departments(user)]
-    return role in _ALL_LEADS_ROLES or any(d in ("operations", "admin") for d in depts)
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
+    return resolve(ctx, "sales") == "all"
 
 
 def is_sales_team_lead(user: Dict[str, Any]) -> bool:
+    """True if user is a sales team_lead with primary sales department."""
     if not is_crm_user(user):
         return False
-    from app.services.permissions import parse_user_departments, normalize_dept
-    depts = [normalize_dept(d) for d in parse_user_departments(user)]
-    return _role(user) in (UserRole.TEAM_LEAD.value, "team_lead") and _SALES_DEPT in depts
+    from app.services.permissions import parse_user_departments, normalize_dept, load_ctx, resolve
+    ctx = load_ctx(user)
+    if ctx.role not in ("team_lead", "lead"):
+        return False
+    return resolve(ctx, "sales") == "all"
 
 
 def is_sales_team_person(user: Optional[Dict[str, Any]]) -> bool:
-    """Sales department team lead or member. Admin and operations are excluded."""
+    """Sales department team lead or member. Admin and non-sales users are excluded."""
     if not user:
         return False
-    if _role(user) in _ALL_LEADS_ROLES:
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    role = ctx.role
+    if role in ("admin", "hr", "operations", "client"):
         return False
-    from app.services.permissions import parse_user_departments, normalize_dept
-    depts = [normalize_dept(d) for d in parse_user_departments(user)]
-    if any(d in ("operations", "admin") for d in depts):
-        return False
-    return _SALES_DEPT in depts and _role(user) in _SALES_ROLES
+    lvl = resolve(ctx, "sales")
+    return level_gte("sales", lvl, "own")
 
 
 def lead_visible_to(
@@ -76,10 +78,10 @@ def lead_visible_to(
 ) -> bool:
     """Pipeline visibility.
 
-    Admin and operations see every lead.
-    Sales team leads see unassigned leads, their own, and leads assigned to sales teammates.
-    They do not see leads assigned to admin or operations.
-    Sales members see unassigned leads and leads assigned to themselves.
+    sales=all → every lead.
+    sales team leads → unassigned leads, their own, and leads assigned to sales teammates.
+      They do not see leads assigned to admin/operations/non-sales users.
+    sales members (own) → unassigned leads and leads assigned to themselves.
     """
     if not is_crm_user(user):
         return False
@@ -99,19 +101,17 @@ def lead_visible_to(
 def can_assign_leads(user: Dict[str, Any]) -> bool:
     if not is_crm_user(user):
         return False
-    role = _role(user)
-    dept = _dept(user)
-    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin") or (
-        role in (UserRole.TEAM_LEAD.value, "team_lead") and dept == _SALES_DEPT
-    )
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
+    return resolve(ctx, "sales") == "all"
 
 
 def can_manage_outcomes(user: Dict[str, Any]) -> bool:
     if not is_crm_user(user):
         return False
-    role = _role(user)
-    dept = _dept(user)
-    return role in _ALL_LEADS_ROLES or dept in ("operations", "admin")
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
+    return resolve(ctx, "sales") == "all"
 
 
 async def require_crm_user(current_user: dict = Depends(get_current_user)) -> dict:
@@ -130,7 +130,7 @@ async def sales_team_user_ids() -> List[str]:
         return []
     cursor = db.users.find(
         {"role": {"$in": list(_SALES_ROLES)}},
-        {"_id": 0, "id": 1, "role": 1, "department": 1},
+        {"_id": 0, "id": 1, "role": 1, "department": 1, "departments": 1, "primary_department": 1},
     )
     docs = await cursor.to_list(400)
     ids: List[str] = []
@@ -142,7 +142,7 @@ async def sales_team_user_ids() -> List[str]:
 
 
 async def visibility_filter(user: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """None means no extra restriction (admin/operations see all).
+    """None means no extra restriction (admin/sales-all see all).
 
     Sales team leads see unassigned leads plus leads owned by the sales team.
     Sales members see unassigned leads plus their own.

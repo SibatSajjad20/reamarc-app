@@ -34,6 +34,7 @@ from app.schemas.marketing import (
     SyncStatusResponse,
 )
 from app.services.marketing_sync import run_daily_ad_metrics_sync
+from app.services.permissions import require_permission
 
 logger = logging.getLogger(__name__)
 
@@ -150,7 +151,7 @@ async def get_daily_matrix(
     response: Response,
     date: Optional[str] = Query(default=None, description="ISO date string YYYY-MM-DD, defaults to today"),
     include_inactive: bool = Query(default=False, description="Whether to include inactive $0 spend campaigns"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("ads", "view")),
 ):
     """
     Returns all marketing campaigns joined with their daily metric record for target date.
@@ -178,7 +179,7 @@ async def get_daily_matrix(
 @router.post("/campaigns", status_code=status.HTTP_201_CREATED, response_model=MarketingCampaignResponse)
 async def create_marketing_campaign(
     payload: MarketingCampaignCreate,
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_permission("ads", "manage")),
 ):
     """Create a new marketing campaign record."""
     db = get_database()
@@ -218,7 +219,7 @@ async def create_marketing_campaign(
 async def upsert_daily_metric(
     payload: MetricUpsert,
     background_tasks: BackgroundTasks,
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_permission("ads", "manage")),
 ):
     """
     Upserts a daily metric record for (campaign_id, date).
@@ -343,7 +344,7 @@ async def upsert_daily_metric(
 async def update_marketing_campaign(
     campaign_id: str,
     payload: MarketingCampaignUpdate,
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_permission("ads", "manage")),
 ):
     """Update static fields of a marketing campaign."""
     db = get_database()
@@ -388,7 +389,7 @@ async def sync_now(
     payload: Optional[SyncNowRequest] = None,
     request: Request = None,
     include_inactive: bool = Query(default=False),
-    current_user: dict = Depends(require_editor_or_admin),
+    current_user: dict = Depends(require_permission("ads", "manage")),
 ):
     """
     Decoupled sync route: Enqueues background sync for Meta and Google Ads performance metrics
@@ -473,7 +474,7 @@ async def sync_now(
 async def get_sync_status(
     request: Request,
     workspace_id: Optional[str] = Query(default=None),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("ads", "view")),
 ):
     """
     Returns the real-time background sync job status for the workspace/global context.

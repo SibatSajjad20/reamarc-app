@@ -207,8 +207,8 @@ def is_content_actor(user: Optional[Dict[str, Any]]) -> bool:
 def is_content_lead(user: Optional[Dict[str, Any]]) -> bool:
     if not is_active(user) or _role(user) != "team_lead":
         return False
-    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
-    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
     return resolve(ctx, "content_calendar", "content") == "manage"
 
 
@@ -219,8 +219,8 @@ def is_creative_actor(user: Optional[Dict[str, Any]]) -> bool:
 def is_creative_lead(user: Optional[Dict[str, Any]]) -> bool:
     if not is_active(user) or _role(user) != "team_lead":
         return False
-    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
-    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
     return resolve(ctx, "content_calendar", "creative") == "manage"
 
 
@@ -232,7 +232,7 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
     """Stages this user may receive. None means every stage."""
     if not is_active(user):
         return []
-    if is_admin(user) or is_performance(user) or is_client(user):
+    if is_admin(user) or is_client(user):
         return None
     depts = _user_departments(user)
     stages: List[str] = []

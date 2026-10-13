@@ -42,7 +42,9 @@ def _today_and_yesterday_iso():
 
 
 async def _build_crm_section(db, user: Dict[str, Any], now_iso: str) -> Optional[CrmSummarySection]:
-    if not is_crm_user(user):
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    if not level_gte("sales", resolve(ctx, "sales"), "own"):
         return None
 
     vis = await visibility_filter(user)
@@ -97,7 +99,9 @@ async def _build_crm_section(db, user: Dict[str, Any], now_iso: str) -> Optional
 
 
 async def _build_content_section(db, user: Dict[str, Any]) -> Optional[ContentSummarySection]:
-    if not can_access_content_calendar(user):
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    if not level_gte("content_calendar", resolve(ctx, "content_calendar"), "view"):
         return None
 
     role = (user.get("role") or "").lower().strip()
@@ -140,10 +144,9 @@ async def _build_content_section(db, user: Dict[str, Any]) -> Optional[ContentSu
 
 
 async def _build_website_section(db, user: Dict[str, Any]) -> Optional[WebsiteSummarySection]:
-    role = (user.get("role") or "").lower().strip()
-    dept = (user.get("department") or "").lower().strip()
-    can_see = is_admin_or_ops(user) or is_website_lead(user) or "website" in dept
-    if not can_see:
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    if not level_gte("website", resolve(ctx, "website"), "view"):
         return None
 
     match_q: Dict[str, Any] = {"status": {"$ne": "archived"}}
@@ -174,7 +177,10 @@ async def _build_website_section(db, user: Dict[str, Any]) -> Optional[WebsiteSu
 
 
 async def _build_approvals_section(db, user: Dict[str, Any]) -> Optional[ApprovalsSummarySection]:
-    role = (user.get("role") or "").lower().strip()
+    from app.services.permissions import load_ctx, get_user_primary_department
+    import re
+    ctx = load_ctx(user)
+    role = ctx.role
     is_admin = role in ("admin", UserRole.ADMIN.value)
     is_ops = role in ("operations", UserRole.OPERATIONS.value)
     is_hr = role in ("hr", UserRole.HR.value)
@@ -183,16 +189,17 @@ async def _build_approvals_section(db, user: Dict[str, Any]) -> Optional[Approva
     if not (is_admin or is_ops or is_hr or is_lead):
         return None
 
-    dept = (user.get("department") or "").strip()
     leave_q: Dict[str, Any] = {"status": "pending"}
     punch_q: Dict[str, Any] = {"status": "pending"}
     score_q: Dict[str, Any] = {"status": "non_compliant"}
 
     if is_lead and not (is_admin or is_ops or is_hr):
-        # Scope to department
-        if dept:
-            leave_q["department"] = dept
-            score_q["department"] = dept
+        # A5: Scope approvals to primary department
+        primary_dept = get_user_primary_department(user)
+        if primary_dept:
+            dept_rgx = {"$regex": f"^{re.escape(primary_dept)}$", "$options": "i"}
+            leave_q["$or"] = [{"primary_department": dept_rgx}, {"department": dept_rgx}]
+            score_q["$or"] = [{"primary_department": dept_rgx}, {"department": dept_rgx}]
 
     try:
         leaves_cnt, punches_cnt, scores_cnt = await asyncio.gather(
@@ -208,6 +215,7 @@ async def _build_approvals_section(db, user: Dict[str, Any]) -> Optional[Approva
     except Exception as exc:
         logger.warning(f"Error building Approvals dashboard summary: {exc}")
         return ApprovalsSummarySection(pendingLeaves=0, pendingMissedPunch=0, pendingLogExceptions=0)
+
 
 
 async def _build_attendance_today_section(db, user: Dict[str, Any], today_iso: str) -> Optional[AttendanceTodaySummarySection]:
@@ -279,18 +287,32 @@ async def _build_attendance_today_section(db, user: Dict[str, Any], today_iso: s
 
 
 async def _build_logs_section(db, user: Dict[str, Any], today_iso: str, yesterday_iso: str) -> Optional[LogsSummarySection]:
-    role = (user.get("role") or "").lower().strip()
-    is_admin = role in ("admin", UserRole.ADMIN.value)
-    is_hr = role in ("hr", UserRole.HR.value)
-    is_lead = role in ("team_lead", UserRole.TEAM_LEAD.value)
-
-    if not (is_admin or is_hr or is_lead):
+    from app.services.permissions import load_ctx, resolve, level_gte, get_user_primary_department
+    import re
+    ctx = load_ctx(user)
+    log_lvl = resolve(ctx, "daily_log")
+    if not level_gte("daily_log", log_lvl, "department"):
         return None
 
     try:
+        user_query: Dict[str, Any] = {
+            "is_active": {"$ne": False},
+            "role": {"$in": ["team_member", "member", UserRole.TEAM_MEMBER.value]},
+        }
+        if log_lvl != "all":
+            # Team lead: scoped to primary department
+            primary_dept = get_user_primary_department(user)
+            if not primary_dept:
+                return LogsSummarySection(missingToday=0, missingYesterday=0)
+            dept_rgx = {"$regex": f"^{re.escape(primary_dept)}$", "$options": "i"}
+            user_query["$or"] = [
+                {"primary_department": dept_rgx},
+                {"department": dept_rgx},
+            ]
+
         # Expected loggers
         logger_users = await db.users.find(
-            {"is_active": {"$ne": False}, "role": {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}},
+            user_query,
             {"_id": 0, "id": 1},
         ).to_list(500)
         uids = [u["id"] for u in logger_users if u.get("id")]

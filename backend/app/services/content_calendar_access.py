@@ -34,8 +34,8 @@ def _role(value: Any) -> str:
 def can_access_content_calendar(user: Dict[str, Any] | None) -> bool:
     if not user or not user.get("is_active", True):
         return False
-    from app.services.permissions import PermCtx, resolve, level_gte, SYSTEM_ROLE_DEFAULTS
-    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
     return level_gte("content_calendar", resolve(ctx, "content_calendar"), "view")
 
 

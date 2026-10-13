@@ -40,16 +40,7 @@ NEXT_STAGE_MAP: Dict[str, Optional[str]] = {
     "completed": None,
 }
 
-MANAGEMENT_ROLES: Set[str] = {"admin", "superadmin", "operations"}
-ALLOWED_DEPARTMENTS: Set[str] = {
-    "content",
-    "creative",
-    "website",
-    "web development",
-    "software development",
-    "software",
-    "design",
-}
+MANAGEMENT_ROLES: Set[str] = {"admin", "superadmin"}
 
 WEBSITE_DEPARTMENTS: Set[str] = {
     "website",
@@ -60,16 +51,15 @@ WEBSITE_DEPARTMENTS: Set[str] = {
 
 
 def can_create_project(user: Dict[str, Any] | None) -> bool:
-    """Checks if a user is permitted to create a website project (admin, PM, or website department)."""
+    """Checks if a user is permitted to create a website project (admin or website lead with manage access)."""
     if not user or not user.get("is_active", True) or is_client(user):
         return False
-    if is_admin_or_ops(user) or is_website_lead(user):
+    if is_website_lead(user):
         return True
     role = _normalize(user.get("role"))
-    if role in ("pm", "project_manager"):
+    if role in ("admin", "superadmin"):
         return True
-    depts = get_user_departments(user)
-    return bool(depts & WEBSITE_DEPARTMENTS)
+    return False
 
 
 class WorkflowError(Exception):
@@ -130,8 +120,8 @@ def is_admin_or_ops(user: Dict[str, Any] | None) -> bool:
 def is_website_lead(user: Dict[str, Any] | None) -> bool:
     if not user:
         return False
-    from app.services.permissions import PermCtx, resolve, SYSTEM_ROLE_DEFAULTS
-    ctx = PermCtx(user=user, overrides=user.get("overrides", []), role_defaults=SYSTEM_ROLE_DEFAULTS)
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(user)
     if ctx.role not in ("team_lead", "lead"):
         return False
     return resolve(ctx, "website", "website") == "manage"
@@ -151,7 +141,15 @@ def client_workspace_ids(user: Dict[str, Any] | None) -> Set[str]:
 
 
 def can_view_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bool:
-    """Checks if a user is permitted to view a website project."""
+    """Checks if a user is permitted to view a website project.
+
+    Admin → always.
+    Website lead (manage) → always.
+    Client → must own the workspace.
+    Assigned project manager → always.
+    Website staff (assigned/manage) → always.
+    Everyone else → 403.
+    """
     if not user or not user.get("is_active", True):
         return False
     if is_admin_or_ops(user) or is_website_lead(user):
@@ -165,9 +163,11 @@ def can_view_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bo
     if str(project.get("manager_id") or "").strip() == str(user.get("id") or "").strip():
         return True
 
-    # Staff with allowed department
-    depts = get_user_departments(user)
-    return bool(depts & ALLOWED_DEPARTMENTS)
+    # Website staff: requires website >= assigned via resolver
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    lvl = resolve(ctx, "website")
+    return level_gte("website", lvl, "assigned")
 
 
 def can_manage_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bool:

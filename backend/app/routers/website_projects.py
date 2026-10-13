@@ -32,6 +32,7 @@ from app.schemas.website_project import (
     WebsiteTeamMemberResponse,
 )
 from app.services import website_project_service
+from app.services.permissions import require_permission
 from app.services.website_project_workflow import (
     WorkflowError,
     can_create_project,
@@ -59,7 +60,7 @@ async def list_projects(
     search: Optional[str] = Query(None, description="Search term for name or client"),
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("website", "view")),
 ):
     """Lists website projects with filtering, search, and pagination."""
     db = get_database()
@@ -82,7 +83,7 @@ async def list_projects(
 @limiter.limit("120/minute")
 async def get_summary_metrics(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("website", "view")),
 ):
     """Returns top KPI chip counts for the website projects dashboard."""
     db = get_database()
@@ -93,7 +94,7 @@ async def get_summary_metrics(
 @limiter.limit("120/minute")
 async def list_team_members(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("website", "view")),
 ):
     """Returns active organization team members for task assignment."""
     db = get_database()
@@ -109,7 +110,7 @@ async def list_all_tasks(
     status: Optional[str] = Query(None, description="Filter by task status"),
     assignee_id: Optional[str] = Query(None, description="Filter by assignee user ID"),
     search: Optional[str] = Query(None, description="Search term for task name or description"),
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_permission("website", "view")),
 ):
     """Returns tasks across visible projects, optionally filtered by project, stage, status, or assignee."""
     db = get_database()

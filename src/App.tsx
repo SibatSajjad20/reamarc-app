@@ -25,9 +25,8 @@ import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLo
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { usePermissions } from './hooks/usePermissions';
-import { canAccessCrm, canAssignCrmLeads } from './utils/crmAccess';
-import { canAccessContentCalendar } from './utils/contentCalendarAccess';
-import { canAccessWebsitePipeline } from './utils/websiteProjectAccess';
+import { ShieldAlert } from 'lucide-react';
+import { Button } from './components/ui/button';
 import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
@@ -130,21 +129,14 @@ function AppInner() {
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
 
-  const canSeeMarketing =
-    isAdmin ||
-    perms.can('ads', 'view') ||
-    perms.departments.some((d: string) => {
-      const lower = d.toLowerCase().trim();
-      return lower === 'seo' || lower === 'performance marketing';
-    });
-
+  const canSeeMarketing = perms.can('ads', 'view');
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.canAccessActiveClients;
-  const canSeeCrm = perms.canAccessCrm || canAccessCrm(user);
-  const canSeeContentCalendar = perms.canAccessContentCalendar || canAccessContentCalendar(user);
-  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline || canAccessWebsitePipeline(user);
-  const canAssign = canAssignCrmLeads(user);
+  const canSeeActiveClients = perms.can('active_clients', 'view');
+  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeContentCalendar = perms.can('content_calendar', 'view');
+  const canSeeWebsitePipeline = perms.can('website', 'view');
+  const canAssign = perms.can('sales', 'all');
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
 

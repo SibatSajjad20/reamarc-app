@@ -8,7 +8,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from fastapi import Depends, HTTPException, Request, status
 
@@ -131,9 +131,6 @@ CONTENT_DEPTS: Set[str] = {
     "creative",
     "social media",
     "social",
-    "performance marketing",
-    "performance",
-    "performance_marketing",
     "content and creative",
     "content & creative",
 }
@@ -148,6 +145,14 @@ WEBSITE_DEPTS: Set[str] = {
 
 SALES_DEPTS: Set[str] = {
     "sales",
+}
+
+ADS_DEPTS: Set[str] = {
+    "seo",
+    "performance marketing",
+    "performance",
+    "performance_marketing",
+    "ads",
 }
 
 # Base system default role permissions matrix (plan §2.4)
@@ -175,10 +180,10 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
     "operations": {
         "daily_log": "all",
         "attendance": "all",
-        "exceptions": "none",
+        "exceptions": "all",
         "content_calendar": "none",
-        "website": "manage",
-        "sales": "all",
+        "website": "none",
+        "sales": "none",
         "active_clients": "view",
         "ads": "none",
     },
@@ -186,9 +191,9 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "daily_log": "department",
         "attendance": "own",
         "exceptions": "department",
-        "content_calendar": "manage",  # Applies when dept in CONTENT_DEPTS, else none
-        "website": "manage",           # Applies when dept in WEBSITE_DEPTS, else view
-        "sales": "all",                # Applies when dept in SALES_DEPTS, else none
+        "content_calendar": "none",  # Department grants these per Phase 1
+        "website": "none",
+        "sales": "none",
         "active_clients": "view",
         "ads": "none",
     },
@@ -196,9 +201,9 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "daily_log": "own",
         "attendance": "own",
         "exceptions": "none",
-        "content_calendar": "own_stages", # If content/creative/social; view if perf; else none
-        "website": "assigned",            # If website dept; else none
-        "sales": "own",                   # If sales dept; else none
+        "content_calendar": "none",  # Department grants these per Phase 1
+        "website": "none",
+        "sales": "none",
         "active_clients": "view",
         "ads": "none",
     },
@@ -245,8 +250,8 @@ def parse_user_departments(user: Optional[Dict[str, Any]]) -> List[str]:
     # 3. department string fallback
     dept_str = user.get("department")
     if isinstance(dept_str, str) and dept_str.strip():
-        # Split on comma, semicolon, slash, and 'and'
-        tokens = re.split(r"[,;/]|\band\b", dept_str, flags=re.IGNORECASE)
+        # Split on comma, semicolon, slash, '&', and 'and'
+        tokens = re.split(r"[,;/&]|\band\b", dept_str, flags=re.IGNORECASE)
         for tok in tokens:
             clean = tok.strip()
             if clean and clean.lower() not in seen:
@@ -308,6 +313,23 @@ class PermCtx:
             if mod_key in MODULE_LEVELS and lvl in MODULE_LEVELS[mod_key]:
                 self._override_map[(dept_key, mod_key)] = lvl
 
+    def __await__(self):
+        async def _identity():
+            return self
+        return _identity().__await__()
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.user.get(key, default) if isinstance(self.user, dict) else default
+
+    def __getitem__(self, key: str) -> Any:
+        return self.user[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.user if isinstance(self.user, dict) else False
+
+    def keys(self):
+        return self.user.keys() if isinstance(self.user, dict) else [].keys()
+
 
 # In-memory cache for role defaults from database
 _ROLE_DEFAULTS_CACHE: Optional[Dict[str, Dict[str, str]]] = None
@@ -348,8 +370,44 @@ async def load_role_defaults(db=None) -> Dict[str, Dict[str, str]]:
     return role_map
 
 
-async def load_context(user: Dict[str, Any], db=None) -> PermCtx:
+def load_ctx(
+    user: Optional[Dict[str, Any]],
+    overrides: Optional[List[Dict[str, Any]]] = None,
+    role_defaults: Optional[Dict[str, Dict[str, str]]] = None,
+) -> PermCtx:
+    """Synchronously load or construct PermCtx for user.
+
+    If user has '_perm_ctx' attached, returns it directly.
+    Otherwise builds PermCtx from user['overrides'] (if present) and cached role defaults.
+    """
+    if not user:
+        return PermCtx(user={}, overrides=[], role_defaults=SYSTEM_ROLE_DEFAULTS)
+    if overrides is None and role_defaults is None:
+        if isinstance(user, dict) and "_perm_ctx" in user and isinstance(user["_perm_ctx"], PermCtx):
+            return user["_perm_ctx"]
+
+    user_overrides = (
+        overrides
+        if overrides is not None
+        else (user.get("overrides") or user.get("permission_overrides") or [])
+    )
+    defaults = (
+        role_defaults
+        if role_defaults is not None
+        else (_ROLE_DEFAULTS_CACHE if _ROLE_DEFAULTS_CACHE is not None else SYSTEM_ROLE_DEFAULTS)
+    )
+    ctx = PermCtx(user=user, overrides=user_overrides, role_defaults=defaults)
+    if isinstance(user, dict):
+        user["_perm_ctx"] = ctx
+    return ctx
+
+
+async def load_context(user: Dict[str, Any], db=None, force: bool = False) -> PermCtx:
     """Load permission context for a user in one query (overrides) + cached defaults."""
+    if not force and isinstance(user, dict) and "_perm_ctx" in user and isinstance(user["_perm_ctx"], PermCtx):
+        if user.get("_perm_ctx_loaded_from_db"):
+            return user["_perm_ctx"]
+
     if db is None:
         db = get_database()
 
@@ -363,8 +421,16 @@ async def load_context(user: Dict[str, Any], db=None) -> PermCtx:
             overrides = await cursor.to_list(length=100)
         except Exception as e:
             logger.warning("Failed to load user_permission_overrides for %s: %s", user_id, e)
+    elif isinstance(user, dict) and user.get("overrides"):
+        overrides = user.get("overrides") or []
 
-    return PermCtx(user=user, overrides=overrides, role_defaults=role_defaults)
+    ctx = PermCtx(user=user, overrides=overrides, role_defaults=role_defaults)
+    if isinstance(user, dict):
+        user["_perm_ctx"] = ctx
+        user["_perm_ctx_loaded_from_db"] = True
+        user["overrides"] = overrides
+        user["permission_overrides"] = overrides
+    return ctx
 
 
 def _department_default_level(
@@ -373,53 +439,72 @@ def _department_default_level(
     department: str,
     base_level: str,
     is_secondary: bool = False,
+    primary_department: Optional[str] = None,
 ) -> str:
-    """Compute role default for department-scoped work modules."""
+    """Compute role default for department-scoped work modules.
+
+    Grants apply only to primary department.
+    Secondary departments return 'none' for all modules except content_calendar stages
+    (where secondary contributes stages if primary is in CONTENT_DEPTS).
+    """
     dept_norm = normalize_dept(department)
 
+    # Secondary departments grant only content_calendar stages.
+    # For every other module, is_secondary returns 'none'.
+    if is_secondary:
+        if module == "content_calendar":
+            primary_norm = normalize_dept(primary_department)
+            if primary_norm in CONTENT_DEPTS and dept_norm in CONTENT_DEPTS:
+                return "own_stages"
+        return "none"
+
     if module == "content_calendar":
-        if role == "team_lead":
-            if is_secondary:
-                # Secondary department does not automatically confer lead powers
-                return "own_stages" if dept_norm in CONTENT_DEPTS else "none"
-            return base_level if dept_norm in CONTENT_DEPTS else "none"
-        if role == "team_member":
-            if dept_norm in {"performance marketing"}:
-                return "view"
-            if dept_norm in CONTENT_DEPTS:
-                return base_level  # "own_stages"
-            return "none"
+        if dept_norm in CONTENT_DEPTS:
+            if role in ("team_lead", "lead"):
+                return "manage"
+            if role in ("team_member", "member"):
+                return "own_stages"
+        return "none"
 
     if module == "website":
-        if role == "team_lead":
-            if is_secondary:
-                # Secondary website dept gets view, not lead manage
-                return "view"
-            return base_level if dept_norm in WEBSITE_DEPTS else "view"
-        if role == "team_member":
-            if is_secondary:
-                # Secondary website member gets view
-                return "view" if dept_norm in WEBSITE_DEPTS else "none"
-            return base_level if dept_norm in WEBSITE_DEPTS else "none"
+        if dept_norm in WEBSITE_DEPTS:
+            if role in ("team_lead", "lead"):
+                return "manage"
+            if role in ("team_member", "member"):
+                return "assigned"
+        return "none"
 
     if module == "sales":
-        if role == "team_lead":
-            return base_level if dept_norm in SALES_DEPTS else "none"
-        if role == "team_member":
-            return base_level if dept_norm in SALES_DEPTS else "none"
+        if dept_norm in SALES_DEPTS:
+            if role in ("team_lead", "lead"):
+                return "all"
+            if role in ("team_member", "member"):
+                return "own"
+        return "none"
+
+    if module == "ads":
+        if dept_norm in ADS_DEPTS:
+            if role in ("team_lead", "lead"):
+                return "manage"
+            if role in ("team_member", "member"):
+                return "view"
+        return "none"
 
     return base_level
 
 
-def resolve(ctx: PermCtx, module: str, department: Optional[str] = None) -> str:
+def resolve(ctx: Union[PermCtx, Dict[str, Any]], module: str, department: Optional[str] = None) -> str:
     """Resolve the effective permission level for (user, module, department).
 
     Enforces invariants:
     - Admin is always max ('all' or 'manage').
     - Client is always 'none' (workspace-scoped only).
-    - Secondary departments default to 'none' for log_like modules.
+    - Secondary departments default to 'none' for log_like modules, website, sales, and ads.
     - Explicit user overrides take precedence over role defaults.
     """
+    if isinstance(ctx, dict):
+        ctx = load_ctx(ctx)
+
     if module not in MODULE_LEVELS:
         return "none"
 
@@ -438,25 +523,40 @@ def resolve(ctx: PermCtx, module: str, department: Optional[str] = None) -> str:
     if (norm_dept, module) in ctx._override_map:
         return ctx._override_map[(norm_dept, module)]
 
-    # 2. Check secondary department rule (§2.1):
-    # If this is a secondary department and no override was specified:
+    matching_ovs = [lvl for (ov_d, ov_m), lvl in ctx._override_map.items() if ov_m == module]
+    if matching_ovs:
+        best = matching_ovs[0]
+        for candidate in matching_ovs[1:]:
+            if level_gte(module, candidate, best):
+                best = candidate
+        return best
+
+    # 2. Check secondary department rule:
     is_secondary = False
     if ctx.primary_department and norm_dept:
         if norm_dept != normalize_dept(ctx.primary_department):
             is_secondary = True
 
-    if is_secondary and module in LOG_LIKE_MODULES:
-        # Daily log, attendance, and exceptions default to none for secondary depts
-        return "none"
+    if is_secondary:
+        # Rule 8: Secondary departments grant only content_calendar stages.
+        # A secondary sales, website, SEO or performance marketing department
+        # does not unlock that module, the daily log or team hours.
+        if module in LOG_LIKE_MODULES or module in ("website", "sales", "ads"):
+            return "none"
 
     # 3. Role default lookup
     role_dict = ctx.role_defaults.get(ctx.role, SYSTEM_ROLE_DEFAULTS.get(ctx.role, {}))
     base_level = role_dict.get(module, "none")
 
     # If it's a department-scoped work module, apply role department rules
-    if module in {"content_calendar", "website", "sales"}:
+    if module in {"content_calendar", "website", "sales", "ads"}:
         return _department_default_level(
-            ctx.role, module, dept, base_level, is_secondary=is_secondary
+            ctx.role,
+            module,
+            dept,
+            base_level,
+            is_secondary=is_secondary,
+            primary_department=ctx.primary_department,
         )
 
     return base_level
@@ -525,8 +625,11 @@ def can_see_user_logs(ctx: PermCtx, author: Dict[str, Any]) -> bool:
     return False
 
 
-def effective_map(ctx: PermCtx) -> Dict[str, Any]:
+def effective_map(ctx: Union[PermCtx, Dict[str, Any]]) -> Dict[str, Any]:
     """Return effective permission map for client-side /auth/me payload."""
+    if isinstance(ctx, dict):
+        ctx = load_ctx(ctx)
+
     depts = ctx.departments if ctx.departments else ([ctx.primary_department] if ctx.primary_department else [])
 
     per_dept_modules: Dict[str, Dict[str, str]] = {}
@@ -534,7 +637,9 @@ def effective_map(ctx: PermCtx) -> Dict[str, Any]:
 
     for mod in MODULE_LEVELS.keys():
         per_dept_modules[mod] = {}
-        highest_lvl = "none"
+        primary_lvl = resolve(ctx, mod, ctx.primary_department) if ctx.primary_department else resolve(ctx, mod, None)
+        highest_lvl = primary_lvl
+
         if not depts:
             lvl = resolve(ctx, mod, None)
             per_dept_modules[mod]["default"] = lvl
@@ -543,8 +648,11 @@ def effective_map(ctx: PermCtx) -> Dict[str, Any]:
             for d in depts:
                 lvl = resolve(ctx, mod, d)
                 per_dept_modules[mod][d] = lvl
-                if level_gte(mod, lvl, highest_lvl):
-                    highest_lvl = lvl
+                # Only content_calendar stages can be broadened by secondary depts
+                if mod == "content_calendar":
+                    if level_gte(mod, lvl, highest_lvl):
+                        highest_lvl = lvl
+
         summary[mod] = highest_lvl
 
     return {
@@ -554,7 +662,7 @@ def effective_map(ctx: PermCtx) -> Dict[str, Any]:
         "summary": summary,
         "role": ctx.role,
         "is_admin": ctx.role == "admin",
-        "is_lead": ctx.role == "team_lead",
+        "is_lead": ctx.role in ("team_lead", "lead"),
     }
 
 
@@ -573,13 +681,16 @@ async def get_request_perm_ctx(
 
 def require_permission(module: str, min_level: str):
     """FastAPI dependency factory enforcing a minimum permission level."""
-    async def _dependency(ctx: PermCtx = Depends(get_request_perm_ctx)) -> PermCtx:
+    async def _dependency(ctx: PermCtx = Depends(get_request_perm_ctx)) -> dict:
         lvl = resolve(ctx, module)
         if not level_gte(module, lvl, min_level):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Insufficient permissions: requires {module} level '{min_level}'.",
             )
-        return ctx
+        return ctx.user
 
     return _dependency
+
+
+require_module = require_permission

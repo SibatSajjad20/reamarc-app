@@ -1,24 +1,5 @@
 import type { WebsiteProject, WebsiteTask } from '../types/websiteProject';
 
-const ALLOWED_DEPARTMENTS = new Set([
-  'website',
-  'web development',
-  'software development',
-  'software',
-  'content',
-  'creative',
-  'design',
-  'content and creative',
-  'content & creative',
-]);
-
-const WEBSITE_LEAD_DEPARTMENTS = new Set([
-  'website',
-  'web development',
-  'software development',
-  'software',
-]);
-
 export interface AccessUser {
   id?: string;
   role?: string;
@@ -32,41 +13,11 @@ function roleOf(value?: string | null): string {
   return (value || '').toLowerCase().trim();
 }
 
-export function parseUserDepartments(user?: AccessUser | null): string[] {
-  if (!user) return [];
-  const rawList: string[] = [];
-  if (Array.isArray(user.departments)) {
-    rawList.push(...user.departments);
-  }
-  if (user.permissions?.departments && Array.isArray(user.permissions.departments)) {
-    rawList.push(...user.permissions.departments);
-  }
-  if (typeof user.department === 'string' && user.department) {
-    const split = user.department
-      .split(/[,;/]|\band\b|&/i)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    rawList.push(...split);
-  }
-  const normalized = new Set<string>();
-  for (const item of rawList) {
-    const cleaned = item.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
-    if (cleaned) {
-      normalized.add(cleaned);
-      if (cleaned === 'content and creative' || cleaned === 'content & creative') {
-        normalized.add('content');
-        normalized.add('creative');
-      }
-    }
-  }
-  return Array.from(normalized);
-}
-
 export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
-  if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
-  if (role === 'client' || role === 'hr') return false;
+  if (role === 'admin' || role === 'superadmin') return true;
+  if (role === 'client' || role === 'hr' || role === 'operations') return false;
 
   if (user.permissions) {
     const summary = user.permissions.summary?.website;
@@ -78,15 +29,7 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
     return false;
   }
 
-  if (role !== 'team_lead' && role !== 'lead' && role !== 'team_member' && role !== 'member') {
-    return false;
-  }
-
-  const depts = parseUserDepartments(user);
-  if ((role === 'team_lead' || role === 'lead') && depts.some((d) => WEBSITE_LEAD_DEPARTMENTS.has(d))) {
-    return true;
-  }
-  return depts.some((d) => ALLOWED_DEPARTMENTS.has(d));
+  return false;
 }
 
 export function canManageWebsiteProject(
@@ -95,8 +38,8 @@ export function canManageWebsiteProject(
 ): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
-  if (role === 'admin' || role === 'superadmin' || role === 'operations') return true;
-  if (role === 'client' || role === 'hr') return false;
+  if (role === 'admin' || role === 'superadmin') return true;
+  if (role === 'client' || role === 'hr' || role === 'operations') return false;
 
   if (user.permissions?.modules?.website) {
     const mod = user.permissions.modules.website;
@@ -105,10 +48,6 @@ export function canManageWebsiteProject(
     }
   }
 
-  if (role === 'team_lead' || role === 'lead') {
-    const depts = parseUserDepartments(user);
-    if (depts.some((d) => WEBSITE_LEAD_DEPARTMENTS.has(d))) return true;
-  }
   if (project && user.id && project.manager_id && String(user.id) === String(project.manager_id)) {
     return true;
   }

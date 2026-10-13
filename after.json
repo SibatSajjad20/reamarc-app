@@ -1,0 +1,216 @@
+{
+  "timestamp": "2026-10-13T17:50:00Z",
+  "database": "reamarc_test_db",
+  "status_grid": {
+    "admin": {
+      "website_projects_list": 200,
+      "crm_leads_list": 200,
+      "content_calendar_posts": 404,
+      "marketing_daily": 200,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "hr": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "operations": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "client": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "sales_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 200,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "sales_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 200,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "content_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "content_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "creative_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "creative_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "social_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "social_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "website_lead": {
+      "website_projects_list": 200,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "website_member": {
+      "website_projects_list": 200,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "seo_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 200,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "seo_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 200,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "perf_lead": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 200,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "perf_member": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 200,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "content_lead_creative_social": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "content_member_sales": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    },
+    "content_lead_website": {
+      "website_projects_list": 403,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 404,
+      "marketing_daily": 403,
+      "exceptions_inbox": 200,
+      "daily_log_team_hours": 422
+    },
+    "website_member_perf": {
+      "website_projects_list": 200,
+      "crm_leads_list": 403,
+      "content_calendar_posts": 403,
+      "marketing_daily": 403,
+      "exceptions_inbox": 403,
+      "daily_log_team_hours": 422
+    }
+  },
+  "leak_resolutions": {
+    "leak_1_content_users_get_website_projects": {
+      "content_member_status": 403,
+      "content_lead_status": 403,
+      "resolved": true
+    },
+    "leak_2_content_sales_member_gets_crm_leads": {
+      "status": 403,
+      "resolved": true
+    },
+    "leak_3_operations_gets_website_manage_and_all_sales_leads": {
+      "can_manage_website": false,
+      "can_view_all_leads": false,
+      "crm_status": 403,
+      "website_status": 403,
+      "resolved": true
+    },
+    "leak_4_performance_marketing_gets_all_calendar_stages": {
+      "stages_returned": [],
+      "resolved": true
+    },
+    "leak_5_marketing_routes_gated_by_workspace_only": {
+      "content_member_status": 403,
+      "sales_member_status": 403,
+      "hr_status": 403,
+      "operations_status": 403,
+      "resolved": true
+    },
+    "leak_6_log_exceptions_inbox_returns_500_for_leads": {
+      "sales_lead_status": 200,
+      "content_lead_status": 200,
+      "resolved": true
+    }
+  }
+}

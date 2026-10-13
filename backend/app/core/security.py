@@ -474,5 +474,13 @@ async def get_workspace_context(
 
 # Campaign editors: any internal staff with workspace membership (asserted per handler).
 require_editor_or_admin = require_roles(["admin", "hr", "operations", "team_lead", "team_member"])
-# Ad-account secrets: operations/admin only (not every team_member).
-require_ad_credential_admin = require_operations_or_admin
+# Ad-account secrets: admin only, or ads=manage via override (operations removed).
+async def require_ad_credential_admin(current_user: dict = Depends(get_current_user)) -> dict:
+    from app.services.permissions import load_ctx, resolve
+    ctx = load_ctx(current_user)
+    if ctx.role == "admin" or resolve(ctx, "ads") == "manage":
+        return current_user
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Ad credential administrative privileges required.",
+    )

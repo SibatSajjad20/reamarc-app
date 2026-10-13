@@ -43,7 +43,6 @@ from app.services.website_project_workflow import (
     is_admin_or_ops,
     is_website_lead,
     get_user_departments,
-    ALLOWED_DEPARTMENTS,
 )
 
 logger = logging.getLogger("app.website_projects")
@@ -328,8 +327,9 @@ async def get_projects(
         user_ws = viewer.get("workspace_ids") or []
         query["workspace_id"] = {"$in": [str(w) for w in user_ws]}
     elif not (is_admin_or_ops(viewer) or is_website_lead(viewer)):
-        depts = get_user_departments(viewer)
-        if not (depts & ALLOWED_DEPARTMENTS):
+        from app.services.permissions import load_ctx, resolve, level_gte
+        ctx = load_ctx(viewer)
+        if not level_gte("website", resolve(ctx, "website"), "assigned"):
             query["manager_id"] = str(viewer.get("id") or "")
         elif workspace_id:
             query["workspace_id"] = workspace_id
@@ -1275,8 +1275,9 @@ async def get_summary_metrics(db, viewer: Dict[str, Any]) -> Dict[str, int]:
         user_ws = viewer.get("workspace_ids") or []
         base_q["workspace_id"] = {"$in": [str(w) for w in user_ws]}
     elif not (is_admin_or_ops(viewer) or is_website_lead(viewer)):
-        depts = get_user_departments(viewer)
-        if not (depts & ALLOWED_DEPARTMENTS):
+        from app.services.permissions import load_ctx, resolve, level_gte
+        ctx = load_ctx(viewer)
+        if not level_gte("website", resolve(ctx, "website"), "assigned"):
             base_q["manager_id"] = str(viewer.get("id") or "")
 
     raw_projects = await db.website_projects.find(base_q).to_list(length=2000)

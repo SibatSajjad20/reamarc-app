@@ -13,6 +13,7 @@ import { logExceptionService } from '../../services/logExceptionService';
 import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
+import { usePermissions } from '../../hooks/usePermissions';
 import { canAccessCrm } from '../../utils/crmAccess';
 import { canAccessContentCalendar } from '../../utils/contentCalendarAccess';
 import { canAccessWebsitePipeline } from '../../utils/websiteProjectAccess';
@@ -90,7 +91,7 @@ export function getDepartmentCategory(user?: any): DepartmentCategory {
   if (primaryDept.includes('content') || primaryDept.includes('creative') || primaryDept.includes('social') || all.some((d) => d.includes('content') || d.includes('creative') || d.includes('social'))) return 'content';
   if (primaryDept.includes('marketing') || all.some((d) => d.includes('marketing'))) return 'marketing';
 
-  if (role === 'admin' || role === 'operations') return 'sales';
+  if (role === 'admin') return 'sales';
   return 'general';
 }
 
@@ -131,6 +132,7 @@ interface DashboardViewProps {
 
 export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) => {
   const { user } = useAuth();
+  const perms = usePermissions();
   const role = (user?.role || '').toLowerCase().trim();
   const isAdmin = role === 'admin';
   const isOps = role === 'operations';
@@ -614,12 +616,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
             summary.crm.unassigned > 0 ? `${summary.crm.unassigned} awaiting first contact` : ''
           );
         }
-      } else if (isAdmin || canAccessCrm(user)) {
+      } else if (perms.can('sales', 'own')) {
         setCrmStages([]);
       }
 
       // 2. Content Calendar
-      if (summary.content) {
+      if (summary.content && perms.can('content_calendar', 'view')) {
         setContentStagesError(false);
         const counts: StageItem[] = [
           { label: 'Content', count: summary.content.stages['Content'] || 0 },
@@ -629,12 +631,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           { label: 'Ready to Post', count: summary.content.stages['ReadyToPost'] || 0 },
         ];
         setContentStages(counts);
-      } else if (isAdmin || canAccessContentCalendar(user)) {
+      } else if (perms.can('content_calendar', 'view')) {
         setContentStages([]);
       }
 
       // 3. Website Pipeline
-      if (summary.website) {
+      if (summary.website && perms.can('website', 'view')) {
         setWebsiteStagesError(false);
         const allStages: { id: string; name: string }[] = [
           { id: 'strategy', name: 'Strategy' },
@@ -651,7 +653,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
           count: summary.website?.stages[st.id] || 0,
         }));
         setWebsiteStages(counts);
-      } else if (isAdmin || canAccessWebsitePipeline(user)) {
+      } else if (perms.can('website', 'view')) {
         setWebsiteStages([]);
       }
 
@@ -671,12 +673,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     } finally {
       setIsLoadingSummary(false);
     }
-  }, [isAdmin, user]);
+  }, [isAdmin, user, perms]);
 
   // 10. Lightweight overdue alerts for Content and Website (run concurrently)
   const loadOverdueAlerts = useCallback(async () => {
     const promises: Promise<any>[] = [];
-    if (isAdmin || canAccessContentCalendar(user)) {
+    if (perms.can('content_calendar', 'view')) {
       promises.push(
         contentCalendarService.getItems().then((calRes) => {
           const items = calRes?.items || [];
@@ -690,7 +692,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         }).catch(() => {})
       );
     }
-    if (isAdmin || canAccessWebsitePipeline(user)) {
+    if (perms.can('website', 'view')) {
       promises.push(
         websiteProjectService.getAllTasks({
           assignee_id: isLead ? undefined : user?.id,
@@ -703,7 +705,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       );
     }
     await Promise.allSettled(promises);
-  }, [isAdmin, user, isLead, todayIso]);
+  }, [isAdmin, user, isLead, todayIso, perms]);
 
   // 1. Initial Mount Load (fires once when user/role is established)
   useEffect(() => {
@@ -1026,7 +1028,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     // 6. Overdue follow-ups & uncontacted leads (Sales)
-    if (overdueFollowupsCount > 0) {
+    if (perms.can('sales', 'own') && overdueFollowupsCount > 0) {
       list.push({
         id: 'overdue_followups',
         icon: Phone,
@@ -1036,7 +1038,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         onAction: () => onNavigateView('crm', 'followup'),
       });
     }
-    if (uncontactedLeadsCount > 0) {
+    if (perms.can('sales', 'own') && uncontactedLeadsCount > 0) {
       list.push({
         id: 'uncontacted_leads',
         icon: Phone,
@@ -1048,7 +1050,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     // 7. Calendar items overdue (Content / Creative / Social)
-    if (calendarOverdueCount > 0) {
+    if (perms.can('content_calendar', 'view') && calendarOverdueCount > 0) {
       list.push({
         id: 'calendar_overdue',
         icon: Calendar,
@@ -1060,7 +1062,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     // 8. Website tasks overdue (Website / SEO)
-    if (websiteOverdueCount > 0) {
+    if (perms.can('website', 'view') && websiteOverdueCount > 0) {
       list.push({
         id: 'website_overdue',
         icon: Globe,
@@ -1107,6 +1109,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     myActivity,
     todayIso,
     onNavigateView,
+    perms,
   ]);
 
   // Department categories for leads & members
