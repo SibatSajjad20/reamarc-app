@@ -61,40 +61,40 @@ function SourceIcon({ source }: { source?: string | null }) {
   if (s.includes('instagram')) {
     return (
       <span className="inline-flex items-center" title={source}>
-        <InstagramIcon size={12} variant="brand" />
+        <InstagramIcon size={14} variant="brand" />
       </span>
     );
   }
   if (s.includes('facebook') || s.includes('fb')) {
     return (
       <span className="inline-flex items-center" title={source}>
-        <FacebookIcon size={12} variant="brand" />
+        <FacebookIcon size={14} variant="brand" />
       </span>
     );
   }
   if (s.includes('meta')) {
     return (
       <span className="inline-flex items-center" title={source}>
-        <MetaIcon size={12} variant="brand" />
+        <MetaIcon size={14} variant="brand" />
       </span>
     );
   }
   if (s.includes('google')) {
     return (
       <span className="inline-flex items-center" title={source}>
-        <GoogleIcon size={12} variant="brand" />
+        <GoogleIcon size={14} variant="brand" />
       </span>
     );
   }
   if (s.includes('website') || s.includes('web')) {
     return (
       <span className="text-fg-muted inline-flex items-center" title={source}>
-        <Globe className="w-3 h-3" />
+        <Globe className="w-3.5 h-3.5" />
       </span>
     );
   }
   return (
-    <span className="text-micro text-fg-muted uppercase font-medium" title={source}>
+    <span className="text-xs text-fg-muted uppercase font-medium" title={source}>
       {source.slice(0, 3)}
     </span>
   );
@@ -209,7 +209,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
           setOverKey(null);
         }}
         onClick={() => onOpen(lead.id)}
-        className={`group relative rounded-lg border bg-surface p-3 transition-all cursor-grab active:cursor-grabbing select-none ${
+        className={`group relative rounded-lg border bg-surface p-3.5 transition-all cursor-grab active:cursor-grabbing select-none ${
           isWon
             ? 'border-success-bd'
             : isLost || isTrash
@@ -222,10 +222,10 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         {/* Row 1: Lead Name + Company + Owner Avatar */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h4 className="text-[13px] font-medium text-fg truncate group-hover:text-accent transition-colors">
+            <h4 className="text-sm font-semibold text-fg truncate group-hover:text-accent transition-colors">
               {lead.name}
             </h4>
-            <p className="text-micro text-fg-muted truncate mt-0.5">
+            <p className="text-xs text-fg-muted truncate mt-0.5">
               {lead.company || (lead.phone_e164 ? `+${lead.phone_e164}` : lead.email || '—')}
             </p>
           </div>
@@ -233,24 +233,26 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             <Avatar
               name={lead.assigned_to_name}
               src={getAvatarUrl(lead.assigned_to, lead.assigned_to_name)}
-              size={20}
+              size={22}
               className="rounded-full shrink-0 text-[10px]"
             />
           ) : (
-            <CrmStatusDot lead={lead} />
+            <div className="pt-0.5">
+              <CrmStatusDot lead={lead} />
+            </div>
           )}
         </div>
 
         {/* Row 2: Service and Deal Value Tags */}
         {(Boolean(lead.service) || Boolean(valueLabel)) && (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
             {lead.service && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro font-normal bg-subtle text-fg-muted truncate max-w-[140px]">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-normal bg-subtle text-fg-muted truncate max-w-[190px] border border-border/50">
                 {lead.service}
               </span>
             )}
             {valueLabel && (
-              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro font-numeric text-fg-muted tabular-nums bg-subtle">
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-numeric font-medium text-fg-muted tabular-nums bg-subtle border border-border/50">
                 {valueLabel}
               </span>
             )}
@@ -258,29 +260,29 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         )}
 
         {/* Row 3: Status / Qualification Indicator + Source Icon */}
-        <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between gap-2 text-micro">
+        <div className="mt-2.5 pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs">
           <div className="min-w-0 flex items-center gap-1.5">
             {isWon ? (
               lead.converted_workspace_id ? (
-                <span className="inline-flex items-center gap-1 text-micro font-medium text-success-fg">
-                  <CheckCircle2 className="w-3 h-3" />
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-success-fg">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Active</span>
                 </span>
               ) : (
-                <span className="inline-flex items-center gap-1 text-micro font-medium text-warning-fg">
-                  <Clock className="w-3 h-3" />
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-warning-fg">
+                  <Clock className="w-3.5 h-3.5" />
                   <span>Pending ops</span>
                 </span>
               )
             ) : isLost || isTrash ? (
               <span
-                className="inline-flex items-center text-micro font-medium text-danger-fg capitalize truncate max-w-[90px]"
+                className="inline-flex items-center text-xs font-medium text-danger-fg capitalize truncate max-w-[140px]"
                 title={lead.trash_reason || lead.lost_reason || lead.disqualify_reason || (isTrash ? 'Trash' : 'Lost')}
               >
                 {isTrash ? 'Trash' : lead.lost_reason || 'Lost'}
               </span>
             ) : (
-              <CrmStatusBadge lead={lead} className="scale-90 origin-left" />
+              <CrmStatusBadge lead={lead} />
             )}
           </div>
 
@@ -302,7 +304,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                     label: formatStageTitle(nextStage.name),
                   });
                 }}
-                className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -318,9 +320,9 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.stopPropagation();
                   void onReopen(lead.id, 'contacted');
                 }}
-                className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
               >
-                <RotateCcw className="w-3 h-3" />
+                <RotateCcw className="w-3.5 h-3.5" />
               </button>
             )}
           </div>
@@ -329,11 +331,11 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         {/* Follow up line if scheduled */}
         {!lead.outcome && lead.next_follow_up_at && (
           <div
-            className={`mt-1.5 flex items-center gap-1 text-xs font-numeric ${
+            className={`mt-2 flex items-center gap-1.5 text-xs font-numeric ${
               isOverdue ? 'text-danger-fg font-medium' : 'text-fg-muted'
             }`}
           >
-            <Clock className="w-3 h-3 shrink-0" />
+            <Clock className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">
               {new Date(lead.next_follow_up_at).toLocaleDateString(undefined, {
                 month: 'short',
@@ -349,7 +351,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   };
 
   return (
-    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3 custom-scrollbar">
+    <div className="relative flex-1 overflow-x-auto overflow-y-hidden p-4 pt-3 custom-scrollbar">
       {/* Dragging targets */}
       {draggingId && canAssign && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
@@ -396,7 +398,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
       )}
 
       {/* Columns row */}
-      <div className="h-full flex gap-3 min-w-min pb-2 items-stretch">
+      <div className="h-full flex gap-3.5 min-w-min pb-2 items-stretch">
         {openStages.map((stage, idx) => {
           const key = `stage:${stage.id}`;
           const cards = byStage[stage.id] || [];
@@ -404,19 +406,19 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
           const isDrop = overKey === key;
 
           return (
-            <div key={stage.id} className="w-[186px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div key={stage.id} className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               {/* Column Header */}
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-fg truncate" title={stage.name}>
+                  <span className="text-sm font-semibold text-fg truncate" title={stage.name}>
                     {formatStageTitle(stage.name)}
                   </span>
-                  <span className="text-micro font-numeric tabular-nums text-fg-muted bg-subtle px-1.5 py-0.2 rounded-full">
+                  <span className="text-xs font-numeric font-medium tabular-nums text-fg-muted bg-subtle px-2 py-0.5 rounded-full border border-border/50">
                     {cards.length}
                   </span>
                 </div>
                 {stageTotal && (
-                  <span className="text-micro font-numeric tabular-nums text-fg-muted">
+                  <span className="text-xs font-numeric font-medium tabular-nums text-fg-muted">
                     {stageTotal}
                   </span>
                 )}
@@ -433,13 +435,13 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'stage', stage: stage.id });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {cards.map((lead) => renderCard(lead, idx))}
                 {cards.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     No leads
                   </div>
                 )}
@@ -453,11 +455,11 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
           const cards = byStage['won'] || [];
           const isDrop = overKey === 'outcome:won';
           return (
-            <div className="w-[186px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-success-fg">Won</span>
-                  <span className="text-micro font-numeric tabular-nums text-success-fg bg-success-bg px-1.5 py-0.2 rounded-full">
+                  <span className="text-sm font-semibold text-success-fg">Won</span>
+                  <span className="text-xs font-numeric font-medium tabular-nums text-success-fg bg-success-bg px-2 py-0.5 rounded-full border border-success-bd">
                     {cards.length}
                   </span>
                 </div>
@@ -472,13 +474,13 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {cards.map((lead) => renderCard(lead))}
                 {cards.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     None
                   </div>
                 )}
@@ -492,11 +494,11 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
           const cards = byStage['lost'] || [];
           const isDrop = overKey === 'outcome:lost';
           return (
-            <div className="w-[186px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-danger-fg">Lost</span>
-                  <span className="text-micro font-numeric tabular-nums text-danger-fg bg-danger-bg px-1.5 py-0.2 rounded-full">
+                  <span className="text-sm font-semibold text-danger-fg">Lost</span>
+                  <span className="text-xs font-numeric font-medium tabular-nums text-danger-fg bg-danger-bg px-2 py-0.5 rounded-full border border-danger-bd">
                     {cards.length}
                   </span>
                 </div>
@@ -511,13 +513,13 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {cards.map((lead) => renderCard(lead))}
                 {cards.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     None
                   </div>
                 )}
@@ -530,19 +532,19 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
         {(() => {
           const cards = byStage['trash'] || [];
           return (
-            <div className="w-[186px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-fg-muted">Trash</span>
-                  <span className="text-micro font-numeric tabular-nums text-fg-muted bg-subtle px-1.5 py-0.2 rounded-full">
+                  <span className="text-sm font-semibold text-fg-muted">Trash</span>
+                  <span className="text-xs font-numeric font-medium tabular-nums text-fg-muted bg-subtle px-2 py-0.5 rounded-full border border-border/50">
                     {cards.length}
                   </span>
                 </div>
               </div>
-              <div className="bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-border">
+              <div className="bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-border transition-colors">
                 {cards.map((lead) => renderCard(lead))}
                 {cards.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     None
                   </div>
                 )}

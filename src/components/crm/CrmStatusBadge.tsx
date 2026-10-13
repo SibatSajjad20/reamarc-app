@@ -75,7 +75,7 @@ export const CrmStatusDot: React.FC<{
   if (isOverdue) {
     return (
       <span
-        className="w-1.5 h-1.5 rounded-full bg-danger-fg shrink-0"
+        className="w-2 h-2 rounded-full bg-danger-fg shrink-0"
         title="Follow-up overdue"
       />
     );
@@ -83,14 +83,14 @@ export const CrmStatusDot: React.FC<{
   if (!lead.contacted) {
     return (
       <span
-        className="w-1.5 h-1.5 rounded-full bg-warning-dot shrink-0"
+        className="w-2 h-2 rounded-full bg-warning-dot shrink-0"
         title="Uncontacted"
       />
     );
   }
   return (
     <span
-      className="w-1.5 h-1.5 rounded-full bg-fg-muted/40 shrink-0"
+      className="w-2 h-2 rounded-full bg-fg-muted/40 shrink-0"
       title="Contacted"
     />
   );

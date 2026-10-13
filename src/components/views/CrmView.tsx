@@ -65,7 +65,7 @@ function formatWhen(iso?: string | null): string {
 
 function CrmBoardSkeleton() {
   return (
-    <div className="flex-1 overflow-x-auto overflow-y-hidden px-5 py-4 custom-scrollbar">
+    <div className="flex-1 overflow-x-auto overflow-y-hidden p-4 pt-3 custom-scrollbar">
       <KanbanSkeleton columns={5} />
     </div>
   );

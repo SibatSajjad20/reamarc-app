@@ -159,7 +159,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           setOverKey(null);
         }}
         onClick={() => onOpen(deal)}
-        className={`group relative rounded-lg border bg-surface p-3 transition-all cursor-grab active:cursor-grabbing select-none ${
+        className={`group relative rounded-lg border bg-surface p-3.5 transition-all cursor-grab active:cursor-grabbing select-none ${
           isWon
             ? 'border-success-bd'
             : isLost
@@ -172,10 +172,10 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
         {/* Row 1: Title + Lead Name & Company + Avatar */}
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
-            <h4 className="text-[13px] font-medium text-fg truncate group-hover:text-accent transition-colors">
+            <h4 className="text-sm font-semibold text-fg truncate group-hover:text-accent transition-colors">
               {deal.title}
             </h4>
-            <p className="text-micro text-fg-muted truncate mt-0.5">
+            <p className="text-xs text-fg-muted truncate mt-0.5">
               {leadName}
               {deal.lead?.company ? ` · ${deal.lead.company}` : ''}
             </p>
@@ -184,7 +184,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
             <Avatar
               name={assignee}
               src={getAvatarUrl(deal.lead?.assigned_to, assignee)}
-              size={20}
+              size={22}
               className="rounded-full shrink-0 text-[10px]"
             />
           ) : (
@@ -193,40 +193,40 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
         </div>
 
         {/* Row 2: Value + Probability + Service + Billing */}
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
           {deal.service && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro font-normal bg-subtle text-fg-muted truncate max-w-[140px]">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-normal bg-subtle text-fg-muted truncate max-w-[190px] border border-border/50">
               {deal.service}
             </span>
           )}
-          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro font-numeric font-medium text-fg tabular-nums bg-subtle">
+          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-numeric font-medium text-fg tabular-nums bg-subtle border border-border/50">
             {formatDealMoney(deal.value, deal.currency)}
           </span>
           {deal.probability != null && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro font-numeric text-fg-muted tabular-nums bg-subtle">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-numeric text-fg-muted tabular-nums bg-subtle border border-border/50">
               {deal.probability}% likely
             </span>
           )}
           {deal.billing_type && (
-            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-micro text-fg-muted capitalize bg-subtle">
+            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs text-fg-muted capitalize bg-subtle border border-border/50">
               {deal.billing_type.replace('_', ' ')}
             </span>
           )}
         </div>
 
         {/* Row 3: Status / Approvals / Advance */}
-        <div className="mt-2.5 pt-2 border-t border-border/50 flex items-center justify-between gap-2 text-micro">
+        <div className="mt-2.5 pt-2.5 border-t border-border/60 flex items-center justify-between gap-2 text-xs">
           <div className="min-w-0 flex items-center gap-1.5">
             {isWon ? (
               confirmed ? (
-                <span className="inline-flex items-center gap-1 text-micro font-medium text-success-fg">
-                  <CheckCircle2 className="w-3 h-3" />
+                <span className="inline-flex items-center gap-1 text-xs font-medium text-success-fg">
+                  <CheckCircle2 className="w-3.5 h-3.5" />
                   <span>Confirmed</span>
                 </span>
               ) : pendingOps ? (
                 <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 text-micro font-medium text-warning-fg">
-                    <Clock className="w-3 h-3" />
+                  <span className="inline-flex items-center gap-1 text-xs font-medium text-warning-fg">
+                    <Clock className="w-3.5 h-3.5" />
                     <span>Pending ops</span>
                   </span>
                   {canManageOutcomes && onApproveWon && (
@@ -236,7 +236,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                         e.stopPropagation();
                         void onApproveWon(deal.id);
                       }}
-                      className="text-micro font-semibold h-5 px-1.5 rounded bg-success-fg text-white hover:opacity-90 cursor-pointer"
+                      className="text-xs font-semibold h-6 px-2 rounded bg-success-fg text-white hover:opacity-90 cursor-pointer"
                     >
                       Confirm
                     </button>
@@ -244,11 +244,11 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                 </div>
               ) : null
             ) : isLost ? (
-              <span className="inline-flex items-center text-micro font-medium text-danger-fg capitalize truncate max-w-[90px]">
+              <span className="inline-flex items-center text-xs font-medium text-danger-fg capitalize truncate max-w-[140px]">
                 {deal.lost_reason || 'Lost'}
               </span>
             ) : (
-              <span className="text-micro text-fg-muted truncate max-w-[110px]">
+              <span className="text-xs text-fg-muted truncate max-w-[140px]">
                 {assignee || 'Unassigned'}
               </span>
             )}
@@ -264,7 +264,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.stopPropagation();
                   void onMoveStage(deal.id, nextStage.id);
                 }}
-                className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
               >
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
@@ -279,7 +279,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.stopPropagation();
                   void onReopen(deal.id, 'opportunity_created');
                 }}
-                className="inline-flex items-center justify-center w-5 h-5 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
+                className="inline-flex items-center justify-center w-6 h-6 rounded hover:bg-hover text-fg-muted hover:text-fg transition cursor-pointer"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
@@ -291,7 +291,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
   };
 
   return (
-    <div className="relative flex-1 overflow-x-auto overflow-y-hidden px-5 py-3 custom-scrollbar">
+    <div className="relative flex-1 overflow-x-auto overflow-y-hidden p-4 pt-3 custom-scrollbar">
       {/* Drop targets */}
       {draggingId && (
         <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3 py-2 rounded-xl bg-surface border border-border shadow-lg animate-in fade-in-0 zoom-in-95 duration-150">
@@ -337,7 +337,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
       )}
 
       {/* Columns */}
-      <div className="h-full flex gap-3 min-w-min pb-2 items-stretch">
+      <div className="h-full flex gap-3.5 min-w-min pb-2 items-stretch">
         {openStages.map((stage, stageIndex) => {
           const columnDeals = byStage[stage.id] || [];
           const key = `stage:${stage.id}`;
@@ -345,20 +345,20 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total, weighted } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div key={stage.id} className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div key={stage.id} className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               {/* Header */}
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-fg truncate" title={stage.name}>
+                  <span className="text-sm font-semibold text-fg truncate" title={stage.name}>
                     {formatStageTitle(stage.name)}
                   </span>
-                  <span className="text-micro font-numeric tabular-nums text-fg-muted bg-subtle px-1.5 py-0.2 rounded-full">
+                  <span className="text-xs font-numeric font-medium tabular-nums text-fg-muted bg-subtle px-2 py-0.5 rounded-full border border-border/50">
                     {columnDeals.length}
                   </span>
                 </div>
                 {total && (
                   <span
-                    className="text-micro font-numeric tabular-nums text-fg-muted"
+                    className="text-xs font-numeric font-medium tabular-nums text-fg-muted"
                     title={weighted ? `Weighted: ${weighted}` : undefined}
                   >
                     {total}
@@ -377,13 +377,13 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'stage', stage: stage.id });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal, stageIndex))}
                 {columnDeals.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     No deals
                   </div>
                 )}
@@ -399,16 +399,16 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-success-fg">Won</span>
-                  <span className="text-micro font-numeric tabular-nums text-success-fg bg-success-bg px-1.5 py-0.2 rounded-full">
+                  <span className="text-sm font-semibold text-success-fg">Won</span>
+                  <span className="text-xs font-numeric font-medium tabular-nums text-success-fg bg-success-bg px-2 py-0.5 rounded-full border border-success-bd">
                     {columnDeals.length}
                   </span>
                 </div>
                 {total && (
-                  <span className="text-micro font-numeric tabular-nums text-success-fg">
+                  <span className="text-xs font-numeric font-medium tabular-nums text-success-fg">
                     {total}
                   </span>
                 )}
@@ -423,13 +423,13 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'won' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-success-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal))}
                 {columnDeals.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     None
                   </div>
                 )}
@@ -445,16 +445,16 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           const { total } = computeDealsStageTotal(columnDeals);
 
           return (
-            <div className="w-[210px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
+            <div className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-1.5 h-full min-h-0">
               <div className="h-7 px-1 flex items-center justify-between gap-1 text-ui select-none shrink-0">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-[13px] font-semibold text-danger-fg">Lost</span>
-                  <span className="text-micro font-numeric tabular-nums text-danger-fg bg-danger-bg px-1.5 py-0.2 rounded-full">
+                  <span className="text-sm font-semibold text-danger-fg">Lost</span>
+                  <span className="text-xs font-numeric font-medium tabular-nums text-danger-fg bg-danger-bg px-2 py-0.5 rounded-full border border-danger-bd">
                     {columnDeals.length}
                   </span>
                 </div>
                 {total && (
-                  <span className="text-micro font-numeric tabular-nums text-danger-fg">
+                  <span className="text-xs font-numeric font-medium tabular-nums text-danger-fg">
                     {total}
                   </span>
                 )}
@@ -469,13 +469,13 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                   e.preventDefault();
                   void drop({ kind: 'outcome', outcome: 'lost' });
                 }}
-                className={`bg-subtle rounded-lg p-2 flex flex-col gap-2 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
+                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar border border-danger-bd transition-colors ${
                   isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
                 }`}
               >
                 {columnDeals.map((deal) => renderCard(deal))}
                 {columnDeals.length === 0 && (
-                  <div className="h-20 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-small text-fg-muted select-none">
+                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
                     None
                   </div>
                 )}

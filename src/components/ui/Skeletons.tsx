@@ -128,9 +128,9 @@ export const KanbanSkeleton: React.FC<{ columns?: number; className?: string }> 
   const cardCounts = [3, 2, 2, 1];
 
   return (
-    <div className={cn('flex gap-3 overflow-x-auto pb-4', className)}>
+    <div className={cn('flex gap-3.5 overflow-x-auto pb-4', className)}>
       {Array.from({ length: columns }).map((_, colIdx) => (
-        <div key={colIdx} className="w-[200px] shrink-0 flex flex-col gap-2">
+        <div key={colIdx} className="w-[280px] min-w-[280px] max-w-[280px] shrink-0 flex flex-col gap-2">
           {/* Column Header */}
           <div className="h-7 flex items-center justify-between px-1">
             <Skeleton className="w-20 h-4 rounded-sm" />
@@ -138,20 +138,20 @@ export const KanbanSkeleton: React.FC<{ columns?: number; className?: string }> 
           </div>
 
           {/* Column Body */}
-          <div className="bg-subtle rounded-lg p-2 flex flex-col gap-2 min-h-[400px]">
+          <div className="bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 min-h-[400px]">
             {Array.from({ length: cardCounts[colIdx % cardCounts.length] }).map((_, cardIdx) => (
               <div
                 key={cardIdx}
-                className="bg-surface border border-border rounded-lg p-3 shadow-xs space-y-2"
+                className="bg-surface border border-border rounded-lg p-3.5 shadow-xs space-y-2.5"
               >
                 <div className="flex items-center justify-between">
-                  <Skeleton className="w-[70%] h-3.5 rounded-sm" />
+                  <Skeleton className="w-[70%] h-4 rounded-sm" />
                   <Skeleton className="w-5 h-5 rounded-full" />
                 </div>
-                <Skeleton className="w-[45%] h-3 rounded-sm" />
+                <Skeleton className="w-[45%] h-3.5 rounded-sm" />
                 <div className="pt-2 flex items-center justify-between">
                   <Skeleton className="w-14 h-4 rounded-full" />
-                  <Skeleton className="w-10 h-3 rounded-sm" />
+                  <Skeleton className="w-10 h-3.5 rounded-sm" />
                 </div>
               </div>
             ))}
