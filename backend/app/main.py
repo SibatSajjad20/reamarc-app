@@ -154,6 +154,22 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger(__name__).exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
+    origin = request.headers.get("origin") or ""
+    headers = {}
+    if origin and (origin in settings.CORS_ORIGINS or not settings.IS_PRODUCTION):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again later."},
+        headers=headers,
+    )
+
+
 # CORS — production uses explicit allowlist only (no *.vercel.app regex)
 _DEV_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|testserver|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?"
 

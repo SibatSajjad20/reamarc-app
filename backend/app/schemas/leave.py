@@ -2,7 +2,7 @@
 Pydantic schemas for Leaves, WFH, Short Leaves, and Regularization requests.
 """
 from typing import Optional, Any, List, Dict
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.attendance import LeaveType, LeaveStatus
 
 
@@ -220,6 +220,8 @@ class ShiftRequestedDetail(BaseModel):
 
 
 class LeaveResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     id: str
     user_id: str
     user_name: Optional[str] = None
@@ -228,8 +230,8 @@ class LeaveResponse(BaseModel):
     leave_type: LeaveType
     request_type: Optional[str] = None
     leave_category: Optional[str] = None
-    start_date: str
-    end_date: str
+    start_date: Optional[str] = "2026-01-01"
+    end_date: Optional[str] = "2026-01-01"
     reason: Optional[str] = ""
     status: LeaveStatus = LeaveStatus.PENDING
     short_leave_hours: Optional[float] = None
@@ -284,19 +286,72 @@ class LeaveResponse(BaseModel):
     def populate_computed_fields(cls, data: Any) -> Any:
         if not isinstance(data, dict):
             return data
-        
-        lt = data.get("leave_type")
-        if isinstance(lt, LeaveType):
-            lt = lt.value
 
-        if lt in ("sick", "casual", "annual", "unpaid"):
-            data["request_type"] = "leave"
-            data["leave_category"] = lt
-        elif lt == "missed_punch_regularization":
+        # 1. Ensure id and user_id exist as strings
+        if not data.get("id"):
+            data["id"] = str(data.get("_id") or "req_unknown")
+        else:
+            data["id"] = str(data["id"])
+        if not data.get("user_id"):
+            data["user_id"] = str(data.get("applicant_id") or data.get("userId") or "user_unknown")
+        else:
+            data["user_id"] = str(data["user_id"])
+
+        # 2. Normalize leave_type
+        raw_lt = data.get("leave_type")
+        if isinstance(raw_lt, LeaveType):
+            raw_lt = raw_lt.value
+        raw_lt_str = str(raw_lt or data.get("request_type") or "casual").strip().lower()
+
+        if raw_lt_str in ("regularization", "missed_punch", "missed_punch_regularization"):
+            data["leave_type"] = LeaveType.MISSED_PUNCH_REGULARIZATION.value
             data["request_type"] = "regularization"
-        elif lt:
-            data["request_type"] = lt
+        elif raw_lt_str in ("sick", "casual", "annual", "unpaid"):
+            data["leave_type"] = raw_lt_str
+            data["request_type"] = "leave"
+            data["leave_category"] = raw_lt_str
+        elif raw_lt_str in ("wfh", "short_leave", "overtime", "shift_change"):
+            data["leave_type"] = raw_lt_str
+            data["request_type"] = raw_lt_str
+        else:
+            data["leave_type"] = LeaveType.CASUAL.value
+            data["request_type"] = "leave"
 
+        # 3. Normalize status
+        raw_st = data.get("status")
+        if isinstance(raw_st, LeaveStatus):
+            raw_st = raw_st.value
+        raw_st_str = str(raw_st or "pending").strip().lower()
+        if raw_st_str in ("canceled", "cancelled"):
+            data["status"] = LeaveStatus.CANCELLED.value
+        elif raw_st_str in ("pending", "needs_info", "approved", "rejected", "appealed"):
+            data["status"] = raw_st_str
+        else:
+            data["status"] = LeaveStatus.PENDING.value
+
+        # 4. Guarantee start_date and end_date are valid non-empty strings
+        sc_dates = data.get("shift_change_dates")
+        sc_first = sc_dates[0] if (isinstance(sc_dates, list) and len(sc_dates) > 0) else None
+        sc_last = sc_dates[-1] if (isinstance(sc_dates, list) and len(sc_dates) > 0) else None
+
+        start_d = (
+            data.get("start_date")
+            or data.get("regularization_date")
+            or data.get("overtime_date")
+            or sc_first
+            or (str(data.get("created_at") or "")[:10])
+            or "2026-01-01"
+        )
+        end_d = (
+            data.get("end_date")
+            or start_d
+            or sc_last
+            or "2026-01-01"
+        )
+        data["start_date"] = str(start_d)
+        data["end_date"] = str(end_d)
+
+        # 5. Normalize punch and duration aliases
         if "regularization_check_in" in data and not data.get("regularization_punch_in"):
             data["regularization_punch_in"] = data["regularization_check_in"]
         if "regularization_check_out" in data and not data.get("regularization_punch_out"):

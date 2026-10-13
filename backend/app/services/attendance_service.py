@@ -4776,8 +4776,20 @@ async def get_all_leave_requests(
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(300)
     docs = await _heal_overtime_requests(docs, active_only_pending=(status_filter == "pending"))
     await _attach_original_punches(docs)
-    await _attach_applicant_roles(docs)
-    return [LeaveResponse(**d) for d in docs]
+    results: List[LeaveResponse] = []
+    for d in docs:
+        try:
+            results.append(LeaveResponse(**d))
+        except Exception as e:
+            logger.warning(f"Error parsing leave request {d.get('id')}: {e}")
+            try:
+                safe_d = dict(d)
+                safe_d["leave_type"] = LeaveType.CASUAL.value
+                safe_d["status"] = LeaveStatus.PENDING.value
+                results.append(LeaveResponse(**safe_d))
+            except Exception:
+                continue
+    return results
 
 
 async def get_pending_leave_requests(
@@ -4804,7 +4816,20 @@ async def get_pending_leave_requests(
     docs = await _heal_overtime_requests(docs, active_only_pending=True)
     await _attach_original_punches(docs)
     await _attach_applicant_roles(docs)
-    return [LeaveResponse(**d) for d in docs]
+    pending_results: List[LeaveResponse] = []
+    for d in docs:
+        try:
+            pending_results.append(LeaveResponse(**d))
+        except Exception as e:
+            logger.warning(f"Error parsing pending leave request {d.get('id')}: {e}")
+            try:
+                safe_d = dict(d)
+                safe_d["leave_type"] = LeaveType.CASUAL.value
+                safe_d["status"] = LeaveStatus.PENDING.value
+                pending_results.append(LeaveResponse(**safe_d))
+            except Exception:
+                continue
+    return pending_results
 
 
 async def _sync_attendance_record_for_request(
