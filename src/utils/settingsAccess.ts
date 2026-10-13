@@ -1,6 +1,5 @@
 import type { SettingsGroupKey, SettingsSectionMetadata } from '@/types/settings';
 import { canAssignCrmLeads } from './crmAccess';
-import { canAccessContentCalendar } from './contentCalendarAccess';
 import {
   isContentLead,
   isCreativeLead,
@@ -80,14 +79,6 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     isAllowed: (user) => user?.role === 'admin',
   },
   {
-    slug: 'roles-permissions',
-    group: 'organization',
-    groupLabel: 'Organization',
-    label: 'Roles & permissions',
-    description: 'Decide what each role can see and do, then fine-tune per person and department.',
-    isAllowed: (user) => user?.role === 'admin',
-  },
-  {
     slug: 'mobile-alerts',
     group: 'organization',
     groupLabel: 'Organization',
@@ -137,7 +128,7 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     groupLabel: 'Content calendar',
     label: 'Field values',
     description: 'Predefined creative deliverables, pillars, and review statuses.',
-    isAllowed: (user) => canAccessContentCalendar(user),
+    isAllowed: (user) => canEditContentCalendarFields(user),
   },
 
   // Performance marketing
@@ -168,6 +159,7 @@ export function getSettingsSection(slug: string): SettingsSectionItem | undefine
 
 export function canEditContentCalendarFields(user: any): boolean {
   if (!user) return false;
+  if (user.role === 'operations' || user.permissions?.view_only) return false;
   if (user.role === 'admin') return true;
   return (isContentLead(user) || isCreativeLead(user)) && !isPerformance(user);
 }

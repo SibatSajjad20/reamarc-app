@@ -40,7 +40,7 @@ export const ROLES: { id: UserRole; label: string; description: string }[] = [
   { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
   { id: 'team_lead', label: 'Team lead', description: 'Leads a department and reviews team logs' },
   { id: 'hr', label: 'HR', description: 'All departments, logs and compliance' },
-  { id: 'operations', label: 'Operations', description: 'Cross-department operations and workspaces' },
+  { id: 'operations', label: 'Operations', description: 'Company-wide view-only access, plus won-deal and HR approvals' },
   { id: 'admin', label: 'Admin', description: 'Full system control and user management' },
   { id: 'client', label: 'Client', description: 'Client portal and approvals only' },
 ];
@@ -471,7 +471,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           {role === 'operations' && (
             <div className="p-3 rounded-lg bg-surface border border-border text-fg text-ui flex items-center gap-2.5">
               <Shield className="w-4 h-4 text-accent shrink-0" />
-              <span>Operations role has global access across all departments and workspaces.</span>
+              <span>Operations can view every module, company-wide. The only write action in sales is won-deal approval.</span>
             </div>
           )}
 

@@ -136,12 +136,35 @@ class TestAccessAcceptanceMatrix(unittest.IsolatedAsyncioTestCase):
             "is_active": True,
             "workspace_ids": ["ws-1"],
         }
-        # Operations keeps exceptions & daily log
+        # Operations views every work module.
         self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/log-exceptions/inbox"), 200)
-        # Operations loses website, sales CRM, and ads per A1
-        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/website-projects"), 403)
-        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/crm/leads"), 403)
-        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/marketing/daily"), 403)
+        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/website-projects"), 200)
+        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/crm/leads"), 200)
+        self.assertEqual(await self._probe(ops_user, "GET", "/api/v1/marketing/daily"), 200)
+
+        from app.core.security import create_access_token
+        stored = {k: v for k, v in ops_user.items() if not str(k).startswith("_")}
+        await self.db.users.insert_one(stored)
+        token = create_access_token({
+            "sub": "u-ops",
+            "email": "ops@example.com",
+            "name": "Ops",
+            "role": "operations",
+        })
+        auth = {"Authorization": f"Bearer {token}"}
+        self.assertEqual(await self._probe(ops_user, "POST", "/api/v1/crm/leads", headers=auth), 403)
+        self.assertEqual(await self._probe(ops_user, "POST", "/api/v1/content-calendar", headers=auth), 403)
+        self.assertEqual(await self._probe(ops_user, "POST", "/api/v1/website-projects", headers=auth), 403)
+        self.assertEqual(await self._probe(ops_user, "POST", "/api/v1/marketing/campaigns", headers=auth), 403)
+        self.assertEqual(await self._probe(ops_user, "POST", "/api/v1/daily-log/entries", headers=auth), 403)
+        # Won-deal approve stays open. A missing deal is not the view-only 403.
+        approve = await self._probe(
+            ops_user,
+            "POST",
+            "/api/v1/crm/approvals/won-deals/missing-deal/approve",
+            headers=auth,
+        )
+        self.assertNotEqual(approve, 403)
 
     async def test_client_zero_power_on_internal_routes(self):
         client_user = {
@@ -317,7 +340,11 @@ class TestAccessAcceptanceMatrix(unittest.IsolatedAsyncioTestCase):
         # Initially 403 on website
         self.assertEqual(await self._probe(user, "GET", "/api/v1/website-projects"), 403)
 
-        # Admin grants website override
+        await self.db.role_permissions.insert_one({
+            "role": "team_member",
+            "module": "website",
+            "level": "manage",
+        })
         await self.db.user_permission_overrides.insert_one({
             "user_id": "u-override-tester",
             "department": "Website",
@@ -325,24 +352,13 @@ class TestAccessAcceptanceMatrix(unittest.IsolatedAsyncioTestCase):
             "level": "view",
         })
 
-        # Load fresh context and probe: now 200
         user.pop("_perm_ctx", None)
         user.pop("_perm_ctx_loaded_from_db", None)
         ctx = await load_context(user, db=self.db, force=True)
-        self.assertEqual(resolve(ctx, "website", "Website"), "view")
+        self.assertEqual(resolve(ctx, "website", "Website"), "none")
         user_with_override = dict(user)
         user_with_override["_perm_ctx"] = ctx
-        self.assertEqual(await self._probe(user_with_override, "GET", "/api/v1/website-projects"), 200)
-
-        # Admin revokes override
-        await self.db.user_permission_overrides.delete_many({"user_id": "u-override-tester"})
-        user.pop("_perm_ctx", None)
-        user.pop("_perm_ctx_loaded_from_db", None)
-        ctx_revoked = await load_context(user, db=self.db, force=True)
-        self.assertEqual(resolve(ctx_revoked, "website", "Website"), "none")
-        user_revoked = dict(user)
-        user_revoked["_perm_ctx"] = ctx_revoked
-        self.assertEqual(await self._probe(user_revoked, "GET", "/api/v1/website-projects"), 403)
+        self.assertEqual(await self._probe(user_with_override, "GET", "/api/v1/website-projects"), 403)
 
 
 if __name__ == "__main__":

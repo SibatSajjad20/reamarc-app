@@ -300,6 +300,7 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
       {/* Header */}
       <div className="px-5 py-3 border-b border-border bg-surface shrink-0">
         <PageHeader
+          viewOnly={Boolean(user?.permissions?.view_only) || user?.role === 'operations'}
           title={
             <span className="flex items-center gap-2">
               Website Pipeline

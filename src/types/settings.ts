@@ -7,7 +7,6 @@ export type SettingsSectionSlug =
   | 'holidays'
   | 'leave-quotas'
   | 'daily-log-fields'
-  | 'roles-permissions'
   | 'mobile-alerts'
   | 'lead-sources'
   | 'booking-scheduler'

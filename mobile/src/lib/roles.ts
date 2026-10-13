@@ -49,28 +49,32 @@ export function canSeeWonDealApprovals(user?: {
   permissions?: {
     summary?: { sales?: string };
     capabilities?: { approve_won_deal?: boolean };
+    view_only?: boolean;
   } | null;
 } | null): boolean {
-  return canApproveWonDeals(user) && !canAccessCrm(user);
+  return canApproveWonDeals(user);
 }
 
 export function canReopenCrmLeads(user?: {
   role?: string | null;
   department?: string | null;
   crm_enabled?: boolean | null;
+  permissions?: { view_only?: boolean } | null;
 } | null): boolean {
   if (!canAccessCrm(user)) return false;
   const role = normalizeRole(user?.role);
-  const dept = String(user?.department || '').toLowerCase().trim();
-  return role === 'admin' || role === 'super_admin' || role === 'operations' || dept === 'operations' || dept === 'admin';
+  if (role === 'operations' || user?.permissions?.view_only) return false;
+  return role === 'admin' || role === 'super_admin';
 }
 
 export function canAssignCrmLeads(user?: {
   role?: string | null;
   department?: string | null;
   crm_enabled?: boolean | null;
+  permissions?: { view_only?: boolean; summary?: { sales?: string } } | null;
 } | null): boolean {
   if (!canAccessCrm(user)) return false;
   const role = normalizeRole(user?.role);
-  return role === 'admin' || role === 'super_admin' || role === 'operations' || role === 'team_lead';
+  if (role === 'operations' || user?.permissions?.view_only) return false;
+  return role === 'admin' || role === 'super_admin' || role === 'team_lead';
 }

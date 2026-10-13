@@ -5,7 +5,6 @@ All modification endpoints require Administrator privileges.
 """
 from __future__ import annotations
 
-import logging
 import re
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -14,16 +13,12 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from app.core.security import get_current_user, require_admin, require_hr_or_admin
+from app.core.security import require_admin, require_hr_or_admin
 from app.database import get_database
 from app.services.permissions import (
     MODULE_CONFIG,
-    MODULE_LEVELS,
-    SYSTEM_ROLE_DEFAULTS,
-    PermCtx,
     effective_map,
     get_user_primary_department,
-    invalidate_role_defaults_cache,
     level_gte,
     load_context,
     load_role_defaults,
@@ -32,8 +27,6 @@ from app.services.permissions import (
     resolve,
 )
 from app.services.content_calendar_workflow import visible_stages
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/settings/permissions", tags=["Roles & Permissions"])
 
@@ -60,6 +53,13 @@ class UserPermissionsUpdateRequest(BaseModel):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _fixed_rules_gone():
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Role defaults and per-person overrides are fixed in code and can no longer be edited.",
+    )
 
 
 # ──────────────────────────────────────────────────────────
@@ -111,127 +111,16 @@ async def update_role_defaults(
     payload: RolePermissionsUpdateRequest,
     current_user: dict = Depends(require_admin),
 ):
-    """Update role default permissions for a role (Admin role is immutable)."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable")
-
-    role_clean = role.lower().strip()
-    if role_clean == "admin":
-        raise HTTPException(status_code=400, detail="Admin permissions are system-locked and cannot be modified.")
-
-    if role_clean not in SYSTEM_ROLE_DEFAULTS:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'.")
-
-    # Validate module levels
-    for mod, lvl in payload.modules.items():
-        if mod not in MODULE_LEVELS:
-            raise HTTPException(status_code=400, detail=f"Unknown module '{mod}'.")
-        if lvl not in MODULE_LEVELS[mod]:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid level '{lvl}' for module '{mod}'. Allowed: {MODULE_LEVELS[mod]}",
-            )
-
-    now = _now_iso()
-    actor_id = str(current_user.get("id") or "")
-    actor_name = current_user.get("full_name") or current_user.get("name") or "Administrator"
-
-    current_defaults = await load_role_defaults(db)
-    old_role_defaults = current_defaults.get(role_clean, {})
-
-    audit_records = []
-    for mod, new_lvl in payload.modules.items():
-        old_lvl = old_role_defaults.get(mod, "none")
-        if old_lvl != new_lvl:
-            await db.role_permissions.update_one(
-                {"role": role_clean, "module": mod},
-                {
-                    "$set": {
-                        "level": new_lvl,
-                        "updated_at": now,
-                        "updated_by": actor_id,
-                    }
-                },
-                upsert=True,
-            )
-            audit_records.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "at": now,
-                    "actor_id": actor_id,
-                    "actor_name": actor_name,
-                    "target_type": "role",
-                    "target_id": role_clean,
-                    "target_name": f"Role: {role_clean.replace('_', ' ').capitalize()}",
-                    "department": None,
-                    "module": mod,
-                    "before": old_lvl,
-                    "after": new_lvl,
-                    "reason": f"Changed default for {mod}",
-                }
-            )
-
-    if audit_records:
-        await db.permission_audit.insert_many(audit_records)
-
-    invalidate_role_defaults_cache()
-    updated = await load_role_defaults(db)
-    return {"message": f"Updated defaults for {role_clean}", "defaults": updated[role_clean]}
+    """Role defaults are fixed in code."""
+    del role, payload, current_user
+    _fixed_rules_gone()
 
 
 @router.post("/roles/{role}/reset")
 async def reset_role_defaults(role: str, current_user: dict = Depends(require_admin)):
-    """Reset role permissions to built-in system defaults."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable")
-
-    role_clean = role.lower().strip()
-    if role_clean == "admin":
-        raise HTTPException(status_code=400, detail="Admin permissions cannot be modified.")
-
-    if role_clean not in SYSTEM_ROLE_DEFAULTS:
-        raise HTTPException(status_code=400, detail=f"Invalid role '{role}'.")
-
-    now = _now_iso()
-    actor_id = str(current_user.get("id") or "")
-    actor_name = current_user.get("full_name") or current_user.get("name") or "Administrator"
-
-    system_dict = SYSTEM_ROLE_DEFAULTS[role_clean]
-    for mod, lvl in system_dict.items():
-        await db.role_permissions.update_one(
-            {"role": role_clean, "module": mod},
-            {
-                "$set": {
-                    "level": lvl,
-                    "updated_at": now,
-                    "updated_by": actor_id,
-                }
-            },
-            upsert=True,
-        )
-
-    await db.permission_audit.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "at": now,
-            "actor_id": actor_id,
-            "actor_name": actor_name,
-            "target_type": "role",
-            "target_id": role_clean,
-            "target_name": f"Role: {role_clean.replace('_', ' ').capitalize()}",
-            "department": None,
-            "module": "all",
-            "before": "Custom",
-            "after": "System default",
-            "reason": "Reset to system defaults",
-        }
-    )
-
-    invalidate_role_defaults_cache()
-    updated = await load_role_defaults(db)
-    return {"message": f"Reset {role_clean} to system defaults", "defaults": updated[role_clean]}
+    """Role defaults are fixed in code."""
+    del role, current_user
+    _fixed_rules_gone()
 
 
 # ──────────────────────────────────────────────────────────
@@ -370,7 +259,9 @@ async def update_user_permissions(
     payload: UserPermissionsUpdateRequest,
     current_user: dict = Depends(require_admin),
 ):
-    """Update primary department and per-department permission overrides for a user."""
+    """Update primary and extra departments. Permission overrides are fixed in code."""
+    if payload.overrides or payload.capability_overrides is not None:
+        _fixed_rules_gone()
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
@@ -410,131 +301,13 @@ async def update_user_permissions(
         update_user_fields["departments"] = payload.departments
         update_user_fields["department"] = ", ".join(payload.departments)
 
-    if payload.capability_overrides is not None:
-        from app.services.permissions import CAPABILITIES
-
-        cleaned_caps = {
-            key: bool(val)
-            for key, val in payload.capability_overrides.items()
-            if key in CAPABILITIES
-        }
-        old_caps = u.get("capability_overrides") or {}
-        update_user_fields["capability_overrides"] = cleaned_caps
-        await db.permission_audit.insert_one(
-            {
-                "id": str(uuid.uuid4()),
-                "at": now,
-                "actor_id": actor_id,
-                "actor_name": actor_name,
-                "target_type": "user",
-                "target_id": user_id,
-                "target_name": target_name,
-                "department": None,
-                "module": "capabilities.approve_won_deal",
-                "before": str(old_caps.get("approve_won_deal", "default")),
-                "after": str(cleaned_caps.get("approve_won_deal", "default")),
-                "reason": "Capability override updated",
-            }
-        )
-
     if update_user_fields:
         await db.users.update_one({"$or": [{"id": user_id}, {"_id": user_id}]}, {"$set": update_user_fields})
 
-    # 2. Existing overrides diff
-    existing_ovs = await db.user_permission_overrides.find({"user_id": user_id}).to_list(100)
-    existing_map = {(normalize_dept(o.get("department")), o.get("module")): o for o in existing_ovs}
-
-    new_map = {}
-    audit_records = []
-
-    for item in payload.overrides:
-        if item.module not in MODULE_LEVELS:
-            continue
-        if item.level not in MODULE_LEVELS[item.module]:
-            continue
-
-        dept_norm = normalize_dept(item.department)
-        key = (dept_norm, item.module)
-        new_map[key] = item
-
-        old_ov = existing_map.get(key)
-        old_level = old_ov.get("level") if old_ov else "Role default"
-
-        if not old_ov or old_ov.get("level") != item.level:
-            await db.user_permission_overrides.update_one(
-                {"user_id": user_id, "department": item.department, "module": item.module},
-                {
-                    "$set": {
-                        "level": item.level,
-                        "updated_at": now,
-                        "updated_by": actor_id,
-                    }
-                },
-                upsert=True,
-            )
-            audit_records.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "at": now,
-                    "actor_id": actor_id,
-                    "actor_name": actor_name,
-                    "target_type": "user",
-                    "target_id": user_id,
-                    "target_name": f"{target_name} · {item.department}",
-                    "department": item.department,
-                    "module": item.module,
-                    "before": old_level,
-                    "after": item.level,
-                    "reason": f"Custom override set for {item.department}",
-                }
-            )
-
-    # Delete any overrides removed from the payload for these departments
-    for key, old_ov in existing_map.items():
-        if key not in new_map:
-            dept_name = old_ov.get("department")
-            mod_name = old_ov.get("module")
-            await db.user_permission_overrides.delete_one(
-                {"user_id": user_id, "department": dept_name, "module": mod_name}
-            )
-            audit_records.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "at": now,
-                    "actor_id": actor_id,
-                    "actor_name": actor_name,
-                    "target_type": "user",
-                    "target_id": user_id,
-                    "target_name": f"{target_name} · {dept_name}",
-                    "department": dept_name,
-                    "module": mod_name,
-                    "before": old_ov.get("level"),
-                    "after": "Role default",
-                    "reason": "Override removed",
-                }
-            )
-
-    if audit_records:
-        await db.permission_audit.insert_many(audit_records)
-        if str(actor_id) != str(user_id):
-            try:
-                from app.services.push_service import dispatch_to_users
-                await dispatch_to_users(
-                    user_ids=[user_id],
-                    title="Permissions Updated",
-                    body=f"Your department and module access permissions have been updated by {actor_name}.",
-                    kind="permission_change",
-                    sender_id=actor_id,
-                    sender_name=actor_name,
-                )
-            except Exception as notif_err:
-                logger.warning(f"Failed to dispatch permissions update notification: {notif_err}")
-
-    # Return refreshed user context
     updated_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    ctx = await load_context(updated_user, db=db)
+    ctx = await load_context(updated_user, db=db, force=True)
     return {
-        "message": "Permissions updated successfully",
+        "message": "Departments updated. Module access follows the fixed role rules.",
         "effective": effective_map(ctx),
     }
 
@@ -545,64 +318,9 @@ async def reset_user_overrides(
     department: Optional[str] = Query(None),
     current_user: dict = Depends(require_admin),
 ):
-    """Reset user overrides to role defaults (all or for a specific department)."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable")
-
-    u = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    if not u:
-        raise HTTPException(status_code=404, detail="User not found")
-
-    now = _now_iso()
-    actor_id = str(current_user.get("id") or "")
-    actor_name = current_user.get("full_name") or current_user.get("name") or "Administrator"
-    target_name = u.get("full_name") or u.get("name") or "User"
-
-    delete_filter: Dict[str, Any] = {"user_id": user_id}
-    if department:
-        delete_filter["department"] = {"$regex": f"^{re.escape(department)}$", "$options": "i"}
-
-    existing_count = await db.user_permission_overrides.count_documents(delete_filter)
-    await db.user_permission_overrides.delete_many(delete_filter)
-
-    await db.permission_audit.insert_one(
-        {
-            "id": str(uuid.uuid4()),
-            "at": now,
-            "actor_id": actor_id,
-            "actor_name": actor_name,
-            "target_type": "user",
-            "target_id": user_id,
-            "target_name": f"{target_name}" + (f" · {department}" if department else ""),
-            "department": department,
-            "module": "Reset to role default",
-            "before": f"Custom ({existing_count})",
-            "after": "Role default",
-            "reason": f"Reset overrides" + (f" for {department}" if department else ""),
-        }
-    )
-    # Notify user of permission reset if performed by another actor
-    if str(actor_id) != str(user_id):
-        try:
-            from app.services.push_service import dispatch_to_users
-            dept_suffix = f" for {department}" if department else ""
-            await dispatch_to_users(
-                user_ids=[user_id],
-                title="Permissions Reset",
-                body=f"Your permission overrides{dept_suffix} have been reset to role defaults by {actor_name}.",
-                kind="permission_change",
-                sender_id=actor_id,
-                sender_name=actor_name,
-            )
-        except Exception as notif_err:
-            logger.warning(f"Failed to dispatch permissions reset notification: {notif_err}")
-
-    ctx = await load_context(u, db=db)
-    return {
-        "message": "Overrides reset successfully",
-        "effective": effective_map(ctx),
-    }
+    """Per-person permission overrides are fixed in code."""
+    del user_id, department, current_user
+    _fixed_rules_gone()
 
 
 # ──────────────────────────────────────────────────────────

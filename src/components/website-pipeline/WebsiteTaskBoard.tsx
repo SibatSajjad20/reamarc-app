@@ -21,6 +21,7 @@ import {
 } from '../../types/websiteProject';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
+import { canEditWebsiteTask } from '../../utils/websiteProjectAccess';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
@@ -147,6 +148,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
   const { getAvatarUrl } = useMemberAvatars();
   const { user } = useAuth();
   const effectiveIsClient = isClientUser || user?.role === 'client';
+  const viewOnly = user?.role === 'operations' || Boolean(user?.permissions?.view_only);
   const { addToast } = useToast();
   const [draggingTaskId, setDraggingTaskId] = useState<string | null>(null);
   const [overStatus, setOverStatus] = useState<TaskStatus | null>(null);
@@ -177,7 +179,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
   }, [tasks]);
 
   const handleDragStart = (e: React.DragEvent, taskId: string) => {
-    if (effectiveIsClient) return;
+    if (effectiveIsClient || viewOnly) return;
     e.dataTransfer.setData('text/plain', taskId);
     setDraggingTaskId(taskId);
   };
@@ -195,7 +197,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
   };
 
   const handleDrop = async (e: React.DragEvent, targetStatus: TaskStatus) => {
-    if (effectiveIsClient) return;
+    if (effectiveIsClient || viewOnly) return;
     e.preventDefault();
     setOverStatus(null);
     const taskId = e.dataTransfer.getData('text/plain') || draggingTaskId;
@@ -247,7 +249,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                   </span>
                 </div>
 
-                {!effectiveIsClient && onCreateTaskForStatus && (
+                {!effectiveIsClient && !viewOnly && onCreateTaskForStatus && (
                   <button
                     type="button"
                     onClick={() => onCreateTaskForStatus(col.id)}
@@ -271,15 +273,16 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
                     task.due_date &&
                     task.due_date < todayStr &&
                     task.status !== 'completed';
+                  const canEdit = !effectiveIsClient && canEditWebsiteTask(user, p, task);
 
                   return (
                     <div
                       key={task.id}
-                      draggable={!effectiveIsClient}
+                      draggable={canEdit}
                       onDragStart={(e) => handleDragStart(e, task.id)}
                       onClick={() => onSelectTask(task)}
                       className={`group relative rounded-xl p-3.5 bg-subtle border border-border shadow-2xs hover:border-border-strong hover:bg-hover transition-all ${
-                        !effectiveIsClient ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+                        canEdit ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
                       } ${isDragging ? 'opacity-40 scale-95' : 'opacity-100'}`}
                     >
                       {/* Top Chips: Project Name + Stage */}

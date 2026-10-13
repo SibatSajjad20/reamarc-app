@@ -13,18 +13,14 @@ export function canAccessCrm(user?: {
   const role = (user.role || '').toLowerCase().trim();
 
   if (role === 'admin') return true;
-  if (role === 'client' || role === 'hr' || role === 'operations') return false;
+  if (role === 'client' || role === 'hr') return false;
 
-  if (user.permissions) {
-    const summary = user.permissions.summary?.sales;
-    if (summary && summary !== 'none') return true;
-    const mod = user.permissions.modules?.sales;
-    if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
-      return true;
-    }
-    return false;
+  const summary = user.permissions?.summary?.sales;
+  if (summary) return summary !== 'none';
+  const mod = user.permissions?.modules?.sales;
+  if (mod && Object.values(mod).some((lvl) => lvl && lvl !== 'none')) {
+    return true;
   }
-
   return false;
 }
 
@@ -37,6 +33,7 @@ export function canAssignCrmLeads(user?: {
   if (!canAccessCrm(user)) return false;
   const role = (user?.role || '').toLowerCase().trim();
   if (role === 'admin') return true;
+  if (role === 'operations' || user?.permissions?.view_only) return false;
 
   if (user?.permissions) {
     const summary = user.permissions.summary?.sales;

@@ -188,6 +188,10 @@ def is_admin(user: Optional[Dict[str, Any]]) -> bool:
     return is_active(user) and _role(user) == "admin"
 
 
+def is_operations(user: Optional[Dict[str, Any]]) -> bool:
+    return is_active(user) and _role(user) in ("operations", "ops")
+
+
 def is_client(user: Optional[Dict[str, Any]]) -> bool:
     return is_active(user) and _role(user) == "client"
 
@@ -232,7 +236,7 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
     """Stages this user may receive. None means every stage."""
     if not is_active(user):
         return []
-    if is_admin(user) or is_client(user):
+    if is_admin(user) or is_operations(user) or is_client(user):
         return None
     depts = _user_departments(user)
     stages: List[str] = []

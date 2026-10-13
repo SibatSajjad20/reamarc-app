@@ -32,6 +32,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Sheet, SheetContent } from '../ui/sheet';
 import { Button } from '../ui/button';
+import { useAuth } from '../../context/AuthContext';
 
 interface ActiveClientsViewProps {
   workspaces?: Workspace[];
@@ -82,6 +83,7 @@ export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 })
 export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   workspaces: propWorkspaces,
 }) => {
+  const { user } = useAuth();
   const { workspaces: liveWorkspaces, isLoading } = useWorkspaces();
   const workspaces = useMemo(
     () => (liveWorkspaces && liveWorkspaces.length > 0 ? liveWorkspaces : propWorkspaces || []),
@@ -150,6 +152,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-canvas p-6">
       {/* Page Header */}
       <PageHeader
+        viewOnly={Boolean(user?.permissions?.view_only) || user?.role === 'operations'}
         title={
           <div className="flex items-center gap-2.5">
             <span>Active clients</span>

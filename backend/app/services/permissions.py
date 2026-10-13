@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Union
 
 from fastapi import Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from app.core.security import get_current_user
 from app.database import get_database
@@ -162,9 +163,10 @@ CAPABILITIES: Dict[str, Dict[str, Any]] = {
     },
 }
 
-OPS_EXCEPTIONS_MIGRATION_ID = "access_ops_exceptions_v1"
+# Fixed role rules. Stored role_permissions and user_permission_overrides are not read.
+COMPANY_WIDE_ROLES = {"admin", "operations", "hr"}
 
-# Base system default role permissions matrix (plan §2.4)
+# Base system default role permissions matrix. This plus department logic is the only access input.
 SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
     "admin": {
         "daily_log": "all",
@@ -183,18 +185,19 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",
         "website": "none",
         "sales": "none",
-        "active_clients": "view",
+        "active_clients": "none",
         "ads": "none",
     },
+    # View every module. Writes are rejected except won-deal approval and HR-style approvals.
     "operations": {
         "daily_log": "all",
         "attendance": "all",
         "exceptions": "all",
-        "content_calendar": "none",
-        "website": "none",
-        "sales": "none",
+        "content_calendar": "view",
+        "website": "view",
+        "sales": "all",
         "active_clients": "view",
-        "ads": "none",
+        "ads": "view",
     },
     "team_lead": {
         "daily_log": "department",
@@ -203,7 +206,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",  # Department grants these per Phase 1
         "website": "none",
         "sales": "none",
-        "active_clients": "view",
+        "active_clients": "none",
         "ads": "none",
     },
     "team_member": {
@@ -213,7 +216,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",  # Department grants these per Phase 1
         "website": "none",
         "sales": "none",
-        "active_clients": "view",
+        "active_clients": "none",
         "ads": "none",
     },
 }
@@ -340,13 +343,9 @@ class PermCtx:
         return self.user.keys() if isinstance(self.user, dict) else [].keys()
 
 
-# In-memory cache for role defaults from database
-_ROLE_DEFAULTS_CACHE: Optional[Dict[str, Dict[str, str]]] = None
-
-
 def invalidate_role_defaults_cache():
-    global _ROLE_DEFAULTS_CACHE
-    _ROLE_DEFAULTS_CACHE = None
+    """Kept so older callers import. Role rules are no longer cached from the database."""
+    return None
 
 
 def _capability_role(user: Optional[Dict[str, Any]]) -> str:
@@ -357,15 +356,12 @@ def _capability_role(user: Optional[Dict[str, Any]]) -> str:
 
 
 def has_capability(user: Optional[Dict[str, Any]], capability: str) -> bool:
-    """Resolve a named capability with optional per-user override."""
+    """Named capabilities come only from the fixed role table."""
     if not user or user.get("is_active") is False:
         return False
     spec = CAPABILITIES.get(capability)
     if not spec:
         return False
-    overrides = user.get("capability_overrides")
-    if isinstance(overrides, dict) and capability in overrides:
-        return bool(overrides.get(capability))
     return _capability_role(user) in spec.get("default_roles", ())
 
 
@@ -384,116 +380,10 @@ def require_capability(capability: str):
     return _dependency
 
 
-async def migrate_ops_exceptions_access(db, apply: bool = True) -> Dict[str, Any]:
-    """Idempotent: operations exceptions none → all. Marker access_ops_exceptions_v1."""
-    import uuid
-
-    report: Dict[str, Any] = {
-        "status": "NO_DB",
-        "planned": 0,
-        "applied": 0,
-        "changes": [],
-    }
-    if db is None:
-        return report
-
-    marker = await db.migrations.find_one({"id": OPS_EXCEPTIONS_MIGRATION_ID})
-    if marker:
-        report["status"] = "ALREADY_APPLIED"
-        return report
-
-    doc = await db.role_permissions.find_one({"role": "operations", "module": "exceptions"})
-    stored = str((doc or {}).get("level") or "").strip() if doc else ""
-    if doc is not None and stored == "none":
-        report["changes"].append(
-            {
-                "role": "operations",
-                "module": "exceptions",
-                "before": "none",
-                "after": "all",
-            }
-        )
-        report["planned"] = 1
-
-    now_iso = datetime.now(timezone.utc).isoformat()
-    if apply:
-        if report["planned"]:
-            await db.role_permissions.update_one(
-                {"role": "operations", "module": "exceptions"},
-                {
-                    "$set": {
-                        "role": "operations",
-                        "module": "exceptions",
-                        "level": "all",
-                        "updated_at": now_iso,
-                        "updated_by": "system",
-                        "migration_id": OPS_EXCEPTIONS_MIGRATION_ID,
-                    }
-                },
-            )
-            await db.permission_audit.insert_one(
-                {
-                    "id": str(uuid.uuid4()),
-                    "at": now_iso,
-                    "actor_id": "system",
-                    "actor_name": "System",
-                    "target_type": "role",
-                    "target_id": "operations",
-                    "target_name": "operations",
-                    "department": None,
-                    "module": "exceptions",
-                    "before": "none",
-                    "after": "all",
-                    "reason": "Operations exceptions inbox (access_ops_exceptions_v1)",
-                }
-            )
-            report["applied"] = 1
-        await db.migrations.update_one(
-            {"id": OPS_EXCEPTIONS_MIGRATION_ID},
-            {
-                "$set": {
-                    "id": OPS_EXCEPTIONS_MIGRATION_ID,
-                    "applied_at": now_iso,
-                    "changes": report["applied"],
-                }
-            },
-            upsert=True,
-        )
-        invalidate_role_defaults_cache()
-        report["status"] = "APPLIED"
-    else:
-        report["status"] = "DRY_RUN_COMPLETE"
-    return report
-
-
 async def load_role_defaults(db=None) -> Dict[str, Dict[str, str]]:
-    """Fetch role defaults from role_permissions collection, or fall back to system defaults."""
-    global _ROLE_DEFAULTS_CACHE
-    if _ROLE_DEFAULTS_CACHE is not None:
-        return _ROLE_DEFAULTS_CACHE
-
-    if db is None:
-        db = get_database()
-
-    role_map: Dict[str, Dict[str, str]] = {
-        role: dict(defaults) for role, defaults in SYSTEM_ROLE_DEFAULTS.items()
-    }
-
-    if db is not None:
-        try:
-            cursor = db.role_permissions.find({})
-            async for doc in cursor:
-                role = str(doc.get("role") or "").lower().strip()
-                module = str(doc.get("module") or "").strip()
-                level = str(doc.get("level") or "").strip()
-                if role in role_map and module in MODULE_LEVELS:
-                    if level in MODULE_LEVELS[module]:
-                        role_map[role][module] = level
-        except Exception as e:
-            logger.warning("Failed to load role_permissions from MongoDB: %s", e)
-
-    _ROLE_DEFAULTS_CACHE = role_map
-    return role_map
+    """Return the fixed role table. Documents in role_permissions are ignored."""
+    del db
+    return {role: dict(levels) for role, levels in SYSTEM_ROLE_DEFAULTS.items()}
 
 
 def load_ctx(
@@ -501,61 +391,33 @@ def load_ctx(
     overrides: Optional[List[Dict[str, Any]]] = None,
     role_defaults: Optional[Dict[str, Dict[str, str]]] = None,
 ) -> PermCtx:
-    """Synchronously load or construct PermCtx for user.
+    """Build a permission context from the fixed rules only.
 
-    If user has '_perm_ctx' attached, returns it directly.
-    Otherwise builds PermCtx from user['overrides'] (if present) and cached role defaults.
+    `overrides` and `role_defaults` are accepted so existing callers keep working.
+    They do not change the result. Stored per-person overrides are not applied.
     """
+    del overrides, role_defaults
     if not user:
         return PermCtx(user={}, overrides=[], role_defaults=SYSTEM_ROLE_DEFAULTS)
-    if overrides is None and role_defaults is None:
-        if isinstance(user, dict) and "_perm_ctx" in user and isinstance(user["_perm_ctx"], PermCtx):
-            return user["_perm_ctx"]
+    if isinstance(user, dict) and "_perm_ctx" in user and isinstance(user["_perm_ctx"], PermCtx):
+        return user["_perm_ctx"]
 
-    user_overrides = (
-        overrides
-        if overrides is not None
-        else (user.get("overrides") or user.get("permission_overrides") or [])
-    )
-    defaults = (
-        role_defaults
-        if role_defaults is not None
-        else (_ROLE_DEFAULTS_CACHE if _ROLE_DEFAULTS_CACHE is not None else SYSTEM_ROLE_DEFAULTS)
-    )
-    ctx = PermCtx(user=user, overrides=user_overrides, role_defaults=defaults)
+    ctx = PermCtx(user=user, overrides=[], role_defaults=SYSTEM_ROLE_DEFAULTS)
     if isinstance(user, dict):
         user["_perm_ctx"] = ctx
     return ctx
 
 
 async def load_context(user: Dict[str, Any], db=None, force: bool = False) -> PermCtx:
-    """Load permission context for a user in one query (overrides) + cached defaults."""
+    """Load the fixed permission context. Does not read override collections."""
+    del db
     if not force and isinstance(user, dict) and "_perm_ctx" in user and isinstance(user["_perm_ctx"], PermCtx):
-        if user.get("_perm_ctx_loaded_from_db"):
-            return user["_perm_ctx"]
+        return user["_perm_ctx"]
 
-    if db is None:
-        db = get_database()
-
-    role_defaults = await load_role_defaults(db)
-    user_id = str(user.get("id") or "")
-    overrides: List[Dict[str, Any]] = []
-
-    if db is not None and user_id:
-        try:
-            cursor = db.user_permission_overrides.find({"user_id": user_id})
-            overrides = await cursor.to_list(length=100)
-        except Exception as e:
-            logger.warning("Failed to load user_permission_overrides for %s: %s", user_id, e)
-    elif isinstance(user, dict) and user.get("overrides"):
-        overrides = user.get("overrides") or []
-
-    ctx = PermCtx(user=user, overrides=overrides, role_defaults=role_defaults)
+    ctx = PermCtx(user=user or {}, overrides=[], role_defaults=SYSTEM_ROLE_DEFAULTS)
     if isinstance(user, dict):
         user["_perm_ctx"] = ctx
         user["_perm_ctx_loaded_from_db"] = True
-        user["overrides"] = overrides
-        user["permission_overrides"] = overrides
     return ctx
 
 
@@ -576,12 +438,14 @@ def _department_default_level(
     dept_norm = normalize_dept(department)
 
     # Secondary departments grant only content_calendar stages.
-    # For every other module, is_secondary returns 'none'.
     if is_secondary:
         if module == "content_calendar":
             primary_norm = normalize_dept(primary_department)
             if primary_norm in CONTENT_DEPTS and dept_norm in CONTENT_DEPTS:
-                return "own_stages"
+                if role in ("team_lead", "lead"):
+                    return "manage"
+                if role in ("team_member", "member"):
+                    return "own_stages"
         return "none"
 
     if module == "content_calendar":
@@ -616,6 +480,14 @@ def _department_default_level(
                 return "view"
         return "none"
 
+    if module == "active_clients":
+        if dept_norm in SALES_DEPTS:
+            if role in ("team_lead", "lead"):
+                return "manage"
+            if role in ("team_member", "member"):
+                return "view"
+        return "none"
+
     return base_level
 
 
@@ -625,8 +497,9 @@ def resolve(ctx: Union[PermCtx, Dict[str, Any]], module: str, department: Option
     Enforces invariants:
     - Admin is always max ('all' or 'manage').
     - Client is always 'none' (workspace-scoped only).
-    - Secondary departments default to 'none' for log_like modules, website, sales, and ads.
-    - Explicit user overrides take precedence over role defaults.
+    - Operations and HR use the fixed company-wide table. Department does not narrow them.
+    - Secondary departments default to 'none' for log-like modules, website, sales, and ads.
+    - Stored role defaults and per-person overrides are not applied.
     """
     if isinstance(ctx, dict):
         ctx = load_ctx(ctx)
@@ -642,22 +515,14 @@ def resolve(ctx: Union[PermCtx, Dict[str, Any]], module: str, department: Option
     if ctx.role == "client":
         return "none"
 
+    # Admin, operations, and HR are company-wide. Primary department does not limit them.
+    if ctx.role in COMPANY_WIDE_ROLES:
+        return SYSTEM_ROLE_DEFAULTS.get(ctx.role, {}).get(module, "none")
+
     dept = department or ctx.primary_department or (ctx.departments[0] if ctx.departments else "")
     norm_dept = normalize_dept(dept)
 
-    # 1. Check explicit user override
-    if (norm_dept, module) in ctx._override_map:
-        return ctx._override_map[(norm_dept, module)]
-
-    matching_ovs = [lvl for (ov_d, ov_m), lvl in ctx._override_map.items() if ov_m == module]
-    if matching_ovs:
-        best = matching_ovs[0]
-        for candidate in matching_ovs[1:]:
-            if level_gte(module, candidate, best):
-                best = candidate
-        return best
-
-    # 2. Check secondary department rule:
+    # Secondary department rule:
     is_secondary = False
     if ctx.primary_department and norm_dept:
         if norm_dept != normalize_dept(ctx.primary_department):
@@ -675,7 +540,7 @@ def resolve(ctx: Union[PermCtx, Dict[str, Any]], module: str, department: Option
     base_level = role_dict.get(module, "none")
 
     # If it's a department-scoped work module, apply role department rules
-    if module in {"content_calendar", "website", "sales", "ads"}:
+    if module in {"content_calendar", "website", "sales", "ads", "active_clients"}:
         return _department_default_level(
             ctx.role,
             module,
@@ -739,13 +604,6 @@ def can_see_user_logs(ctx: PermCtx, author: Dict[str, Any]) -> bool:
         if author_primary and author_primary in lead_depts:
             return True
 
-        # Check if author has an explicit override enabling daily_log on a secondary department matching lead
-        author_overrides = author.get("overrides") or []
-        for ov in author_overrides:
-            ov_dept = normalize_dept(ov.get("department"))
-            if ov.get("module") == "daily_log" and ov.get("level") in ("department", "all") and ov_dept in lead_depts:
-                return True
-
         return False
 
     return False
@@ -794,6 +652,8 @@ def effective_map(ctx: Union[PermCtx, Dict[str, Any]]) -> Dict[str, Any]:
         "role": ctx.role,
         "is_admin": ctx.role == "admin",
         "is_lead": ctx.role in ("team_lead", "lead"),
+        "view_only": ctx.role == "operations",
+        "company_wide": ctx.role in COMPANY_WIDE_ROLES,
     }
 
 
@@ -825,3 +685,76 @@ def require_permission(module: str, min_level: str):
 
 
 require_module = require_permission
+
+
+_OPS_WRITE_PREFIXES = (
+    "/api/v1/crm",
+    "/api/v1/content-calendar",
+    "/api/v1/website-projects",
+    "/api/v1/marketing",
+    "/api/v1/daily-log",
+    "/api/v1/workspaces",
+    "/api/v1/admin/workspaces",
+    "/api/v1/admin/ad-accounts",
+)
+
+# Won-deal approve/reject stays available. Leave, WFH, shift, and attendance
+# approvals live outside these prefixes and stay available too.
+_OPS_WRITE_ALLOW = re.compile(
+    r"^/api/v1/crm/(?:approvals/won-deals/[^/]+/(?:approve|reject)|deals/[^/]+/approve-won|leads/[^/]+/approve-won)$"
+)
+
+
+def operations_mutation_blocked(method: str, path: str, role: str) -> bool:
+    """True when an operations user is attempting a work-module write."""
+    if str(role or "").lower().strip() not in ("operations", "ops"):
+        return False
+    if str(method or "").upper() in ("GET", "HEAD", "OPTIONS"):
+        return False
+    clean = str(path or "").split("?", 1)[0].rstrip("/") or "/"
+    if _OPS_WRITE_ALLOW.match(clean):
+        return False
+    return any(clean == prefix or clean.startswith(prefix + "/") for prefix in _OPS_WRITE_PREFIXES)
+
+
+async def operations_view_only_middleware(request: Request, call_next):
+    """Reject operations writes on work modules. View requests pass through."""
+    if not operations_mutation_blocked(request.method, request.url.path, "operations"):
+        return await call_next(request)
+    role = await _role_for_write_guard(request)
+    if role in ("operations", "ops"):
+        return JSONResponse(
+            status_code=status.HTTP_403_FORBIDDEN,
+            content={"detail": "Operations has view-only access to this module."},
+        )
+    return await call_next(request)
+
+
+async def _role_for_write_guard(request: Request) -> str:
+    if request.method.upper() in ("GET", "HEAD", "OPTIONS"):
+        return ""
+    token = ""
+    auth = request.headers.get("authorization") or ""
+    if auth.lower().startswith("bearer "):
+        token = auth[7:].strip()
+    if not token:
+        token = request.cookies.get("access_token") or ""
+    if not token:
+        return ""
+    from app.core.security import decode_access_token
+
+    payload = decode_access_token(token)
+    if not payload:
+        return ""
+    user_id = str(payload.get("sub") or "")
+    db = get_database()
+    if db is not None and user_id:
+        try:
+            user = await db.users.find_one({"id": user_id}, {"_id": 0, "role": 1})
+        except Exception:
+            user = None
+        if user:
+            role = str(user.get("role") or "").lower().strip()
+            return "operations" if role == "ops" else role
+    role = str(payload.get("role") or "").lower().strip()
+    return "operations" if role == "ops" else role

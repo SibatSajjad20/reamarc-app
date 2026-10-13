@@ -341,7 +341,7 @@ function StageCardList({
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <div
-                draggable={!isBusy}
+                draggable={!isBusy && actor?.role !== 'operations' && !actor?.permissions?.view_only}
                 onDragStart={(e) => {
                   e.dataTransfer.setData('text/plain', item.id);
                   e.dataTransfer.effectAllowed = 'move';

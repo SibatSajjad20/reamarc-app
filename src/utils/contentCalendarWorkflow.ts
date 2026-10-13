@@ -234,7 +234,8 @@ export const isPerformanceActor = isPerformance;
 export function isTeamLeadOrAdmin(user?: CalendarActor | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user);
-  return role === 'admin' || role === 'superadmin' || role === 'team_lead' || role === 'manager' || role === 'operations';
+  if (role === 'operations' || user.permissions?.view_only) return false;
+  return role === 'admin' || role === 'superadmin' || role === 'team_lead' || role === 'manager';
 }
 
 export function canAccessClientReviewLink(stage?: string | null, user?: CalendarActor | null): boolean {
@@ -247,12 +248,23 @@ export function canAccessClientReviewLink(stage?: string | null, user?: Calendar
 }
 
 export function canCreateCampaign(user?: CalendarActor | null): boolean {
+  if (!user || user.is_active === false) return false;
+  if (roleOf(user) === 'operations' || user.permissions?.view_only) return false;
   return isAdmin(user) || isContentActor(user);
 }
 
 export function visiblePipelineStages(user?: CalendarActor | null): PipelineStage[] {
   if (!user || user.is_active === false) return [];
-  if (isAdmin(user) || isPerformance(user) || roleOf(user) === 'client') return [...PIPELINE_STAGES];
+  if (
+    isAdmin(user) ||
+    isPerformance(user) ||
+    roleOf(user) === 'client' ||
+    roleOf(user) === 'operations' ||
+    user.permissions?.view_only ||
+    user.permissions?.summary?.content_calendar === 'view'
+  ) {
+    return [...PIPELINE_STAGES];
+  }
 
   if (user.permissions?.modules?.content_calendar) {
     const mod = user.permissions.modules.content_calendar;
@@ -281,6 +293,7 @@ export function visiblePipelineStages(user?: CalendarActor | null): PipelineStag
 
 export function actionsFor(user: CalendarActor | null | undefined, item: ContentCalendarItem): StageActionSpec[] {
   if (!user || user.is_active === false) return [];
+  if (roleOf(user) === 'operations' || user.permissions?.view_only) return [];
   const isAd = isAdCreative(item);
   if (isPerformance(user) && !isSocial(user)) {
     if (item.stage === 'Ready to Post' && isAd) {
@@ -362,6 +375,9 @@ export function getDropTransition(
   }
   if (!user || user.is_active === false) {
     return { allowed: false, reason: 'You do not have permission to change stages' };
+  }
+  if (roleOf(user) === 'operations' || user.permissions?.view_only) {
+    return { allowed: false, reason: 'Operations has view-only access' };
   }
 
   const admin = isAdmin(user);

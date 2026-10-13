@@ -73,7 +73,6 @@ const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ classNam
   holidays: CalendarDays,
   'leave-quotas': CalendarCheck,
   'daily-log-fields': SlidersHorizontal,
-  'roles-permissions': ShieldCheck,
   'mobile-alerts': Smartphone,
   'lead-sources': Flame,
   'booking-scheduler': Calendar,

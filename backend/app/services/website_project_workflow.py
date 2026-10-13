@@ -154,6 +154,10 @@ def can_view_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bo
         return False
     if is_admin_or_ops(user) or is_website_lead(user):
         return True
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    if ctx.role == "operations" and level_gte("website", resolve(ctx, "website"), "view"):
+        return True
 
     proj_ws = str(project.get("workspace_id") or "").strip()
     if is_client(user):
@@ -173,6 +177,9 @@ def can_view_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bo
 def can_manage_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bool:
     """Checks if a user is permitted to edit project metadata or force transitions."""
     if not user or not user.get("is_active", True):
+        return False
+    from app.services.permissions import load_ctx
+    if load_ctx(user).role == "operations":
         return False
     if is_admin_or_ops(user) or is_website_lead(user):
         return True

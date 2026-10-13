@@ -457,8 +457,13 @@ export const ContentCalendarView: React.FC = () => {
         <div className="px-5 py-3 flex items-center justify-between gap-4 border-b border-border flex-wrap">
           {/* Left: Module Title & Status Counters */}
           <div className="flex items-center gap-3">
-            <h1 className="text-h1 font-semibold text-fg tracking-tight">
+            <h1 className="text-h1 font-semibold text-fg tracking-tight inline-flex items-center gap-2">
               Content calendar
+              {(user?.role === 'operations' || user?.permissions?.view_only) && (
+                <span className="inline-flex items-center h-6 px-2 rounded-md text-[11px] font-medium uppercase tracking-wide bg-surface-2 text-fg-muted border border-border">
+                  View only
+                </span>
+              )}
             </h1>
             <div className="flex items-center gap-2">
               {(stagesCount['Ready to Post'] || 0) > 0 && (

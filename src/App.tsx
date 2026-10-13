@@ -39,6 +39,7 @@ import { CommandPalette } from './components/layout/CommandPalette';
 import { ShortcutsDialog } from './components/layout/ShortcutsDialog';
 import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
+import { AccessDenied } from './components/ui/AccessDenied';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -136,7 +137,7 @@ function AppInner() {
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = perms.can('website', 'view');
-  const canAssign = perms.can('sales', 'all');
+  const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
 
@@ -217,20 +218,13 @@ function AppInner() {
           localStorage.setItem('reamarc_active_view', 'dashboard');
         }
       } else if (currentPath === 'admin' || currentPath.startsWith('admin/')) {
-        if (canSeeAdmin) {
-          const segments = currentPath.split('/');
-          const sub = segments[1];
-          if (sub && ['directory', 'compliance', 'workspaces'].includes(sub)) {
-            setActiveAdminSection(sub as AdminSectionType);
-          }
-          setCurrentView('admin');
-          localStorage.setItem('reamarc_active_view', 'admin');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
+        const segments = currentPath.split('/');
+        const sub = segments[1];
+        if (sub && ['directory', 'compliance', 'workspaces'].includes(sub)) {
+          setActiveAdminSection(sub as AdminSectionType);
         }
+        setCurrentView('admin');
+        localStorage.setItem('reamarc_active_view', 'admin');
       } else if (currentPath === 'portal' || currentPath === 'client-portal' || currentPath === 'client_portal') {
         if (isClient) {
           window.history.replaceState(null, '', '/portal');
@@ -266,60 +260,25 @@ function AppInner() {
           localStorage.setItem('reamarc_active_view', 'daily-log');
         }
       } else if (currentPath === 'active-clients' || currentPath === 'active_clients' || currentPath === 'clients') {
-        if (canSeeActiveClients) {
-          setCurrentView('active-clients');
-          localStorage.setItem('reamarc_active_view', 'active-clients');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
-        }
+        setCurrentView('active-clients');
+        localStorage.setItem('reamarc_active_view', 'active-clients');
       } else if (currentPath === 'won-deal-approvals' || currentPath === 'won_deal_approvals') {
-        if (canSeeWonDealApprovals) {
-          setCurrentView('won-deal-approvals');
-          localStorage.setItem('reamarc_active_view', 'won-deal-approvals');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
-        }
+        setCurrentView('won-deal-approvals');
+        localStorage.setItem('reamarc_active_view', 'won-deal-approvals');
       } else if (currentPath === 'crm' || currentPath.startsWith('crm/') || currentPath === 'leads' || currentPath.startsWith('leads/')) {
-        if (canSeeCrm) {
-          const segments = currentPath.split('/');
-          const sub = segments[1];
-          if (sub && ['board', 'deals', 'list', 'followup'].includes(sub)) {
-            setActiveCrmSection(sub as CrmSubSection);
-          }
-          setCurrentView('crm');
-          localStorage.setItem('reamarc_active_view', 'crm');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
+        const segments = currentPath.split('/');
+        const sub = segments[1];
+        if (sub && ['board', 'deals', 'list', 'followup'].includes(sub)) {
+          setActiveCrmSection(sub as CrmSubSection);
         }
+        setCurrentView('crm');
+        localStorage.setItem('reamarc_active_view', 'crm');
       } else if (currentPath === 'exceptions') {
-        if (canSeeExceptions) {
-          setCurrentView('exceptions');
-          localStorage.setItem('reamarc_active_view', 'exceptions');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
-        }
+        setCurrentView('exceptions');
+        localStorage.setItem('reamarc_active_view', 'exceptions');
       } else if (currentPath === 'content-calendar' || currentPath === 'calendar' || currentPath === 'content_calendar') {
-        if (canSeeContentCalendar) {
-          setCurrentView('content-calendar');
-          localStorage.setItem('reamarc_active_view', 'content-calendar');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
-        }
+        setCurrentView('content-calendar');
+        localStorage.setItem('reamarc_active_view', 'content-calendar');
       } else if (
         currentPath === 'website-pipeline' ||
         currentPath.startsWith('website-pipeline/') ||
@@ -328,33 +287,21 @@ function AppInner() {
         currentPath === 'website' ||
         currentPath.startsWith('website/')
       ) {
-        if (canSeeWebsitePipeline) {
-          const segments = currentPath.split('/');
-          const sub = segments[1];
-          if (sub && ['board', 'tasks', 'table'].includes(sub)) {
-            setActiveWebsiteSection(sub as 'board' | 'tasks' | 'table');
-          }
-          setCurrentView('website-pipeline');
-          localStorage.setItem('reamarc_active_view', 'website-pipeline');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
+        const segments = currentPath.split('/');
+        const sub = segments[1];
+        if (sub && ['board', 'tasks', 'table'].includes(sub)) {
+          setActiveWebsiteSection(sub as 'board' | 'tasks' | 'table');
         }
+        setCurrentView('website-pipeline');
+        localStorage.setItem('reamarc_active_view', 'website-pipeline');
       } else if (currentPath === 'marketing') {
         if (isClient) {
           window.history.replaceState(null, '', '/portal');
           setCurrentView('portal');
           localStorage.setItem('reamarc_active_view', 'portal');
-        } else if (canSeeMarketing) {
+        } else {
           setCurrentView('marketing');
           localStorage.setItem('reamarc_active_view', 'marketing');
-        } else {
-          const fallback = getDefaultViewForUser();
-          window.history.replaceState(null, '', `/${fallback}`);
-          setCurrentView(fallback);
-          localStorage.setItem('reamarc_active_view', fallback);
         }
       } else if (currentPath.startsWith('settings')) {
         const segments = currentPath.split('/');
@@ -845,25 +792,37 @@ function AppInner() {
             </div>
           )}
 
-          {currentView === 'active-clients' && canSeeActiveClients && (
+          {currentView === 'active-clients' && (
+            canSeeActiveClients ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <ActiveClientsView workspaces={workspaces} />
             </div>
+            ) : (
+              <AccessDenied module="Active clients" />
+            )
           )}
 
-          {currentView === 'won-deal-approvals' && canSeeWonDealApprovals && (
+          {currentView === 'won-deal-approvals' && (
+            canSeeWonDealApprovals ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <WonDealApprovalsView />
             </div>
+            ) : (
+              <AccessDenied module="Won-deal approvals" />
+            )
           )}
 
-          {currentView === 'crm' && canSeeCrm && (
+          {currentView === 'crm' && (
+            canSeeCrm ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <CrmView
                 activeSection={activeCrmSection}
                 onSectionChange={setActiveCrmSection}
               />
             </div>
+            ) : (
+              <AccessDenied module="Sales pipeline" />
+            )
           )}
 
           {currentView === 'portal' && isClient && (
@@ -875,7 +834,8 @@ function AppInner() {
             </div>
           )}
 
-          {currentView === 'marketing' && canSeeMarketing && !isClient && (
+          {currentView === 'marketing' && !isClient && (
+            canSeeMarketing ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <PerformanceMarketing
                 selectedWorkspace={selectedAdAccount}
@@ -885,6 +845,9 @@ function AppInner() {
                 onOpenCreateAccount={handleOpenCreateWorkspace}
               />
             </div>
+            ) : (
+              <AccessDenied module="Performance marketing" />
+            )
           )}
 
           {currentView === 'attendance' && !isClient && (
@@ -902,13 +865,18 @@ function AppInner() {
             </div>
           )}
 
-          {currentView === 'content-calendar' && canSeeContentCalendar && (
+          {currentView === 'content-calendar' && (
+            canSeeContentCalendar ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <ContentCalendarView />
             </div>
+            ) : (
+              <AccessDenied module="Content calendar" />
+            )
           )}
 
-          {currentView === 'website-pipeline' && canSeeWebsitePipeline && (
+          {currentView === 'website-pipeline' && (
+            canSeeWebsitePipeline ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <WebsitePipelineView
                 workspaces={workspaces}
@@ -916,21 +884,32 @@ function AppInner() {
                 onSectionChange={setActiveWebsiteSection}
               />
             </div>
+            ) : (
+              <AccessDenied module="Website pipeline" />
+            )
           )}
 
-          {currentView === 'exceptions' && canSeeExceptions && (
+          {currentView === 'exceptions' && (
+            canSeeExceptions ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <ExceptionInboxView onOpenDailyLog={() => handleSelectView('daily-log')} />
             </div>
+            ) : (
+              <AccessDenied module="Exceptions" />
+            )
           )}
 
-          {currentView === 'admin' && canSeeAdmin && (
+          {currentView === 'admin' && (
+            canSeeAdmin ? (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <AdminPanel
                 activeSection={activeAdminSection}
                 onSectionChange={setActiveAdminSection}
               />
             </div>
+            ) : (
+              <AccessDenied module="Team directory" />
+            )
           )}
 
           {currentView === 'settings' && (

@@ -24,6 +24,7 @@ import { useMarketingMatrix } from '../../hooks/useMarketingMatrix';
 import { marketingService } from '../../services/marketingService';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
+import { useAuth } from '../../context/AuthContext';
 import { PageHeader } from '../ui/PageHeader';
 import { KpiCard } from '../ui/KpiCard';
 import { StatusPill } from '../ui/StatusPill';
@@ -95,6 +96,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
   onSelectWorkspace,
 }) => {
   const { addToast } = useToast();
+  const { user } = useAuth();
 
   const accountsList = useMemo(() => {
     if (adAccounts && adAccounts.length > 0) return adAccounts;
@@ -514,6 +516,7 @@ export const PerformanceMarketing: React.FC<Props> = ({
     <div className="flex flex-col h-full bg-canvas text-fg select-none overflow-hidden p-6 lg:px-8 lg:py-6">
       {/* ─── Page Header (§13.16) ─── */}
       <PageHeader
+        viewOnly={Boolean(user?.permissions?.view_only) || user?.role === 'operations'}
         title="Performance marketing"
         description="Spend and results across every connected ad account."
         actions={

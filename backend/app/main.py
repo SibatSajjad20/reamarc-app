@@ -76,12 +76,16 @@ async def lifespan(app: FastAPI):
         except Exception as idx_err:
             logging.getLogger(__name__).warning(f"Content calendar indexes warning: {idx_err}")
 
-        # Run permissions migration and seeding
+        # Backfill primary_department only. Role rules are fixed in code.
         try:
-            from app.services.permissions_migration import run_permissions_migration
-            await run_permissions_migration(db)
+            from app.services.permissions_migration import (
+                backfill_primary_departments,
+                normalize_operations_role_labels,
+            )
+            await backfill_primary_departments(db)
+            await normalize_operations_role_labels(db)
         except Exception as perm_err:
-            logging.getLogger(__name__).exception(f"Permissions migration failed: {perm_err}")
+            logging.getLogger(__name__).exception(f"Primary department backfill failed: {perm_err}")
 
     cleanup_task = asyncio.create_task(_run_startup_cleanup())
 
@@ -183,6 +187,9 @@ _cors_kwargs = dict(
 if not settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
 
+from app.services.permissions import operations_view_only_middleware
+
+app.middleware("http")(operations_view_only_middleware)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:

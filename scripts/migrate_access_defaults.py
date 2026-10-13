@@ -28,11 +28,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "backend")))
 
 from app.services.permissions import (
-    SYSTEM_ROLE_DEFAULTS,
-    MODULE_LEVELS,
     parse_user_departments,
-    normalize_dept,
-    migrate_ops_exceptions_access,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -63,55 +59,11 @@ async def run_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, 
             "users_backfilled": [],
         }
 
-    role_permissions_diff: List[Dict[str, Any]] = []
     users_backfilled: List[Dict[str, Any]] = []
-
-    # 2. Check & Plan role_permissions upserts
-    existing_rp_docs = await db.role_permissions.find({}).to_list(1000)
-    existing_rp_map: Dict[tuple[str, str], Dict[str, Any]] = {
-        (str(doc.get("role") or "").lower().strip(), str(doc.get("module") or "").strip()): doc
-        for doc in existing_rp_docs
-    }
-
     now = _now_iso()
+    logger.info("Role rules are fixed in code. role_permissions documents are left unchanged.")
 
-    for role, module_map in SYSTEM_ROLE_DEFAULTS.items():
-        for mod, default_lvl in module_map.items():
-            key = (role, mod)
-            if key in existing_rp_map:
-                existing_doc = existing_rp_map[key]
-                existing_lvl = existing_doc.get("level")
-                logger.info(
-                    "PRESERVING customized default for role '%s', module '%s': level='%s' (system default is '%s')",
-                    role,
-                    mod,
-                    existing_lvl,
-                    default_lvl,
-                )
-            else:
-                role_permissions_diff.append({
-                    "role": role,
-                    "module": mod,
-                    "level": default_lvl,
-                    "action": "INSERT",
-                })
-                if apply:
-                    await db.role_permissions.update_one(
-                        {"role": role, "module": mod},
-                        {
-                            "$set": {
-                                "role": role,
-                                "module": mod,
-                                "level": default_lvl,
-                                "created_at": now,
-                                "migrated": True,
-                                "migration_id": MIGRATION_ID,
-                            }
-                        },
-                        upsert=True,
-                    )
-
-    # 3. Check & Plan user primary_department backfills
+    # Primary-department backfill only.
     users = await db.users.find({}).to_list(5000)
     for u in users:
         uid = str(u.get("id") or u.get("_id") or "")
@@ -141,7 +93,7 @@ async def run_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, 
                 "$set": {
                     "id": MIGRATION_ID,
                     "applied_at": now,
-                    "role_permissions_upserted_count": len(role_permissions_diff),
+                    "role_permissions_upserted_count": 0,
                     "users_backfilled_count": len(users_backfilled),
                 }
             },
@@ -151,15 +103,14 @@ async def run_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, 
 
     summary = {
         "status": "APPLIED" if apply else "DRY_RUN_COMPLETE",
-        "role_permissions_diff_count": len(role_permissions_diff),
-        "role_permissions_diff": role_permissions_diff,
+        "role_permissions_diff_count": 0,
+        "role_permissions_diff": [],
         "users_backfilled_count": len(users_backfilled),
         "users_backfilled": users_backfilled,
     }
 
     logger.info(
-        "Summary: %d role_permissions planned/applied, %d users primary_department backfilled.",
-        len(role_permissions_diff),
+        "Summary: role rules unchanged, %d users primary_department backfilled.",
         len(users_backfilled),
     )
 
@@ -168,21 +119,9 @@ async def run_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, 
 
 
 async def run_ops_exceptions_migration(db_name: str, mongo_url: str, apply: bool) -> Dict[str, Any]:
-    client = AsyncIOMotorClient(mongo_url)
-    db = client[db_name]
-    logger.info(
-        "Operations exceptions migration (mode: %s)",
-        "APPLY" if apply else "DRY-RUN",
-    )
-    result = await migrate_ops_exceptions_access(db, apply=apply)
-    logger.info(
-        "Ops exceptions: status=%s planned=%s applied=%s",
-        result.get("status"),
-        result.get("planned"),
-        result.get("applied"),
-    )
-    client.close()
-    return result
+    del db_name, mongo_url, apply
+    logger.info("Operations exceptions migration is retired. Role rules are fixed in code.")
+    return {"status": "RETIRED", "planned": 0, "applied": 0, "changes": []}
 
 
 def main():

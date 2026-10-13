@@ -1095,6 +1095,7 @@ export const DailyLogView: React.FC = () => {
     <div className="flex flex-col h-full bg-canvas text-fg select-none overflow-hidden p-6 lg:px-8 lg:py-6">
       {/* ─── Page Header ─── */}
       <PageHeader
+        viewOnly={isOperations}
         title="Daily log"
         description={
           isAdmin || isOperations

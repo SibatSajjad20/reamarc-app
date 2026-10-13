@@ -62,11 +62,11 @@ export const SYSTEM_DEPARTMENTS = [
 ];
 
 export const SYSTEM_ROLES = [
-  { id: 'admin', label: 'Super Admin' },
+  { id: 'admin', label: 'Admin' },
   { id: 'hr', label: 'HR' },
   { id: 'operations', label: 'Operations' },
-  { id: 'team_lead', label: 'Team Lead' },
-  { id: 'team_member', label: 'Team Member' },
+  { id: 'team_lead', label: 'Team lead' },
+  { id: 'team_member', label: 'Team member' },
 ];
 
 type DirectoryTab = 'team' | 'clients';
@@ -555,7 +555,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             <span className="text-fg-muted text-caption">—</span>
                           ) : isGlobalRole ? (
                             <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-subtle text-fg-muted">
-                              All
+                              All departments
                             </span>
                           ) : (
                             <div className="flex flex-wrap items-center gap-1">

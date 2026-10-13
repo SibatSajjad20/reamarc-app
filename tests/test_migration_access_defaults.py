@@ -87,13 +87,11 @@ class TestMigrateAccessDefaults(unittest.IsolatedAsyncioTestCase):
         marker = await self.db.migrations.find_one({"id": MIGRATION_ID})
         self.assertIsNotNone(marker)
 
-        # Check custom role permission was PRESERVED
+        # Stored role_permissions documents are left in place and are not seeded.
         ops_web = await self.db.role_permissions.find_one({"role": "operations", "module": "website"})
         self.assertEqual(ops_web.get("level"), "view")
-
-        # Check system role default was inserted where not custom
         ops_sales = await self.db.role_permissions.find_one({"role": "operations", "module": "sales"})
-        self.assertEqual(ops_sales.get("level"), "none")
+        self.assertIsNone(ops_sales)
 
         # Check user A was backfilled
         u_a = await self.db.users.find_one({"id": "u-test-1"})

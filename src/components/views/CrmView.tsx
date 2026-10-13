@@ -599,6 +599,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         {/* Top Header */}
         <div className="px-5 py-3 border-b border-border bg-surface shrink-0">
           <PageHeader
+            viewOnly={Boolean(user?.permissions?.view_only) || user?.role === 'operations'}
             title={
               <div className="flex items-center gap-2.5">
                 <span>

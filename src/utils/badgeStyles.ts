@@ -20,12 +20,13 @@ export function getTaskTypeBadgeClass(_taskType?: string): string {
 }
 
 export function getRoleLabel(role?: string): string {
-  if (role === 'admin') return 'Super Administrator';
-  if (role === 'hr') return 'HR Manager';
-  if (role === 'operations') return 'Operations Lead';
-  if (role === 'team_lead') return 'Team Lead';
-  if (role === 'client') return 'Client';
-  return 'Team Member';
+  const key = String(role || '').toLowerCase().replace(/[\s-]+/g, '_');
+  if (key === 'admin' || key === 'super_admin') return 'Admin';
+  if (key === 'hr') return 'HR';
+  if (key === 'operations' || key === 'operations_lead' || key === 'ops') return 'Operations';
+  if (key === 'team_lead') return 'Team lead';
+  if (key === 'client') return 'Client';
+  return 'Team member';
 }
 
 export function getInitials(name?: string, email?: string): string {

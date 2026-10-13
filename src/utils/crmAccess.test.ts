@@ -30,7 +30,10 @@ const adminUser = { role: 'admin', permissions: { summary: { sales: 'all' } } };
 assert(canAccessCrm(adminUser), 'Admin must have CRM access');
 assert(canAssignCrmLeads(adminUser), 'Admin must be able to assign leads');
 
-// 2. Operations without sales permission is denied (won-deal capability is separate)
+const opsViewer = withSales('operations', 'all');
+assert(canAccessCrm(opsViewer), 'Operations with sales view must have CRM access');
+assert(!canAssignCrmLeads(opsViewer), 'Operations must NOT be able to assign leads');
+
 const opsUser = withNoSales('operations');
 assert(!canAccessCrm(opsUser), 'Operations must NOT have CRM access without sales permission');
 assert(!canAssignCrmLeads(opsUser), 'Operations must NOT be able to assign leads');

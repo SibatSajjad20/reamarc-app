@@ -68,14 +68,14 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(resolve(ctx, "daily_log"), "all")
         self.assertEqual(resolve(ctx, "attendance"), "all")
         self.assertEqual(resolve(ctx, "exceptions"), "all")
-        self.assertEqual(resolve(ctx, "active_clients"), "view")
+        self.assertEqual(resolve(ctx, "active_clients"), "none")
         self.assertEqual(resolve(ctx, "content_calendar"), "none")
         self.assertEqual(resolve(ctx, "website"), "none")
         self.assertEqual(resolve(ctx, "sales"), "none")
         self.assertEqual(resolve(ctx, "ads"), "none")
 
     def test_operations_role_defaults(self):
-        """A1 & Rule 2: Operations keeps approvals, but loses sales, website, content_calendar, ads."""
+        """Operations can view every module. Department does not narrow that."""
         user = {
             "id": "ops-1",
             "role": "operations",
@@ -88,10 +88,11 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(resolve(ctx, "attendance"), "all")
         self.assertEqual(resolve(ctx, "exceptions"), "all")
         self.assertEqual(resolve(ctx, "active_clients"), "view")
-        self.assertEqual(resolve(ctx, "content_calendar"), "none")
-        self.assertEqual(resolve(ctx, "website"), "none")
-        self.assertEqual(resolve(ctx, "sales"), "none")
-        self.assertEqual(resolve(ctx, "ads"), "none")
+        self.assertEqual(resolve(ctx, "content_calendar"), "view")
+        self.assertEqual(resolve(ctx, "website"), "view")
+        self.assertEqual(resolve(ctx, "sales"), "all")
+        self.assertEqual(resolve(ctx, "ads"), "view")
+        self.assertEqual(resolve(ctx, "content_calendar", "Website"), "view")
 
     def test_parametrized_primary_department_grants(self):
         """
@@ -171,7 +172,7 @@ class PermissionsResolverTests(unittest.TestCase):
         does NOT unlock that module, daily log, or team hours.
         """
         # Case A: Content lead with secondary Creative & Social Media
-        # Content lead gets 'manage' on primary content, and 'own_stages' on secondary creative/social
+        # Content lead gets 'manage' on primary and extra content-calendar departments.
         user_a = {
             "id": "u-lead-content-multi",
             "role": "team_lead",
@@ -183,8 +184,8 @@ class PermissionsResolverTests(unittest.TestCase):
         # Primary department gives manage on content_calendar
         self.assertEqual(resolve(ctx_a, "content_calendar", "Content"), "manage")
         # Secondary departments contribute own_stages for stages
-        self.assertEqual(resolve(ctx_a, "content_calendar", "Creative"), "own_stages")
-        self.assertEqual(resolve(ctx_a, "content_calendar", "Social Media"), "own_stages")
+        self.assertEqual(resolve(ctx_a, "content_calendar", "Creative"), "manage")
+        self.assertEqual(resolve(ctx_a, "content_calendar", "Social Media"), "manage")
         # Secondary does NOT give daily_log or exceptions for creative
         self.assertEqual(resolve(ctx_a, "daily_log", "Creative"), "none")
         self.assertEqual(resolve(ctx_a, "exceptions", "Creative"), "none")
@@ -239,55 +240,105 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(eff_d["summary"]["ads"], "none")
 
     def test_override_grant_and_revoke(self):
-        """
-        User overrides take precedence over role defaults and department rules.
-        Testing grant, effect, and revoke.
-        """
+        """Stored overrides and edited role defaults do not change access."""
         user = {
             "id": "u-mem-1",
             "role": "team_member",
             "department": "Content",
             "primary_department": "Content",
             "departments": ["Content"],
+            "overrides": [{
+                "department": "Content",
+                "module": "website",
+                "level": "manage",
+            }],
         }
-        # Baseline: Content member has website: none
         ctx_base = load_ctx(user)
         self.assertEqual(resolve(ctx_base, "website"), "none")
 
-        # 1. Grant override: website = manage for Content
         override_doc = {
             "user_id": "u-mem-1",
             "department": "Content",
             "module": "website",
             "level": "manage",
         }
-        ctx_granted = load_ctx(user, overrides=[override_doc])
-        self.assertEqual(resolve(ctx_granted, "website"), "manage")
-        self.assertEqual(resolve(ctx_granted, "website", "Content"), "manage")
+        fresh = {k: v for k, v in user.items() if k != "_perm_ctx"}
+        ctx_granted = load_ctx(fresh, overrides=[override_doc], role_defaults={
+            "team_member": {"website": "manage"},
+        })
+        self.assertEqual(resolve(ctx_granted, "website"), "none")
 
-        # 2. Grant override to HR user for sales:
-        hr_user = {
-            "id": "u-hr-1",
-            "role": "hr",
-            "department": "Human Resources",
-            "primary_department": "Human Resources",
-            "departments": ["Human Resources"],
+    def test_sales_department_gets_active_clients(self):
+        lead = load_ctx({
+            "id": "sl",
+            "role": "team_lead",
+            "primary_department": "Sales",
+            "departments": ["Sales"],
+        })
+        member = load_ctx({
+            "id": "sm",
+            "role": "team_member",
+            "primary_department": "Sales",
+            "departments": ["Sales"],
+        })
+        content = load_ctx({
+            "id": "cm",
+            "role": "team_member",
+            "primary_department": "Content",
+            "departments": ["Content"],
+        })
+        self.assertEqual(resolve(lead, "active_clients"), "manage")
+        self.assertEqual(resolve(member, "active_clients"), "view")
+        self.assertEqual(resolve(content, "active_clients"), "none")
+
+    def test_content_lead_extra_departments_add_calendar_stages_only(self):
+        user = {
+            "id": "u-lead-cc",
+            "role": "team_lead",
+            "primary_department": "Content",
+            "departments": ["Content", "Creative", "Social media"],
         }
-        hr_ctx_base = load_ctx(hr_user)
-        self.assertEqual(resolve(hr_ctx_base, "sales"), "none")
+        ctx = load_ctx(user)
+        self.assertEqual(resolve(ctx, "content_calendar", "Content"), "manage")
+        self.assertEqual(resolve(ctx, "content_calendar", "Creative"), "manage")
+        self.assertEqual(resolve(ctx, "content_calendar", "Social media"), "manage")
+        self.assertEqual(resolve(ctx, "website", "Creative"), "none")
+        self.assertEqual(resolve(ctx, "sales"), "none")
+        self.assertEqual(resolve(ctx, "daily_log", "Creative"), "none")
 
-        hr_override = {
-            "user_id": "u-hr-1",
-            "department": "Human Resources",
-            "module": "sales",
-            "level": "own",
-        }
-        hr_ctx_granted = load_ctx(hr_user, overrides=[hr_override])
-        self.assertEqual(resolve(hr_ctx_granted, "sales"), "own")
+    def test_operations_alias_role_is_company_wide_view(self):
+        from app.services.permissions_migration import operations_canonical_role
 
-        # 3. Revoke override (remove from overrides list)
-        hr_ctx_revoked = load_ctx(hr_user, overrides=[])
-        self.assertEqual(resolve(hr_ctx_revoked, "sales"), "none")
+        self.assertEqual(
+            operations_canonical_role({"role": "operations_lead"}),
+            "operations",
+        )
+        self.assertIsNone(operations_canonical_role({"role": "operations"}))
+        ctx = load_ctx({"id": "ops-alias", "role": "operations", "department": "Sales"})
+        self.assertEqual(resolve(ctx, "website"), "view")
+        self.assertTrue(effective_map(ctx)["view_only"])
+        self.assertTrue(effective_map(ctx)["company_wide"])
+
+    def test_operations_writes_blocked_except_won_deal(self):
+        from app.services.permissions import operations_mutation_blocked
+
+        self.assertFalse(operations_mutation_blocked("GET", "/api/v1/crm/leads", "operations"))
+        self.assertTrue(operations_mutation_blocked("POST", "/api/v1/crm/leads", "operations"))
+        self.assertTrue(operations_mutation_blocked("POST", "/api/v1/content-calendar", "operations"))
+        self.assertTrue(operations_mutation_blocked("PATCH", "/api/v1/website-projects/p1", "operations"))
+        self.assertTrue(operations_mutation_blocked("POST", "/api/v1/marketing/campaigns", "operations"))
+        self.assertTrue(operations_mutation_blocked("POST", "/api/v1/daily-log/entries", "operations"))
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/crm/approvals/won-deals/deal-1/approve", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/leaves/requests/abc/status", "operations"
+            )
+        )
+        self.assertFalse(operations_mutation_blocked("POST", "/api/v1/crm/leads", "admin"))
 
 
 if __name__ == "__main__":

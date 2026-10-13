@@ -17,7 +17,7 @@ export function canAccessWebsitePipeline(user?: AccessUser | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin') return true;
-  if (role === 'client' || role === 'hr' || role === 'operations') return false;
+  if (role === 'client' || role === 'hr') return false;
 
   if (user.permissions) {
     const summary = user.permissions.summary?.website;
@@ -39,7 +39,7 @@ export function canManageWebsiteProject(
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin') return true;
-  if (role === 'client' || role === 'hr' || role === 'operations') return false;
+  if (role === 'client' || role === 'hr' || role === 'operations' || user.permissions?.view_only) return false;
 
   if (user.permissions?.modules?.website) {
     const mod = user.permissions.modules.website;
@@ -60,6 +60,7 @@ export function canEditWebsiteTask(
   task?: WebsiteTask | null,
 ): boolean {
   if (!user || user.is_active === false) return false;
+  if (roleOf(user.role) === 'operations' || user.permissions?.view_only) return false;
   if (canManageWebsiteProject(user, project)) return true;
   if (task && user.id && task.assignee_id && String(user.id) === String(task.assignee_id)) {
     return true;

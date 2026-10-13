@@ -555,6 +555,7 @@ async def create_member(
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
         "departments": depts_list,
+        "primary_department": (depts_list[0] if depts_list else dept_val),
         "joining_date": member_in.joining_date.strip() if member_in.joining_date else None,
         "employment_type": member_in.employment_type.value,
         "probation_start_date": member_in.probation_start_date,
@@ -639,12 +640,15 @@ async def update_member(
         if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
             update_fields["department"] = "All"
             update_fields["departments"] = ["All"]
+            update_fields["primary_department"] = "All"
         elif member_in.role == UserRole.HR:
             update_fields["department"] = "HR"
             update_fields["departments"] = ["HR"]
+            update_fields["primary_department"] = "HR"
         elif member_in.role == UserRole.CLIENT:
             update_fields["department"] = None
             update_fields["departments"] = []
+            update_fields["primary_department"] = None
 
     target_role = member_in.role.value if member_in.role else existing_user.get("role")
     is_special_role = target_role in (
@@ -657,11 +661,19 @@ async def update_member(
             update_fields["departments"] = cleaned_depts
             if member_in.department is None:
                 update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
+            if cleaned_depts:
+                update_fields["primary_department"] = cleaned_depts[0]
         if member_in.department is not None:
             cleaned_str = member_in.department.strip()
             update_fields["department"] = cleaned_str
             if member_in.departments is None:
                 update_fields["departments"] = [p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()]
+            first = next(
+                (p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()),
+                cleaned_str or None,
+            )
+            if first:
+                update_fields["primary_department"] = first
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
     if member_in.crm_enabled is not None:

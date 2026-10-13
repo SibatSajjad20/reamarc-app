@@ -69,23 +69,24 @@ export function usePermissions() {
     return [];
   }, [user, permissions, primaryDepartment]);
 
+  const role = String(user?.role || '').toLowerCase();
+
   return {
     user,
     permissions,
     can,
     primaryDepartment,
     departments,
-    isAdmin: user?.role === 'admin',
-    isLead: user?.role === 'team_lead',
+    isAdmin: role === 'admin',
+    isLead: role === 'team_lead',
     canAccessDailyLog: can('daily_log', 'own'),
     canAccessAttendance: can('attendance', 'own'),
     canAccessContentCalendar: can('content_calendar', 'view'),
     canAccessWebsitePipeline: can('website', 'view'),
     canAccessCrm: can('sales', 'own'),
+    isViewOnly: role === 'operations' || Boolean(permissions?.view_only),
     canApproveWonDeal: Boolean(permissions?.capabilities?.approve_won_deal),
-    canSeeWonDealApprovals:
-      Boolean(permissions?.capabilities?.approve_won_deal) &&
-      (permissions?.summary?.sales || 'none') === 'none',
+    canSeeWonDealApprovals: Boolean(permissions?.capabilities?.approve_won_deal),
     canAccessActiveClients: can('active_clients', 'view'),
     canAccessAds: can('ads', 'view'),
     isContentLead: user?.role === 'admin' || can('content_calendar', 'manage', 'content'),

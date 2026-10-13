@@ -14,7 +14,7 @@ export function canAccessContentCalendar(user?: AccessUser | null): boolean {
   if (!user || user.is_active === false) return false;
   const role = roleOf(user.role);
   if (role === 'admin' || role === 'superadmin') return true;
-  if (role === 'client' || role === 'hr' || role === 'operations') return false;
+  if (role === 'client' || role === 'hr') return false;
 
   if (user.permissions) {
     const summary = user.permissions.summary?.content_calendar;

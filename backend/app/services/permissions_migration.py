@@ -1,29 +1,43 @@
-"""Migration & Seeding Service for Roles & Permissions.
+"""Primary-department backfill.
 
-Creates collections, builds indexes, seeds system role defaults, and backfills
-primary_department for users.
-Idempotent and safe to run multiple times.
+Role rules are fixed in code. This module does not seed or edit role_permissions.
 """
 from __future__ import annotations
 
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from app.database import get_database
-from app.services.permissions import (
-    SYSTEM_ROLE_DEFAULTS,
-    parse_user_departments,
-    invalidate_role_defaults_cache,
-    migrate_ops_exceptions_access,
-)
+from app.services.permissions import parse_user_departments
+
+OPERATIONS_ROLE_ALIASES = {
+    "ops",
+    "operation",
+    "operations_lead",
+    "operations_member",
+    "ops_lead",
+    "ops_member",
+    "operationslead",
+}
+
+
+def operations_canonical_role(user: Dict[str, Any]) -> Optional[str]:
+    """Return 'operations' when a stored role is an operations alias; else None."""
+    raw = str(user.get("role") or "").strip()
+    key = raw.lower().replace("-", "_").replace(" ", "_")
+    if key in OPERATIONS_ROLE_ALIASES:
+        return "operations"
+    if key == "operations":
+        return None
+    return None
 
 logger = logging.getLogger(__name__)
 
 
-async def run_permissions_migration(db=None) -> Dict[str, Any]:
-    """Execute the idempotent permissions migration."""
+async def backfill_primary_departments(db=None) -> Dict[str, Any]:
+    """Fill missing primary_department values. Does not read or write role rules."""
     if db is None:
         db = get_database()
     if db is None:
@@ -31,64 +45,19 @@ async def run_permissions_migration(db=None) -> Dict[str, Any]:
 
     now_iso = datetime.now(timezone.utc).isoformat()
     report: Dict[str, Any] = {
-        "indexes_created": 0,
-        "role_permissions_upserted": 0,
         "users_backfilled": 0,
         "multi_dept_audited": 0,
     }
 
-    # 1. Create indexes
     try:
-        await db.role_permissions.create_index(
-            [("role", 1), ("module", 1)],
-            unique=True,
-            name="uniq_role_module",
-        )
-        await db.user_permission_overrides.create_index(
-            [("user_id", 1), ("department", 1), ("module", 1)],
-            unique=True,
-            name="uniq_user_dept_module",
-        )
-        await db.user_permission_overrides.create_index(
-            [("user_id", 1)],
-            name="idx_override_user_id",
-        )
-        await db.permission_audit.create_index(
-            [("at", -1)],
-            name="idx_audit_at_desc",
-        )
-        await db.permission_audit.create_index(
-            [("target_id", 1), ("at", -1)],
-            name="idx_audit_target_at",
-        )
         await db.users.create_index(
             [("primary_department", 1)],
             name="idx_users_primary_dept",
         )
-        report["indexes_created"] = 6
     except Exception as e:
-        logger.warning("Error creating indexes in permissions migration: %s", e)
+        logger.warning("Error creating primary_department index: %s", e)
 
-    # 2. Seed / Upsert role defaults
-    for role, mod_dict in SYSTEM_ROLE_DEFAULTS.items():
-        for module, level in mod_dict.items():
-            res = await db.role_permissions.update_one(
-                {"role": role, "module": module},
-                {
-                    "$setOnInsert": {
-                        "level": level,
-                        "updated_at": now_iso,
-                        "updated_by": "system",
-                    }
-                },
-                upsert=True,
-            )
-            if res.upserted_id or res.modified_count:
-                report["role_permissions_upserted"] += 1
-
-    invalidate_role_defaults_cache()
-
-    # 3. Backfill users.primary_department
+    # Backfill users.primary_department
     cursor = db.users.find({})
     async for user in cursor:
         existing_primary = user.get("primary_department")
@@ -145,8 +114,62 @@ async def run_permissions_migration(db=None) -> Dict[str, Any]:
             }
         )
 
-    ops_ex = await migrate_ops_exceptions_access(db, apply=True)
-    report["ops_exceptions_migration"] = ops_ex
-
-    logger.info("Permissions migration completed: %s", report)
+    logger.info("Primary department backfill completed: %s", report)
     return report
+
+
+async def normalize_operations_role_labels(db=None, dry_run: bool = False) -> Dict[str, Any]:
+    """Idempotent: alias operations roles become role=operations. Deletes nothing."""
+    if db is None:
+        db = get_database()
+    if db is None:
+        raise RuntimeError("Database connection unavailable for migration.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    report: Dict[str, Any] = {"scanned": 0, "normalized": 0, "dry_run": dry_run}
+
+    cursor = db.users.find({})
+    async for user in cursor:
+        report["scanned"] += 1
+        next_role = operations_canonical_role(user)
+        if not next_role:
+            continue
+        user_id = str(user.get("id") or user.get("_id"))
+        user_name = user.get("full_name") or user.get("name") or "User"
+        old_role = user.get("role")
+        logger.info(
+            "Normalize operations role: user=%s %s %s -> %s",
+            user_id,
+            user_name,
+            old_role,
+            next_role,
+        )
+        if dry_run:
+            report["normalized"] += 1
+            continue
+        await db.users.update_one({"_id": user["_id"]}, {"$set": {"role": next_role}})
+        await db.permission_audit.insert_one(
+            {
+                "id": str(uuid.uuid4()),
+                "at": now_iso,
+                "actor_id": "system",
+                "actor_name": "System",
+                "target_type": "user",
+                "target_id": user_id,
+                "target_name": user_name,
+                "department": user.get("department"),
+                "module": "role",
+                "before": str(old_role),
+                "after": next_role,
+                "reason": "Normalized operations role alias (no lead/member level)",
+            }
+        )
+        report["normalized"] += 1
+
+    logger.info("Operations role label normalization: %s", report)
+    return report
+
+
+async def run_permissions_migration(db=None) -> Dict[str, Any]:
+    """Startup entry kept for older callers. It only backfills primary_department."""
+    return await backfill_primary_departments(db)
