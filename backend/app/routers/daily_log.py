@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Request
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
+import logging
 import uuid
 import re
 import os
@@ -1288,7 +1289,7 @@ async def update_entry(
                 detail=f"Daily log date cannot be set to a future date (Today is {today_iso})."
             )
         from app.services.workdays import classify_date, classify_date_for_user, format_off_day_reason
-        day_info = await classify_date_for_user(entry.get("user_id") or current_user["id"], dt_str)
+        day_info = await classify_date_for_user(target_uid, dt_str)
         if day_info.is_off:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -1411,7 +1412,7 @@ async def delete_entry(
 
     res = await db.daily_log_entries.delete_one({"id": entry_id})
     if res.deleted_count == 0:
-        raise HTTPException(status_code=404, detail="Log entry '{entry_id}' not found.")
+        raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
 
     if entry_uid and existing_entry.get("date"):
         _schedule_background_score_recompute(entry_uid, existing_entry["date"], actor=current_user)
