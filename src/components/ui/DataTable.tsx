@@ -104,20 +104,119 @@ export const BulkBar: React.FC<BulkBarProps> = ({
 };
 
 /**
+ * TableScrollContainer: Horizontal scroll wrapper with Shift+wheel and edge fades
+ */
+export interface TableScrollContainerProps extends React.HTMLAttributes<HTMLDivElement> {
+  children: React.ReactNode;
+  hasStickyFirstCol?: boolean;
+  className?: string;
+}
+
+export const TableScrollContainer = React.forwardRef<
+  HTMLDivElement,
+  TableScrollContainerProps
+>(({ className, children, hasStickyFirstCol = false, ...props }, ref) => {
+  const innerRef = React.useRef<HTMLDivElement>(null);
+  const scrollRef = (ref as React.RefObject<HTMLDivElement>) || innerRef;
+  const [canScrollLeft, setCanScrollLeft] = React.useState(false);
+  const [canScrollRight, setCanScrollRight] = React.useState(false);
+
+  const checkScroll = React.useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const { scrollLeft, scrollWidth, clientWidth } = el;
+    setCanScrollLeft(scrollLeft > 2);
+    setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 2);
+  }, [scrollRef]);
+
+  React.useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    checkScroll();
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.shiftKey && e.deltaY !== 0) {
+        el.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false });
+    el.addEventListener('scroll', checkScroll, { passive: true });
+
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(() => checkScroll());
+      ro.observe(el);
+      if (el.firstElementChild) {
+        ro.observe(el.firstElementChild);
+      }
+    }
+
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      el.removeEventListener('scroll', checkScroll);
+      ro?.disconnect();
+    };
+  }, [checkScroll, scrollRef]);
+
+  return (
+    <div className="relative w-full min-w-0">
+      <div
+        ref={scrollRef}
+        className={cn('w-full overflow-x-auto custom-scrollbar min-h-0', className)}
+        {...props}
+      >
+        {children}
+      </div>
+
+      {/* Left edge fade */}
+      {!hasStickyFirstCol && (
+        <div
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-surface to-transparent z-[15] transition-opacity duration-200',
+            canScrollLeft ? 'opacity-100' : 'opacity-0'
+          )}
+        />
+      )}
+
+      {/* Right edge fade */}
+      <div
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-surface to-transparent z-[15] transition-opacity duration-200',
+          canScrollRight ? 'opacity-100' : 'opacity-0'
+        )}
+      />
+    </div>
+  );
+});
+TableScrollContainer.displayName = 'TableScrollContainer';
+
+/**
  * Table: Native table element wrapper with horizontal overflow
  */
 export interface TableProps extends React.TableHTMLAttributes<HTMLTableElement> {
   compact?: boolean;
+  hasStickyFirstCol?: boolean;
+  containerClassName?: string;
 }
 
 export const Table: React.FC<TableProps> = ({
   className,
   compact = false,
+  hasStickyFirstCol = false,
+  containerClassName,
   children,
   ...props
 }) => {
   return (
-    <div className="w-full overflow-x-auto min-h-0">
+    <TableScrollContainer
+      hasStickyFirstCol={hasStickyFirstCol}
+      className={containerClassName}
+    >
       <table
         className={cn(
           'w-full text-left border-collapse text-table',
@@ -128,7 +227,7 @@ export const Table: React.FC<TableProps> = ({
       >
         {children}
       </table>
-    </div>
+    </TableScrollContainer>
   );
 };
 
@@ -174,7 +273,7 @@ export const TH: React.FC<THProps> = ({
         'h-9 px-3 text-small font-medium text-fg-muted whitespace-nowrap',
         align === 'right' && 'text-right',
         align === 'center' && 'text-center',
-        stickyLeft && 'sticky left-0 bg-canvas z-10 border-r border-border',
+        stickyLeft && 'sticky left-0 bg-canvas z-20 border-r border-border',
         className
       )}
       {...props}

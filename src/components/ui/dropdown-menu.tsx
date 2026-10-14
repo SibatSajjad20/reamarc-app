@@ -3,7 +3,12 @@ import { DropdownMenu as DropdownMenuPrimitive } from 'radix-ui';
 import { Check, ChevronRight, Circle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export const DropdownMenu = DropdownMenuPrimitive.Root;
+export const DropdownMenu: React.FC<React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Root>> = ({
+  modal = false,
+  ...props
+}) => (
+  <DropdownMenuPrimitive.Root modal={modal} {...props} />
+);
 export const DropdownMenuTrigger = DropdownMenuPrimitive.Trigger;
 export const DropdownMenuGroup = DropdownMenuPrimitive.Group;
 export const DropdownMenuPortal = DropdownMenuPrimitive.Portal;
@@ -35,11 +40,14 @@ DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayNam
 export const DropdownMenuSubContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
+>(({ className, sideOffset = 6, collisionPadding = 8, avoidCollisions = true, ...props }, ref) => (
   <DropdownMenuPrimitive.SubContent
     ref={ref}
+    sideOffset={sideOffset}
+    collisionPadding={collisionPadding}
+    avoidCollisions={avoidCollisions}
     className={cn(
-      'z-[var(--z-popover)] min-w-[180px] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-md text-fg',
+      'z-[var(--z-popover)] min-w-[180px] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-md text-fg duration-100 ease-out',
       'animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
       className
     )}
@@ -51,13 +59,16 @@ DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayNam
 export const DropdownMenuContent = React.forwardRef<
   React.ElementRef<typeof DropdownMenuPrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Content>
->(({ className, sideOffset = 4, ...props }, ref) => (
+>(({ className, sideOffset = 6, align = 'end', collisionPadding = 8, avoidCollisions = true, ...props }, ref) => (
   <DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Content
       ref={ref}
       sideOffset={sideOffset}
+      align={align}
+      collisionPadding={collisionPadding}
+      avoidCollisions={avoidCollisions}
       className={cn(
-        'z-[var(--z-popover)] min-w-[180px] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-md text-fg',
+        'z-[var(--z-popover)] min-w-[180px] overflow-hidden rounded-lg border border-border bg-surface p-1 shadow-md text-fg duration-100 ease-out',
         'animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
         className
       )}

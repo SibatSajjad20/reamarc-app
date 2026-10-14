@@ -21,7 +21,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   moduleClicksBlocked = false,
 }) => {
   return (
-    <div className="flex h-full w-full bg-canvas text-fg overflow-hidden antialiased">
+    <div className="flex h-full w-full min-w-0 bg-canvas text-fg overflow-hidden overflow-x-hidden antialiased">
       {/* Skip link for accessibility (§14.2) */}
       <a
         href="#main"
@@ -52,7 +52,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       <main
         id="main"
         tabIndex={-1}
-        className="flex-1 min-w-0 flex flex-col relative bg-canvas overflow-hidden outline-none"
+        className="flex-1 min-w-0 flex flex-col relative bg-canvas overflow-hidden overflow-x-hidden outline-none"
       >
         {/* Module Click Blocker overlay (preserves existing gate) */}
         {moduleClicksBlocked && (
@@ -70,7 +70,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         {topBar}
 
         {/* Content area: each view manages its own scrolling (§6.1) */}
-        <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 min-w-0 flex flex-col overflow-hidden overflow-x-hidden">
           {children}
         </div>
       </main>

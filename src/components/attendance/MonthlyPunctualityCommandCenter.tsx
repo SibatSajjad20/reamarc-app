@@ -13,6 +13,7 @@ import type {
 import { CustomSelect } from '../ui/CustomSelect';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
+import { TableScrollContainer } from '../ui/DataTable';
 
 interface MonthlyPunctualityCommandCenterProps {
   summaryData: MonthlyPunctualityResponse | null;
@@ -213,12 +214,12 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
           </span>
         </div>
 
-        <div className="overflow-x-auto">
+        <TableScrollContainer hasStickyFirstCol>
           <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-subtle text-fg-muted border-b border-border font-semibold">
-                <th className="py-3 px-4 w-10">#</th>
-                <th className="py-3 px-4">Employee</th>
+            <thead className="sticky top-0 z-20 bg-canvas border-b border-border shadow-xs">
+              <tr className="bg-canvas text-fg-muted border-b border-border font-semibold">
+                <th className="py-3 px-4 w-10 sticky left-0 z-30 bg-canvas">#</th>
+                <th className="py-3 px-4 sticky left-10 z-30 bg-canvas border-r border-border">Employee</th>
                 <th className="py-3 px-4 text-center">Days (Pres/Work)</th>
                 <th className="py-3 px-4 text-center">Leaves</th>
                 <th className="py-3 px-4 text-center">Late Strikes</th>
@@ -227,7 +228,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 <th className="py-3 px-4">Overtime</th>
                 <th className="py-3 px-4">Undertime</th>
                 <th className="py-3 px-4">Net Variance</th>
-                <th className="py-3 px-4 text-right">Actions</th>
+                <th className="py-3 px-4 text-right w-16">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border font-medium">
@@ -235,11 +236,11 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 Array.from({ length: 8 }).map((_, idx) => (
                   <tr key={`punctuality-skeleton-${idx}`}>
                     {/* Index */}
-                    <td className="py-3.5 px-4 text-fg-muted">
+                    <td className="py-3.5 px-4 text-fg-muted sticky left-0 z-10 bg-surface">
                       <div className="h-4 w-4 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Employee */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
+                    <td className="py-3.5 px-4 whitespace-nowrap sticky left-10 z-10 bg-surface border-r border-border">
                       <div className="flex items-center gap-2.5">
                         <div className="w-7 h-7 rounded-lg bg-skel animate-pulse shrink-0" />
                         <div className="h-4 w-28 bg-skel animate-pulse rounded" />
@@ -278,7 +279,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                       <div className="h-4 w-14 bg-skel animate-pulse rounded" />
                     </td>
                     {/* Actions */}
-                    <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                    <td className="py-3.5 px-4 text-right whitespace-nowrap w-16">
                       <div className="h-4 w-4 bg-skel animate-pulse rounded ml-auto" />
                     </td>
                   </tr>
@@ -314,10 +315,10 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                         title={onSelectEmployee ? 'Open this employee monthly timesheet' : undefined}
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-fg-muted font-numeric">{idx + 1}</td>
+                        <td className="py-3 px-4 text-fg-muted font-numeric sticky left-0 z-10 bg-surface">{idx + 1}</td>
 
                         {/* Employee Name & Role */}
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        <td className="py-3 px-4 whitespace-nowrap sticky left-10 z-10 bg-surface border-r border-border">
                           <div className="flex items-center gap-2.5">
                             <Avatar
                               name={row.employee_name}
@@ -326,11 +327,11 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                               className="rounded-lg shrink-0"
                             />
                             <div className="flex flex-col min-w-0">
-                              <span className="font-semibold text-fg leading-tight">
+                              <span className="font-semibold text-fg leading-tight truncate max-w-[160px]" title={row.employee_name}>
                                 {row.employee_name}
                               </span>
                               {((row as any).role || (row as any).designation || row.department) && (
-                                <span className="text-caption text-fg-muted truncate">
+                                <span className="text-caption text-fg-muted truncate max-w-[160px]">
                                   {(row as any).role || (row as any).designation || row.department}
                                 </span>
                               )}
@@ -411,7 +412,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                           )}
                         </td>
 
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <td className="py-3 px-4 text-right whitespace-nowrap w-16">
                           {onSelectEmployee && (
                             <ChevronRight className="w-4 h-4 text-fg-muted ml-auto" />
                           )}
@@ -422,7 +423,7 @@ export const MonthlyPunctualityCommandCenter: React.FC<MonthlyPunctualityCommand
                 )}
               </tbody>
             </table>
-          </div>
+        </TableScrollContainer>
       </div>
     </div>
   );

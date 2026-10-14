@@ -931,7 +931,7 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
       </div>
 
       {/* ── Scrollable Body ─────────────────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden custom-scrollbar p-4 sm:p-6 lg:p-8 space-y-6">
         {/* Actionable Missed Punch Inquiry Banner */}
         {pendingInquiries.length > 0 && (
           <Callout

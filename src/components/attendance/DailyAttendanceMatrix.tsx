@@ -22,6 +22,7 @@ import { useOffDays } from '../../hooks/useOffDays';
 import { CustomTimePicker } from '../ui/CustomTimePicker';
 import { NumberStepper } from '../ui/NumberStepper';
 import { Button } from '../ui/button';
+import { TableScrollContainer } from '../ui/DataTable';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
 import { getAttendanceMinDate } from '../../constants/attendance';
@@ -385,12 +386,12 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
               : `Showing ${filteredRows.length} of ${matrixData?.rows.length || 0} employees`}
           </span>
         </div>
-        <div className="overflow-x-auto custom-scrollbar">
+        <TableScrollContainer hasStickyFirstCol>
             <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="bg-subtle text-fg-muted border-b border-border font-semibold">
-                  <th className="py-3 px-4 w-10">#</th>
-                  <th className="py-3 px-4">Employee</th>
+              <thead className="sticky top-0 z-20 bg-canvas border-b border-border shadow-xs">
+                <tr className="bg-canvas text-fg-muted border-b border-border font-semibold">
+                  <th className="py-3 px-4 w-10 sticky left-0 z-30 bg-canvas">#</th>
+                  <th className="py-3 px-4 sticky left-10 z-30 bg-canvas border-r border-border">Employee</th>
                   <th className="py-3 px-4">Department</th>
                   <th className="py-3 px-4">Assigned Shift</th>
                   <th className="py-3 px-4">Time In</th>
@@ -398,17 +399,17 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                   <th className="py-3 px-4">Break</th>
                   <th className="py-3 px-4">Effective Hours</th>
                   <th className="py-3 px-4">Register Status</th>
-                  {canEditOverride && <th className="py-3 px-4 text-right">Override</th>}
+                  {canEditOverride && <th className="py-3 px-4 text-right w-16">Override</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border font-medium">
                 {isWaitingForNewDate ? (
                   Array.from({ length: 12 }).map((_, idx) => (
                     <tr key={`matrix-skel-${idx}`} className="animate-pulse">
-                      <td className="py-3 px-4">
+                      <td className="py-3 px-4 sticky left-0 z-10 bg-surface">
                         <div className="w-4 h-3 bg-skel rounded" />
                       </td>
-                      <td className="py-3 px-4 whitespace-nowrap">
+                      <td className="py-3 px-4 whitespace-nowrap sticky left-10 z-10 bg-surface border-r border-border">
                         <div className="flex items-center gap-2.5">
                           <div className="w-7 h-7 rounded-lg bg-skel shrink-0" />
                           <div className="space-y-1">
@@ -459,10 +460,10 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         className="hover:bg-hover transition-colors"
                       >
                         {/* Index */}
-                        <td className="py-3 px-4 text-fg-muted font-numeric">{idx + 1}</td>
+                        <td className="py-3 px-4 text-fg-muted font-numeric sticky left-0 z-10 bg-surface">{idx + 1}</td>
 
                         {/* Employee Info */}
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        <td className="py-3 px-4 whitespace-nowrap sticky left-10 z-10 bg-surface border-r border-border">
                           <div className="flex items-center gap-2.5">
                             <Avatar
                               name={row.employee_name}
@@ -471,13 +472,13 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                               className="rounded-lg shrink-0"
                             />
                             <span
-                              className={`font-semibold text-fg leading-tight ${
+                              className={`font-semibold text-fg leading-tight truncate max-w-[160px] ${
                                 onSelectEmployee
                                   ? 'hover:text-accent-text hover:underline cursor-pointer'
                                   : ''
                               }`}
                               onClick={() => onSelectEmployee?.(row.user_id)}
-                              title={onSelectEmployee ? 'Open monthly timesheet' : undefined}
+                              title={row.employee_name}
                             >
                               {row.employee_name}
                             </span>
@@ -621,7 +622,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
                         {/* HR Override Button */}
                         {canEditOverride && (
-                          <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <td className="py-3 px-4 text-right whitespace-nowrap w-16">
                             <button
                               type="button"
                               onClick={() => handleOpenOverride(row)}
@@ -638,7 +639,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                 )}
               </tbody>
             </table>
-          </div>
+        </TableScrollContainer>
       </div>
 
       {/* HR Override Dialog Modal */}

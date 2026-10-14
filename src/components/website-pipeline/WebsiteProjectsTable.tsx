@@ -102,10 +102,10 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
   return (
     <div className="p-5 flex-1 min-h-0 overflow-y-auto custom-scrollbar">
       <TableCard className="w-full">
-        <Table>
+        <Table hasStickyFirstCol>
           <THead>
             <tr>
-              <TH>
+              <TH stickyLeft>
                 <SortHeader
                   label="Project"
                   direction={sortField === 'name' ? (sortAsc ? 'asc' : 'desc') : null}
@@ -140,15 +140,15 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                   onSort={() => handleSort('progress')}
                 />
               </TH>
-              <TH>Tasks</TH>
-              <TH>
+              <TH className="hidden xl:table-cell">Tasks</TH>
+              <TH className="hidden lg:table-cell">
                 <SortHeader
                   label="Launch Date"
                   direction={sortField === 'target_launch_date' ? (sortAsc ? 'asc' : 'desc') : null}
                   onSort={() => handleSort('target_launch_date')}
                 />
               </TH>
-              <TH>
+              <TH className="hidden xl:table-cell">
                 <SortHeader
                   label="Manager"
                   direction={sortField === 'manager_name' ? (sortAsc ? 'asc' : 'desc') : null}
@@ -177,18 +177,18 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                   className="cursor-pointer hover:bg-hover transition-colors group"
                 >
                   {/* Project Name */}
-                  <TD className="min-w-[200px]">
-                    <div className="flex flex-col">
-                      <span className="font-semibold text-fg text-small group-hover:text-accent transition-colors inline-flex items-center gap-1">
+                  <TD stickyLeft className="min-w-[180px] max-w-[220px]">
+                    <div className="flex flex-col min-w-0">
+                      <span className="font-semibold text-fg text-small group-hover:text-accent transition-colors inline-flex items-center gap-1 truncate" title={project.name}>
                         {project.name}
-                        <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-accent" />
+                        <ArrowUpRight className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity text-accent shrink-0" />
                       </span>
                       {project.staging_url ? (
-                        <span className="text-caption text-fg-muted truncate max-w-xs font-mono text-[11px]">
+                        <span className="text-caption text-fg-muted truncate max-w-xs font-mono text-[11px]" title={project.staging_url}>
                           {project.staging_url.replace(/^https?:\/\//, '')}
                         </span>
                       ) : (
-                        <span className="text-caption text-fg-muted capitalize">
+                        <span className="text-caption text-fg-muted capitalize truncate">
                           {project.website_type.replace('_', ' ')}
                         </span>
                       )}
@@ -196,7 +196,7 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                   </TD>
 
                   {/* Client */}
-                  <TD className="text-small text-fg whitespace-nowrap">
+                  <TD className="text-small text-fg whitespace-nowrap min-w-0 max-w-[160px] truncate" title={project.client_name || ''}>
                     {project.client_name || '—'}
                   </TD>
 
@@ -238,7 +238,7 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                   </TD>
 
                   {/* Tasks */}
-                  <TD className="whitespace-nowrap">
+                  <TD className="whitespace-nowrap hidden xl:table-cell">
                     <span className="font-numeric text-small text-fg">
                       {project.completed_tasks_count} / {project.total_tasks_count}
                     </span>
@@ -250,12 +250,12 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                   </TD>
 
                   {/* Launch Date */}
-                  <TD className="whitespace-nowrap text-small text-fg-muted font-numeric">
+                  <TD className="whitespace-nowrap text-small text-fg-muted font-numeric hidden lg:table-cell">
                     {formattedLaunchDate}
                   </TD>
 
                   {/* Manager */}
-                  <TD className="whitespace-nowrap">
+                  <TD className="whitespace-nowrap hidden xl:table-cell">
                     {project.manager_name ? (
                       <div className="flex items-center gap-1.5">
                         <Avatar
@@ -264,7 +264,7 @@ export const WebsiteProjectsTable: React.FC<WebsiteProjectsTableProps> = ({
                           size={20}
                           className="rounded-full shrink-0"
                         />
-                        <span className="text-small text-fg">{project.manager_name}</span>
+                        <span className="text-small text-fg truncate max-w-[120px]" title={project.manager_name}>{project.manager_name}</span>
                       </div>
                     ) : (
                       <span className="text-caption text-fg-muted italic">Unassigned</span>

@@ -18,6 +18,7 @@ import { useToast } from '../../context/ToastContext';
 import { KpiCard } from '../ui/KpiCard';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
+import { TableScrollContainer } from '../ui/DataTable';
 import { cn } from '../../lib/utils';
 
 interface PersonalTimesheetTableProps {
@@ -333,11 +334,11 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
       ) : null}
 
       {/* High-Density Timesheet Table (40px compact rows, sentence case headers) */}
-      <div className="overflow-x-auto">
+      <TableScrollContainer hasStickyFirstCol>
         <table className="w-full text-left text-table border-collapse">
-          <thead>
+          <thead className="sticky top-0 z-20 bg-canvas border-b border-border shadow-xs">
             <tr className="bg-canvas text-fg-muted border-b border-border text-xs font-medium">
-              <th className="py-2.5 px-3 font-medium">Date</th>
+              <th className="py-2.5 px-3 font-medium sticky left-0 z-30 bg-canvas border-r border-border">Date</th>
               <th className="py-2.5 px-3 font-medium">Assigned shift</th>
               <th className="py-2.5 px-3 font-medium">Time in</th>
               <th className="py-2.5 px-3 font-medium">Time out</th>
@@ -347,7 +348,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
               <th className="py-2.5 px-3 font-medium">Undertime</th>
               <th className="py-2.5 px-3 font-medium">Status</th>
               {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                <th className="py-2.5 px-3 font-medium text-right">Action</th>
+                <th className="py-2.5 px-3 font-medium text-right w-24">Action</th>
               )}
             </tr>
           </thead>
@@ -355,7 +356,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
             {isLoading && rows.length === 0 ? (
               Array.from({ length: 8 }).map((_, i) => (
                 <tr key={`ts-skeleton-${i}`} className="h-10 animate-pulse">
-                  <td className="py-2 px-3">
+                  <td className="py-2 px-3 sticky left-0 z-10 bg-surface border-r border-border">
                     <div className="h-4 w-24 bg-skel rounded-xs" />
                   </td>
                   <td className="py-2 px-3">
@@ -486,7 +487,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
                     )}
                   >
                     {/* Date */}
-                    <td className="py-2 px-3 whitespace-nowrap text-fg font-medium">
+                    <td className={cn('py-2 px-3 whitespace-nowrap text-fg font-medium sticky left-0 z-10 bg-surface border-r border-border', isOffDay && 'bg-subtle/80')}>
                       <span>{formattedDate}</span>
                     </td>
 
@@ -590,7 +591,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
 
                     {/* Regularization Action (Employee) or Ask Checkout (HR) */}
                     {(!readOnly || (canInquireMissedPunch && employeeId)) && (
-                      <td className="py-2 px-3 text-right whitespace-nowrap">
+                      <td className="py-2 px-3 text-right whitespace-nowrap w-24">
                         {!readOnly ? (
                           isOffDay ? (
                             <span className="text-fg-faint">—</span>
@@ -646,7 +647,7 @@ export const PersonalTimesheetTable: React.FC<PersonalTimesheetTableProps> = ({
             )}
           </tbody>
         </table>
-      </div>
+      </TableScrollContainer>
     </div>
   );
 };

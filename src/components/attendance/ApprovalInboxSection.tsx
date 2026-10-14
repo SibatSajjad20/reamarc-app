@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Inbox,
   CheckCircle2,
@@ -23,9 +23,17 @@ import { attendanceService } from '../../services/attendanceService';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { CustomSelect } from '../ui/CustomSelect';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '../ui/dropdown-menu';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
+import { TableScrollContainer } from '../ui/DataTable';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
 import { Callout } from '../ui/Callout';
@@ -99,15 +107,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
   const [appealingItem, setAppealingItem] = useState<AttendanceRequest | null>(null);
   const [deletingItem, setDeletingItem] = useState<AttendanceRequest | null>(null);
   const [deleteIsHard, setDeleteIsHard] = useState(true);
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
-  // Close dropdown on click outside
-  useEffect(() => {
-    if (!openDropdownId) return;
-    const handleDocClick = () => setOpenDropdownId(null);
-    document.addEventListener('click', handleDocClick);
-    return () => document.removeEventListener('click', handleDocClick);
-  }, [openDropdownId]);
 
   // Form Inputs
   const [reviewComment, setReviewComment] = useState('');
@@ -482,14 +482,14 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
           </span>
         </div>
 
-        <div className="overflow-x-auto overflow-y-auto max-h-[600px] custom-scrollbar">
+        <TableScrollContainer hasStickyFirstCol className="overflow-y-auto max-h-[600px]">
           <table className="w-full text-left text-table border-collapse">
-            <thead className="sticky top-0 z-10 bg-canvas border-b border-border shadow-xs">
+            <thead className="sticky top-0 z-20 bg-canvas border-b border-border shadow-xs">
               <tr className="text-fg-muted text-xs font-medium">
-                <th className="py-2.5 px-3 font-medium">Applicant</th>
+                <th className="py-2.5 px-3 font-medium sticky left-0 z-30 bg-canvas border-r border-border">Applicant</th>
                 <th className="py-2.5 px-3 font-medium">Request type</th>
                 <th className="py-2.5 px-3 font-medium">Dates and time</th>
-                <th className="py-2.5 px-3 font-medium max-w-sm">Reason and work details</th>
+                <th className="py-2.5 px-3 font-medium max-w-sm hidden xl:table-cell">Reason and work details</th>
                 <th className="py-2.5 px-3 font-medium">Status</th>
                 <th className="py-2.5 px-3 font-medium text-right w-16">Actions</th>
               </tr>
@@ -498,7 +498,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               {isLoading && requests.length === 0 ? (
                 Array.from({ length: 8 }).map((_, idx) => (
                   <tr key={`req-skeleton-${idx}`} className="h-10 animate-pulse">
-                    <td className="py-2.5 px-3 whitespace-nowrap">
+                    <td className="py-2.5 px-3 whitespace-nowrap sticky left-0 z-10 bg-surface border-r border-border">
                       <div className="flex items-center gap-2">
                         <div className="w-6 h-6 rounded-md bg-skel shrink-0" />
                         <div className="space-y-1">
@@ -516,13 +516,13 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                         <div className="h-2.5 w-16 bg-skel rounded-xs" />
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 max-w-sm">
+                    <td className="py-2.5 px-3 max-w-sm hidden xl:table-cell">
                       <div className="h-3.5 w-48 bg-skel rounded-xs" />
                     </td>
                     <td className="py-2.5 px-3 whitespace-nowrap">
                       <div className="h-5 w-20 bg-skel rounded-full" />
                     </td>
-                    <td className="py-2.5 px-3 text-right">
+                    <td className="py-2.5 px-3 text-right w-16">
                       <div className="h-6 w-12 bg-skel rounded-md ml-auto" />
                     </td>
                   </tr>
@@ -562,7 +562,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       className="h-10 hover:bg-hover/60 transition-colors cursor-pointer group"
                     >
                       {/* Applicant */}
-                      <td className="py-2 px-3 whitespace-nowrap">
+                      <td className="py-2 px-3 whitespace-nowrap sticky left-0 z-10 bg-surface border-r border-border min-w-0">
                         <div className="flex items-center gap-2">
                           <Avatar
                             name={req.user_name}
@@ -570,11 +570,11 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                             size={24}
                             className="rounded-md shrink-0"
                           />
-                          <div>
-                            <p className="font-medium text-fg leading-tight">
+                          <div className="min-w-0 max-w-[140px]">
+                            <p className="font-medium text-fg leading-tight truncate" title={req.user_name}>
                               {req.user_name}
                             </p>
-                            <p className="text-micro text-fg-muted">
+                            <p className="text-micro text-fg-muted truncate" title={`${req.department} · ${req.user_role || 'Staff'}`}>
                               {req.department} · <span className="capitalize">{req.user_role || 'Staff'}</span>
                             </p>
                           </div>
@@ -640,7 +640,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       </td>
 
                       {/* Reason Column: Clean clamped preview without clutter link */}
-                      <td className="py-3.5 px-4 text-fg-muted max-w-xs">
+                      <td className="py-3.5 px-4 text-fg-muted max-w-xs min-w-0 hidden xl:table-cell" title={requestReasonPreview(req)}>
                         <div className="space-y-1">
                           <p className="line-clamp-2 text-fg">
                             {requestReasonPreview(req)}
@@ -687,154 +687,120 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
                       </td>
 
                       {/* Actions Dropdown */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                        <div className="relative inline-block text-left">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setOpenDropdownId(openDropdownId === req.id ? null : req.id);
-                            }}
-                            className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
-                            title="Actions"
-                          >
-                            <MoreVertical className="w-4 h-4" />
-                          </button>
-
-                          {openDropdownId === req.id && (
-                            <div
-                              className="absolute right-0 top-full mt-1 w-52 bg-surface rounded-xl border border-border shadow-md py-1 z-30 text-xs text-left animate-in fade-in zoom-in-95 duration-100"
-                              onClick={(e) => e.stopPropagation()}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap w-16" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <button
+                              type="button"
+                              className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-hover transition-colors cursor-pointer"
+                              title="Actions"
+                              aria-label="Actions"
                             >
-                              {/* 1. View Full Details */}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setOpenDropdownId(null);
-                                  setSelectedDetailItem(req);
-                                }}
-                                className="w-full px-3 py-2 text-left text-fg-2 hover:bg-hover flex items-center gap-2 font-medium cursor-pointer transition-colors"
-                              >
-                                <Eye className="w-3.5 h-3.5 text-fg-muted" />
-                                <span>View Full Details</span>
-                              </button>
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </DropdownMenuTrigger>
 
-                              {/* Reviewer actions on pending/appealed requests */}
-                              {canReviewThis && (
-                                <>
-                                  <div className="my-1 border-t border-border" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      handleOpenReview(req, 'approved');
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-success-fg hover:bg-success-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <CheckCircle2 className="w-3.5 h-3.5 text-success-fg" />
-                                    <span>Approve Request</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      handleOpenReview(req, 'needs_info');
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <HelpCircle className="w-3.5 h-3.5 text-accent-text" />
-                                    <span>Ask for Info</span>
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      handleOpenReview(req, 'rejected');
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <XCircle className="w-3.5 h-3.5 text-danger-fg" />
-                                    <span>Reject Request</span>
-                                  </button>
-                                </>
-                              )}
+                          <DropdownMenuContent align="end" className="w-52">
+                            {/* 1. View Full Details */}
+                            <DropdownMenuItem
+                              onClick={() => setSelectedDetailItem(req)}
+                              className="text-xs gap-2 font-medium cursor-pointer"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-fg-muted" />
+                              <span>View Full Details</span>
+                            </DropdownMenuItem>
 
-                              {/* Reviewer Edit Status on already resolved requests */}
-                              {canEditThis && (
-                                <>
-                                  <div className="my-1 border-t border-border" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      handleOpenEditStatus(req);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <Edit3 className="w-3.5 h-3.5 text-accent-text" />
-                                    <span>Edit Decision</span>
-                                  </button>
-                                </>
-                              )}
+                            {/* Reviewer actions on pending/appealed requests */}
+                            {canReviewThis && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenReview(req, 'approved')}
+                                  className="text-xs gap-2 text-success-fg hover:text-success-fg hover:bg-success-bg font-semibold cursor-pointer"
+                                >
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-success-fg" />
+                                  <span>Approve Request</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenReview(req, 'needs_info')}
+                                  className="text-xs gap-2 text-accent-text hover:text-accent-text hover:bg-accent-soft font-semibold cursor-pointer"
+                                >
+                                  <HelpCircle className="w-3.5 h-3.5 text-accent-text" />
+                                  <span>Ask for Info</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenReview(req, 'rejected')}
+                                  className="text-xs gap-2 text-danger-fg hover:text-danger-fg hover:bg-danger-bg font-semibold cursor-pointer"
+                                >
+                                  <XCircle className="w-3.5 h-3.5 text-danger-fg" />
+                                  <span>Reject Request</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
 
-                              {/* Employee action: Reply to clarification */}
-                              {isNeedsInfo && isMyRequest && (
-                                <>
-                                  <div className="my-1 border-t border-border" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      setClarifyingItem(req);
-                                      setClarifyResponseText('');
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <MessageSquare className="w-3.5 h-3.5 text-accent-text" />
-                                    <span>Reply to HR</span>
-                                  </button>
-                                </>
-                              )}
+                            {/* Reviewer Edit Status on already resolved requests */}
+                            {canEditThis && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => handleOpenEditStatus(req)}
+                                  className="text-xs gap-2 text-accent-text hover:text-accent-text hover:bg-accent-soft font-semibold cursor-pointer"
+                                >
+                                  <Edit3 className="w-3.5 h-3.5 text-accent-text" />
+                                  <span>Edit Decision</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
 
-                              {/* Employee action: Single-use Appeal */}
-                              {req.status === 'rejected' && isMyRequest && !req.has_appealed && (
-                                <>
-                                  <div className="my-1 border-t border-border" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      setAppealingItem(req);
-                                      setAppealReasonText('');
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-accent-text hover:bg-accent-soft flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <CornerUpLeft className="w-3.5 h-3.5 text-accent-text" />
-                                    <span>Appeal Rejection</span>
-                                  </button>
-                                </>
-                              )}
+                            {/* Employee action: Reply to clarification */}
+                            {isNeedsInfo && isMyRequest && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setClarifyingItem(req);
+                                    setClarifyResponseText('');
+                                  }}
+                                  className="text-xs gap-2 text-accent-text hover:text-accent-text hover:bg-accent-soft font-semibold cursor-pointer"
+                                >
+                                  <MessageSquare className="w-3.5 h-3.5 text-accent-text" />
+                                  <span>Reply to HR</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
 
-                              {/* Delete Request */}
-                              {canDeleteThis && (
-                                <>
-                                  <div className="my-1 border-t border-border" />
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setOpenDropdownId(null);
-                                      setDeletingItem(req);
-                                    }}
-                                    className="w-full px-3 py-2 text-left text-danger-fg hover:bg-danger-bg flex items-center gap-2 font-semibold cursor-pointer transition-colors"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5 text-danger-fg" />
-                                    <span>Delete Request</span>
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          )}
-                        </div>
+                            {/* Employee action: Single-use Appeal */}
+                            {req.status === 'rejected' && isMyRequest && !req.has_appealed && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setAppealingItem(req);
+                                    setAppealReasonText('');
+                                  }}
+                                  className="text-xs gap-2 text-accent-text hover:text-accent-text hover:bg-accent-soft font-semibold cursor-pointer"
+                                >
+                                  <CornerUpLeft className="w-3.5 h-3.5 text-accent-text" />
+                                  <span>Appeal Rejection</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+
+                            {/* Delete Request */}
+                            {canDeleteThis && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  onClick={() => setDeletingItem(req)}
+                                  className="text-xs gap-2 text-danger-fg hover:text-danger-fg hover:bg-danger-bg font-semibold cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5 text-danger-fg" />
+                                  <span>Delete Request</span>
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       </td>
                     </tr>
                   );
@@ -842,7 +808,7 @@ export const ApprovalInboxSection: React.FC<ApprovalInboxSectionProps> = ({
               )}
             </tbody>
           </table>
-        </div>
+        </TableScrollContainer>
       </div>
 
       {/* ────────────────────────────────────────────────────────── */}

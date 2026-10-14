@@ -871,16 +871,16 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         ) : (
           <div className="flex-1 overflow-y-auto p-4 sm:p-5">
             <TableCard>
-              <Table>
+              <Table hasStickyFirstCol>
                 <THead>
                   <tr>
-                    <TH>Lead</TH>
+                    <TH stickyLeft>Lead</TH>
                     <TH>Stage</TH>
-                    <TH>Source</TH>
+                    <TH className="hidden xl:table-cell">Source</TH>
                     <TH>Owner</TH>
                     <TH align="right">Value</TH>
-                    <TH>Created</TH>
-                    <TH>Next follow-up</TH>
+                    <TH className="hidden xl:table-cell">Created</TH>
+                    <TH className="hidden lg:table-cell">Next follow-up</TH>
                     <TH align="center" className="w-12"></TH>
                   </tr>
                 </THead>
@@ -894,9 +894,9 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                         clickable
                         onClick={() => void openLead(lead.id)}
                       >
-                        <TD>
-                          <div className="font-medium text-fg text-ui">{lead.name}</div>
-                          {lead.company && <div className="text-fg-muted text-caption">{lead.company}</div>}
+                        <TD stickyLeft>
+                          <div className="font-medium text-fg text-ui truncate max-w-[180px]" title={lead.name}>{lead.name}</div>
+                          {lead.company && <div className="text-fg-muted text-caption truncate max-w-[180px]" title={lead.company}>{lead.company}</div>}
                         </TD>
                         <TD>
                           <StatusPill
@@ -912,7 +912,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                             label={lead.stage.replace(/_/g, ' ')}
                           />
                         </TD>
-                        <TD>
+                        <TD className="hidden xl:table-cell">
                           <span className="px-2 py-0.5 rounded text-caption font-medium bg-subtle text-fg-muted border border-border uppercase">
                             {lead.source}
                           </span>
@@ -943,12 +943,12 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                             <span className="text-fg-muted">—</span>
                           )}
                         </TD>
-                        <TD mono>
+                        <TD mono className="hidden xl:table-cell">
                           <span className="text-caption text-fg-muted font-numeric">
                             {formatWhen(lead.created_at)}
                           </span>
                         </TD>
-                        <TD mono>
+                        <TD mono className="hidden lg:table-cell">
                           {lead.next_follow_up_at ? (
                             (() => {
                               const bucket = followUpBucket(lead);

@@ -520,8 +520,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       className={cn(
         'group/sidebar relative flex flex-col h-full bg-surface border-r border-border p-3 select-none shrink-0 z-20 motion-reduce:transition-none motion-reduce:delay-0',
         isCollapsed
-          ? 'w-[64px] transition-[width] duration-200 delay-100 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
-          : 'w-[248px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
+          ? 'w-[60px] px-2 transition-[width] duration-200 delay-100 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
+          : 'w-[224px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
       )}
     >
       {/* 1. Brand Block (§8.1, §8.5) */}
@@ -1043,7 +1043,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
             </DropdownMenuTrigger>
 
-            <DropdownMenuContent side="top" align="start" sideOffset={8} className="w-60">
+            <DropdownMenuContent side="top" align="start" sideOffset={6} className="w-60">
               {/* 1. Header non-interactive */}
               <div className="px-2.5 py-2 select-none">
                 <p className="text-[13px] font-medium text-fg truncate leading-tight">{displayName}</p>

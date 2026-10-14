@@ -243,7 +243,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto p-6 space-y-6">
+    <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-y-auto overflow-x-hidden p-6 space-y-6">
       {/* Page Header matching Mock 08 */}
       <PageHeader
         title="Team directory"
@@ -423,10 +423,10 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
         </TableToolbar>
 
         {/* DataTable */}
-        <Table>
+        <Table hasStickyFirstCol>
           <THead>
             <TR>
-              <TH>Member</TH>
+              <TH stickyLeft>Member</TH>
               {directoryTab === 'clients' ? (
                 <TH>Linked clients</TH>
               ) : (
@@ -436,7 +436,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                 </>
               )}
               <TH>Contact</TH>
-              {directoryTab === 'team' && <TH>Linked clients</TH>}
+              {directoryTab === 'team' && <TH className="hidden xl:table-cell">Linked clients</TH>}
               <TH>Employment</TH>
               {canManageMembers && <TH align="right" className="w-12"></TH>}
             </TR>
@@ -445,7 +445,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
             {isLoading ? (
               Array.from({ length: 8 }).map((_, idx) => (
                 <TR key={`skeleton-${idx}`}>
-                  <TD>
+                  <TD stickyLeft>
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-full bg-subtle animate-pulse" />
                       <div className="space-y-1.5">
@@ -464,7 +464,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     <div className="w-24 h-3 rounded bg-subtle animate-pulse" />
                   </TD>
                   {directoryTab === 'team' && (
-                    <TD>
+                    <TD className="hidden xl:table-cell">
                       <div className="w-12 h-5 rounded bg-subtle animate-pulse" />
                     </TD>
                   )}
@@ -472,7 +472,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     <div className="w-14 h-5 rounded bg-subtle animate-pulse" />
                   </TD>
                   {canManageMembers && (
-                    <TD align="right">
+                    <TD align="right" className="w-12">
                       <div className="w-6 h-6 rounded bg-subtle animate-pulse ml-auto" />
                     </TD>
                   )}
@@ -499,7 +499,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     className="hover:bg-hover transition-colors"
                   >
                     {/* Member: Avatar + Name + Email */}
-                    <TD>
+                    <TD stickyLeft>
                       <div className="flex items-center gap-2.5">
                         <Avatar
                           name={m.full_name || 'User'}
@@ -507,11 +507,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                           size={32}
                           className="rounded-full shrink-0"
                         />
-                        <div className="min-w-0">
-                          <div className="font-medium text-fg truncate">
+                        <div className="min-w-0 max-w-[200px]">
+                          <div className="font-medium text-fg truncate" title={m.full_name || 'User'}>
                             {m.full_name || 'User'}
                           </div>
-                          <div className="text-caption text-fg-muted truncate">{m.email}</div>
+                          <div className="text-caption text-fg-muted truncate" title={m.email}>{m.email}</div>
                         </div>
                       </div>
                     </TD>
@@ -586,7 +586,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
 
                     {/* Linked clients (on Team tab) */}
                     {directoryTab === 'team' && (
-                      <TD>
+                      <TD className="hidden xl:table-cell">
                         {clientWs.length === 0 ? (
                           <span className="text-fg-muted text-caption">—</span>
                         ) : (

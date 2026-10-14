@@ -32,6 +32,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { useToast } from '../../context/ToastContext';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
+import { Popover, PopoverTrigger, PopoverContent } from '../ui/popover';
 import { StatusPill } from '../ui/StatusPill';
 import { Button } from '../ui/button';
 import { getStatusMapping } from '../../lib/statusMap';
@@ -242,21 +243,6 @@ export const ContentCalendarTableView: React.FC<Props> = ({
     return options;
   }, []);
 
-  // Close filter popover on document click
-  useEffect(() => {
-    if (!openFilterColKey) return;
-    const handleDocClick = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (
-        !target.closest(`[data-filter-popover="${openFilterColKey}"]`) &&
-        !target.closest(`[data-filter-btn="${openFilterColKey}"]`)
-      ) {
-        setOpenFilterColKey(null);
-      }
-    };
-    document.addEventListener('mousedown', handleDocClick);
-    return () => document.removeEventListener('mousedown', handleDocClick);
-  }, [openFilterColKey]);
 
   // Unique values for column filter
   const getUniqueValuesForColumn = (colKey: string) => {
@@ -712,22 +698,93 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                         )}
                       </button>
                       {canFilter && (
-                        <button
-                          type="button"
-                          data-filter-btn={col.key}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setOpenFilterColKey(isFilterOpen ? null : col.key);
-                          }}
-                          className={`p-1 rounded-sm transition-colors cursor-pointer shrink-0 ${
-                            hasActiveFilter
-                              ? 'bg-accent text-accent-fg font-medium shadow-xs'
-                              : 'text-fg-muted hover:text-fg hover:bg-hover'
-                          }`}
-                          title={`Filter by ${col.label}`}
+                        <Popover
+                          open={isFilterOpen}
+                          onOpenChange={(open) => setOpenFilterColKey(open ? col.key : null)}
                         >
-                          <Filter className="w-3 h-3" />
-                        </button>
+                          <PopoverTrigger asChild>
+                            <button
+                              type="button"
+                              className={`p-1 rounded-sm transition-colors cursor-pointer shrink-0 ${
+                                hasActiveFilter
+                                  ? 'bg-accent text-accent-fg font-medium shadow-xs'
+                                  : 'text-fg-muted hover:text-fg hover:bg-hover'
+                              }`}
+                              title={`Filter by ${col.label}`}
+                            >
+                              <Filter className="w-3 h-3" />
+                            </button>
+                          </PopoverTrigger>
+                          <PopoverContent
+                            align="start"
+                            sideOffset={6}
+                            className="w-56 p-2.5 space-y-2 font-normal normal-case text-left"
+                          >
+                            <div className="flex items-center justify-between pb-1.5 border-b border-border">
+                              <span className="text-xs font-medium text-fg-muted">Filter {col.label}</span>
+                              {hasActiveFilter && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setColumnFilters((prev) => {
+                                      const next = { ...prev };
+                                      delete next[col.key];
+                                      return next;
+                                    });
+                                    setOpenFilterColKey(null);
+                                  }}
+                                  className="text-[10px] text-danger-fg hover:underline font-medium cursor-pointer"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                            </div>
+
+                            <input
+                              type="text"
+                              placeholder="Search value..."
+                              value={columnFilters[col.key] || ''}
+                              autoFocus
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                setColumnFilters((prev) => {
+                                  if (!v) {
+                                    const next = { ...prev };
+                                    delete next[col.key];
+                                    return next;
+                                  }
+                                  return { ...prev, [col.key]: v };
+                                });
+                              }}
+                              className="w-full px-2 py-1 text-xs bg-subtle border border-border rounded-md text-fg placeholder:text-fg-muted focus:outline-hidden focus:ring-1 focus:ring-accent"
+                            />
+
+                            {existingUniqueValues.length > 0 && (
+                              <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1">
+                                {existingUniqueValues.map((val) => {
+                                  const isSelected = columnFilters[col.key] === val;
+                                  return (
+                                    <button
+                                      key={val}
+                                      type="button"
+                                      onClick={() => {
+                                        setColumnFilters((prev) => ({ ...prev, [col.key]: val }));
+                                        setOpenFilterColKey(null);
+                                      }}
+                                      className={`w-full text-left px-2 py-1 rounded text-xs truncate transition-colors cursor-pointer ${
+                                        isSelected
+                                          ? 'bg-accent-soft text-accent font-medium'
+                                          : 'text-fg hover:bg-hover'
+                                      }`}
+                                    >
+                                      {val}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </PopoverContent>
+                        </Popover>
                       )}
                     </div>
 
@@ -737,79 +794,6 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                       className="absolute top-0 bottom-0 right-0 w-1.5 cursor-col-resize hover:bg-accent/80 z-20"
                       title="Drag to resize column"
                     />
-
-                    {/* Popover Filter Menu */}
-                    {isFilterOpen && (
-                      <div
-                        data-filter-popover={col.key}
-                        onClick={(e) => e.stopPropagation()}
-                        className="absolute left-0 top-full mt-1 z-50 w-56 bg-surface border border-border rounded-lg shadow-lg p-2.5 space-y-2 animate-in fade-in zoom-in-95 duration-100 font-normal normal-case text-left"
-                      >
-                        <div className="flex items-center justify-between pb-1.5 border-b border-border">
-                          <span className="text-xs font-medium text-fg-muted">Filter {col.label}</span>
-                          {hasActiveFilter && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setColumnFilters((prev) => {
-                                  const next = { ...prev };
-                                  delete next[col.key];
-                                  return next;
-                                });
-                                setOpenFilterColKey(null);
-                              }}
-                              className="text-[10px] text-danger-fg hover:underline font-medium cursor-pointer"
-                            >
-                              Clear
-                            </button>
-                          )}
-                        </div>
-
-                        <input
-                          type="text"
-                          placeholder="Search value..."
-                          value={columnFilters[col.key] || ''}
-                          autoFocus
-                          onChange={(e) => {
-                            const v = e.target.value;
-                            setColumnFilters((prev) => {
-                              if (!v) {
-                                const next = { ...prev };
-                                delete next[col.key];
-                                return next;
-                              }
-                              return { ...prev, [col.key]: v };
-                            });
-                          }}
-                          className="w-full px-2 py-1 text-xs bg-subtle border border-border rounded-md text-fg placeholder:text-fg-muted focus:outline-hidden focus:ring-1 focus:ring-accent"
-                        />
-
-                        {existingUniqueValues.length > 0 && (
-                          <div className="max-h-36 overflow-y-auto space-y-0.5 pr-1">
-                            {existingUniqueValues.map((val) => {
-                              const isSelected = columnFilters[col.key] === val;
-                              return (
-                                <button
-                                  key={val}
-                                  type="button"
-                                  onClick={() => {
-                                    setColumnFilters((prev) => ({ ...prev, [col.key]: val }));
-                                    setOpenFilterColKey(null);
-                                  }}
-                                  className={`w-full text-left px-2 py-1 rounded text-xs truncate transition-colors cursor-pointer ${
-                                    isSelected
-                                      ? 'bg-accent-soft text-accent font-medium'
-                                      : 'text-fg hover:bg-hover'
-                                  }`}
-                                >
-                                  {val}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </th>
                 );
               })}

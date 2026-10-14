@@ -130,8 +130,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
           <PopoverPrimitive.Portal>
             <PopoverPrimitive.Content
               align={align === 'right' ? 'end' : 'start'}
-              sideOffset={4}
-              className="z-[var(--z-popover,100)] min-w-[200px] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+              sideOffset={6}
+              collisionPadding={8}
+              avoidCollisions
+              className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
             >
               {options.length === 0 ? (
                 <div className="px-3 py-3 text-xs text-fg-muted text-center select-none">
@@ -189,8 +191,10 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
         ) : (
           <PopoverPrimitive.Content
             align={align === 'right' ? 'end' : 'start'}
-            sideOffset={4}
-            className="z-[var(--z-popover,100)] min-w-[200px] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none"
+            sideOffset={6}
+            collisionPadding={8}
+            avoidCollisions
+            className="z-[var(--z-popover,100)] w-[var(--radix-popover-trigger-width)] min-w-[var(--radix-popover-trigger-width)] max-h-[320px] overflow-y-auto bg-surface border border-border rounded-lg shadow-md p-1 space-y-0.5 outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
           >
             {options.length === 0 ? (
               <div className="px-3 py-3 text-xs text-fg-muted text-center select-none">
@@ -198,52 +202,52 @@ export const CustomSelect: React.FC<CustomSelectProps> = ({
               </div>
             ) : (
               options.map((option) => {
-              const isSelected = option.value === value;
-              const OptionIcon = option.icon;
+                const isSelected = option.value === value;
+                const OptionIcon = option.icon;
 
-              return (
-                <button
-                  key={option.value}
-                  type="button"
-                  onClick={() => {
-                    onChange(option.value);
-                    handleOpenChange(false);
-                  }}
-                  className={cn(
-                    'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm text-ui transition-colors cursor-pointer text-left select-none',
-                    isSelected
-                      ? 'bg-accent-soft text-accent-text font-medium'
-                      : 'text-fg-2 hover:bg-hover hover:text-fg'
-                  )}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {OptionIcon && (
-                      <OptionIcon
-                        size={14}
-                        className={cn(
-                          'shrink-0',
-                          isSelected ? 'text-accent-text' : 'text-fg-muted'
-                        )}
-                      />
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => {
+                      onChange(option.value);
+                      handleOpenChange(false);
+                    }}
+                    className={cn(
+                      'w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded-sm text-ui transition-colors cursor-pointer text-left select-none',
+                      isSelected
+                        ? 'bg-accent-soft text-accent-text font-medium'
+                        : 'text-fg-2 hover:bg-hover hover:text-fg'
                     )}
-                    <div className="min-w-0">
-                      <div className="truncate">{option.label}</div>
-                      {option.description && (
-                        <div className="text-micro text-fg-muted truncate">
-                          {option.description}
-                        </div>
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {OptionIcon && (
+                        <OptionIcon
+                          size={14}
+                          className={cn(
+                            'shrink-0',
+                            isSelected ? 'text-accent-text' : 'text-fg-muted'
+                          )}
+                        />
                       )}
+                      <div className="min-w-0">
+                        <div className="truncate">{option.label}</div>
+                        {option.description && (
+                          <div className="text-micro text-fg-muted truncate">
+                            {option.description}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
 
-                  {isSelected && (
-                    <Check size={14} className="text-accent shrink-0 ml-1" />
-                  )}
-                </button>
-              );
-            })
-          )}
-        </PopoverPrimitive.Content>
+                    {isSelected && (
+                      <Check size={14} className="text-accent shrink-0 ml-1" />
+                    )}
+                  </button>
+                );
+              })
+            )}
+          </PopoverPrimitive.Content>
         )}
       </PopoverPrimitive.Root>
 

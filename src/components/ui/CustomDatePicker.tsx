@@ -284,7 +284,9 @@ export const CustomDatePicker: React.FC<CustomDatePickerProps> = ({
         <PopoverPrimitive.Portal>
           <PopoverPrimitive.Content
             align={align === 'right' ? 'end' : 'start'}
-            sideOffset={4}
+            sideOffset={6}
+            collisionPadding={8}
+            avoidCollisions
             className="z-[var(--z-popover,100)] w-[280px] sm:w-[300px] p-3.5 bg-surface border border-border rounded-lg shadow-md select-none outline-none duration-150 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
           >
             {/* Header Navigation */}

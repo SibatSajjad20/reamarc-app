@@ -24,6 +24,12 @@ import {
 import type { CreativeAsset, ContentCalendarItem, AssetRole, DrivePickedFile } from '../../types/contentCalendar';
 import { Button } from '../ui/button';
 import { CustomSelect } from '../ui/CustomSelect';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '../ui/dropdown-menu';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../ui/FormDialogLayout';
 import { FormFooter } from '../ui/FormFooter';
 import { contentCalendarService } from '../../services/contentCalendarService';
@@ -125,7 +131,6 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const [isDeleting, setIsDeleting] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isOpeningPicker] = useState(false);
-  const [showUploadMenu, setShowUploadMenu] = useState(false);
 
   // Add Link Modal State
   const [isAddLinkOpen, setIsAddLinkOpen] = useState(false);
@@ -493,48 +498,28 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 Upload
               </Button>
 
-              <button
-                type="button"
-                onClick={() => setShowUploadMenu((prev) => !prev)}
-                disabled={isUploading || isOpeningPicker}
-                className="px-1 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-fg hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50"
-                title="More upload options"
-              >
-                <ChevronDown className="w-3 h-3" />
-              </button>
-
-              {showUploadMenu && (
-                <>
-                  <div
-                    className="fixed inset-0 z-20"
-                    onClick={() => setShowUploadMenu(false)}
-                  />
-                  <div className="absolute right-0 top-full mt-1 w-52 rounded-xl bg-surface border border-border shadow-md py-1 z-30 animate-in fade-in zoom-in-95 duration-100">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowUploadMenu(false);
-                        void handleOpenGoogleDrivePicker();
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-hover flex items-center gap-2 cursor-pointer font-medium"
-                    >
-                      <GoogleDriveIcon className="w-3.5 h-3.5" />
-                      <span>Google Drive Dialog</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setShowUploadMenu(false);
-                        fileInputRef.current?.click();
-                      }}
-                      className="w-full text-left px-3 py-1.5 text-xs text-fg hover:bg-hover flex items-center gap-2 cursor-pointer font-medium"
-                    >
-                      <UploadCloud className="w-3.5 h-3.5 text-fg-muted" />
-                      <span>Direct Device Upload</span>
-                    </button>
-                  </div>
-                </>
-              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    disabled={isUploading || isOpeningPicker}
+                    className="px-1.5 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-fg hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50 h-8 flex items-center justify-center"
+                    title="More upload options"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  <DropdownMenuItem onClick={() => void handleOpenGoogleDrivePicker()}>
+                    <GoogleDriveIcon className="w-3.5 h-3.5 mr-2" />
+                    <span>Google Drive Dialog</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                    <UploadCloud className="w-3.5 h-3.5 mr-2 text-fg-muted" />
+                    <span>Direct Device Upload</span>
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
             <input
               ref={fileInputRef}

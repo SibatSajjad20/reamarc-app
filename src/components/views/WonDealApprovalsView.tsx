@@ -77,7 +77,7 @@ export const WonDealApprovalsView: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 min-h-0 overflow-auto p-6">
+    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto overflow-x-hidden p-6">
       <PageHeader
         title="Won-deal approvals"
         description="Confirm or send back deals that sales marked as won. You do not get the sales pipeline."
