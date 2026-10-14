@@ -25,6 +25,7 @@ from app.core.security import (
     require_hr_or_admin,
 )
 from app.services import attendance_service
+from app.services.leave_permissions import can_review_leave_request
 
 router = APIRouter(
     prefix="/leaves",
@@ -126,10 +127,22 @@ async def get_pending_requests(
     """
     Get all pending leave requests for Admin, HR, and Operations review inbox.
     """
-    return await attendance_service.get_pending_leave_requests(
+    items = await attendance_service.get_pending_leave_requests(
         department=department,
         viewer_user=current_user,
     )
+    role = str(current_user.get("role") or "").strip().lower()
+    if role in ("hr", "operations"):
+        return [
+            r
+            for r in items
+            if can_review_leave_request(
+                current_user,
+                getattr(r, "user_id", None),
+                getattr(r, "user_role", None),
+            )
+        ]
+    return items
 
 
 @router.patch("/requests/{id}/status", response_model=LeaveResponse)

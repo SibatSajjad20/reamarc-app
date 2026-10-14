@@ -64,8 +64,13 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
     return map;
   }, [projects]);
 
+  const stagesReadOnly =
+    isClient ||
+    (user?.role || '').toLowerCase() === 'operations' ||
+    Boolean(user?.permissions?.view_only);
+
   const handleDragStart = (e: React.DragEvent, id: string) => {
-    if (isClient) {
+    if (stagesReadOnly) {
       e.preventDefault();
       return;
     }
@@ -74,7 +79,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
   };
 
   const handleDragOver = (e: React.DragEvent, stageId: string) => {
-    if (isClient) return;
+    if (stagesReadOnly) return;
     e.preventDefault();
     if (overStage !== stageId) {
       setOverStage(stageId);
@@ -86,7 +91,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
   };
 
   const handleDrop = async (e: React.DragEvent, targetStage: WebsiteStage) => {
-    if (isClient) return;
+    if (stagesReadOnly) return;
     e.preventDefault();
     const pid = draggingId || e.dataTransfer.getData('text/plain');
     setDraggingId(null);

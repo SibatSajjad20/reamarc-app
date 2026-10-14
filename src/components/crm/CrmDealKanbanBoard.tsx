@@ -100,7 +100,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
   }, [deals, openStages]);
 
   const drop = async (target: DropTarget) => {
-    if (!draggingId) return;
+    if (!canManageOutcomes || !draggingId) return;
     const deal = deals.find((d) => d.id === draggingId);
     setOverKey(null);
     setDraggingId(null);
@@ -152,14 +152,19 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
     return (
       <article
         key={deal.id}
-        draggable={!busyId}
-        onDragStart={() => setDraggingId(deal.id)}
+        draggable={canManageOutcomes && !busyId}
+        onDragStart={() => {
+          if (!canManageOutcomes) return;
+          setDraggingId(deal.id);
+        }}
         onDragEnd={() => {
           setDraggingId(null);
           setOverKey(null);
         }}
         onClick={() => onOpen(deal)}
-        className={`group relative rounded-lg border bg-surface p-3.5 transition-all cursor-grab active:cursor-grabbing select-none ${
+        className={`group relative rounded-lg border bg-surface p-3.5 transition-all select-none ${
+          canManageOutcomes ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+        } ${
           isWon
             ? 'border-success-bd'
             : isLost
@@ -229,7 +234,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
                     <Clock className="w-3.5 h-3.5" />
                     <span>Pending ops</span>
                   </span>
-                  {canManageOutcomes && onApproveWon && (
+                  {onApproveWon && (
                     <button
                       type="button"
                       onClick={(e) => {
@@ -255,7 +260,7 @@ export const CrmDealKanbanBoard: React.FC<CrmDealKanbanBoardProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {nextStage && deal.status === 'open' && (
+            {nextStage && deal.status === 'open' && canManageOutcomes && (
               <button
                 type="button"
                 title={`Advance to ${formatStageTitle(nextStage.name)}`}

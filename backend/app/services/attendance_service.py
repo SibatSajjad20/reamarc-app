@@ -4776,6 +4776,7 @@ async def get_all_leave_requests(
     docs = await db.leave_requests.find(query, {"_id": 0}).sort("created_at", -1).to_list(300)
     docs = await _heal_overtime_requests(docs, active_only_pending=(status_filter == "pending"))
     await _attach_original_punches(docs)
+    await _attach_applicant_roles(docs)
     results: List[LeaveResponse] = []
     for d in docs:
         try:

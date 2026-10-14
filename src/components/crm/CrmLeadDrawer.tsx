@@ -323,7 +323,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
 
   const activities: CrmActivity[] = lead.activities || [];
   const closed = Boolean(lead.outcome);
-  const canCreateDeal = lead.outcome === 'won';
+  const canCreateDeal = lead.outcome === 'won' && canAssign;
   const followUpOverdue =
     Boolean(lead.next_follow_up_at) &&
     !lead.outcome &&
@@ -389,7 +389,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   {lead.outcome === 'won' ? 'Won' : lead.outcome}
                 </StatusPill>
               ) : null}
-              {!closed && (
+              {!closed && canAssign && (
                 <div className="w-[180px] max-w-[200px]">
                   <CustomSelect
                     value={lead.stage}
@@ -404,6 +404,11 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                   />
                 </div>
               )}
+              {!closed && !canAssign && (
+                <span className="text-xs text-fg-muted capitalize">
+                  {stages.find((s) => s.id === lead.stage)?.name || lead.stage}
+                </span>
+              )}
             </div>
             <p className="text-small text-fg-muted truncate mt-0.5">
               {lead.company || 'No company specified'} · <span className="capitalize">{lead.source}</span>
@@ -411,6 +416,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {canAssign && (
             <button
               type="button"
               onClick={() => setFormOpen(true)}
@@ -420,6 +426,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
             >
               <Pencil className="w-4 h-4" />
             </button>
+            )}
 
             {onDelete && canAssign && (
               <button

@@ -332,7 +332,7 @@ export const WebsitePipelineView: React.FC<WebsitePipelineViewProps> = ({
                   New Project
                 </Button>
               )}
-              {viewMode === 'tasks' && (
+              {viewMode === 'tasks' && canManage && (
                 <Button
                   variant="secondary"
                   size="md"

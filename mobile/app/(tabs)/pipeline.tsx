@@ -735,7 +735,7 @@ export default function PipelineScreen() {
         />
       )}
 
-      {/* Floating Action Button (+ New Lead) */}
+      {canAssign ? (
       <TouchableOpacity
         style={styles.fab}
         activeOpacity={0.85}
@@ -747,6 +747,7 @@ export default function PipelineScreen() {
         <Ionicons name="add" size={24} color="#FFFFFF" />
         <Text style={styles.fabText}>{activeTab === 'deals' ? 'New deal' : 'New Lead'}</Text>
       </TouchableOpacity>
+      ) : null}
 
       {/* Modals */}
       <PipelineFilterSheet

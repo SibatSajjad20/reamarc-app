@@ -14,6 +14,7 @@ import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { crmService } from '../../services/crmService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
+import { usePermissions } from '../../hooks/usePermissions';
 import { canAssignCrmLeads } from '../../utils/crmAccess';
 import { toSafeWhatsAppUrl } from '../../utils/safeUrl';
 import { followUpBucket, isClosedLeadOutcome } from '../../utils/followUpBuckets';
@@ -103,6 +104,7 @@ export interface CrmViewProps {
 export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSectionChange }) => {
   const { user } = useAuth();
   const { addToast } = useToast();
+  const perms = usePermissions();
   const canAssign = canAssignCrmLeads(user);
 
   const cachedLeadsEntry = useMemo(() => crmService.getCachedLeads(), []);
@@ -665,7 +667,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                   )
                 )}
 
-                {viewMode === 'deals' ? (
+                {canAssign && (viewMode === 'deals' ? (
                   <CrmWonLeadMenu onSelect={openDealForWonLead} />
                 ) : (
                   <Button
@@ -676,7 +678,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
                     <Plus className="w-3.5 h-3.5" />
                     New lead
                   </Button>
-                )}
+                ))}
               </>
             }
             className="mb-0"
@@ -823,12 +825,20 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               addToast('Deal Reopened', 'Deal restored to the active pipeline.', 'info');
               await loadDeals();
             }}
-            onApproveWon={async (dealId) => {
-              const approved = await crmService.approveWonDeal(dealId, { payment_cleared: true });
-              addToast('Deal confirmed', `${approved.title} is a confirmed won deal.`, 'success');
-              await load();
-            }}
-            createDealAction={<CrmWonLeadMenu label="Choose won lead" onSelect={openDealForWonLead} />}
+            onApproveWon={
+              perms.canApproveWonDeal
+                ? async (dealId) => {
+                    const approved = await crmService.approveWonDeal(dealId, { payment_cleared: true });
+                    addToast('Deal confirmed', `${approved.title} is a confirmed won deal.`, 'success');
+                    await load();
+                  }
+                : undefined
+            }
+            createDealAction={
+              canAssign ? (
+                <CrmWonLeadMenu label="Choose won lead" onSelect={openDealForWonLead} />
+              ) : undefined
+            }
           />
         ) : viewMode === 'board' ? (
           <CrmKanbanBoard

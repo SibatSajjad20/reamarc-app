@@ -9,6 +9,7 @@ import {
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import { renderPlatformIcon } from './ContentCalendarTableView';
 import { Button } from '../ui/button';
+import { useAuth } from '../../context/AuthContext';
 
 interface Props {
   items: ContentCalendarItem[];
@@ -23,6 +24,9 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   onSelectItem,
   onUpdateItem,
 }) => {
+  const { user } = useAuth();
+  const canReschedule =
+    (user?.role || '').toLowerCase() !== 'operations' && !user?.permissions?.view_only;
   const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
   const [dateMode, setDateMode] = useState<'publish' | 'design_due'>('publish');
   const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
@@ -115,6 +119,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   const handleDropOnDate = async (e: React.DragEvent, targetIso: string) => {
     e.preventDefault();
     setDragOverDate(null);
+    if (!canReschedule) return;
     const id = draggingId || e.dataTransfer.getData('text/plain');
     setDraggingId(null);
     if (!id) return;
@@ -254,6 +259,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
               <div
                 key={day.iso}
                 onDragOver={(e) => {
+                  if (!canReschedule) return;
                   e.preventDefault();
                   if (dragOverDate !== day.iso) setDragOverDate(day.iso);
                 }}
@@ -301,8 +307,9 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                     dayItems.map((item) => (
                       <div
                         key={item.id}
-                        draggable
+                        draggable={canReschedule}
                         onDragStart={(e) => {
+                          if (!canReschedule) return;
                           e.dataTransfer.setData('text/plain', item.id);
                           setDraggingId(item.id);
                         }}
@@ -382,6 +389,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                 <div
                   key={cell.iso}
                   onDragOver={(e) => {
+                    if (!canReschedule) return;
                     e.preventDefault();
                     if (dragOverDate !== cell.iso) setDragOverDate(cell.iso);
                   }}
@@ -418,8 +426,9 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
                     {visibleItems.map((item) => (
                       <div
                         key={item.id}
-                        draggable
+                        draggable={canReschedule}
                         onDragStart={(e) => {
+                          if (!canReschedule) return;
                           e.dataTransfer.setData('text/plain', item.id);
                           setDraggingId(item.id);
                         }}

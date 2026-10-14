@@ -147,7 +147,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
   const [pendingMove, setPendingMove] = useState<{ id: string; stage: string; name: string; label: string } | null>(null);
 
   const drop = async (target: DropTarget) => {
-    if (!draggingId) return;
+    if (!canAssign || !draggingId) return;
     const lead = leads.find((l) => l.id === draggingId);
     setOverKey(null);
     setDraggingId(null);
@@ -202,14 +202,19 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
     return (
       <article
         key={lead.id}
-        draggable={!busyId}
-        onDragStart={() => setDraggingId(lead.id)}
+        draggable={canAssign && !busyId}
+        onDragStart={() => {
+          if (!canAssign) return;
+          setDraggingId(lead.id);
+        }}
         onDragEnd={() => {
           setDraggingId(null);
           setOverKey(null);
         }}
         onClick={() => onOpen(lead.id)}
-        className={`group relative rounded-lg border bg-surface p-3.5 transition-all cursor-grab active:cursor-grabbing select-none ${
+        className={`group relative rounded-lg border bg-surface p-3.5 transition-all select-none ${
+          canAssign ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'
+        } ${
           isWon
             ? 'border-success-bd'
             : isLost || isTrash
@@ -290,7 +295,7 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
             <SourceIcon source={lead.source} />
 
             {/* Advance button */}
-            {nextStage && !lead.outcome && (
+            {nextStage && !lead.outcome && canAssign && (
               <button
                 type="button"
                 title={`Advance to ${formatStageTitle(nextStage.name)}`}

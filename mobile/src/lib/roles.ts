@@ -25,12 +25,15 @@ export function canAccessCrm(user?: {
 } | null): boolean {
   if (!user) return false;
   if (user.crm_enabled === false) return false;
+  const role = normalizeRole(user.role);
+  if (role === 'admin' || role === 'super_admin') return true;
+  if (role === 'client' || role === 'hr') return false;
+  if (role === 'operations') return true;
   const sales = user.permissions?.summary?.sales;
   if (sales != null) {
     return sales !== 'none';
   }
-  const role = normalizeRole(user.role);
-  return role === 'admin' || role === 'super_admin';
+  return false;
 }
 
 export function canApproveWonDeals(user?: {
@@ -40,7 +43,10 @@ export function canApproveWonDeals(user?: {
     capabilities?: { approve_won_deal?: boolean };
   } | null;
 } | null): boolean {
-  return Boolean(user?.permissions?.capabilities?.approve_won_deal);
+  if (normalizeRole(user?.role) === 'operations' || Boolean(user?.permissions?.capabilities?.approve_won_deal)) {
+    return true;
+  }
+  return false;
 }
 
 export function canSeeWonDealApprovals(user?: {

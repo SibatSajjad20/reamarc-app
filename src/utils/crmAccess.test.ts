@@ -80,7 +80,7 @@ for (const module of otherModules) {
 }
 
 // 8. Operations or content user without sales permission is denied
-assert(!canAccessCrm(withNoSales('operations')), 'Operations without sales permission must NOT have CRM access');
+assert(canAccessCrm(withNoSales('operations')), 'Operations must have company-wide CRM view');
 assert(
   !canAccessCrm(withNoSales('team_member', { content_calendar: 'own_stages' })),
   'Content user without sales permission must NOT have CRM access',

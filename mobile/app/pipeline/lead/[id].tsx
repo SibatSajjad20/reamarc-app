@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../../../src/theme';
 import { useAuth } from '../../../src/context/AuthContext';
-import { canAccessCrm, canReopenCrmLeads } from '../../../src/lib/roles';
+import { canAccessCrm, canAssignCrmLeads, canReopenCrmLeads } from '../../../src/lib/roles';
 import { toSafeHttpsUrl } from '../../../src/lib/safeUrl';
 import { crmApi } from '../../../src/lib/crmApi';
 import type {
@@ -78,6 +78,7 @@ export default function LeadDetailScreen() {
   const id = typeof rawId === 'string' ? rawId : Array.isArray(rawId) ? rawId[0] : '';
   const { user } = useAuth();
   const hasAccess = canAccessCrm(user);
+  const canAssign = canAssignCrmLeads(user);
 
   const [lead, setLead] = useState<CrmLeadDetail | null>(null);
   const [stages, setStages] = useState<CrmPipelineStage[]>([]);
@@ -457,7 +458,7 @@ export default function LeadDetailScreen() {
             ) : null}
           </View>
 
-          {!lead.outcome ? (
+          {!lead.outcome && canAssign ? (
             <TouchableOpacity
               style={styles.stagePickerBtn}
               onPress={() => setTrashOpen(true)}
@@ -467,7 +468,7 @@ export default function LeadDetailScreen() {
             </TouchableOpacity>
           ) : null}
 
-          {closed ? (
+          {closed || !canAssign ? (
             <View style={styles.closedStatusPill}>
               <Text style={styles.closedStatusText} numberOfLines={1}>
                 {stageLabel}
@@ -759,16 +760,16 @@ export default function LeadDetailScreen() {
 
           {activeTab === 'deals' && (
             <View style={styles.sectionContainer}>
-              {lead.outcome === 'won' ? (
+              {lead.outcome === 'won' && canAssign ? (
                 <TouchableOpacity style={styles.addDealBtn} onPress={() => setDealModalOpen(true)}>
                   <Ionicons name="add-circle" size={18} color={colors.indigo} />
                   <Text style={styles.addDealText}>Create deal</Text>
                 </TouchableOpacity>
-              ) : (
+              ) : lead.outcome !== 'won' ? (
                 <Text style={styles.dealLockedText}>
                   Mark this lead as won before a deal can be created.
                 </Text>
-              )}
+              ) : null}
 
               {deals.map((d) => (
                 <View key={d.id} style={styles.dealCardItem}>

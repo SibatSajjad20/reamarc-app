@@ -753,10 +753,12 @@ export default function RequestsScreen() {
 
                   // HR review rules: Admin can review all; HR and Ops can review STAFF_ROLES
                   const applicantRole = String(r.user_role || 'team_member').toLowerCase();
+                  const isOwn = Boolean(user?.id && r.user_id && user.id === r.user_id);
                   const canActOnThis =
-                    isAdmin ||
-                    (userRole === 'hr' && STAFF_ROLES.has(applicantRole)) ||
-                    (userRole === 'operations' && STAFF_ROLES.has(applicantRole));
+                    !isOwn &&
+                    (isAdmin ||
+                      (userRole === 'hr' && STAFF_ROLES.has(applicantRole)) ||
+                      (userRole === 'operations' && STAFF_ROLES.has(applicantRole)));
 
                   return (
                     <View key={r.id} style={styles.card}>
