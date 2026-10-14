@@ -6,7 +6,27 @@
 
 export function parseHhMmToMinutes(value?: string | null): number | null {
   if (!value) return null;
-  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})/);
+  const s = String(value).trim();
+  if (s.includes('T')) {
+    try {
+      const d = new Date(s);
+      if (!isNaN(d.getTime())) {
+        return d.getHours() * 60 + d.getMinutes();
+      }
+    } catch {}
+  }
+  const ampmMatch = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i);
+  if (ampmMatch) {
+    let h = Number(ampmMatch[1]);
+    const m = Number(ampmMatch[2]);
+    const ampm = ampmMatch[3]?.toUpperCase();
+    if (ampm === 'PM' && h < 12) h += 12;
+    if (ampm === 'AM' && h === 12) h = 0;
+    if (Number.isFinite(h) && Number.isFinite(m) && m < 60 && h >= 0 && h < 24) {
+      return h * 60 + m;
+    }
+  }
+  const match = s.match(/^(\d{1,2}):(\d{2})/);
   if (!match) return null;
   const h = Number(match[1]);
   const m = Number(match[2]);
@@ -62,8 +82,8 @@ export interface ProvisionalNetWorkHoursInput {
   isNightShift?: boolean;
 }
 
-/** Net work hours between check-in and check-out using attendance rules. */
-export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): number {
+/** Net work minutes between check-in and check-out with break overlap deducted (paused during break window). */
+export function provisionalNetWorkMinutes(input: ProvisionalNetWorkHoursInput): number {
   const checkInMins = parseHhMmToMinutes(input.checkIn);
   const checkOutMins = parseHhMmToMinutes(input.checkOut);
   if (checkInMins === null || checkOutMins === null) return 0;
@@ -105,7 +125,13 @@ export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): nu
     );
   }
 
-  return Math.round(Math.max(0, gross - deducted) / 60 * 100) / 100;
+  return Math.max(0, gross - deducted);
+}
+
+/** Net work hours between check-in and check-out using attendance rules. */
+export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): number {
+  const netMins = provisionalNetWorkMinutes(input);
+  return Math.round((netMins / 60) * 100) / 100;
 }
 
 /** Format current Date as HH:MM for provisional checkout. */

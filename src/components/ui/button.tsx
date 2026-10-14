@@ -15,6 +15,7 @@ export const buttonVariants = cva(
         soft: 'bg-accent-soft-2 text-accent-text border border-transparent hover:bg-accent-200/60',
         destructive: 'bg-danger-solid text-white border border-danger-solid hover:bg-danger-fg',
         danger: 'bg-danger-solid text-white border border-danger-solid hover:bg-danger-fg',
+        success: 'bg-emerald-600 text-white border border-emerald-600 shadow-xs hover:bg-emerald-500 active:bg-emerald-700',
         'destructive-outline': 'bg-surface text-danger-fg border border-danger-bd hover:bg-danger-bg',
         'danger-secondary': 'bg-surface text-danger-fg border border-danger-bd hover:bg-danger-bg',
         'success-outline': 'bg-surface text-success-fg border border-border-strong hover:bg-success-bg [&_svg]:text-success-fg',
@@ -113,7 +114,7 @@ Button.displayName = 'Button';
 export interface IconButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   label: string;
   icon: React.ComponentType<{ className?: string; size?: number }>;
-  variant?: 'ghost' | 'secondary' | 'primary' | 'soft' | 'destructive' | 'danger';
+  variant?: 'ghost' | 'secondary' | 'primary' | 'soft' | 'destructive' | 'danger' | 'success';
   size?: 'sm' | 'md' | 'lg';
   hasDot?: boolean;
   loading?: boolean;

@@ -1891,6 +1891,36 @@ async def get_active_attendance_record(user_id: str) -> Optional[dict]:
     return None
 
 
+async def resolve_target_punch_date(
+    user_id: str,
+    department: Optional[str] = None,
+    now: Optional[datetime] = None,
+) -> str:
+    """
+    Resolves the logical shift date for attendance check-in or daily status query.
+
+    For night or cross-midnight shifts (e.g. 18:00 - 00:00 or 19:00 - 01:00), hours between
+    midnight and midday (now.hour < 12) belong to yesterday's shift session until its
+    checkout cutoff window has elapsed.
+    """
+    now_pkt = now or get_now_pkt()
+    today_str = now_pkt.strftime("%Y-%m-%d")
+
+    if now_pkt.hour < 12:
+        yesterday_str = (now_pkt.date() - timedelta(days=1)).strftime("%Y-%m-%d")
+        try:
+            shift_yesterday = await get_shift_for_user(user_id, department, yesterday_str, include_pending=True)
+        except Exception:
+            shift_yesterday = None
+
+        if shift_yesterday and is_night_shift_template(shift_yesterday):
+            _, y_end_dt, y_cutoff_dt = get_shift_datetimes(shift_yesterday, yesterday_str, now_pkt)
+            if now_pkt < y_cutoff_dt:
+                return yesterday_str
+
+    return today_str
+
+
 # ──────────────────────────────────────────────────────────
 # 4. CHECK-IN & CHECK-OUT FLOWS
 # ──────────────────────────────────────────────────────────
@@ -1982,8 +2012,12 @@ async def process_check_in(
         )
 
     # Punch time is always server PKT. Client timestamps are ignored.
-    date_str = get_current_date_str()
-    time_str = get_current_time_str()
+    now_pkt = get_now_pkt()
+    if custom_date:
+        date_str = custom_date
+    else:
+        date_str = await resolve_target_punch_date(user_id, department, now_pkt)
+    time_str = custom_time or get_current_time_str()
 
     from app.services.workdays import classify_date_for_user
     day_info = await classify_date_for_user(user_id, date_str, include_pending=True)
@@ -2015,11 +2049,17 @@ async def process_check_in(
     # 2. Punch allows remote check-in for approved WFH requests and WFH shift schedules.
     is_wfh = await is_wfh_approved_for_date(user_id, date_str)
 
-    # 3. Shift window: nobody may punch in after their shift has ended
+    # 3. Shift window: nobody may punch in after their shift has ended, nor hours before it opens
     shift = await get_shift_for_user(user_id, department, date_str, include_pending=True)
-    if is_shift_window_closed(shift, now=None, shift_date=date_str) and not custom_time:
-        lock_date = closed_shift_attendance_date(shift)
-        if lock_date == date_str:
+    start_dt, end_dt, _ = get_shift_datetimes(shift, date_str, now_pkt)
+    if not custom_time and now_pkt < (start_dt - timedelta(hours=3)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Check-in is not yet open. Your shift starts at {shift.start_time}.",
+        )
+    if is_shift_window_closed(shift, now=now_pkt, shift_date=date_str) and not custom_time:
+        lock_date = closed_shift_attendance_date(shift, now_pkt)
+        if lock_date == date_str or now_pkt >= end_dt:
             await persist_auto_absent(user, shift, date_str)
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -2480,8 +2520,16 @@ async def get_today_status(
     if active_rec:
         target_date = active_rec.get("date") or now_pkt.strftime("%Y-%m-%d")
         record_doc = active_rec
+    elif date_str:
+        target_date = date_str
+        record_doc = None
+        if db is not None:
+            record_doc = await db.attendance_records.find_one(
+                {"user_id": user_id, "date": target_date},
+                {"_id": 0}
+            )
     else:
-        target_date = date_str or now_pkt.strftime("%Y-%m-%d")
+        target_date = await resolve_target_punch_date(user_id, department, now_pkt)
         record_doc = None
         if db is not None:
             record_doc = await db.attendance_records.find_one(
@@ -2563,10 +2611,13 @@ async def get_today_status(
     else:
         status_val = AttendanceStatus.AWAITING_CHECKIN
 
+    start_dt, end_dt, _ = get_shift_datetimes(shift, target_date, now_pkt)
+    shift_not_open_yet = bool(not active_rec and not cin and now_pkt < (start_dt - timedelta(hours=3)))
+
     locked_no_punch = bool(shift_ended and not cin) or (
         record_status in LEAVE_LOCK_STATUSES and not cin
     )
-    can_check_in = (not bool(cin)) and (not locked_no_punch) and (not day_info.is_off)
+    can_check_in = (not bool(cin)) and (not locked_no_punch) and (not day_info.is_off) and (not shift_not_open_yet)
     can_check_out = is_checked_in
     has_active_break = bool(record_doc and record_doc.get("is_on_break"))
 

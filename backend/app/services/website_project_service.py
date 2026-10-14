@@ -39,6 +39,7 @@ from app.services.website_project_workflow import (
     can_manage_project,
     can_view_project,
     check_transition,
+    client_workspace_ids,
     is_client,
     is_admin_or_ops,
     is_website_lead,
@@ -324,8 +325,14 @@ async def get_projects(
     query: Dict[str, Any] = {}
 
     if is_client(viewer):
-        user_ws = viewer.get("workspace_ids") or []
-        query["workspace_id"] = {"$in": [str(w) for w in user_ws]}
+        user_ws = list(client_workspace_ids(viewer))
+        if workspace_id:
+            if workspace_id in user_ws:
+                query["workspace_id"] = workspace_id
+            else:
+                query["workspace_id"] = "__none__"
+        else:
+            query["workspace_id"] = {"$in": [str(w) for w in user_ws] if user_ws else ["__none__"]}
     elif not (is_admin_or_ops(viewer) or is_website_lead(viewer)):
         from app.services.permissions import load_ctx, resolve, level_gte
         ctx = load_ctx(viewer)

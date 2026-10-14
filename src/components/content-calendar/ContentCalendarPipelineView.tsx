@@ -152,8 +152,8 @@ export const ContentCalendarPipelineView: React.FC<Props> = ({
   }, [draggingItem, actor, runAction, addToast, prompt]);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-canvas">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-canvas overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 pb-3 flex gap-3.5 select-none custom-scrollbar">
       {stages.map((stage, stageIdx) => {
         const stageItems = byStage[stage] || [];
         const isColumnOver = dragOverStage === stage && draggingItem && draggingItem.stage !== stage;
@@ -291,7 +291,7 @@ function StageCardList({
 
   if (!isLoading && items.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto p-2.5 min-h-[150px] flex flex-col justify-center">
+      <div className="flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col">
         <div className={`h-32 rounded-lg border-2 border-dashed flex flex-col items-center justify-center p-3 text-center transition-colors ${
           isColumnOver
             ? 'border-accent bg-accent-soft/30'
@@ -306,7 +306,7 @@ function StageCardList({
   }
 
   return (
-    <div ref={parentRef} className="flex-1 overflow-y-auto p-2.5 min-h-[150px] custom-scrollbar">
+    <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto p-2.5 custom-scrollbar">
       <div className="relative w-full" style={{ height: `${virtualizer.getTotalSize()}px` }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           if (isLoading) {

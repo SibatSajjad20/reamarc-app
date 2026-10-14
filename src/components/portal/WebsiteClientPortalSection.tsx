@@ -38,6 +38,7 @@ import {
 } from '../website-pipeline/WebsiteTaskBoard';
 import { WebsiteProjectDrawer } from '../website-pipeline/WebsiteProjectDrawer';
 import { WebsiteTaskModal } from '../website-pipeline/WebsiteTaskModal';
+import { cn } from '../../lib/utils';
 
 type PortalTab = 'approvals' | 'pipeline';
 type PipelineSubMode = 'websites' | 'tasks';
@@ -332,7 +333,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
       </header>
 
       {/* Main Tab Content */}
-      <main className="flex-1 min-h-0 overflow-y-auto custom-scrollbar flex flex-col">
+      <main className={cn('flex-1 min-h-0 flex flex-col', activeTab === 'approvals' ? 'overflow-y-auto custom-scrollbar' : 'overflow-hidden')}>
         {activeTab === 'approvals' ? (
           <div className="p-4 md:p-6 space-y-6 max-w-6xl mx-auto w-full">
             {/* Loading Skeleton for Approvals */}
@@ -644,7 +645,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
           </div>
         ) : (
           /* Website Pipeline Kanban View across All Stages + Sub-mode for Tasks */
-          <div className="h-full flex flex-col min-w-0">
+          <div className="flex-1 min-h-0 h-full flex flex-col min-w-0">
             {/* Sub-mode switcher for Website Pipeline: Websites vs Tasks */}
             <div className="px-6 py-2 bg-surface border-b border-border flex items-center justify-end shrink-0">
               <div className="flex items-center gap-1 p-0.5 rounded-xl bg-canvas border border-border shrink-0">
@@ -675,7 +676,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               {isLoading ? (
                 pipelineSubMode === 'websites' ? (
                   <WebsitePipelineBoardSkeleton />

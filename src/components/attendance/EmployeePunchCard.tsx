@@ -7,7 +7,6 @@ import {
   Building2,
   Wifi,
   RefreshCw,
-  Plus,
   Clock,
 } from 'lucide-react';
 import type { TodayAttendanceResponse } from '../../types/attendance';
@@ -20,6 +19,7 @@ import { Skeleton } from '../ui/skeleton';
 import { Callout } from '../ui/Callout';
 import { cn } from '../../lib/utils';
 import { formatHours } from '../../utils/logTimeChecks';
+import { formatNowHhMm } from '../../utils/liveNetWorkHours';
 
 interface EmployeePunchCardProps {
   todayData: TodayAttendanceResponse | null;
@@ -59,7 +59,7 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   loggedHours,
   expectedHours,
   hasPendingInquiry = false,
-  onNavigateView,
+  onNavigateView: _onNavigateView,
   className,
 }) => {
   const { user } = useAuth();
@@ -113,13 +113,6 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
     return { variant: 'success' as const, label: 'On time' };
   })();
 
-  // Subtitle from shift
-  const shiftSubtitle = (() => {
-    if (!shift?.start_time || !shift?.end_time) return null;
-    const name = shift.name ? `${shift.name} · ` : '';
-    return `${name}${shift.start_time} – ${shift.end_time}`;
-  })();
-
   // Inline callout note when something is wrong
   const alertNote = (() => {
     if (todayData?.shift_change && (todayData.shift_change.status === 'pending' || todayData.shift_change.status === 'needs_info') && todayData.shift_change.same_day) {
@@ -163,9 +156,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               </div>
             )}
           </div>
-          <div className="flex gap-2 pt-3 mt-3 border-t border-border/50">
-            <Skeleton className="flex-1 h-8 rounded-md" />
-            {!isOps && <Skeleton className="flex-1 h-8 rounded-md" />}
+          <div className="pt-3 mt-3 border-t border-border/50">
+            <Skeleton className="w-full h-10 rounded-md" />
           </div>
         </div>
       );
@@ -183,12 +175,20 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
   }
 
   if (variant === 'your-day') {
-    const subtitleText = (() => {
+    const subtitleContent = (() => {
       if (isCheckedOut) {
-        return `Checked out ${formatCheckTime(punchOut)}${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+        return (
+          <span>
+            Checked out: <strong className="font-bold text-fg">{formatCheckTime(punchOut)}</strong>
+          </span>
+        );
       }
       if (isCheckedIn) {
-        return `Since ${formatCheckTime(punchIn)}${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+        return (
+          <span>
+            Check in: <strong className="font-bold text-fg">{formatCheckTime(punchIn)}</strong>
+          </span>
+        );
       }
       if (isOffDay) {
         return 'No check-in required today';
@@ -199,7 +199,16 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       if (checkInClosed) {
         return 'Check-in window closed';
       }
-      return `Check in to start your day${shiftSubtitle ? ` · ${shiftSubtitle}` : ''}`;
+      return 'Check in to start your day';
+    })();
+
+    const subtitleTooltip = (() => {
+      if (isCheckedOut) return `Checked out: ${formatCheckTime(punchOut)}`;
+      if (isCheckedIn) return `Check in: ${formatCheckTime(punchIn)}`;
+      if (isOffDay) return 'No check-in required today';
+      if (isAbsentLocked) return 'Shift ended without check-in';
+      if (checkInClosed) return 'Check-in window closed';
+      return 'Check in to start your day';
     })();
 
     const offButtonLabel = (() => {
@@ -207,6 +216,12 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
       if (offDayLabel.includes('—')) return offDayLabel.split('—')[1].trim();
       if (offDayLabel.toLowerCase().includes('rest')) return 'Rest day';
       return offDayLabel;
+    })();
+
+    const isBreakWindow = (() => {
+      if (!isCheckedIn || isCheckedOut || !shift?.break_start_time || !shift?.break_end_time) return false;
+      const now = formatNowHhMm();
+      return now >= shift.break_start_time && now < shift.break_end_time;
     })();
 
     return (
@@ -254,6 +269,11 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 <>
                   <span>{elapsedAtWork}</span>
                   <span className="text-base font-normal text-fg-muted">at work</span>
+                  {isBreakWindow && (
+                    <span className="text-[11px] font-medium text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded px-1.5 py-0.5 ml-1 inline-flex items-center">
+                      Break paused
+                    </span>
+                  )}
                 </>
               ) : (
                 <>
@@ -262,8 +282,8 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
                 </>
               )}
             </div>
-            <p className="text-xs text-fg-muted mt-0.5 font-numeric truncate" title={subtitleText}>
-              {subtitleText}
+            <p className="text-xs text-fg-muted mt-0.5 font-numeric truncate" title={subtitleTooltip}>
+              {subtitleContent}
             </p>
           </div>
 
@@ -306,21 +326,21 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
         </div>
 
         {/* Footer Action Buttons */}
-        <div className="flex items-center gap-2 pt-3 mt-3 border-t border-border/50">
+        <div className="pt-3 mt-3 border-t border-border/50">
           {isOffDay ? (
-            <Button variant="secondary" size="sm" disabled className="flex-1" icon={CalendarOff}>
+            <Button variant="secondary" size="md" disabled className="w-full h-10 font-medium" icon={CalendarOff}>
               {offButtonLabel}
             </Button>
           ) : !isCheckedIn ? (
             checkInClosed ? (
-              <Button variant="secondary" size="sm" disabled className="flex-1">
+              <Button variant="secondary" size="md" disabled className="w-full h-10 font-medium">
                 {isAbsentLocked ? 'Shift ended — absent' : 'Check-in closed'}
               </Button>
             ) : (
               <Button
-                variant="secondary"
-                size="sm"
-                className="flex-1"
+                variant="success"
+                size="md"
+                className="w-full h-10 font-semibold text-sm shadow-xs bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white border border-emerald-600"
                 onClick={handleCheckIn}
                 disabled={isSubmitting || isLoading || securityBlocksCheckIn}
                 loading={isSubmitting}
@@ -330,32 +350,20 @@ export const EmployeePunchCard: React.FC<EmployeePunchCardProps> = ({
               </Button>
             )
           ) : isCheckedOut ? (
-            <Button variant="secondary" size="sm" disabled className="flex-1" icon={CheckCircle2}>
+            <Button variant="secondary" size="md" disabled className="w-full h-10 font-medium" icon={CheckCircle2}>
               Shift completed
             </Button>
           ) : (
             <Button
-              variant="secondary"
-              size="sm"
-              className="flex-1"
+              variant="destructive"
+              size="md"
+              className="w-full h-10 font-semibold text-sm shadow-xs bg-red-600 hover:bg-red-500 active:bg-red-700 text-white border border-red-600"
               onClick={handleCheckOut}
               disabled={isSubmitting}
               loading={isSubmitting}
               icon={LogOut}
             >
               {isSubmitting ? (verificationStep || 'Submitting…') : 'Check out'}
-            </Button>
-          )}
-
-          {!isOps && (
-            <Button
-              variant="primary"
-              size="sm"
-              className="flex-1"
-              onClick={() => onNavigateView?.('daily-log')}
-              icon={Plus}
-            >
-              Log work
             </Button>
           )}
         </div>

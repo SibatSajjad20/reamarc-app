@@ -200,8 +200,13 @@ export const ContentCalendarModal: React.FC<Props> = ({
     setFormData((prev) => ({
       ...prev,
       client_name: resolvedName,
-      workspace_id: matchedWs?.id || prev.workspace_id,
+      workspace_id: matchedWs ? matchedWs.id : undefined,
     }));
+    setFieldErrors((prev) => {
+      const copy = { ...prev };
+      delete copy.client_name;
+      return copy;
+    });
 
     if (item && resolvedName === item.client_name) {
       setFormData((prev) => ({ ...prev, serial: item.serial }));
@@ -312,8 +317,11 @@ export const ContentCalendarModal: React.FC<Props> = ({
     try {
       const concept = formData.content_concept?.trim() || '';
       const autoOwner = detectStageOwner(formData.stage, formData.creative_category);
+      const matchedWs = findMatchingClient(formData.client_name, activeClients);
+      const finalWsId = matchedWs?.id || formData.workspace_id;
       await onSave({
         ...formData,
+        workspace_id: finalWsId,
         content_type: formData.content_type?.trim(),
         creative_category: formData.creative_category?.trim(),
         posting_type: formData.creative_category?.trim(),
@@ -375,7 +383,6 @@ export const ContentCalendarModal: React.FC<Props> = ({
                   value={formData.client_name || 'Apex Transfers LLC'}
                   onChange={(val) => {
                     handleClientChange(val);
-                    updateField('client_name', val);
                   }}
                   options={clientOptions}
                   error={fieldErrors.client_name}

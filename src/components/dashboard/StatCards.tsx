@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '../../lib/utils';
 import { formatHours } from '../../utils/logTimeChecks';
@@ -9,6 +9,8 @@ export interface DailyStripDay {
   hours: number;
   isFuture: boolean;
   isToday: boolean;
+  expectedHours?: number;
+  isOffDay?: boolean;
 }
 
 interface LoggedThisWeekCardProps {
@@ -30,7 +32,23 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
   isLoading,
   className,
 }) => {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const maxHours = Math.max(8, ...days.map((d) => d.hours));
+  const selectedDay = days.find((d) => d.date === selectedDate) ?? null;
+
+  const formattedDateStr = (() => {
+    if (!selectedDay) return '';
+    try {
+      const parts = selectedDay.date.split('-');
+      if (parts.length === 3) {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        const dayNum = parseInt(parts[2], 10);
+        return `${selectedDay.label}, ${monthNames[mIdx]} ${dayNum}`;
+      }
+    } catch {}
+    return `${selectedDay.label} · ${selectedDay.date}`;
+  })();
 
   return (
     <div
@@ -40,18 +58,81 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
       )}
     >
       <div>
-        <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1">
-          <svg className="w-3.5 h-3.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <circle cx="12" cy="12" r="10" strokeWidth="2" />
-            <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
-          </svg>
-          <span>Logged this week</span>
-        </div>
+        {selectedDay ? (
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-medium">
+              <svg className="w-3.5 h-3.5 text-accent-text" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
+              </svg>
+              <span className="text-fg font-semibold">{formattedDateStr}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="text-[11px] text-accent-text hover:underline cursor-pointer font-medium"
+            >
+              All week
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1">
+            <svg className="w-3.5 h-3.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth="2" />
+              <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
+            </svg>
+            <span>Logged this week</span>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="space-y-1.5 py-1">
             <Skeleton className="w-16 h-8 rounded-sm" />
             <Skeleton className="w-36 h-3 rounded-sm" />
+          </div>
+        ) : selectedDay ? (
+          <div>
+            <div className="text-kpi font-semibold text-fg font-numeric tracking-tight flex items-baseline gap-1">
+              <span>{Math.round((selectedDay.hours || 0) * 10) / 10}</span>
+              <span className="text-base font-normal text-fg-muted">h</span>
+            </div>
+            <p className="text-xs text-fg-muted mt-0.5 font-numeric">
+              {(() => {
+                const exp = selectedDay.expectedHours ?? (selectedDay.isOffDay ? 0 : 8);
+                if (selectedDay.isOffDay) {
+                  return selectedDay.hours > 0 ? (
+                    <span>
+                      <span className="text-success-fg font-medium">+{formatHours(selectedDay.hours)} logged</span> on rest day (0h expected)
+                    </span>
+                  ) : (
+                    <span>Official rest day · No hours expected</span>
+                  );
+                }
+                if (selectedDay.isFuture) {
+                  return <span>Upcoming · {formatHours(exp)} expected</span>;
+                }
+                const diff = Math.round((selectedDay.hours - exp) * 100) / 100;
+                if (diff === 0 && exp > 0) {
+                  return (
+                    <span className="text-success-fg font-medium">
+                      Target met · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                    </span>
+                  );
+                }
+                if (diff > 0) {
+                  return (
+                    <span>
+                      <span className="text-success-fg font-medium">+{formatHours(diff)} extra</span> · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                    </span>
+                  );
+                }
+                return (
+                  <span>
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">{formatHours(Math.abs(diff))} short</span> · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                  </span>
+                );
+              })()}
+            </p>
           </div>
         ) : (
           <div>
@@ -75,22 +156,48 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
       <div className="pt-4 mt-2 border-t border-border/50">
         <div className="grid grid-cols-6 gap-2 text-center items-end h-16 pb-1">
           {days.map((day) => {
+            const isSelected = selectedDate === day.date;
             const heightPct = day.hours > 0 ? Math.min(100, Math.max(12, Math.round((day.hours / maxHours) * 100))) : 0;
             return (
-              <div key={day.label} className="flex flex-col items-center h-full justify-end">
+              <button
+                key={day.label}
+                type="button"
+                onClick={() => setSelectedDate(selectedDate === day.date ? null : day.date)}
+                className={cn(
+                  'flex flex-col items-center h-full justify-end cursor-pointer rounded-md p-1 transition-all outline-none',
+                  'hover:bg-subtle/80 focus-visible:ring-1 focus-visible:ring-accent',
+                  isSelected && 'bg-accent/10 ring-1 ring-accent/40 shadow-2xs'
+                )}
+                title={
+                  isSelected
+                    ? 'Click to return to weekly total'
+                    : `Click to view ${day.label} (${formatHours(day.hours)} logged vs ${formatHours(day.expectedHours ?? (day.isOffDay ? 0 : 8))} expected)`
+                }
+              >
                 <div className="w-full flex items-end justify-center h-9">
                   {day.hours > 0 ? (
                     <div
-                      className="w-4/5 max-w-[28px] bg-accent rounded-xs transition-all duration-300"
+                      className={cn(
+                        'w-4/5 max-w-[28px] rounded-xs transition-all duration-300',
+                        isSelected ? 'bg-accent shadow-xs' : 'bg-accent/80'
+                      )}
                       style={{ height: `${heightPct}%` }}
                     />
                   ) : null}
                 </div>
-                <span className="text-[10px] text-fg-muted mt-1 leading-none">{day.label}</span>
-                <span className="text-[11px] font-numeric text-fg font-medium mt-0.5 leading-none">
+                <span className={cn(
+                  'text-[10px] mt-1 leading-none transition-colors',
+                  isSelected ? 'text-accent-text font-bold' : 'text-fg-muted'
+                )}>
+                  {day.label}
+                </span>
+                <span className={cn(
+                  'text-[11px] font-numeric font-medium mt-0.5 leading-none transition-colors',
+                  isSelected ? 'text-accent-text font-bold' : 'text-fg'
+                )}>
                   {day.isFuture ? '—' : day.hours > 0 ? `${formatHours(day.hours)}` : '—'}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>
@@ -118,7 +225,23 @@ export const AtWorkThisWeekCard: React.FC<AtWorkThisWeekCardProps> = ({
   isLoading,
   className,
 }) => {
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const maxHours = Math.max(8, ...days.map((d) => d.hours));
+  const selectedDay = days.find((d) => d.date === selectedDate) ?? null;
+
+  const formattedDateStr = (() => {
+    if (!selectedDay) return '';
+    try {
+      const parts = selectedDay.date.split('-');
+      if (parts.length === 3) {
+        const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const mIdx = parseInt(parts[1], 10) - 1;
+        const dayNum = parseInt(parts[2], 10);
+        return `${selectedDay.label}, ${monthNames[mIdx]} ${dayNum}`;
+      }
+    } catch {}
+    return `${selectedDay.label} · ${selectedDay.date}`;
+  })();
 
   return (
     <div
@@ -128,18 +251,81 @@ export const AtWorkThisWeekCard: React.FC<AtWorkThisWeekCardProps> = ({
       )}
     >
       <div>
-        <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1">
-          <svg className="w-3.5 h-3.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <circle cx="12" cy="12" r="10" strokeWidth="2" />
-            <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
-          </svg>
-          <span>At work this week</span>
-        </div>
+        {selectedDay ? (
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-1.5 text-xs font-medium">
+              <svg className="w-3.5 h-3.5 text-accent-text" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <circle cx="12" cy="12" r="10" strokeWidth="2" />
+                <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
+              </svg>
+              <span className="text-fg font-semibold">{formattedDateStr}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDate(null)}
+              className="text-[11px] text-accent-text hover:underline cursor-pointer font-medium"
+            >
+              All week
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5 text-xs text-fg-muted font-medium mb-1">
+            <svg className="w-3.5 h-3.5 text-fg-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <circle cx="12" cy="12" r="10" strokeWidth="2" />
+              <path strokeWidth="2" strokeLinecap="round" d="M12 6v6l4 2" />
+            </svg>
+            <span>At work this week</span>
+          </div>
+        )}
 
         {isLoading ? (
           <div className="space-y-1.5 py-1">
             <Skeleton className="w-16 h-8 rounded-sm" />
             <Skeleton className="w-48 h-3 rounded-sm" />
+          </div>
+        ) : selectedDay ? (
+          <div>
+            <div className="text-kpi font-semibold text-fg font-numeric tracking-tight flex items-baseline gap-1">
+              <span>{Math.round((selectedDay.hours || 0) * 10) / 10}</span>
+              <span className="text-base font-normal text-fg-muted">h</span>
+            </div>
+            <p className="text-xs text-fg-muted mt-0.5 font-numeric">
+              {(() => {
+                const exp = selectedDay.expectedHours ?? (selectedDay.isOffDay ? 0 : 8);
+                if (selectedDay.isOffDay) {
+                  return selectedDay.hours > 0 ? (
+                    <span>
+                      <span className="text-success-fg font-medium">+{formatHours(selectedDay.hours)} worked</span> on rest day (0h expected)
+                    </span>
+                  ) : (
+                    <span>Official rest day · No hours scheduled</span>
+                  );
+                }
+                if (selectedDay.isFuture) {
+                  return <span>Upcoming · {formatHours(exp)} expected</span>;
+                }
+                const diff = Math.round((selectedDay.hours - exp) * 100) / 100;
+                if (diff === 0 && exp > 0) {
+                  return (
+                    <span className="text-success-fg font-medium">
+                      Shift completed · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                    </span>
+                  );
+                }
+                if (diff > 0) {
+                  return (
+                    <span>
+                      <span className="text-success-fg font-medium">+{formatHours(diff)} overtime</span> · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                    </span>
+                  );
+                }
+                return (
+                  <span>
+                    <span className="text-amber-600 dark:text-amber-400 font-medium">{formatHours(Math.abs(diff))} short</span> · {formatHours(selectedDay.hours)} of {formatHours(exp)} expected
+                  </span>
+                );
+              })()}
+            </p>
           </div>
         ) : (
           <div>
@@ -158,22 +344,48 @@ export const AtWorkThisWeekCard: React.FC<AtWorkThisWeekCardProps> = ({
       <div className="pt-4 mt-2 border-t border-border/50">
         <div className="grid grid-cols-6 gap-2 text-center items-end h-16 pb-1">
           {days.map((day) => {
+            const isSelected = selectedDate === day.date;
             const heightPct = day.hours > 0 ? Math.min(100, Math.max(12, Math.round((day.hours / maxHours) * 100))) : 0;
             return (
-              <div key={day.label} className="flex flex-col items-center h-full justify-end">
+              <button
+                key={day.label}
+                type="button"
+                onClick={() => setSelectedDate(selectedDate === day.date ? null : day.date)}
+                className={cn(
+                  'flex flex-col items-center h-full justify-end cursor-pointer rounded-md p-1 transition-all outline-none',
+                  'hover:bg-subtle/80 focus-visible:ring-1 focus-visible:ring-accent',
+                  isSelected && 'bg-accent/10 ring-1 ring-accent/40 shadow-2xs'
+                )}
+                title={
+                  isSelected
+                    ? 'Click to return to weekly total'
+                    : `Click to view ${day.label} (${formatHours(day.hours)} worked vs ${formatHours(day.expectedHours ?? (day.isOffDay ? 0 : 8))} expected)`
+                }
+              >
                 <div className="w-full flex items-end justify-center h-9">
                   {day.hours > 0 ? (
                     <div
-                      className="w-4/5 max-w-[28px] bg-accent rounded-xs transition-all duration-300"
+                      className={cn(
+                        'w-4/5 max-w-[28px] rounded-xs transition-all duration-300',
+                        isSelected ? 'bg-accent shadow-xs' : 'bg-accent/80'
+                      )}
                       style={{ height: `${heightPct}%` }}
                     />
                   ) : null}
                 </div>
-                <span className="text-[10px] text-fg-muted mt-1 leading-none">{day.label}</span>
-                <span className="text-[11px] font-numeric text-fg font-medium mt-0.5 leading-none">
+                <span className={cn(
+                  'text-[10px] mt-1 leading-none transition-colors',
+                  isSelected ? 'text-accent-text font-bold' : 'text-fg-muted'
+                )}>
+                  {day.label}
+                </span>
+                <span className={cn(
+                  'text-[11px] font-numeric font-medium mt-0.5 leading-none transition-colors',
+                  isSelected ? 'text-accent-text font-bold' : 'text-fg'
+                )}>
                   {day.isFuture ? '—' : day.hours > 0 ? `${formatHours(day.hours)}` : '—'}
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>

@@ -101,18 +101,18 @@ function stageLabel(stageId: string): string {
 
 export const WebsiteTaskBoardSkeleton: React.FC = () => {
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-canvas overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-canvas overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 pb-3 flex gap-3.5 select-none custom-scrollbar">
         {TASK_STATUS_COLUMNS.map((col) => (
           <div
             key={col.id}
-            className="min-w-[300px] w-[310px] max-w-[310px] flex-shrink-0 flex flex-col rounded-xl bg-surface border border-border p-3.5 space-y-3 animate-pulse"
+            className="min-w-[300px] w-[310px] max-w-[310px] flex-shrink-0 flex flex-col rounded-xl bg-surface border border-border h-full min-h-0 p-3.5 space-y-3 animate-pulse"
           >
-            <div className="flex items-center justify-between pb-2 border-b border-border">
+            <div className="flex items-center justify-between pb-2 border-b border-border shrink-0">
               <div className="h-4 w-28 bg-skel rounded-md" />
               <div className="h-4 w-6 bg-skel rounded-full" />
             </div>
-            <div className="space-y-3">
+            <div className="flex-1 min-h-0 space-y-3 overflow-y-auto custom-scrollbar">
               {[1, 2, 3].map((card) => (
                 <div
                   key={card}
@@ -219,8 +219,8 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
   const todayStr = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-canvas overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-canvas overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 pb-3 flex gap-3.5 select-none custom-scrollbar">
         {TASK_STATUS_COLUMNS.map((col) => {
           const colTasks = tasksByStatus[col.id] || [];
           const isOver = overStatus === col.id;
@@ -231,14 +231,14 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
               onDragOver={(e) => handleDragOver(e, col.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, col.id)}
-              className={`min-w-[300px] w-[310px] max-w-[310px] flex-shrink-0 flex flex-col rounded-xl bg-surface border transition-all duration-200 ${
+              className={`min-w-[300px] w-[310px] max-w-[310px] flex-shrink-0 flex flex-col rounded-xl bg-surface border h-full min-h-0 transition-all duration-200 ${
                 isOver
                   ? 'border-accent ring-2 ring-accent/30 bg-accent-soft'
                   : 'border-border'
               }`}
             >
               {/* Column Header */}
-              <div className="p-3.5 pb-2.5 border-b border-border flex items-center justify-between">
+              <div className="p-3.5 pb-2.5 border-b border-border flex items-center justify-between shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className={`w-2 h-2 rounded-full ${col.dotColor}`} />
                   <span className="font-semibold text-sm text-fg truncate">
@@ -262,7 +262,7 @@ export const WebsiteTaskBoard: React.FC<Props> = ({
               </div>
 
               {/* Task Cards Container */}
-              <div className="flex-1 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
+              <div className="flex-1 min-h-0 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
                 {colTasks.map((task) => {
                   const p = projectMap.get(task.project_id);
                   const projectName = task.project_name || p?.name || 'Website';

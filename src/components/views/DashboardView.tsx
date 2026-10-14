@@ -384,16 +384,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
       });
 
+      const defaultExp = dayTarget?.expected_hours || todayAttendance?.shift?.expected_hours || 8;
       const stripDays: DailyStripDay[] = weekDates.map((wd) => {
         const hrs = perDayMap[wd.date] || 0;
         total += hrs;
         if (!wd.isFuture && hrs > 0) pastLoggedCount++;
+        const isOff = stableIsDateOff(wd.date);
+        const exp = isOff ? 0 : (wd.label === 'Sat' ? 6 : defaultExp);
         return {
           label: wd.label,
           date: wd.date,
           hours: hrs,
           isFuture: wd.isFuture,
           isToday: wd.isToday,
+          expectedHours: exp,
+          isOffDay: isOff,
         };
       });
 
@@ -401,7 +406,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       setWeeklyLoggedDays(stripDays);
       setPastDaysLoggedCount(pastLoggedCount);
     } catch {}
-  }, [isAdmin, isLogger, user?.id, weekDates, todayIso]);
+  }, [isAdmin, isLogger, user?.id, weekDates, todayIso, dayTarget?.expected_hours, todayAttendance?.shift?.expected_hours, stableIsDateOff]);
 
   // Operations: derive worked timesheet records from timesheetData
   useEffect(() => {
@@ -416,23 +421,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       perDayMap[r.date] = hrs;
     });
 
+    const defaultExp = todayAttendance?.shift?.expected_hours || 8;
     const stripDays: DailyStripDay[] = weekDates.map((wd) => {
       const hrs = perDayMap[wd.date] || 0;
       total += hrs;
       if (!wd.isFuture && hrs > 0) pastWorkedCount++;
+      const isOff = stableIsDateOff(wd.date);
+      const exp = isOff ? 0 : (wd.label === 'Sat' ? 6 : defaultExp);
       return {
         label: wd.label,
         date: wd.date,
         hours: hrs,
         isFuture: wd.isFuture,
         isToday: wd.isToday,
+        expectedHours: exp,
+        isOffDay: isOff,
       };
     });
 
     setWeeklyWorkedHours(total);
     setWeeklyWorkedDays(stripDays);
     setPastDaysWorkedCount(pastWorkedCount);
-  }, [isOps, timesheetData, weekDates]);
+  }, [isOps, timesheetData, weekDates, todayAttendance?.shift?.expected_hours, stableIsDateOff]);
 
   // 6. Calculate Month Dots & Present in Month
   useEffect(() => {

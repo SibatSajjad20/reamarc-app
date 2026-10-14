@@ -47,6 +47,26 @@ def _handle_workflow_error(e: WorkflowError):
     raise HTTPException(status_code=e.status_code, detail=e.message)
 
 
+def can_read_website_projects(user: Dict[str, Any] | None) -> bool:
+    """Staff with website view permission, plus clients who view their workspace website projects."""
+    if not user or not user.get("is_active", True):
+        return False
+    if is_client(user):
+        return True
+    from app.services.permissions import load_ctx, resolve, level_gte
+    ctx = load_ctx(user)
+    return level_gte("website", resolve(ctx, "website"), "view")
+
+
+async def require_website_reader(current_user: dict = Depends(get_current_user)) -> dict:
+    if not can_read_website_projects(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions: requires website level 'view'.",
+        )
+    return current_user
+
+
 @router.get("", response_model=WebsiteProjectListResponse)
 @limiter.limit("120/minute")
 async def list_projects(
@@ -59,7 +79,7 @@ async def list_projects(
     search: Optional[str] = Query(None, description="Search term for name or client"),
     skip: int = Query(0, ge=0),
     limit: int = Query(200, ge=1, le=500),
-    current_user: dict = Depends(require_permission("website", "view")),
+    current_user: dict = Depends(require_website_reader),
 ):
     """Lists website projects with filtering, search, and pagination."""
     db = get_database()
@@ -109,7 +129,7 @@ async def list_all_tasks(
     status: Optional[str] = Query(None, description="Filter by task status"),
     assignee_id: Optional[str] = Query(None, description="Filter by assignee user ID"),
     search: Optional[str] = Query(None, description="Search term for task name or description"),
-    current_user: dict = Depends(require_permission("website", "view")),
+    current_user: dict = Depends(require_website_reader),
 ):
     """Returns tasks across visible projects, optionally filtered by project, stage, status, or assignee."""
     db = get_database()

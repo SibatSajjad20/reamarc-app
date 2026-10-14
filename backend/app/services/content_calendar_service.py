@@ -228,7 +228,12 @@ async def get_items(
         query["approval_status"] = approval_status
 
     if viewer and str(viewer.get("role") or "").lower() == "client":
-        workspace_ids = [str(value) for value in (viewer.get("workspace_ids") or []) if value]
+        raw_ws = viewer.get("workspace_ids") or []
+        if isinstance(raw_ws, str):
+            raw_ws = [raw_ws]
+        workspace_ids = [str(value).strip() for value in raw_ws if str(value).strip()]
+        if viewer.get("workspace_id") and str(viewer.get("workspace_id")).strip() not in workspace_ids:
+            workspace_ids.append(str(viewer.get("workspace_id")).strip())
         if workspace_id and workspace_id not in workspace_ids:
             query["workspace_id"] = "__none__"
         else:
@@ -556,6 +561,10 @@ async def create_item(
     doc["created_by_name"] = user_name
     doc["created_at"] = now
     doc["updated_at"] = now
+
+    resolved_ws = await _resolve_workspace_id_for_client(db, doc.get("client_name"))
+    if resolved_ws:
+        doc["workspace_id"] = resolved_ws
 
     for k, v in doc.items():
         if isinstance(v, str):

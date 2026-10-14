@@ -13,6 +13,11 @@ import { CustomSelect } from '../components/ui/CustomSelect';
 import { Button } from '../components/ui/button';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../components/ui/FormDialogLayout';
 import { FormFooter } from '../components/ui/FormFooter';
+import {
+  formatNowHhMm,
+  parseHhMmToMinutes,
+  provisionalNetWorkMinutes,
+} from '../utils/liveNetWorkHours';
 
 export const OVERTIME_CATEGORY_OPTIONS = [
   { value: 'client_deadline', label: 'Client deadline' },
@@ -170,8 +175,11 @@ export function usePunchFlow(
         Boolean(todayData.punch_status.check_out_time))
   );
   const windowClosed = Boolean(todayData?.shift_ended) && !isCheckedIn;
-  const isAbsentLocked = windowClosed && !isWfh;
-  const checkInClosed = isAbsentLocked;
+  const isAbsentLocked = windowClosed;
+  const checkInClosed =
+    isAbsentLocked ||
+    todayData?.can_punch_in === false ||
+    todayData?.punch_status?.can_check_in === false;
   const isOffDay = Boolean(todayData?.is_off_day);
   const offDayLabel = todayData?.off_day_label || 'Official rest day';
   const enforceIp = todayData?.enforce_ip_whitelist ?? true;
@@ -310,8 +318,51 @@ export function usePunchFlow(
     }
   };
 
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isCheckedIn || isCheckedOut) return;
+    const id = window.setInterval(() => setNowTick(Date.now()), 10000);
+    return () => window.clearInterval(id);
+  }, [isCheckedIn, isCheckedOut]);
+
+  const [overrideGateType, setOverrideGateType] = useState<'overtime' | 'undertime' | null>(null);
+
+  const computeLiveGateType = useCallback((): 'none' | 'overtime' | 'undertime' => {
+    if (!shift?.end_time) return (todayData?.checkout_gate?.type as any) || 'none';
+    const nowMins = parseHhMmToMinutes(formatNowHhMm());
+    const shiftEndMins = parseHhMmToMinutes(shift.end_time);
+    const shiftStartMins = parseHhMmToMinutes(shift.start_time || '09:30') ?? 570;
+    if (nowMins === null || shiftEndMins === null) {
+      return (todayData?.checkout_gate?.type as any) || 'none';
+    }
+
+    const otBuf = Number(shift.overtime_buffer_minutes ?? todayData?.checkout_gate?.overtime_buffer_minutes ?? 5);
+    const utBuf = Number(shift.undertime_buffer_minutes ?? todayData?.checkout_gate?.undertime_buffer_minutes ?? 5);
+    const isNight = Boolean(shift.is_night_shift);
+    const crosses = isNight || shiftEndMins <= shiftStartMins;
+
+    let endAdjusted = shiftEndMins;
+    if (crosses) endAdjusted += 1440;
+
+    let outAdjusted = nowMins;
+    if (crosses && outAdjusted < shiftStartMins - 360) {
+      outAdjusted += 1440;
+    }
+
+    const delta = outAdjusted - endAdjusted;
+
+    if (delta > otBuf) {
+      return 'overtime';
+    }
+    const isShortLeave = record?.status === 'short_leave' || Boolean((record as any)?.is_short_leave);
+    if (!isShortLeave && delta < -utBuf) {
+      return 'undertime';
+    }
+    return 'none';
+  }, [shift, todayData?.checkout_gate, record?.status, (record as any)?.is_short_leave]);
+
   const checkoutGate = todayData?.checkout_gate;
-  const gateType = checkoutGate?.type || 'none';
+  const gateType = overrideGateType || computeLiveGateType();
   const needsVarianceReason = gateType === 'overtime' || gateType === 'undertime';
 
   const submitCheckOut = async (reason?: string, category?: string) => {
@@ -369,9 +420,23 @@ export function usePunchFlow(
       setVarianceOpen(false);
       setVarianceReason('');
       setVarianceCategory('');
+      setOverrideGateType(null);
       addToast('Checked out', 'Your shift has ended and timesheet calculated.', 'success');
       onRefresh();
     } catch (err: any) {
+      const errMsg = String(err?.message || '');
+      if (errMsg.toLowerCase().includes('reason for overtime')) {
+        setOverrideGateType('overtime');
+        setVarianceOpen(true);
+        addToast('Overtime reason required', 'Please provide details of overtime work to complete check-out.', 'info');
+        return;
+      }
+      if (errMsg.toLowerCase().includes('reason for leaving early') || errMsg.toLowerCase().includes('reason for undertime')) {
+        setOverrideGateType('undertime');
+        setVarianceOpen(true);
+        addToast('Early departure reason required', 'Please enter a reason to complete check-out.', 'info');
+        return;
+      }
       addToast('Check-out failed', err.message || 'Could not record check-out.', 'error');
     } finally {
       setIsSubmitting(false);
@@ -380,6 +445,12 @@ export function usePunchFlow(
   };
 
   const handleCheckOut = async () => {
+    const liveGate = computeLiveGateType();
+    if (liveGate === 'overtime' || liveGate === 'undertime') {
+      setOverrideGateType(liveGate);
+      setVarianceOpen(true);
+      return;
+    }
     if (needsVarianceReason) {
       setVarianceOpen(true);
       return;
@@ -388,45 +459,48 @@ export function usePunchFlow(
   };
 
   const elapsedAtWork = useMemo(() => {
-    if (isCheckedOut && record?.working_hours_minutes) {
-      const hrs = Math.floor(record.working_hours_minutes / 60);
-      const mins = record.working_hours_minutes % 60;
-      return `${hrs}h ${mins}m`;
-    }
-    if (!isCheckedIn || !punchIn) return '—';
-    try {
-      let inDate: Date | null = null;
-      if (typeof punchIn === 'string' && punchIn.includes('T')) {
-        inDate = new Date(punchIn);
-      } else if (typeof punchIn === 'string') {
-        const match = punchIn.match(/(\d+):(\d+)(?::\d+)?\s*(AM|PM)?/i);
-        if (match) {
-          let hr = parseInt(match[1], 10);
-          const min = parseInt(match[2], 10);
-          const ampm = match[3]?.toUpperCase();
-          if (ampm === 'PM' && hr < 12) hr += 12;
-          if (ampm === 'AM' && hr === 12) hr = 0;
-          inDate = new Date();
-          inDate.setHours(hr, min, 0, 0);
-        }
-      }
-      if (inDate && !isNaN(inDate.getTime())) {
-        const diffMs = Math.max(0, Date.now() - inDate.getTime());
-        const hrs = Math.floor(diffMs / 3600000);
-        const mins = Math.floor((diffMs % 3600000) / 60000);
+    if (isCheckedOut) {
+      const workMins = record?.working_hours_minutes ?? 0;
+      if (workMins > 0) {
+        const hrs = Math.floor(workMins / 60);
+        const mins = workMins % 60;
         return `${hrs}h ${mins}m`;
       }
-    } catch {
-      // fallback
+      if (record?.work_duration_formatted) {
+        const parts = record.work_duration_formatted.split(':').map(Number);
+        if (!isNaN(parts[0]) && !isNaN(parts[1])) return `${parts[0]}h ${parts[1]}m`;
+      }
+      return '0h 0m';
     }
-    return '—';
-  }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes]);
+    if (!isCheckedIn || !punchIn) return '—';
+
+    // Use provisionalNetWorkMinutes which automatically deducts unpaid break duration
+    // (e.g. pauses progress during 1:15 - 2:15 break window for standard shift)
+    const punchInStr = typeof punchIn === 'string' ? punchIn : String(punchIn);
+    const netMinutes = provisionalNetWorkMinutes({
+      checkIn: punchInStr,
+      checkOut: formatNowHhMm(new Date(nowTick)),
+      shiftStart: shift?.start_time,
+      shiftEnd: shift?.end_time,
+      breakDurationMinutes: shift?.break_duration_minutes ?? 60,
+      breakStart: shift?.break_start_time,
+      breakEnd: shift?.break_end_time,
+      isNightShift: Boolean(shift?.is_night_shift),
+    });
+
+    const hrs = Math.floor(netMinutes / 60);
+    const mins = netMinutes % 60;
+    return `${hrs}h ${mins}m`;
+  }, [isCheckedIn, isCheckedOut, punchIn, record?.working_hours_minutes, record?.work_duration_formatted, shift, nowTick]);
 
   const renderVarianceModal = () => {
     return (
       <FormDialog
         isOpen={varianceOpen}
-        onClose={() => setVarianceOpen(false)}
+        onClose={() => {
+          setVarianceOpen(false);
+          setOverrideGateType(null);
+        }}
         maxWidth="md"
       >
         <FormDialogHeader
@@ -434,11 +508,14 @@ export function usePunchFlow(
           subtitle={
             checkoutGate?.message ||
             (gateType === 'overtime'
-              ? `Your shift ended at ${shift?.end_time || '18:30'}. Enter the reason you stayed.`
+              ? `Your shift ended at ${shift?.end_time || '18:30'}. 5 minutes grace is granted without reason, but overtime beyond the buffer requires an explanation for HR.`
               : `You are leaving before ${shift?.end_time || '18:30'}. Enter the reason.`)
           }
           icon={gateType === 'overtime' ? <Clock className="w-5 h-5 text-accent-text" /> : undefined}
-          onClose={() => setVarianceOpen(false)}
+          onClose={() => {
+            setVarianceOpen(false);
+            setOverrideGateType(null);
+          }}
         />
         <form
           onSubmit={(e) => {
@@ -494,7 +571,10 @@ export function usePunchFlow(
               type="button"
               variant="secondary"
               size="sm"
-              onClick={() => setVarianceOpen(false)}
+              onClick={() => {
+                setVarianceOpen(false);
+                setOverrideGateType(null);
+              }}
             >
               Cancel
             </Button>

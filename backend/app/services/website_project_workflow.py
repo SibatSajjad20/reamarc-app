@@ -137,7 +137,13 @@ def client_workspace_ids(user: Dict[str, Any] | None) -> Set[str]:
     if not user:
         return set()
     raw = user.get("workspace_ids") or []
-    return {str(w).strip() for w in raw if str(w).strip()}
+    if isinstance(raw, str):
+        raw = [raw]
+    res = {str(w).strip() for w in raw if str(w).strip()}
+    ws_id = user.get("workspace_id")
+    if ws_id and str(ws_id).strip():
+        res.add(str(ws_id).strip())
+    return res
 
 
 def can_view_project(user: Dict[str, Any] | None, project: Dict[str, Any]) -> bool:

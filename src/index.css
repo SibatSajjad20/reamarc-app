@@ -370,11 +370,13 @@ body.dark.public-review-page #root {
   background: var(--text-faint);
 }
 
-.hide-scrollbar {
+.hide-scrollbar,
+.no-scrollbar {
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
-.hide-scrollbar::-webkit-scrollbar {
+.hide-scrollbar::-webkit-scrollbar,
+.no-scrollbar::-webkit-scrollbar {
   display: none;
 }
 

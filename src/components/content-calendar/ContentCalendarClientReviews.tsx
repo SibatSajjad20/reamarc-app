@@ -283,7 +283,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
       </div>
 
       {/* Main View Area */}
-      <main className="flex-1 min-h-0 overflow-y-auto">
+      <main className={cn('flex-1 min-h-0 flex flex-col', viewMode === 'approvals' ? 'overflow-y-auto' : 'overflow-hidden')}>
         {error && (
           <div className="max-w-7xl mx-auto px-6 pt-4">
             <div className="p-3.5 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs flex items-center gap-2">
@@ -300,7 +300,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                 value={activeFilter}
                 onValueChange={(val) => setActiveFilter(val as ReviewFilter)}
               >
-                <TabsList className="mb-0 border-b-0">
+                <TabsList className="mb-0 border-b-0 overflow-y-hidden">
                   <TabsTrigger value="pending" count={pendingItems.length}>
                     Pending
                   </TabsTrigger>
@@ -601,14 +601,14 @@ export const ContentCalendarClientReviews: React.FC = () => {
           </div>
         ) : (
           /* Full Production Pipeline View */
-          <div className="h-full flex flex-col min-w-0">
-            <div className="px-6 py-2 bg-subtle border-b border-border text-xs text-fg-muted flex items-center justify-between">
+          <div className="flex-1 min-h-0 h-full flex flex-col min-w-0">
+            <div className="px-6 py-2 bg-subtle border-b border-border text-xs text-fg-muted flex items-center justify-between shrink-0">
               <span>
                 Viewing full campaign production pipeline across all {PIPELINE_STAGES.length} stages. Click any card to inspect specs.
               </span>
             </div>
 
-            <div className="flex-1 min-h-0 overflow-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
               <ContentCalendarPipelineView
                 items={items}
                 stages={[...PIPELINE_STAGES]}

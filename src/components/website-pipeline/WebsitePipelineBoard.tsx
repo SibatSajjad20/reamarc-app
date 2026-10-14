@@ -149,8 +149,8 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
   };
 
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-canvas overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-canvas overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 pb-3 flex gap-3.5 select-none custom-scrollbar">
         {WEBSITE_STAGES_CONFIG.map((stageConf) => {
           const stageProjects = projectsByStage[stageConf.id] || [];
           const isOver = overStage === stageConf.id;
@@ -161,14 +161,14 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
               onDragOver={(e) => handleDragOver(e, stageConf.id)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, stageConf.id)}
-              className={`min-w-[290px] w-[290px] max-w-[290px] flex-shrink-0 flex flex-col rounded-xl bg-surface border transition-all duration-200 ${
+              className={`min-w-[290px] w-[290px] max-w-[290px] flex-shrink-0 flex flex-col rounded-xl bg-surface border h-full min-h-0 transition-all duration-200 ${
                 isOver
                   ? 'border-accent ring-2 ring-accent/30 bg-accent-soft'
                   : 'border-border'
               }`}
             >
               {/* Column Header */}
-              <div className="p-3.5 pb-2.5 border-b border-border">
+              <div className="p-3.5 pb-2.5 border-b border-border shrink-0">
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className="font-semibold text-sm text-fg truncate">
@@ -182,7 +182,7 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
               </div>
 
               {/* Cards Container */}
-              <div className="flex-1 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
+              <div className="flex-1 min-h-0 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
                 {stageProjects.map((project) => {
                   const hStyle = healthBadge(project.health);
                   const isDragging = draggingId === project.id;
@@ -369,15 +369,15 @@ export const WebsitePipelineBoard: React.FC<Props> = ({
 
 export const WebsitePipelineBoardSkeleton: React.FC = () => {
   return (
-    <div className="flex-1 min-h-0 flex flex-col bg-canvas overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 flex gap-3.5 select-none custom-scrollbar">
+    <div className="flex-1 min-h-0 h-full flex flex-col bg-canvas overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-x-auto overflow-y-hidden p-4 pt-3 pb-3 flex gap-3.5 select-none custom-scrollbar">
         {WEBSITE_STAGES_CONFIG.map((stageConf) => (
           <div
             key={stageConf.id}
-            className="min-w-[290px] w-[290px] max-w-[290px] flex-shrink-0 flex flex-col rounded-xl bg-surface border border-border animate-pulse"
+            className="min-w-[290px] w-[290px] max-w-[290px] flex-shrink-0 flex flex-col rounded-xl bg-surface border border-border h-full min-h-0 animate-pulse"
           >
             {/* Column Header Skeleton */}
-            <div className="p-3.5 pb-2.5 border-b border-border">
+            <div className="p-3.5 pb-2.5 border-b border-border shrink-0">
               <div className="flex items-center justify-between gap-2">
                 <div className="h-4 w-28 bg-skel rounded-md" />
                 <div className="h-4 w-6 bg-skel rounded-full" />
@@ -385,7 +385,7 @@ export const WebsitePipelineBoardSkeleton: React.FC = () => {
             </div>
 
             {/* Cards Container Skeleton */}
-            <div className="flex-1 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
+            <div className="flex-1 min-h-0 p-2.5 space-y-2.5 overflow-y-auto custom-scrollbar">
               {[1, 2, 3].map((cardIdx) => (
                 <div
                   key={cardIdx}
