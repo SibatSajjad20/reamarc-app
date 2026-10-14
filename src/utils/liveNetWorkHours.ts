@@ -148,3 +148,94 @@ export function signedLogGapHours(loggedHours: number, timeAtWorkHours: number):
 
 /** Tiny tolerance (~1.2 min) for "matched". */
 export const LOG_GAP_MATCH_HOURS = 0.02;
+
+export interface ComputeCheckoutGateInput {
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+  breakDurationMinutes?: number | null;
+  breakStart?: string | null;
+  breakEnd?: string | null;
+  isNightShift?: boolean;
+  overtimeBufferMinutes?: number | null;
+  undertimeBufferMinutes?: number | null;
+  punchIn?: string | null;
+  currentTime?: string | null;
+  isShortLeave?: boolean;
+}
+
+export type CheckoutGateType = 'none' | 'overtime' | 'undertime';
+
+/**
+ * Computes checkout gate type ('none' | 'overtime' | 'undertime')
+ * Mirrors backend overtime_gate.classify_checkout_gate:
+ * 1. Clock time must be past shift end by more than overtime buffer (delta > otBuf).
+ * 2. Net effective working hours must exceed shift expected hours by more than the buffer (claimedOvertimeMinutes > otBuf).
+ * 3. Make-up time for late arrival first covers the late deficit before counting as overtime.
+ * 4. Minor overtime within buffer (e.g. <= 5m) is auto-credited without requiring a reason.
+ */
+export function computeCheckoutGateType(input: ComputeCheckoutGateInput): CheckoutGateType {
+  const shiftEndMins = parseHhMmToMinutes(input.shiftEnd);
+  if (shiftEndMins === null) return 'none';
+  const nowMins = parseHhMmToMinutes(input.currentTime || formatNowHhMm());
+  if (nowMins === null) return 'none';
+  const shiftStartMins = parseHhMmToMinutes(input.shiftStart || '09:30') ?? 570;
+
+  const otBuf = Number(input.overtimeBufferMinutes ?? 5);
+  const utBuf = Number(input.undertimeBufferMinutes ?? 5);
+  const isNight = Boolean(input.isNightShift);
+  const crosses = isNight || shiftEndMins <= shiftStartMins;
+
+  const inMins = parseHhMmToMinutes(input.punchIn);
+  let endAdjusted = shiftEndMins;
+  if (crosses) endAdjusted += 1440;
+
+  let inAdjusted = inMins ?? shiftStartMins;
+  if (crosses && inMins !== null && inMins < shiftStartMins - 360) {
+    inAdjusted += 1440;
+  }
+
+  let outAdjusted = nowMins;
+  if (crosses) {
+    if (outAdjusted < inAdjusted) outAdjusted += 1440;
+  } else {
+    if (outAdjusted < inAdjusted) outAdjusted += 1440;
+  }
+
+  const delta = outAdjusted - endAdjusted;
+  const span = endAdjusted - shiftStartMins;
+  const unpaidBreak = Math.max(0, Math.floor(Number(input.breakDurationMinutes) || 0));
+  const expectedWorkMinutes = Math.max(0, span - unpaidBreak);
+
+  let claimedOvertimeMinutes = 0;
+  let claimedUndertimeMinutes = 0;
+
+  if (input.punchIn) {
+    const netMinutes = provisionalNetWorkMinutes({
+      checkIn: input.punchIn,
+      checkOut: input.currentTime || formatNowHhMm(),
+      shiftStart: input.shiftStart,
+      shiftEnd: input.shiftEnd,
+      breakDurationMinutes: unpaidBreak,
+      breakStart: input.breakStart,
+      breakEnd: input.breakEnd,
+      isNightShift: isNight,
+    });
+    const workVariance = netMinutes - expectedWorkMinutes;
+    if (delta > 0) {
+      claimedOvertimeMinutes = Math.max(0, Math.min(delta, workVariance));
+      claimedUndertimeMinutes = Math.max(0, expectedWorkMinutes - netMinutes);
+    } else {
+      claimedOvertimeMinutes = 0;
+      claimedUndertimeMinutes = Math.max(0, expectedWorkMinutes - netMinutes);
+    }
+  }
+
+  if (delta > otBuf && claimedOvertimeMinutes > otBuf) {
+    return 'overtime';
+  }
+  if (!input.isShortLeave && delta < -utBuf && claimedUndertimeMinutes > utBuf) {
+    return 'undertime';
+  }
+  return 'none';
+}
+

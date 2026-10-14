@@ -14,8 +14,8 @@ import { Button } from '../components/ui/button';
 import { FormDialog, FormDialogHeader, FormDialogBody } from '../components/ui/FormDialogLayout';
 import { FormFooter } from '../components/ui/FormFooter';
 import {
+  computeCheckoutGateType,
   formatNowHhMm,
-  parseHhMmToMinutes,
   provisionalNetWorkMinutes,
 } from '../utils/liveNetWorkHours';
 
@@ -329,37 +329,23 @@ export function usePunchFlow(
 
   const computeLiveGateType = useCallback((): 'none' | 'overtime' | 'undertime' => {
     if (!shift?.end_time) return (todayData?.checkout_gate?.type as any) || 'none';
-    const nowMins = parseHhMmToMinutes(formatNowHhMm());
-    const shiftEndMins = parseHhMmToMinutes(shift.end_time);
-    const shiftStartMins = parseHhMmToMinutes(shift.start_time || '09:30') ?? 570;
-    if (nowMins === null || shiftEndMins === null) {
-      return (todayData?.checkout_gate?.type as any) || 'none';
-    }
-
-    const otBuf = Number(shift.overtime_buffer_minutes ?? todayData?.checkout_gate?.overtime_buffer_minutes ?? 5);
-    const utBuf = Number(shift.undertime_buffer_minutes ?? todayData?.checkout_gate?.undertime_buffer_minutes ?? 5);
-    const isNight = Boolean(shift.is_night_shift);
-    const crosses = isNight || shiftEndMins <= shiftStartMins;
-
-    let endAdjusted = shiftEndMins;
-    if (crosses) endAdjusted += 1440;
-
-    let outAdjusted = nowMins;
-    if (crosses && outAdjusted < shiftStartMins - 360) {
-      outAdjusted += 1440;
-    }
-
-    const delta = outAdjusted - endAdjusted;
-
-    if (delta > otBuf) {
-      return 'overtime';
-    }
+    const punchInStr = punchIn ? (typeof punchIn === 'string' ? punchIn : String(punchIn)) : null;
     const isShortLeave = record?.status === 'short_leave' || Boolean((record as any)?.is_short_leave);
-    if (!isShortLeave && delta < -utBuf) {
-      return 'undertime';
-    }
-    return 'none';
-  }, [shift, todayData?.checkout_gate, record?.status, (record as any)?.is_short_leave]);
+
+    return computeCheckoutGateType({
+      shiftStart: shift.start_time,
+      shiftEnd: shift.end_time,
+      breakDurationMinutes: shift.break_duration_minutes,
+      breakStart: shift.break_start_time,
+      breakEnd: shift.break_end_time,
+      isNightShift: Boolean(shift.is_night_shift),
+      overtimeBufferMinutes: shift.overtime_buffer_minutes ?? todayData?.checkout_gate?.overtime_buffer_minutes ?? 5,
+      undertimeBufferMinutes: shift.undertime_buffer_minutes ?? todayData?.checkout_gate?.undertime_buffer_minutes ?? 5,
+      punchIn: punchInStr,
+      currentTime: formatNowHhMm(new Date(nowTick)),
+      isShortLeave,
+    });
+  }, [shift, todayData?.checkout_gate, record?.status, (record as any)?.is_short_leave, punchIn, nowTick]);
 
   const checkoutGate = todayData?.checkout_gate;
   const gateType = overrideGateType || computeLiveGateType();
@@ -425,13 +411,21 @@ export function usePunchFlow(
       onRefresh();
     } catch (err: any) {
       const errMsg = String(err?.message || '');
-      if (errMsg.toLowerCase().includes('reason for overtime')) {
+      const isOt =
+        errMsg.toLowerCase().includes('reason for overtime') ||
+        (errMsg.toLowerCase().includes('overtime') && errMsg.toLowerCase().includes('reason'));
+      const isUt =
+        errMsg.toLowerCase().includes('reason for leaving early') ||
+        errMsg.toLowerCase().includes('reason for undertime') ||
+        (errMsg.toLowerCase().includes('leaving early') && errMsg.toLowerCase().includes('reason'));
+
+      if (isOt) {
         setOverrideGateType('overtime');
         setVarianceOpen(true);
         addToast('Overtime reason required', 'Please provide details of overtime work to complete check-out.', 'info');
         return;
       }
-      if (errMsg.toLowerCase().includes('reason for leaving early') || errMsg.toLowerCase().includes('reason for undertime')) {
+      if (isUt) {
         setOverrideGateType('undertime');
         setVarianceOpen(true);
         addToast('Early departure reason required', 'Please enter a reason to complete check-out.', 'info');
@@ -508,7 +502,7 @@ export function usePunchFlow(
           subtitle={
             checkoutGate?.message ||
             (gateType === 'overtime'
-              ? `Your shift ended at ${shift?.end_time || '18:30'}. 5 minutes grace is granted without reason, but overtime beyond the buffer requires an explanation for HR.`
+              ? `Your shift ended at ${shift?.end_time || '18:30'}. ${shift?.overtime_buffer_minutes ?? 5} minutes grace is granted without reason, but overtime beyond the buffer requires an explanation for HR.`
               : `You are leaving before ${shift?.end_time || '18:30'}. Enter the reason.`)
           }
           icon={gateType === 'overtime' ? <Clock className="w-5 h-5 text-accent-text" /> : undefined}

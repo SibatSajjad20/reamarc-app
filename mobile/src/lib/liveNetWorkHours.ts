@@ -60,7 +60,7 @@ export interface ProvisionalNetWorkHoursInput {
   isNightShift?: boolean;
 }
 
-export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): number {
+export function provisionalNetWorkMinutes(input: ProvisionalNetWorkHoursInput): number {
   const checkInMins = parseHhMmToMinutes(input.checkIn);
   const checkOutMins = parseHhMmToMinutes(input.checkOut);
   if (checkInMins === null || checkOutMins === null) return 0;
@@ -102,7 +102,12 @@ export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): nu
     );
   }
 
-  return Math.round((Math.max(0, gross - deducted) / 60) * 100) / 100;
+  return Math.max(0, gross - deducted);
+}
+
+export function provisionalNetWorkHours(input: ProvisionalNetWorkHoursInput): number {
+  const netMins = provisionalNetWorkMinutes(input);
+  return Math.round((netMins / 60) * 100) / 100;
 }
 
 export function formatNowHhMm(now: Date = new Date()): string {
@@ -116,3 +121,93 @@ export function signedLogGapHours(loggedHours: number, timeAtWorkHours: number):
 }
 
 export const LOG_GAP_MATCH_HOURS = 0.02;
+
+export interface ComputeCheckoutGateInput {
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+  breakDurationMinutes?: number | null;
+  breakStart?: string | null;
+  breakEnd?: string | null;
+  isNightShift?: boolean;
+  overtimeBufferMinutes?: number | null;
+  undertimeBufferMinutes?: number | null;
+  checkIn?: string | null;
+  punchIn?: string | null;
+  checkOut?: string | null;
+  currentTime?: string | null;
+  expectedHours?: number | null;
+  isShortLeave?: boolean;
+}
+
+export type CheckoutGateType = 'none' | 'overtime' | 'undertime';
+
+export function computeCheckoutGateType(input: ComputeCheckoutGateInput): CheckoutGateType {
+  const shiftEndMins = parseHhMmToMinutes(input.shiftEnd);
+  if (shiftEndMins === null) return 'none';
+  const punchOutTime = input.checkOut || input.currentTime || formatNowHhMm();
+  const nowMins = parseHhMmToMinutes(punchOutTime);
+  if (nowMins === null) return 'none';
+  const shiftStartMins = parseHhMmToMinutes(input.shiftStart || '09:30') ?? 570;
+
+  const otBuf = Number(input.overtimeBufferMinutes ?? 5);
+  const utBuf = Number(input.undertimeBufferMinutes ?? 5);
+  const isNight = Boolean(input.isNightShift);
+  const crosses = isNight || shiftEndMins <= shiftStartMins;
+
+  const punchInTime = input.checkIn || input.punchIn;
+  const inMins = parseHhMmToMinutes(punchInTime);
+  let endAdjusted = shiftEndMins;
+  if (crosses) endAdjusted += 1440;
+
+  let inAdjusted = inMins ?? shiftStartMins;
+  if (crosses && inMins !== null && inMins < shiftStartMins - 360) {
+    inAdjusted += 1440;
+  }
+
+  let outAdjusted = nowMins;
+  if (crosses) {
+    if (outAdjusted < inAdjusted) outAdjusted += 1440;
+  } else {
+    if (outAdjusted < inAdjusted) outAdjusted += 1440;
+  }
+
+  const delta = outAdjusted - endAdjusted;
+  const span = endAdjusted - shiftStartMins;
+  const unpaidBreak = Math.max(0, Math.floor(Number(input.breakDurationMinutes) || 0));
+  const expectedWorkMinutes =
+    typeof input.expectedHours === 'number' && Number.isFinite(input.expectedHours) && input.expectedHours > 0
+      ? Math.round(input.expectedHours * 60)
+      : Math.max(0, span - unpaidBreak);
+
+  let claimedOvertimeMinutes = 0;
+  let claimedUndertimeMinutes = 0;
+
+  if (punchInTime) {
+    const netMinutes = provisionalNetWorkMinutes({
+      checkIn: punchInTime,
+      checkOut: punchOutTime,
+      shiftStart: input.shiftStart,
+      shiftEnd: input.shiftEnd,
+      breakDurationMinutes: unpaidBreak,
+      breakStart: input.breakStart,
+      breakEnd: input.breakEnd,
+      isNightShift: isNight,
+    });
+    const workVariance = netMinutes - expectedWorkMinutes;
+    if (delta > 0) {
+      claimedOvertimeMinutes = Math.max(0, Math.min(delta, workVariance));
+      claimedUndertimeMinutes = Math.max(0, expectedWorkMinutes - netMinutes);
+    } else {
+      claimedOvertimeMinutes = 0;
+      claimedUndertimeMinutes = Math.max(0, expectedWorkMinutes - netMinutes);
+    }
+  }
+
+  if (delta > otBuf && claimedOvertimeMinutes > otBuf) {
+    return 'overtime';
+  }
+  if (!input.isShortLeave && delta < -utBuf && claimedUndertimeMinutes > utBuf) {
+    return 'undertime';
+  }
+  return 'none';
+}

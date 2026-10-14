@@ -40,6 +40,8 @@ import { OverviewAttendanceSkeleton } from '../../src/ui/Skeleton';
 import { TruckLoader } from '../../src/ui/TruckLoader';
 import { formatDisplayDate, formatTime, prettyRole } from '../../src/ui/format';
 import {
+  computeCheckoutGateType,
+  CheckoutGateType,
   formatNowHhMm,
   LOG_GAP_MATCH_HOURS,
   provisionalNetWorkHours,
@@ -80,6 +82,7 @@ type TodayPayload = {
     break_minutes?: number;
     late_minutes?: number;
     is_late?: boolean;
+    is_short_leave?: boolean;
   } | null;
   shift: {
     name: string;
@@ -91,6 +94,8 @@ type TodayPayload = {
     break_end_time?: string | null;
     is_night_shift?: boolean;
     expected_hours?: number;
+    overtime_buffer_minutes?: number;
+    undertime_buffer_minutes?: number;
   };
   is_wfh_approved: boolean;
   can_punch_in?: boolean;
@@ -183,6 +188,8 @@ function PunchScreen() {
   const [nowTick, setNowTick] = useState(Date.now());
   const [reasonOpen, setReasonOpen] = useState(false);
   const [reason, setReason] = useState('');
+  const [reasonGateType, setReasonGateType] = useState<CheckoutGateType | null>(null);
+  const [gateMessage, setGateMessage] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(() => !punchCached);
   const pulse = useRef(new Animated.Value(1)).current;
   const didBlurRef = useRef(false);
@@ -569,9 +576,32 @@ function PunchScreen() {
     setBusy(true);
     try {
       if (kind === 'out') {
+        const liveGate = computeCheckoutGateType({
+          checkIn: cin,
+          checkOut: formatNowHhMm(new Date()),
+          shiftStart: today?.shift?.start_time,
+          shiftEnd: today?.shift?.end_time,
+          isNightShift: Boolean(today?.shift?.is_night_shift),
+          breakDurationMinutes: scheduledBreakMinutes(today),
+          expectedHours: today?.shift?.expected_hours,
+          overtimeBufferMinutes: today?.shift?.overtime_buffer_minutes ?? 5,
+          undertimeBufferMinutes: today?.shift?.undertime_buffer_minutes ?? 5,
+          isShortLeave: Boolean(today?.record?.is_short_leave),
+        });
+
+        if (liveGate === 'overtime' || liveGate === 'undertime') {
+          setReasonGateType(liveGate);
+          setGateMessage(null);
+          setBusy(false);
+          punchingRef.current = false;
+          setReasonOpen(true);
+          return;
+        }
+
+        // If local calculation is 'none', also check server gate in case server has special policy
         let currentToday = today;
         const cachedGate = currentToday?.checkout_gate;
-        if (!(cachedGate?.type && cachedGate.type !== 'none')) {
+        if (cachedGate?.type && cachedGate.type !== 'none') {
           try {
             currentToday = await withTimeout(load(), 1500, 'today-timeout');
           } catch {
@@ -580,6 +610,8 @@ function PunchScreen() {
         }
         const gate = currentToday?.checkout_gate;
         if (gate?.type && gate.type !== 'none') {
+          setReasonGateType(gate.type as CheckoutGateType);
+          setGateMessage(gate.message || null);
           setBusy(false);
           punchingRef.current = false;
           setReasonOpen(true);
@@ -588,7 +620,24 @@ function PunchScreen() {
       }
       await punch(kind);
     } catch (err: any) {
-      setError(err.message || 'Punch failed');
+      const errMsg = err?.message || String(err || '');
+      const lower = errMsg.toLowerCase();
+      const isReasonRequired =
+        lower.includes('reason') ||
+        lower.includes('overtime') ||
+        lower.includes('undertime') ||
+        lower.includes('leaving early') ||
+        lower.includes('variance');
+
+      if (isReasonRequired) {
+        const isOt = lower.includes('overtime');
+        setReasonGateType(isOt ? 'overtime' : 'undertime');
+        setGateMessage(errMsg);
+        setError('');
+        setReasonOpen(true);
+        return;
+      }
+      setError(errMsg || 'Punch failed');
     } finally {
       punchingRef.current = false;
       setBusy(false);
@@ -607,6 +656,8 @@ function PunchScreen() {
       await punch('out', reason.trim());
       setReasonOpen(false);
       setReason('');
+      setReasonGateType(null);
+      setGateMessage(null);
     } catch (err: any) {
       setError(err.message || 'Check-out failed');
     } finally {
@@ -883,55 +934,70 @@ function PunchScreen() {
         >
           <Pressable style={styles.backdropPressable} onPress={Keyboard.dismiss} />
           <View style={styles.centerCard}>
-            <View style={styles.modalHeaderRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>
-                  {today?.checkout_gate?.type === 'overtime' ? 'Overtime Reason' : 'Leaving Early Reason'}
-                </Text>
-                <Text style={styles.modalSubtitle}>
-                  {today?.checkout_gate?.message || `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`}
-                </Text>
-              </View>
-              <Pressable
-                onPress={() => {
-                  Keyboard.dismiss();
-                  setReasonOpen(false);
-                }}
-                hitSlop={12}
-                style={styles.modalCloseBtn}
-              >
-                <Ionicons name="close" size={20} color={colors.slate} />
-              </Pressable>
-            </View>
+            {(() => {
+              const effectiveGate =
+                reasonGateType ||
+                (today?.checkout_gate?.type as CheckoutGateType) ||
+                'overtime';
+              const otBufferMins = today?.shift?.overtime_buffer_minutes ?? 5;
+              return (
+                <>
+                  <View style={styles.modalHeaderRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>
+                        {effectiveGate === 'overtime' ? 'Overtime Reason' : 'Leaving Early Reason'}
+                      </Text>
+                      <Text style={styles.modalSubtitle}>
+                        {gateMessage ||
+                          today?.checkout_gate?.message ||
+                          (effectiveGate === 'overtime'
+                            ? `Overtime exceeds the ${otBufferMins}m buffer past your shift target.`
+                            : `Shift ended at ${today?.checkout_gate?.shift_end || today?.shift?.end_time}.`)}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        setReasonOpen(false);
+                      }}
+                      hitSlop={12}
+                      style={styles.modalCloseBtn}
+                    >
+                      <Ionicons name="close" size={20} color={colors.slate} />
+                    </Pressable>
+                  </View>
 
-            {today?.checkout_gate?.type === 'overtime' && (
-              <View style={{ backgroundColor: '#EEF2FF', borderRadius: 12, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#C7D2FE' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
-                  <Ionicons name="information-circle" size={14} color={colors.indigo} />
-                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.indigo }}>Detailed Work Summary</Text>
-                </View>
-                <Text style={{ fontSize: 11, color: '#3730A3', lineHeight: 15 }}>
-                  Please detail the specific tasks and deliverables completed during this overtime session.
-                </Text>
-              </View>
-            )}
+                  {effectiveGate === 'overtime' && (
+                    <View style={{ backgroundColor: '#EEF2FF', borderRadius: 12, padding: 10, marginBottom: 12, borderWidth: 1, borderColor: '#C7D2FE' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                        <Ionicons name="information-circle" size={14} color={colors.indigo} />
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: colors.indigo }}>Detailed Work Summary</Text>
+                      </View>
+                      <Text style={{ fontSize: 11, color: '#3730A3', lineHeight: 15 }}>
+                        Please detail the specific tasks and deliverables completed during this overtime session. Overtime within the {otBufferMins}-minute grace buffer does not require a reason.
+                      </Text>
+                    </View>
+                  )}
 
-            <View style={styles.inputWrap}>
-              <TextInput
-                style={styles.centerInput}
-                placeholder={
-                  today?.checkout_gate?.type === 'overtime'
-                    ? 'Breakdown of overtime work (e.g., Fixed PR #104, tested edge cases, attended client sync)...'
-                    : 'Why are you checking out at this time?'
-                }
-                placeholderTextColor={colors.muted}
-                value={reason}
-                onChangeText={setReason}
-                multiline
-                blurOnSubmit={true}
-                returnKeyType="done"
-              />
-            </View>
+                  <View style={styles.inputWrap}>
+                    <TextInput
+                      style={styles.centerInput}
+                      placeholder={
+                        effectiveGate === 'overtime'
+                          ? 'Breakdown of overtime work (e.g., Fixed PR #104, tested edge cases, attended client sync)...'
+                          : 'Why are you checking out at this time?'
+                      }
+                      placeholderTextColor={colors.muted}
+                      value={reason}
+                      onChangeText={setReason}
+                      multiline
+                      blurOnSubmit={true}
+                      returnKeyType="done"
+                    />
+                  </View>
+                </>
+              );
+            })()}
 
             <Pressable
               style={[styles.modalSubmitBtn, { backgroundColor: colors.emerald, opacity: busy ? 0.6 : 1 }]}
