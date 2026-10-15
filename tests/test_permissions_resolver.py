@@ -88,7 +88,7 @@ class PermissionsResolverTests(unittest.TestCase):
             }
         )
         summary = payload["permissions"]["summary"]
-        self.assertEqual(summary["sales"], "all")
+        self.assertEqual(summary["sales"], "view")
         self.assertEqual(summary["content_calendar"], "view")
         self.assertEqual(summary["website"], "view")
         self.assertEqual(summary["active_clients"], "manage")
@@ -96,7 +96,7 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertTrue(payload["permissions"]["view_only"])
 
     def test_operations_role_defaults(self):
-        """Operations can view every module and manage active clients. Department does not narrow that."""
+        """Operations can view work modules and manage active clients; daily_log is off by default."""
         user = {
             "id": "ops-1",
             "role": "operations",
@@ -105,13 +105,13 @@ class PermissionsResolverTests(unittest.TestCase):
             "departments": ["Operations"],
         }
         ctx = load_ctx(user)
-        self.assertEqual(resolve(ctx, "daily_log"), "all")
+        self.assertEqual(resolve(ctx, "daily_log"), "none")
         self.assertEqual(resolve(ctx, "attendance"), "all")
         self.assertEqual(resolve(ctx, "exceptions"), "all")
         self.assertEqual(resolve(ctx, "active_clients"), "manage")
         self.assertEqual(resolve(ctx, "content_calendar"), "view")
         self.assertEqual(resolve(ctx, "website"), "view")
-        self.assertEqual(resolve(ctx, "sales"), "all")
+        self.assertEqual(resolve(ctx, "sales"), "view")
         self.assertEqual(resolve(ctx, "ads"), "view")
         self.assertEqual(resolve(ctx, "content_calendar", "Website"), "view")
 

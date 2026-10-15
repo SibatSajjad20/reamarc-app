@@ -82,10 +82,12 @@ async def lifespan(app: FastAPI):
                 backfill_primary_departments,
                 normalize_operations_role_labels,
             )
+            from app.services.access_migration import run_access_settings_migration
             await backfill_primary_departments(db)
             await normalize_operations_role_labels(db)
+            await run_access_settings_migration(db)
         except Exception as perm_err:
-            logging.getLogger(__name__).exception(f"Primary department backfill failed: {perm_err}")
+            logging.getLogger(__name__).exception(f"Primary department / access migration failed: {perm_err}")
 
     cleanup_task = asyncio.create_task(_run_startup_cleanup())
 
