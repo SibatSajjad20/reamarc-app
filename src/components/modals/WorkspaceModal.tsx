@@ -23,7 +23,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
-import type { WorkspaceCreatePayload, WorkspaceUpdatePayload } from '../../services/workspaceService';
+import { workspaceService, type WorkspaceCreatePayload, type WorkspaceUpdatePayload } from '../../services/workspaceService';
 import { dailyLogService } from '../../services/dailyLogService';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
@@ -288,10 +288,13 @@ export const WorkspaceModal: React.FC<WorkspaceModalProps> = ({
     try {
       // When restoring an existing proposal path, overwrite the same key so the
       // workspace URL stays valid (ops does not need to remove + re-link).
-      const res = await dailyLogService.uploadDeliverableFile(
-        file,
-        proposalUrl?.startsWith('/uploads/') ? proposalUrl : undefined
-      );
+      const storeAs = proposalUrl?.startsWith('/uploads/') ? proposalUrl : undefined;
+      let res;
+      try {
+        res = await workspaceService.uploadProposal(file, storeAs);
+      } catch {
+        res = await dailyLogService.uploadDeliverableFile(file, storeAs);
+      }
       setProposalUrl(res.file_url);
       setProposalName(res.file_name || file.name);
       setProposalSize(res.file_size || file.size);

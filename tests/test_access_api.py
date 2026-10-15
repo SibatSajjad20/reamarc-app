@@ -18,7 +18,8 @@ from fastapi.testclient import TestClient
 
 from app.core.security import require_admin
 from app.routers.access import router as access_router
-from app.services.access import MODULES
+from app.services.access import MODULES, effective_access
+from app.services.content_calendar_workflow import visible_stages
 
 
 class InMemoryUserCollection:
@@ -325,6 +326,62 @@ class AccessApiTests(unittest.TestCase):
 
             # user-member now has website: True in DB
             self.assertEqual(self.users_col.docs["user-member"]["access"]["website"], True)
+
+    def test_creative_lead_extra_stages_dual_condition(self):
+        """Dual-condition testing: Creative Lead with extra stages vs without extra stages."""
+        # 1. Rejected case: Creative lead with default/empty extra stages
+        lead_default = {
+            "id": "creative-lead-default",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative"],
+            "content_stages": [],
+            "is_active": True,
+            "workspace_ids": ["ws-1"],
+        }
+        eff_default = effective_access(lead_default)
+        self.assertEqual(eff_default["content_stages"], ["creative"])
+        stages_default = visible_stages(lead_default)
+        self.assertIn("Creative Production", stages_default)
+        self.assertNotIn("Content", stages_default)
+        self.assertNotIn("Ready to Post", stages_default)
+
+        # 2. Legitimate case A: Creative lead with explicit extra content_stages from access settings
+        lead_with_extra = {
+            "id": "creative-lead-extra",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative"],
+            "content_stages": ["content", "social_media"],
+            "is_active": True,
+            "workspace_ids": ["ws-1"],
+        }
+        eff_extra = effective_access(lead_with_extra)
+        self.assertIn("creative", eff_extra["content_stages"])
+        self.assertIn("content", eff_extra["content_stages"])
+        self.assertIn("social_media", eff_extra["content_stages"])
+        stages_extra = visible_stages(lead_with_extra)
+        self.assertIn("Creative Production", stages_extra)
+        self.assertIn("Content", stages_extra)
+        self.assertIn("Ready to Post", stages_extra)
+
+        # 3. Legitimate case B: Creative lead with secondary departments
+        lead_with_secondary_depts = {
+            "id": "creative-lead-sec-depts",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative", "Content", "Social media"],
+            "is_active": True,
+            "workspace_ids": ["ws-1"],
+        }
+        eff_sec = effective_access(lead_with_secondary_depts)
+        self.assertIn("creative", eff_sec["content_stages"])
+        self.assertIn("content", eff_sec["content_stages"])
+        self.assertIn("social_media", eff_sec["content_stages"])
+        stages_sec = visible_stages(lead_with_secondary_depts)
+        self.assertIn("Creative Production", stages_sec)
+        self.assertIn("Content", stages_sec)
+        self.assertIn("Ready to Post", stages_sec)
 
 
 if __name__ == "__main__":

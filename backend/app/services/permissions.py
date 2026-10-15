@@ -483,7 +483,7 @@ _OPS_WRITE_PREFIXES = (
 )
 
 _OPS_WRITE_ALLOW = re.compile(
-    r"^/api/v1/crm/(?:approvals/won-deals/[^/]+/(?:approve|reject)|deals/[^/]+/approve-won|leads/[^/]+/approve-won|leads/[^/]+/register-client|leads/[^/]+/convert-to-workspace)$"
+    r"^(?:/api/v1/crm/(?:approvals/won-deals/[^/]+/(?:approve|reject)|deals/[^/]+/approve-won|leads/[^/]+/approve-won|leads/[^/]+/register-client|leads/[^/]+/convert-to-workspace)|/api/v1/daily-log/upload)$"
 )
 
 

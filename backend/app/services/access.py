@@ -382,7 +382,15 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             primary_stage = get_primary_stage(primary_dept)
             if primary_stage:
                 content_stages.append(primary_stage)
-            stored_stages = user.get("content_stages") or (user.get("access") or {}).get("content_stages") or []
+            stored_stages = user.get("content_stages")
+            if stored_stages is None:
+                stored_stages = (user.get("access") or {}).get("content_stages")
+            if stored_stages is None:
+                stored_stages = []
+                for d in parse_user_departments(user):
+                    st = normalize_stage(d)
+                    if st and st in VALID_CONTENT_STAGES and st != primary_stage and st not in stored_stages:
+                        stored_stages.append(st)
             if isinstance(stored_stages, list):
                 for st in stored_stages:
                     norm_st = normalize_stage(st)

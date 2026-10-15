@@ -325,6 +325,9 @@ async def get_current_user(
         "workspace_ids": user_doc.get("workspace_ids", []),
         "crm_enabled": user_doc.get("crm_enabled"),
         "crm_paused": user_doc.get("crm_paused"),
+        "access": user_doc.get("access") or {},
+        "content_stages": user_doc.get("content_stages"),
+        "access_version": user_doc.get("access_version") or 1,
     }
 
 

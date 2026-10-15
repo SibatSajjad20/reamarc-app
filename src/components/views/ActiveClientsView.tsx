@@ -10,6 +10,8 @@ import {
   Phone,
   ChevronRight,
   ExternalLink,
+  Plus,
+  Edit2,
 } from 'lucide-react';
 import type { Workspace } from '../../types';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
@@ -31,11 +33,13 @@ import {
 } from '../ui/DataTable';
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
 import { Sheet, SheetContent } from '../ui/sheet';
-import { Button } from '../ui/button';
+import { Button, IconButton } from '../ui/button';
 import { useAuth } from '../../context/AuthContext';
 
 interface ActiveClientsViewProps {
   workspaces?: Workspace[];
+  onAddWorkspace?: () => void;
+  onEditWorkspace?: (workspace: Workspace) => void;
 }
 
 type ClientFilter = 'All' | 'Retainer' | 'One-Time Project' | 'High Priority' | 'Emergency';
@@ -82,8 +86,11 @@ export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 })
 
 export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   workspaces: propWorkspaces,
+  onAddWorkspace,
+  onEditWorkspace,
 }) => {
   const { user } = useAuth();
+  const canManage = user?.role === 'admin' || user?.role === 'operations';
   const { workspaces: liveWorkspaces, isLoading } = useWorkspaces();
   const workspaces = useMemo(
     () => (liveWorkspaces && liveWorkspaces.length > 0 ? liveWorkspaces : propWorkspaces || []),
@@ -152,7 +159,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-canvas p-6">
       {/* Page Header */}
       <PageHeader
-        viewOnly={user?.role !== 'admin' && user?.role !== 'operations'}
+        viewOnly={!canManage}
         title={
           <div className="flex items-center gap-2.5">
             <span>Active clients</span>
@@ -162,6 +169,18 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
           </div>
         }
         description="Contracts, services and contacts for every active account."
+        actions={
+          canManage && onAddWorkspace ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onAddWorkspace}
+              icon={Plus}
+            >
+              Add workspace
+            </Button>
+          ) : undefined
+        }
       />
 
       {/* Toolbar: Search input (320px) + Segmented control */}
@@ -198,7 +217,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
               <TH>Health</TH>
               <TH>Priority</TH>
               <TH>Contract end</TH>
-              <TH className="w-10" />
+              <TH className="w-20 text-right pr-4" />
             </tr>
           </THead>
           <TBody>
@@ -312,8 +331,22 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                         {ws.contract_end_date || 'Ongoing'}
                       </span>
                     </TD>
-                    <TD className="w-10 text-right pr-4">
-                      <ChevronRight className="w-4 h-4 text-fg-muted group-hover:text-fg transition-colors inline-block" />
+                    <TD className="w-20 text-right pr-4">
+                      <div className="flex items-center justify-end gap-1">
+                        {canManage && onEditWorkspace && (
+                          <IconButton
+                            variant="ghost"
+                            size="sm"
+                            label={`Edit ${ws.name}`}
+                            icon={Edit2}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onEditWorkspace(ws);
+                            }}
+                          />
+                        )}
+                        <ChevronRight className="w-4 h-4 text-fg-muted group-hover:text-fg transition-colors inline-block" />
+                      </div>
                     </TD>
                   </TR>
                 );
@@ -350,6 +383,16 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                 <div className="flex items-center gap-2 shrink-0">
                   <HealthBadge health={selectedClient.health} />
                   <PriorityBadge priority={selectedClient.priority} />
+                  {canManage && onEditWorkspace && (
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={Edit2}
+                      onClick={() => onEditWorkspace(selectedClient)}
+                    >
+                      Edit
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -437,7 +480,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                 )}
 
                 {/* Proposals */}
-                {selectedClient.proposal_url && (
+                {selectedClient.proposal_url ? (
                   <div className="w-full flex items-center justify-between p-3.5 rounded-lg bg-subtle border border-border text-xs">
                     <div className="flex items-center gap-2 min-w-0">
                       <Paperclip className="w-3.5 h-3.5 text-accent shrink-0" />
@@ -473,8 +516,35 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       >
                         <Download className="w-3 h-3" />
                       </Button>
+                      {canManage && onEditWorkspace && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => onEditWorkspace(selectedClient)}
+                          title="Manage or replace proposal document"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </Button>
+                      )}
                     </div>
                   </div>
+                ) : (
+                  canManage && onEditWorkspace && (
+                    <div className="w-full flex items-center justify-between p-3.5 rounded-lg bg-subtle/60 border border-dashed border-border text-xs">
+                      <div className="flex items-center gap-2 min-w-0 text-fg-muted">
+                        <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                        <span>No proposal document attached</span>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        icon={Plus}
+                        onClick={() => onEditWorkspace(selectedClient)}
+                      >
+                        Attach proposal
+                      </Button>
+                    </div>
+                  )
                 )}
 
                 {selectedClient.description && (

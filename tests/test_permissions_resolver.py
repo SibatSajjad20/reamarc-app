@@ -384,6 +384,21 @@ class PermissionsResolverTests(unittest.TestCase):
                 "POST", "/api/v1/crm/leads/lead-1/convert-to-workspace", "operations"
             )
         )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/daily-log/upload", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/daily-log/upload?store_as=/uploads/deliverables/sample.pdf", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/workspaces/upload-proposal", "operations"
+            )
+        )
         self.assertFalse(operations_mutation_blocked("POST", "/api/v1/crm/leads", "admin"))
 
 

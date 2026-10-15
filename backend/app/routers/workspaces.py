@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Query, Request, UploadFile, File
 from typing import List, Optional
 import uuid
 from datetime import datetime, timezone
@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
 from app.core.security import require_admin, require_member_or_admin, require_operations_or_admin
 from app.core.uploads import open_upload_response, authorize_stored_upload
+from app.core.limiter import limiter
 from app.database import get_database
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
@@ -224,4 +225,25 @@ async def download_proposal(
     db = get_database()
     await authorize_stored_upload(db, current_user, file_path)
     return await open_upload_response(db, file_path)
+
+
+@router.post("/upload-proposal")
+@limiter.limit("15/minute")
+async def upload_proposal(
+    request: Request,
+    file: UploadFile = File(...),
+    store_as: Optional[str] = Query(
+        None,
+        description="Optional existing /uploads/... path to overwrite (restores proposals without changing DB URLs).",
+    ),
+    current_user: dict = Depends(require_operations_or_admin),
+):
+    """Upload or restore a client workspace proposal document (Operations or Admin)."""
+    from app.routers.daily_log import upload_deliverable
+    return await upload_deliverable(
+        request=request,
+        file=file,
+        store_as=store_as,
+        current_user=current_user,
+    )
 

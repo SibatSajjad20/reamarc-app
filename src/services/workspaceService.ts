@@ -90,6 +90,23 @@ export const workspaceService = {
     emitInvalidation(['workspaces', 'dashboard']);
     return res;
   },
+
+  async uploadProposal(
+    file: File,
+    storeAs?: string | null
+  ): Promise<{ file_url: string; file_name: string; file_size: number }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const qs =
+      storeAs && storeAs.trim()
+        ? `?store_as=${encodeURIComponent(storeAs.trim())}`
+        : '';
+    return apiClient.upload<{ file_url: string; file_name: string; file_size: number }>(
+      `/workspaces/upload-proposal${qs}`,
+      formData,
+      { skipWorkspaceHeader: !storeAs || !storeAs.trim() }
+    );
+  },
 };
 
 // Register for app-wide cache sweep on logout and user switch
