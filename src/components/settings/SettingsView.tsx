@@ -20,6 +20,7 @@ import { AccountAppearanceSection } from './sections/AccountAppearanceSection';
 import { AttendancePoliciesSection } from '@/components/admin/sections/AttendancePoliciesSection';
 import { DailyLogFieldsSection } from './sections/DailyLogFieldsSection';
 import { MobileOpsSection } from '@/components/admin/sections/MobileOpsSection';
+import { AccessSection } from './sections/access/AccessSection';
 
 // CRM Sections
 import { CrmSettingsIngest } from '@/components/crm/settings/CrmSettingsIngest';
@@ -81,7 +82,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         className={cn(
           "w-full mx-auto px-4 sm:px-6 py-6 space-y-6",
           currentSection === 'profile' ? "pb-6" : "pb-28",
-          currentSection === 'leave-quotas' ? 'max-w-6xl' : 'max-w-[1000px]'
+          currentSection === 'leave-quotas' || currentSection === 'access' ? 'max-w-6xl' : 'max-w-[1000px]'
         )}
       >
         <PageHeader
@@ -99,6 +100,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               onSelectThemePreference={onSelectThemePreference}
             />
           )}
+
+          {currentSection === 'access' && <AccessSection />}
 
           {currentSection === 'attendance-shifts' && (
             <AttendancePoliciesSection fixedTab="shifts" />

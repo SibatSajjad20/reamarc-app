@@ -69,7 +69,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>(defaultRole);
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['Website']);
+  const [primaryDepartment, setPrimaryDepartment] = useState<string>('Website');
+  const selectedDepartments = [primaryDepartment];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -88,7 +89,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       setPhone('');
       const initialRole = defaultRole === 'client' ? 'client' : (defaultRole === 'member' ? 'team_member' : defaultRole);
       setRole(initialRole);
-      setSelectedDepartments(['Website']);
+      setPrimaryDepartment('Website');
       const today = new Date().toISOString().slice(0, 10);
       setJoiningDate(today);
       setEmploymentType('contract');
@@ -127,11 +128,6 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const toggleDepartment = (dept: string) => {
-    setSelectedDepartments((prev) =>
-      prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]
-    );
-  };
 
   const formRef = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -466,33 +462,26 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
           {!isClientForm && role !== 'operations' && role !== 'hr' && role !== 'admin' && (
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Departments <span className="text-fg-muted font-normal">· select one or more</span>
+                Primary department <span className="text-danger-fg">*</span>
               </label>
-              <div className="flex flex-wrap gap-1.5">
-                {DEPARTMENTS.map((dept) => {
-                  const isSelected = selectedDepartments.includes(dept);
-                  return (
-                    <button
-                      key={dept}
-                      type="button"
-                      onClick={() => {
-                        toggleDepartment(dept);
-                        if (hasSubmitted) {
-                          setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
-                        }
-                      }}
-                      className={`h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
-                        isSelected
-                          ? 'bg-accent-soft border-accent-200 text-accent-text'
-                          : 'bg-surface border-border text-fg hover:bg-hover'
-                      }`}
-                    >
-                      {isSelected && <Check className="w-3 h-3 text-accent shrink-0" />}
-                      <span>{dept}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <CustomSelect
+                value={primaryDepartment}
+                onChange={(val) => {
+                  setPrimaryDepartment(val);
+                  if (hasSubmitted && val) {
+                    setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
+                  }
+                }}
+                options={DEPARTMENTS.filter((d) => d !== 'HR').map((dept) => ({
+                  value: dept,
+                  label: dept,
+                }))}
+                placeholder="Select primary department..."
+                aria-invalid={!!fieldErrors.departments}
+              />
+              <p className="text-caption text-fg-muted mt-1.5">
+                Extra content calendar stages are set in Settings &gt; Access
+              </p>
               {fieldErrors.departments && (
                 <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />

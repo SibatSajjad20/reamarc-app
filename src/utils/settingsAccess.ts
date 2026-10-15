@@ -86,6 +86,14 @@ export const SETTINGS_SECTIONS: SettingsSectionItem[] = [
     description: 'Authorized mobile devices and push alert broadcasts.',
     isAllowed: (user) => user?.role === 'admin' || user?.role === 'hr',
   },
+  {
+    slug: 'access',
+    group: 'organization',
+    groupLabel: 'Organization',
+    label: 'Access',
+    description: 'Turn modules on or off per person. Levels follow each person\'s role.',
+    isAllowed: (user) => user?.role === 'admin',
+  },
 
   // Sales pipeline
   {

@@ -80,6 +80,7 @@ const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ classNam
   'lead-routing': GitFork,
   'content-calendar-fields': Tags,
   'ad-accounts': Megaphone,
+  access: ShieldCheck,
 };
 
 export interface SidebarProps {

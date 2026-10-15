@@ -71,7 +71,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>('team_member');
-  const [selectedDepartments, setSelectedDepartments] = useState<string[]>(['Website']);
+  const [primaryDepartment, setPrimaryDepartment] = useState<string>('Website');
+  const selectedDepartments = [primaryDepartment];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [password, setPassword] = useState('');
@@ -93,13 +94,14 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setEmail(member.email || '');
       setPhone(phoneForInput(member.phone));
       setRole((member.role as any) === 'member' ? 'team_member' : member.role || 'team_member');
-      const initialDepts: string[] =
-        Array.isArray(member.departments) && member.departments.length > 0
-          ? member.departments.filter(Boolean)
-          : member.department && member.department !== 'All' && member.department !== 'HR'
-          ? member.department.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean)
-          : ['Website'];
-      setSelectedDepartments(initialDepts.length > 0 ? initialDepts : ['Website']);
+      const initialPrimary: string =
+        (member as any).primary_department ||
+        (Array.isArray(member.departments) && member.departments[0]) ||
+        (member.department && member.department !== 'All' && member.department !== 'HR'
+          ? member.department.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean)[0]
+          : '') ||
+        'Website';
+      setPrimaryDepartment(initialPrimary);
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
       setPassword('');
@@ -136,11 +138,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const toggleDepartment = (dept: string) => {
-    setSelectedDepartments((prev) =>
-      prev.includes(dept) ? prev.filter((d) => d !== dept) : [...prev, dept]
-    );
-  };
 
   const validate = (): Record<string, string> => {
     const errs: Record<string, string> = {};
@@ -424,33 +421,26 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           {role !== 'client' && role !== 'operations' && role !== 'hr' && role !== 'admin' && (
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Departments <span className="text-fg-muted font-normal">· select one or more</span>
+                Primary department <span className="text-danger-fg">*</span>
               </label>
-              <div className="flex flex-wrap gap-1.5">
-                {DEPARTMENTS.map((dept) => {
-                  const isSelected = selectedDepartments.includes(dept);
-                  return (
-                    <button
-                      key={dept}
-                      type="button"
-                      onClick={() => {
-                        toggleDepartment(dept);
-                        if (hasSubmitted) {
-                          setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
-                        }
-                      }}
-                      className={`h-7 px-2.5 rounded-md text-[12px] font-medium border transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
-                        isSelected
-                          ? 'bg-accent-soft border-accent-200 text-accent-text'
-                          : 'bg-surface border-border text-fg hover:bg-hover'
-                      }`}
-                    >
-                      {isSelected && <Check className="w-3 h-3 text-accent shrink-0" />}
-                      <span>{dept}</span>
-                    </button>
-                  );
-                })}
-              </div>
+              <CustomSelect
+                value={primaryDepartment}
+                onChange={(val) => {
+                  setPrimaryDepartment(val);
+                  if (hasSubmitted && val) {
+                    setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
+                  }
+                }}
+                options={DEPARTMENTS.filter((d) => d !== 'HR').map((dept) => ({
+                  value: dept,
+                  label: dept,
+                }))}
+                placeholder="Select primary department..."
+                aria-invalid={!!fieldErrors.departments}
+              />
+              <p className="text-caption text-fg-muted mt-1.5">
+                Extra content calendar stages are set in Settings &gt; Access
+              </p>
               {fieldErrors.departments && (
                 <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />

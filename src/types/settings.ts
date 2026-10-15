@@ -13,7 +13,8 @@ export type SettingsSectionSlug =
   | 'message-templates'
   | 'lead-routing'
   | 'content-calendar-fields'
-  | 'ad-accounts';
+  | 'ad-accounts'
+  | 'access';
 
 export type SettingsGroupKey =
   | 'account'

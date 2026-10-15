@@ -37,36 +37,23 @@ export function userCan(
   user: { role?: string; is_active?: boolean; permissions?: any } | null | undefined,
   module: string,
   minLevel: string,
-  department?: string,
+  _department?: string,
 ): boolean {
   if (!user || user.is_active === false) return false;
   const role = String(user.role || '').toLowerCase();
   if (role === 'admin') return true;
   if (role === 'client') return false;
-  if (role === 'operations' || user.permissions?.view_only) {
-    return levelGte(module, OPERATIONS_MODULE_LEVELS[module] || 'none', minLevel);
-  }
 
   const permissions = user.permissions;
   if (!permissions) return false;
 
-  let currentLevel: string | undefined;
-  if (department) {
-    const modPerms = permissions.modules?.[module];
-    currentLevel =
-      modPerms?.[department] || modPerms?.[department.toLowerCase()] || permissions.summary?.[module];
-  } else {
-    currentLevel = permissions.summary?.[module];
+  // If the module switch is explicitly false, access is denied
+  if (permissions.modules && permissions.modules[module] === false) {
+    return false;
   }
 
-  if (!currentLevel) {
-    const modPerms = permissions.modules?.[module];
-    if (modPerms) {
-      currentLevel = Object.values(modPerms).find((lvl) => lvl && lvl !== 'none') as string | undefined;
-    }
-  }
-
-  return levelGte(module, currentLevel || 'none', minLevel);
+  const currentLevel = permissions.levels?.[module] ?? permissions.summary?.[module] ?? 'none';
+  return levelGte(module, currentLevel, minLevel);
 }
 
 export function usePermissions() {
@@ -93,6 +80,9 @@ export function usePermissions() {
   }, [user, permissions, primaryDepartment]);
 
   const role = String(user?.role || '').toLowerCase();
+  const capabilities = permissions?.capabilities || {};
+  const tracked = permissions?.tracked || {};
+  const modules = permissions?.modules || {};
 
   return {
     user,
@@ -102,20 +92,18 @@ export function usePermissions() {
     departments,
     isAdmin: role === 'admin',
     isLead: role === 'team_lead',
-    canAccessDailyLog: can('daily_log', 'own'),
-    canAccessAttendance: can('attendance', 'own'),
-    canAccessContentCalendar: can('content_calendar', 'view'),
-    canAccessWebsitePipeline: can('website', 'view'),
-    canAccessCrm: can('sales', 'own'),
+    canAccessDailyLog: Boolean(tracked.daily_log) || can('daily_log', 'own'),
+    canAccessAttendance: Boolean(tracked.attendance) || can('attendance', 'own'),
+    canAccessContentCalendar: (modules.content_calendar ?? true) && can('content_calendar', 'view'),
+    canAccessWebsitePipeline: (modules.website ?? true) && can('website', 'view'),
+    canAccessCrm: (modules.sales ?? true) && can('sales', 'own'),
     isViewOnly: role === 'operations' || Boolean(permissions?.view_only),
-    canApproveWonDeal:
-      role === 'operations' || Boolean(permissions?.capabilities?.approve_won_deal),
-    canSeeWonDealApprovals:
-      role === 'operations' || Boolean(permissions?.capabilities?.approve_won_deal),
+    canApproveWonDeal: Boolean(capabilities.approve_won_deal),
+    canSeeWonDealApprovals: Boolean(capabilities.approve_won_deal),
     canAccessActiveClients: can('active_clients', 'view'),
-    canAccessAds: can('ads', 'view'),
-    isContentLead: user?.role === 'admin' || can('content_calendar', 'manage', 'content'),
-    isCreativeLead: user?.role === 'admin' || can('content_calendar', 'manage', 'creative'),
-    isWebsiteLead: user?.role === 'admin' || can('website', 'manage', 'website'),
+    canAccessAds: (modules.ads ?? true) && can('ads', 'view'),
+    isContentLead: role === 'admin' || can('content_calendar', 'manage', 'content'),
+    isCreativeLead: role === 'admin' || can('content_calendar', 'manage', 'creative'),
+    isWebsiteLead: role === 'admin' || can('website', 'manage', 'website'),
   };
 }
