@@ -167,8 +167,9 @@ async def generate_multi_tab_attendance_workbook(
     start_of_month = f"{month_prefix}-01"
     end_of_month = f"{month_prefix}-{num_days:02d}"
 
+    from app.services.access import is_tracked
     from app.services.attendance_golive import get_employee_attendance_start
-    users = [u for u in users if get_employee_attendance_start(u) <= end_of_month]
+    users = [u for u in users if is_tracked(u, "attendance") and get_employee_attendance_start(u) <= end_of_month]
 
     if db is not None:
         calendar_events = await db.company_calendar.find(

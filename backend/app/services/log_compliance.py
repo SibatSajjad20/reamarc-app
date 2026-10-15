@@ -736,9 +736,11 @@ async def batch_expected_targets(users: List[Dict[str, Any]], dates: List[str]) 
                 continue
             leaves_by_user[uid].append(leave)
 
+    from app.services.access import is_tracked
+
     for user in users:
         uid = user.get("id")
-        if not uid:
+        if not uid or not is_tracked(user, "daily_log"):
             continue
         for date_str in dates:
             shift = shift_doc_for_user(
@@ -853,8 +855,8 @@ async def recompute_day_score(
     if not user:
         return None
 
-    role = str(user.get("role") or "team_member").lower()
-    if role in EXEMPT_ROLES:
+    from app.services.access import is_tracked
+    if not is_tracked(user, "daily_log"):
         return None
 
     entries = await load_user_day_entries(user_id, date_str)

@@ -137,6 +137,8 @@ function AppInner() {
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
   const canSeeContentCalendar = perms.can('content_calendar', 'view');
   const canSeeWebsitePipeline = perms.can('website', 'view');
+  const canSeeAttendance = !isClient && perms.canAccessAttendance;
+  const canSeeDailyLog = !isClient && perms.canAccessDailyLog;
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -237,10 +239,11 @@ function AppInner() {
           localStorage.setItem('reamarc_active_view', fallback);
         }
       } else if (currentPath === 'attendance' || currentPath.startsWith('attendance/')) {
-        if (isClient) {
-          window.history.replaceState(null, '', '/portal');
-          setCurrentView('portal');
-          localStorage.setItem('reamarc_active_view', 'portal');
+        if (isClient || !canSeeAttendance) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else {
           const segments = currentPath.split('/');
           const sub = segments[1];
@@ -251,10 +254,11 @@ function AppInner() {
           localStorage.setItem('reamarc_active_view', 'attendance');
         }
       } else if (currentPath === 'daily-log' || currentPath === 'daily_log') {
-        if (isClient) {
-          window.history.replaceState(null, '', '/portal');
-          setCurrentView('portal');
-          localStorage.setItem('reamarc_active_view', 'portal');
+        if (isClient || !canSeeDailyLog) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else {
           setCurrentView('daily-log');
           localStorage.setItem('reamarc_active_view', 'daily-log');
@@ -375,6 +379,16 @@ function AppInner() {
           window.history.replaceState(null, '', `/${fallback}`);
           setCurrentView(fallback);
           localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'attendance' && !canSeeAttendance) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        } else if (currentSaved === 'daily-log' && !canSeeDailyLog) {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
         } else if (currentSaved === 'dashboard' && isClient) {
           const fallback = getDefaultViewForUser();
           window.history.replaceState(null, '', `/${fallback}`);
@@ -387,7 +401,7 @@ function AppInner() {
     enforceRouteLockdown();
     window.addEventListener('popstate', enforceRouteLockdown);
     return () => window.removeEventListener('popstate', enforceRouteLockdown);
-  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, isClient, isAdmin, getDefaultViewForUser]);
+  }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
     let allowedViews: ViewType[] = [];
@@ -400,10 +414,8 @@ function AppInner() {
     if (canSeeWonDealApprovals) allowedViews.push('won-deal-approvals');
     if (canSeeContentCalendar) allowedViews.push('content-calendar');
     if (canSeeWebsitePipeline) allowedViews.push('website-pipeline');
-    if (!isClient) {
-      allowedViews.push('attendance');
-      allowedViews.push('daily-log');
-    }
+    if (canSeeAttendance) allowedViews.push('attendance');
+    if (canSeeDailyLog) allowedViews.push('daily-log');
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
@@ -851,18 +863,26 @@ function AppInner() {
           )}
 
           {currentView === 'attendance' && !isClient && (
-            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-              <AttendanceView
-                activeSection={activeAttendanceSection}
-                onSectionChange={setActiveAttendanceSection}
-              />
-            </div>
+            canSeeAttendance ? (
+              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+                <AttendanceView
+                  activeSection={activeAttendanceSection}
+                  onSectionChange={setActiveAttendanceSection}
+                />
+              </div>
+            ) : (
+              <AccessDenied module="Attendance" />
+            )
           )}
 
           {currentView === 'daily-log' && !isClient && (
-            <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-              <DailyLogView />
-            </div>
+            canSeeDailyLog ? (
+              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+                <DailyLogView />
+              </div>
+            ) : (
+              <AccessDenied module="Daily log" />
+            )
           )}
 
           {currentView === 'content-calendar' && (
@@ -965,8 +985,8 @@ function AppInner() {
         canSeeMarketing={canSeeMarketing}
         canSeeContentCalendar={canSeeContentCalendar}
         canSeeWebsitePipeline={canSeeWebsitePipeline}
-        canSeeAttendance={!isClient}
-        canSeeDailyLog={!isClient}
+        canSeeAttendance={canSeeAttendance}
+        canSeeDailyLog={canSeeDailyLog}
         canSeeExceptions={canSeeExceptions}
         canSeeAdmin={canSeeAdmin}
         adminLabel={adminLabel}

@@ -143,6 +143,8 @@ async def list_exception_inbox(
         user_query["id"] = {"$ne": viewer_id}
 
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).to_list(500)
+    from app.services.access import is_tracked
+    users = [u for u in users if is_tracked(u, "daily_log")]
     user_ids = [u.get("id") for u in users if u.get("id") and u.get("id") != viewer_id]
     if not user_ids or not window:
         return []
@@ -671,6 +673,8 @@ async def get_operating_snapshot(
         {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}},
         {"_id": 0, "hashed_password": 0},
     ).to_list(500)
+    from app.services.access import is_tracked
+    users = [u for u in users if is_tracked(u, "daily_log")]
 
     targets = await batch_expected_targets(users, window)
     all_user_ids = [u.get("id") for u in users if u.get("id")]
@@ -1007,6 +1011,10 @@ async def get_employee_compliance_detail(
     member = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
     if not member:
         raise HTTPException(status_code=404, detail="Employee not found.")
+
+    from app.services.access import is_tracked
+    if not is_tracked(member, "daily_log"):
+        raise HTTPException(status_code=400, detail="Daily log is off for this account.")
 
     try:
         s_dt = datetime.strptime(start_date, "%Y-%m-%d").date()

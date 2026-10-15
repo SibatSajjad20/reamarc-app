@@ -42,6 +42,7 @@ from app.services.attendance_security import (
 )
 from app.constants.office_location import get_built_in_office_ips
 from app.services import attendance_service
+from app.services.access import is_tracked
 
 router = APIRouter(
     prefix="/attendance",
@@ -110,6 +111,11 @@ async def check_in(
     Punch In for the day.
     Enforces IP Whitelist (Tier 1) and GPS Geofencing (Tier 3), unless user has approved WFH.
     """
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
     await enforce_shared_rate_limit(f"punch:{current_user.get('id')}", 10, 60)
     client_ip = extract_client_ip(
         request,
@@ -138,6 +144,11 @@ async def check_out(
     Punch Out for the day.
     Same office Wi-Fi / GPS proof as check-in (WFH bypasses). Calculates hours, OT, undertime.
     """
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
     await enforce_shared_rate_limit(f"punch:{current_user.get('id')}", 10, 60)
     client_ip = extract_client_ip(
         request,
@@ -160,9 +171,34 @@ async def toggle_break(
     current_user: dict = Depends(require_internal_user),
 ):
     """Start or end a live break on today's open attendance record."""
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
     return await attendance_service.process_break_toggle(
         user=current_user,
         break_req=break_req,
+    )
+
+
+@router.get("/my-attendance")
+async def get_my_attendance(
+    request: Request,
+    current_user: dict = Depends(require_internal_user),
+):
+    """Current user's punch status and shift for today."""
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
+    client_ip = extract_client_ip(request)
+    detected_public_ip = extract_detected_public_ip(request)
+    return await attendance_service.get_today_status(
+        user=current_user,
+        client_ip=client_ip,
+        detected_public_ip=detected_public_ip,
     )
 
 
@@ -174,6 +210,11 @@ async def get_today_attendance(
     """
     Returns today's punch status, active timer metrics, and assigned shift for the current user.
     """
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
     client_ip = extract_client_ip(request)
     detected_public_ip = extract_detected_public_ip(request)
     return await attendance_service.get_today_status(
@@ -241,6 +282,11 @@ async def get_my_monthly_timesheet(
     """
     Returns the current user's monthly attendance logs and punctuality summary metrics.
     """
+    if not is_tracked(current_user, "attendance"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Attendance is off for this account.",
+        )
     now = datetime.now(timezone.utc)
     target_year = year or now.year
     target_month = month or now.month

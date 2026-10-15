@@ -205,31 +205,55 @@ def is_performance(user: Optional[Dict[str, Any]]) -> bool:
 
 
 def is_content_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and "content" in _user_departments(user)
+    if not is_active(user):
+        return False
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    if not eff["modules"]["content_calendar"]:
+        return False
+    if is_admin(user) or is_operations(user):
+        return True
+    return _team(user) and "content" in eff["content_stages"]
 
 
 def is_content_lead(user: Optional[Dict[str, Any]]) -> bool:
     if not is_active(user) or _role(user) != "team_lead":
         return False
-    from app.services.permissions import load_ctx, resolve
-    ctx = load_ctx(user)
-    return resolve(ctx, "content_calendar", "content") == "manage"
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    return bool(eff["modules"]["content_calendar"] and "content" in eff["content_stages"])
 
 
 def is_creative_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and "creative" in _user_departments(user)
+    if not is_active(user):
+        return False
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    if not eff["modules"]["content_calendar"]:
+        return False
+    if is_admin(user) or is_operations(user):
+        return True
+    return _team(user) and "creative" in eff["content_stages"]
 
 
 def is_creative_lead(user: Optional[Dict[str, Any]]) -> bool:
     if not is_active(user) or _role(user) != "team_lead":
         return False
-    from app.services.permissions import load_ctx, resolve
-    ctx = load_ctx(user)
-    return resolve(ctx, "content_calendar", "creative") == "manage"
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    return bool(eff["modules"]["content_calendar"] and "creative" in eff["content_stages"])
 
 
 def is_social_actor(user: Optional[Dict[str, Any]]) -> bool:
-    return _team(user) and "social media" in _user_departments(user)
+    if not is_active(user):
+        return False
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    if not eff["modules"]["content_calendar"]:
+        return False
+    if is_admin(user) or is_operations(user):
+        return True
+    return _team(user) and "social_media" in eff["content_stages"]
 
 
 def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
@@ -238,13 +262,17 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
         return []
     if is_admin(user) or is_operations(user) or is_client(user):
         return None
-    depts = _user_departments(user)
+    from app.services.access import effective_access
+    eff = effective_access(user)
+    if not eff["modules"]["content_calendar"]:
+        return []
+    c_stages = eff["content_stages"]
     stages: List[str] = []
-    if "content" in depts:
+    if "content" in c_stages:
         stages.extend(CONTENT_STAGES)
-    if "creative" in depts:
+    if "creative" in c_stages:
         stages.extend(CREATIVE_STAGES)
-    if "social media" in depts:
+    if "social_media" in c_stages:
         stages.extend(SOCIAL_STAGES)
     res = [s for s in PIPELINE_STAGES if s in stages]
     return res if res else []

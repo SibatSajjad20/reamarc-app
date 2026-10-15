@@ -227,7 +227,7 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             user_query = {"is_active": True, "role": {"$nin": ["client", "CLIENT"]}}
             users = await db.users.find(
                 user_query,
-                {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "joining_date": 1},
+                {"_id": 0, "hashed_password": 0},
             ).to_list(1000)
 
             # 2. Fetch existing attendance records for target_date
@@ -249,12 +249,16 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             ).to_list(1000)
             approved_leave_user_ids = {l["user_id"] for l in approved_leaves if l.get("user_id")}
 
+            from app.services.access import is_tracked
             from app.services.attendance_golive import get_employee_attendance_start
 
             # 4. Identify absentees: Active internal users with no attendance record and no approved leave/WFH
             for u in users:
                 u_id = u.get("id")
                 if not u_id:
+                    continue
+
+                if not is_tracked(u, "attendance"):
                     continue
 
                 if target_date < get_employee_attendance_start(u):
@@ -362,8 +366,11 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
         ).to_list(1000)
         today_str = now_pkt.strftime("%Y-%m-%d")
         yesterday_str = (now_pkt.date() - timedelta(days=1)).isoformat()
+        from app.services.access import is_tracked
         from app.services.attendance_golive import ATTENDANCE_GO_LIVE_DATE, get_employee_attendance_start
         for user in users:
+            if not is_tracked(user, "attendance"):
+                continue
             uid = user.get("id")
             dept = user.get("department")
             employee_start = get_employee_attendance_start(user)
@@ -480,10 +487,13 @@ async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] 
     now_iso = datetime.now(timezone.utc).isoformat()
     settled_count = 0
     from app.services import leave_balance
+    from app.services.access import is_tracked
 
     for u in users:
         uid = u.get("id")
         if not uid:
+            continue
+        if not is_tracked(u, "attendance"):
             continue
         # Probation employees are excluded from leave-quota undertime settlement.
         if str(u.get("employment_type") or "contract").lower() == "probation":

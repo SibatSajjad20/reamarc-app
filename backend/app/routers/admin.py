@@ -253,6 +253,8 @@ async def list_members_activity(
 
     cursor = db.users.find(query).sort("full_name", 1)
     users = await cursor.to_list(200)
+    from app.services.access import is_tracked
+    users = [u for u in users if is_tracked(u, "daily_log")]
 
     now = datetime.now(PKT)
     today_str = pkt_today()

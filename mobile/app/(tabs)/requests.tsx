@@ -17,7 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../../src/lib/api';
-import { isAdmin as roleIsAdmin, canReviewRequests } from '../../src/lib/roles';
+import { isAdmin as roleIsAdmin, canReviewRequests, isAttendanceTracked } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { DateField, TimeField } from '../../src/ui/DateTimeField';
@@ -268,12 +268,18 @@ export default function RequestsScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (params.form === 'regularization') {
+      if (params.form === 'regularization' && isAttendanceTracked(user)) {
         setMode('apply');
         setTab('regularization');
       }
-    }, [params.form]),
+    }, [params.form, user]),
   );
+
+  useEffect(() => {
+    if (tab === 'regularization' && !isAttendanceTracked(user)) {
+      setTab('leave');
+    }
+  }, [tab, user]);
 
   const loadMine = useCallback(async () => {
     try {
@@ -936,7 +942,7 @@ export default function RequestsScreen() {
             <>
               <Text style={styles.section}>Select Request Type</Text>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                {TYPE_CHIPS.map((t) => (
+                {TYPE_CHIPS.filter((t) => t.id !== 'regularization' || isAttendanceTracked(user)).map((t) => (
                   <Pressable
                     key={t.id}
                     onPress={() => setTab(t.id)}

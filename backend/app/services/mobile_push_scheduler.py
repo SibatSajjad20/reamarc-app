@@ -137,14 +137,18 @@ async def run_mobile_reminder_tick() -> None:
 
     from app.services.attendance_scheduler import is_workday_for_date
 
+    from app.services.access import is_tracked
+
     users = await db.users.find(
         {"is_active": True, "role": {"$nin": list(SKIP_ROLES)}},
-        {"_id": 0, "id": 1, "full_name": 1, "name": 1, "department": 1, "role": 1},
+        {"_id": 0, "hashed_password": 0},
     ).to_list(1000)
 
     for user in users:
         uid = user.get("id")
         if not uid:
+            continue
+        if not is_tracked(user, "attendance"):
             continue
         try:
             await _tick_user(db, user, now, today, yesterday, is_workday_for_date)

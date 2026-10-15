@@ -193,7 +193,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const fetchBadge = useCallback(() => {
     const role = user?.role;
-    if (!role || !['team_member', 'team_lead', 'hr'].includes(role)) {
+    if (!role || !['team_member', 'team_lead', 'hr'].includes(role) || user?.permissions?.modules?.daily_log === false) {
       setRequestCount(0);
       return;
     }
@@ -226,13 +226,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isClient = user?.role === 'client';
   const canSeeExceptions = perms.can('exceptions', 'department');
   const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeCrm = perms.canAccessCrm;
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.can('content_calendar', 'view');
-  const canSeeWebsitePipeline = perms.can('website', 'view');
+  const canSeeContentCalendar = perms.canAccessContentCalendar;
+  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline;
+  const canSeeAttendance = perms.canAccessAttendance;
+  const canSeeDailyLog = perms.canAccessDailyLog;
   const isManagementRole = isAdmin || isHR || isOperations;
 
-  const canSeeMarketing = perms.can('ads', 'view');
+  const canSeeMarketing = perms.canAccessAds;
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -428,7 +430,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'team',
       label: 'Team',
       items: [
-        ...(!isClient
+        ...(canSeeAttendance
           ? [
               {
                 id: 'attendance' as ViewType,
@@ -452,6 +454,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   };
                 }),
               },
+            ]
+          : []),
+        ...(canSeeDailyLog
+          ? [
               {
                 id: 'daily-log' as ViewType,
                 label: 'Daily log',

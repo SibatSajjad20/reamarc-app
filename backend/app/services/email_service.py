@@ -307,6 +307,16 @@ class EmailService:
             logger.error("No recipient email provided for log reminder.")
             return False
 
+        from app.database import get_database
+        db = get_database()
+        if db is not None:
+            from app.services.access import is_tracked
+            from app.core.mongo_filters import exact_ci
+            u = await db.users.find_one({"email": exact_ci(target_email)}, {"_id": 0, "hashed_password": 0})
+            if u and not is_tracked(u, "daily_log"):
+                logger.info(f"Skipping log reminder for {target_email}: daily_log is off for this account.")
+                return False
+
         dates_str = ", ".join(dates)
         subject = f"Reminder: Please submit your Daily Log ({dates_str})"
         html = _build_reminder_html(

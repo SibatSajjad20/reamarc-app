@@ -268,6 +268,9 @@ async def _build_attendance_today_section(db, user: Dict[str, Any], today_iso: s
             return AttendanceTodaySummarySection()
     else:
         # Self attendance tally
+        from app.services.access import is_tracked
+        if not is_tracked(user, "attendance"):
+            return None
         uid = user.get("id")
         if not uid:
             return None
@@ -313,8 +316,10 @@ async def _build_logs_section(db, user: Dict[str, Any], today_iso: str, yesterda
         # Expected loggers
         logger_users = await db.users.find(
             user_query,
-            {"_id": 0, "id": 1},
+            {"_id": 0, "hashed_password": 0},
         ).to_list(500)
+        from app.services.access import is_tracked
+        logger_users = [u for u in logger_users if is_tracked(u, "daily_log")]
         uids = [u["id"] for u in logger_users if u.get("id")]
         if not uids:
             return LogsSummarySection(missingToday=0, missingYesterday=0)

@@ -32,7 +32,7 @@ import {
   setCachedPunchToday,
 } from '../../src/lib/attendanceCache';
 import { classifyGpsFix, gpsFieldsForPunch, haversineMeters, shouldAcceptLiveSample } from '../../src/lib/geo';
-import { isAdmin } from '../../src/lib/roles';
+import { isAdmin, isAttendanceTracked, canAccessDailyLog } from '../../src/lib/roles';
 import { useAuth } from '../../src/context/AuthContext';
 import { colors } from '../../src/theme';
 import { Avatar } from '../../src/ui/Avatar';
@@ -197,6 +197,10 @@ function PunchScreen() {
   const punchingRef = useRef(false);
 
   const load = useCallback(async (opts: { soft?: boolean } = {}) => {
+    if (!isAttendanceTracked(user)) {
+      setInitialLoading(false);
+      return null as any;
+    }
     const { soft = false } = opts;
     const cached = getCachedPunchToday();
     if (cached && soft && !isAttendanceCacheStale(cached, todayIso())) {
@@ -207,12 +211,12 @@ function PunchScreen() {
     }
     try {
       const [data, target] = await Promise.all([
-        api<TodayPayload>('/attendance/today'),
+        api<TodayPayload>('/attendance/today').catch(() => null),
         api<DayTargetPayload>('/daily-log/day-target').catch(() => null),
       ]);
-      setToday(data);
+      if (data) setToday(data);
       if (target) setDayTarget(target);
-      setCachedPunchToday(data, target);
+      if (data) setCachedPunchToday(data, target);
       setInitialLoading(false);
       return data;
     } catch (err: any) {
@@ -224,7 +228,7 @@ function PunchScreen() {
       }
       throw err;
     }
-  }, []);
+  }, [user]);
 
   const positionToFix = useCallback((pos: Location.LocationObject, payload: TodayPayload | null): Fix => {
     const lat = pos.coords.latitude;
@@ -729,7 +733,15 @@ function PunchScreen() {
           <Avatar name={user?.name} size={48} />
         </View>
 
-        {isOffDay ? (
+        {!isAttendanceTracked(user) ? (
+          <View style={styles.restCard}>
+            <Ionicons name="shield-checkmark-outline" size={36} color={colors.indigo} />
+            <Text style={styles.restTitle}>Attendance Tracking Off</Text>
+            <Text style={styles.restBody}>
+              Attendance tracking is disabled for your account. You do not need to punch in or out.
+            </Text>
+          </View>
+        ) : isOffDay ? (
           <View style={styles.restCard}>
             <Ionicons name="calendar-outline" size={36} color={colors.indigo} />
             <Text style={styles.restTitle}>{offDayLabel}</Text>
@@ -808,7 +820,7 @@ function PunchScreen() {
         )}
         {!!error && <Text style={styles.error}>{error}</Text>}
 
-        {cin && !isOffDay && String(user?.role || '').toLowerCase() !== 'operations' && (
+        {cin && !isOffDay && isAttendanceTracked(user) && String(user?.role || '').toLowerCase() !== 'operations' && (
           <View style={styles.trackerCard}>
             <View style={styles.trackerHead}>
               <View style={styles.trackerHeadLeft}>
@@ -1407,19 +1419,21 @@ function AdminOverviewScreen() {
               )}
             </View>
           </View>
-          <Pressable
-            style={styles.logsHeaderBtn}
-            onPress={() =>
-              router.push({
-                pathname: '/daily-log',
-                params: { date: selectedDate },
-              })
-            }
-            hitSlop={6}
-          >
-            <Ionicons name="document-text-outline" size={16} color={colors.indigo} />
-            <Text style={styles.logsHeaderBtnText}>Logs</Text>
-          </Pressable>
+          {canAccessDailyLog(user) && (
+            <Pressable
+              style={styles.logsHeaderBtn}
+              onPress={() =>
+                router.push({
+                  pathname: '/daily-log',
+                  params: { date: selectedDate },
+                })
+              }
+              hitSlop={6}
+            >
+              <Ionicons name="document-text-outline" size={16} color={colors.indigo} />
+              <Text style={styles.logsHeaderBtnText}>Logs</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Date Selector Navigation Bar */}
@@ -1775,15 +1789,18 @@ function AdminOverviewScreen() {
               <Pressable
                 key={emp.user_id}
                 style={styles.empCard}
-                onPress={() =>
-                  router.push({
-                    pathname: '/daily-log',
-                    params: {
-                      date: selectedDate,
-                      userId: emp.user_id,
-                      name: emp.employee_name,
-                    },
-                  })
+                onPress={
+                  canAccessDailyLog(user)
+                    ? () =>
+                        router.push({
+                          pathname: '/daily-log',
+                          params: {
+                            date: selectedDate,
+                            userId: emp.user_id,
+                            name: emp.employee_name,
+                          },
+                        })
+                    : undefined
                 }
               >
                 <View style={styles.empCardMain}>

@@ -18,6 +18,82 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]:
+    """Filters recipient user IDs based on effective access and tracking switches for notification kind."""
+    if not user_ids:
+        return []
+    db = get_database()
+    if db is None:
+        return user_ids
+
+    from app.services.access import is_tracked, effective_access
+
+    k = (kind or "").strip().lower()
+
+    att_kinds = {
+        "attendance_check_in", "attendance_check_out", "late_checkin",
+        "employee_late", "pre_shift", "checkout", "missed_yesterday",
+        "missed_punch_inquiry", "missed_punch_resolved",
+    }
+    log_kinds = {
+        "daily_log", "daily_log_reminder", "log_reminder", "log_exception_followup",
+    }
+    crm_kinds = {
+        "crm_lead", "crm_deal", "crm_sla", "crm_followup", "crm_meeting",
+    }
+    content_kinds = {
+        "content_calendar",
+    }
+    website_kinds = {
+        "website_task_due", "website_task_overdue", "website_review_requested",
+        "website_stage_completed", "website_task_assigned", "website_client_feedback",
+        "website_task_comment", "website_client_approval", "website_file_uploaded",
+        "revision",
+    }
+    ads_kinds = {
+        "marketing", "ads",
+    }
+
+    req_module = None
+    req_tracking = None
+    if k in att_kinds:
+        req_tracking = "attendance"
+    elif k in log_kinds:
+        req_tracking = "daily_log"
+    elif k in crm_kinds:
+        req_module = "sales"
+    elif k in content_kinds:
+        req_module = "content_calendar"
+    elif k in website_kinds:
+        req_module = "website"
+    elif k in ads_kinds:
+        req_module = "ads"
+
+    if not req_module and not req_tracking:
+        return user_ids
+
+    users_cursor = db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "hashed_password": 0})
+    users_list = await users_cursor.to_list(len(user_ids))
+    user_map = {u.get("id"): u for u in users_list if u.get("id")}
+
+    allowed = []
+    for uid in user_ids:
+        u = user_map.get(uid)
+        if not u:
+            continue
+        if req_tracking:
+            if not is_tracked(u, req_tracking):
+                continue
+        if req_module:
+            role = str(u.get("role") or "").lower()
+            if role == "client" and req_module in ("website", "content_calendar"):
+                pass
+            elif not effective_access(u)["modules"].get(req_module):
+                continue
+        allowed.append(uid)
+    return allowed
+
+
 async def store_notification(
     user_id: str,
     title: str,
@@ -30,6 +106,9 @@ async def store_notification(
 ) -> None:
     db = get_database()
     if db is None:
+        return
+    allowed = await filter_allowed_recipients([user_id], kind)
+    if not allowed:
         return
     await db.mobile_notifications.insert_one(
         {
@@ -159,6 +238,9 @@ async def dispatch_to_users(
     sender_role: Optional[str] = None,
     data: Optional[dict] = None,
 ) -> dict:
+    if user_ids is not None:
+        user_ids = await filter_allowed_recipients(user_ids, kind)
+
     # Empty list must not fall through to "broadcast all devices" (falsy [] in active_devices).
     if user_ids is not None and len(user_ids) == 0:
         return {

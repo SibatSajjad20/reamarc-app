@@ -3020,6 +3020,10 @@ async def get_timesheet_for_user_id(user_id: str, year: int, month: int) -> Mont
     if not user_doc:
         raise HTTPException(status_code=404, detail="Employee not found")
 
+    from app.services.access import is_tracked
+    if not is_tracked(user_doc, "attendance"):
+        raise HTTPException(status_code=400, detail="Attendance is off for this account.")
+
     role = str(user_doc.get("role") or "").lower()
     if role == "client":
         raise HTTPException(status_code=400, detail="Client accounts do not have attendance timesheets")
@@ -3152,6 +3156,8 @@ async def get_daily_matrix(
         user_query["department"] = exact_ci(department)
 
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    from app.services.access import is_tracked
+    users = [u for u in users if is_tracked(u, "attendance")]
 
     # 2. Fetch all attendance records for date
     records_list = await db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000)
@@ -3663,6 +3669,8 @@ async def get_monthly_punctuality_summary(
         user_query["department"] = exact_ci(department)
 
     users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
+    from app.services.access import is_tracked
+    users = [u for u in users if is_tracked(u, "attendance")]
     month_prefix = f"{year:04d}-{month:02d}"
 
     # Batch-load all shifts & assignments

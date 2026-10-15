@@ -1364,11 +1364,15 @@ async def list_team_members(db, viewer: Dict[str, Any]) -> List[Dict[str, Any]]:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied")
     cursor = db.users.find(
         {"is_active": {"$ne": False}, "role": {"$ne": "client"}},
-        {"_id": 0, "id": 1, "name": 1, "full_name": 1, "email": 1, "role": 1, "department": 1},
+        {"_id": 0, "hashed_password": 0},
     ).sort("name", 1)
     users = await cursor.to_list(length=300)
+    from app.services.access import effective_access
     out = []
     for u in users:
+        eff = effective_access(u)
+        if not eff["modules"]["website"]:
+            continue
         fn = u.get("full_name") or u.get("name") or "User"
         out.append({
             "id": str(u.get("id")),

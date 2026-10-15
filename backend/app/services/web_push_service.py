@@ -323,6 +323,8 @@ async def send_web_push(
     data: Optional[dict] = None,
 ) -> int:
     ids = [uid for uid in dict.fromkeys(user_ids) if uid]
+    from app.services.push_service import filter_allowed_recipients
+    ids = await filter_allowed_recipients(ids, kind)
     if not ids or not web_push_configured() or public_application_server_key() is None:
         return 0
     db = get_database()

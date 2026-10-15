@@ -143,9 +143,11 @@ async def run_evening_log_reminder_check():
     # Fetch active members (excluding super admin, client, and operations accounts)
     cursor = db.users.find(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "name": 1},
+        {"_id": 0, "hashed_password": 0},
     )
     members = await cursor.to_list(length=500)
+    from app.services.access import is_tracked
+    members = [m for m in members if is_tracked(m, "daily_log")]
 
     # Fetch today's log entries
     entries_cursor = db.daily_log_entries.find(
@@ -215,9 +217,11 @@ async def run_morning_log_reminder_check():
     # Fetch active members (excluding super admin, client, and operations accounts)
     cursor = db.users.find(
         {"is_active": True, "role": {"$nin": ["admin", "ADMIN", "client", "CLIENT", "operations", "OPERATIONS"]}},
-        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "name": 1},
+        {"_id": 0, "hashed_password": 0},
     )
     members = await cursor.to_list(length=500)
+    from app.services.access import is_tracked
+    members = [m for m in members if is_tracked(m, "daily_log")]
 
     # Fetch previous workday's log entries
     entries_cursor = db.daily_log_entries.find(

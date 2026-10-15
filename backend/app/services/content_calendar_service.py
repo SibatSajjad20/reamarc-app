@@ -822,17 +822,11 @@ async def list_creative_assignees(db) -> List[Dict[str, str]]:
         return []
     cursor = db["users"].find(
         {"is_active": {"$ne": False}},
-        {"id": 1, "full_name": 1, "name": 1, "department": 1, "departments": 1, "role": 1},
+        {"_id": 0, "hashed_password": 0},
     )
     people: List[Dict[str, str]] = []
     async for doc in cursor:
-        probe = {
-            "role": doc.get("role"),
-            "department": doc.get("department"),
-            "departments": doc.get("departments"),
-            "is_active": True,
-        }
-        if not is_creative_actor(probe):
+        if not is_creative_actor(doc):
             continue
         people.append({
             "id": str(doc.get("id") or doc.get("_id") or ""),
@@ -848,17 +842,11 @@ async def list_content_assignees(db) -> List[Dict[str, str]]:
         return []
     cursor = db["users"].find(
         {"is_active": {"$ne": False}},
-        {"id": 1, "full_name": 1, "name": 1, "department": 1, "departments": 1, "role": 1},
+        {"_id": 0, "hashed_password": 0},
     )
     people: List[Dict[str, str]] = []
     async for doc in cursor:
-        probe = {
-            "role": doc.get("role"),
-            "department": doc.get("department"),
-            "departments": doc.get("departments"),
-            "is_active": True,
-        }
-        if not is_content_actor(probe):
+        if not is_content_actor(doc):
             continue
         people.append({
             "id": str(doc.get("id") or doc.get("_id") or ""),

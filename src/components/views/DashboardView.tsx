@@ -275,7 +275,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 1. Load Today Attendance & Timesheet (Non-admin)
   const loadAttendance = useCallback(async () => {
-    if (isAdmin) {
+    if (isAdmin || !perms.canAccessAttendance || !perms.isAttendanceTracked) {
       return;
     }
     setIsLoadingAttendance(true);
@@ -296,7 +296,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     } finally {
       setIsLoadingAttendance(false);
     }
-  }, [isAdmin, currentYear, currentMonth]);
+  }, [isAdmin, perms.canAccessAttendance, perms.isAttendanceTracked, currentYear, currentMonth]);
 
   // 2. Load Matrix Data (Admin & HR only)
   const loadMatrix = useCallback(async () => {
@@ -335,11 +335,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
   const loadLoggerNeedsAttention = useCallback(async () => {
     if (isAdmin) return;
 
+    const canSelfTrackAttendance = perms.canAccessAttendance && perms.isAttendanceTracked;
+    const canSelfTrackLogs = isLogger && perms.canAccessDailyLog && perms.isDailyLogTracked;
+
     try {
       const promises: Promise<any>[] = [
-        attendanceService.getMyPendingMissedPunchInquiries().catch(() => []),
+        canSelfTrackAttendance
+          ? attendanceService.getMyPendingMissedPunchInquiries().catch(() => [])
+          : Promise.resolve([]),
         (isHR || isLead) ? logExceptionService.getInbox().catch(() => []) : Promise.resolve([]),
-        isLogger
+        canSelfTrackLogs
           ? Promise.all([
               dailyLogService.getMyLogActivity(7).catch(() => null),
               dailyLogService.getDayTarget(todayIso).catch(() => null),
@@ -352,16 +357,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       if (isHR || isLead) {
         setLogExceptionsInboxCount(inbox?.length || 0);
       }
-      if (isLogger) {
+      if (canSelfTrackLogs) {
         setMyActivity(act);
         setDayTarget(dt);
       }
     } catch {}
-  }, [isAdmin, isHR, isLead, isLogger, todayIso]);
+  }, [isAdmin, isHR, isLead, isLogger, perms.canAccessAttendance, perms.isAttendanceTracked, perms.canAccessDailyLog, perms.isDailyLogTracked, todayIso]);
 
   // 5. Load Weekly Stat Strips (Logged)
   const loadWeeklyStats = useCallback(async () => {
-    if (isAdmin || !isLogger || !user?.id) return;
+    if (isAdmin || !isLogger || !user?.id || !perms.canAccessDailyLog || !perms.isDailyLogTracked) return;
 
     const startIso = weekDates[0]?.date;
     const endIso = todayIso;
@@ -1044,7 +1049,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     // 5. My pending missed-punch inquiry (Ops, HR, Lead, Member)
-    if (!isAdmin && myPendingInquiries.length > 0) {
+    if (!isAdmin && perms.isAttendanceTracked && myPendingInquiries.length > 0) {
       const inq = myPendingInquiries[0];
       list.push({
         id: 'my_pending_inquiry',
@@ -1114,7 +1119,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     }
 
     // 9. Missing log for <date> (HR, Lead, Member)
-    if (isLogger && myActivity?.missing_dates && myActivity.missing_dates.length > 0) {
+    if (isLogger && perms.isDailyLogTracked && myActivity?.missing_dates && myActivity.missing_dates.length > 0) {
       const missingDate = myActivity.missing_dates[0];
       list.push({
         id: 'my_missing_log',
@@ -1187,19 +1192,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 </Button>
               </>
             ) : isOps ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  setRequestModalTab('leave');
-                  setIsRequestModalOpen(true);
-                }}
-                icon={CalendarCheck}
-              >
-                Request leave
-              </Button>
-            ) : (
-              <>
+              perms.canAccessAttendance && perms.isAttendanceTracked ? (
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1211,14 +1204,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 >
                   Request leave
                 </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => onNavigateView('daily-log')}
-                  icon={Plus}
-                >
-                  Log work
-                </Button>
+              ) : null
+            ) : (
+              <>
+                {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setRequestModalTab('leave');
+                      setIsRequestModalOpen(true);
+                    }}
+                    icon={CalendarCheck}
+                  >
+                    Request leave
+                  </Button>
+                )}
+                {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => onNavigateView('daily-log')}
+                    icon={Plus}
+                  >
+                    Log work
+                  </Button>
+                )}
               </>
             )}
           </div>
@@ -1294,36 +1305,38 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       {isOps && (
         <div className="space-y-4">
           {/* Row 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <AtWorkThisWeekCard
-              totalHours={weeklyWorkedHours}
-              pastDaysAtWork={pastDaysWorkedCount}
-              pastDaysTotal={pastDaysTotal}
-              todayInProgress={Boolean(todayAttendance?.record?.check_in && !todayAttendance?.record?.check_out)}
-              days={weeklyWorkedDays}
-              isLoading={isLoadingAttendance}
-            />
-            <PresentInMonthCard
-              monthName={monthName}
-              daysPresent={timesheetData?.summary?.days_present ?? 0}
-              workingDaysElapsed={workingDaysElapsed}
-              lateStrikes={lateStrikes}
-              isLateToday={Boolean(todayAttendance?.record?.is_late)}
-              dots={monthDots}
-              isLoading={isLoadingAttendance}
-            />
-            <EmployeePunchCard
-              variant="your-day"
-              todayData={todayAttendance}
-              isLoading={isLoadingAttendance}
-              onRefresh={loadAttendance}
-              onOpenRequestModal={(tab) => {
-                setRequestModalTab(tab || 'leave');
-                setIsRequestModalOpen(true);
-              }}
-              onNavigateView={onNavigateView}
-            />
-          </div>
+          {perms.canAccessAttendance && perms.isAttendanceTracked && (
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
+              <AtWorkThisWeekCard
+                totalHours={weeklyWorkedHours}
+                pastDaysAtWork={pastDaysWorkedCount}
+                pastDaysTotal={pastDaysTotal}
+                todayInProgress={Boolean(todayAttendance?.record?.check_in && !todayAttendance?.record?.check_out)}
+                days={weeklyWorkedDays}
+                isLoading={isLoadingAttendance}
+              />
+              <PresentInMonthCard
+                monthName={monthName}
+                daysPresent={timesheetData?.summary?.days_present ?? 0}
+                workingDaysElapsed={workingDaysElapsed}
+                lateStrikes={lateStrikes}
+                isLateToday={Boolean(todayAttendance?.record?.is_late)}
+                dots={monthDots}
+                isLoading={isLoadingAttendance}
+              />
+              <EmployeePunchCard
+                variant="your-day"
+                todayData={todayAttendance}
+                isLoading={isLoadingAttendance}
+                onRefresh={loadAttendance}
+                onOpenRequestModal={(tab) => {
+                  setRequestModalTab(tab || 'leave');
+                  setIsRequestModalOpen(true);
+                }}
+                onNavigateView={onNavigateView}
+              />
+            </div>
+          )}
 
           {/* Row 2: Full-width Needs attention */}
           <NeedsAttentionCard
@@ -1343,51 +1356,62 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       {isHR && (
         <div className="space-y-4">
           {/* Row 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <LoggedThisWeekCard
-              totalHours={weeklyLoggedHours}
-              pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={pastDaysTotal}
-              days={weeklyLoggedDays}
-              isLoading={isLoadingAttendance}
-            />
-            <PresentInMonthCard
-              monthName={monthName}
-              daysPresent={timesheetData?.summary?.days_present ?? 0}
-              workingDaysElapsed={workingDaysElapsed}
-              lateStrikes={lateStrikes}
-              isLateToday={Boolean(todayAttendance?.record?.is_late)}
-              dots={monthDots}
-              isLoading={isLoadingAttendance}
-            />
-            <EmployeePunchCard
-              variant="your-day"
-              todayData={todayAttendance}
-              isLoading={isLoadingAttendance}
-              onRefresh={loadAttendance}
-              loggedHours={dayTarget?.logged_hours}
-              expectedHours={dayTarget?.expected_hours}
-              onOpenRequestModal={(tab) => {
-                setRequestModalTab(tab || 'leave');
-                setIsRequestModalOpen(true);
-              }}
-              onNavigateView={onNavigateView}
-            />
-          </div>
+          {(perms.isAttendanceTracked || perms.isDailyLogTracked) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+                <LoggedThisWeekCard
+                  totalHours={weeklyLoggedHours}
+                  pastDaysLogged={pastDaysLoggedCount}
+                  pastDaysTotal={pastDaysTotal}
+                  days={weeklyLoggedDays}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <PresentInMonthCard
+                  monthName={monthName}
+                  daysPresent={timesheetData?.summary?.days_present ?? 0}
+                  workingDaysElapsed={workingDaysElapsed}
+                  lateStrikes={lateStrikes}
+                  isLateToday={Boolean(todayAttendance?.record?.is_late)}
+                  dots={monthDots}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <EmployeePunchCard
+                  variant="your-day"
+                  todayData={todayAttendance}
+                  isLoading={isLoadingAttendance}
+                  onRefresh={loadAttendance}
+                  loggedHours={dayTarget?.logged_hours}
+                  expectedHours={dayTarget?.expected_hours}
+                  onOpenRequestModal={(tab) => {
+                    setRequestModalTab(tab || 'leave');
+                    setIsRequestModalOpen(true);
+                  }}
+                  onNavigateView={onNavigateView}
+                />
+              )}
+            </div>
+          )}
 
           {/* Row 2 */}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <MyHoursChart
-              days={myHoursDays}
-              range={myHoursRange}
-              onRangeChange={setMyHoursRange}
-              dateRangeLabel={chartDateRangeLabel}
-              isLoading={isLoadingMyHours}
-              className="lg:col-span-2"
-            />
+            {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+              <MyHoursChart
+                days={myHoursDays}
+                range={myHoursRange}
+                onRangeChange={setMyHoursRange}
+                dateRangeLabel={chartDateRangeLabel}
+                isLoading={isLoadingMyHours}
+                className="lg:col-span-2"
+              />
+            )}
             <NeedsAttentionCard
               items={needsAttentionItems}
               onNavigateView={onNavigateView}
+              className={perms.canAccessDailyLog && perms.isDailyLogTracked ? undefined : 'lg:col-span-3'}
             />
           </div>
 
@@ -1421,37 +1445,45 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       {isLead && (
         <div className="space-y-4">
           {/* Row 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <LoggedThisWeekCard
-              totalHours={weeklyLoggedHours}
-              pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={pastDaysTotal}
-              days={weeklyLoggedDays}
-              isLoading={isLoadingAttendance}
-            />
-            <PresentInMonthCard
-              monthName={monthName}
-              daysPresent={timesheetData?.summary?.days_present ?? 0}
-              workingDaysElapsed={workingDaysElapsed}
-              lateStrikes={lateStrikes}
-              isLateToday={Boolean(todayAttendance?.record?.is_late)}
-              dots={monthDots}
-              isLoading={isLoadingAttendance}
-            />
-            <EmployeePunchCard
-              variant="your-day"
-              todayData={todayAttendance}
-              isLoading={isLoadingAttendance}
-              onRefresh={loadAttendance}
-              loggedHours={dayTarget?.logged_hours}
-              expectedHours={dayTarget?.expected_hours}
-              onOpenRequestModal={(tab) => {
-                setRequestModalTab(tab || 'leave');
-                setIsRequestModalOpen(true);
-              }}
-              onNavigateView={onNavigateView}
-            />
-          </div>
+          {(perms.isAttendanceTracked || perms.isDailyLogTracked) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+                <LoggedThisWeekCard
+                  totalHours={weeklyLoggedHours}
+                  pastDaysLogged={pastDaysLoggedCount}
+                  pastDaysTotal={pastDaysTotal}
+                  days={weeklyLoggedDays}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <PresentInMonthCard
+                  monthName={monthName}
+                  daysPresent={timesheetData?.summary?.days_present ?? 0}
+                  workingDaysElapsed={workingDaysElapsed}
+                  lateStrikes={lateStrikes}
+                  isLateToday={Boolean(todayAttendance?.record?.is_late)}
+                  dots={monthDots}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <EmployeePunchCard
+                  variant="your-day"
+                  todayData={todayAttendance}
+                  isLoading={isLoadingAttendance}
+                  onRefresh={loadAttendance}
+                  loggedHours={dayTarget?.logged_hours}
+                  expectedHours={dayTarget?.expected_hours}
+                  onOpenRequestModal={(tab) => {
+                    setRequestModalTab(tab || 'leave');
+                    setIsRequestModalOpen(true);
+                  }}
+                  onNavigateView={onNavigateView}
+                />
+              )}
+            </div>
+          )}
 
           {/* Row 2 */}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
@@ -1465,7 +1497,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 isLoading={isLoadingTeamHours}
                 className="lg:col-span-2"
               />
-            ) : (
+            ) : perms.canAccessDailyLog && perms.isDailyLogTracked ? (
               <MyHoursChart
                 days={myHoursDays}
                 range={myHoursRange}
@@ -1474,15 +1506,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
                 isLoading={isLoadingMyHours}
                 className="lg:col-span-2"
               />
-            )}
+            ) : null}
             <NeedsAttentionCard
               items={needsAttentionItems}
               onNavigateView={onNavigateView}
+              className={(!perms.canAccessDailyLog || !perms.isDailyLogTracked) && (teamHoursMembers.length === 0 || hasTeamHours404) ? 'lg:col-span-3' : undefined}
             />
           </div>
 
           {/* Row 3: Full-width department cards */}
-          {deptCategories.includes('content') && (
+          {deptCategories.includes('content') && perms.can('content_calendar', 'view') && (
             <StageCountCard
               title="Content calendar"
               subtitle="your department's stages"
@@ -1494,7 +1527,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               layout="two-col"
             />
           )}
-          {deptCategories.includes('sales') && (
+          {deptCategories.includes('sales') && perms.can('sales', 'own') && (
             <StageCountCard
               title="Sales pipeline"
               subtitle="team leads + unassigned"
@@ -1506,7 +1539,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               layout="two-col"
             />
           )}
-          {deptCategories.includes('website') && (
+          {deptCategories.includes('website') && perms.can('website', 'view') && (
             <StageCountCard
               title="Website pipeline"
               subtitle="your department's stages"
@@ -1530,56 +1563,67 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       {isMember && (
         <div className="space-y-4">
           {/* Row 1 */}
-          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <LoggedThisWeekCard
-              totalHours={weeklyLoggedHours}
-              pastDaysLogged={pastDaysLoggedCount}
-              pastDaysTotal={pastDaysTotal}
-              days={weeklyLoggedDays}
-              isLoading={isLoadingAttendance}
-            />
-            <PresentInMonthCard
-              monthName={monthName}
-              daysPresent={timesheetData?.summary?.days_present ?? 0}
-              workingDaysElapsed={workingDaysElapsed}
-              lateStrikes={lateStrikes}
-              isLateToday={Boolean(todayAttendance?.record?.is_late)}
-              dots={monthDots}
-              isLoading={isLoadingAttendance}
-            />
-            <EmployeePunchCard
-              variant="your-day"
-              todayData={todayAttendance}
-              isLoading={isLoadingAttendance}
-              onRefresh={loadAttendance}
-              loggedHours={dayTarget?.logged_hours}
-              expectedHours={dayTarget?.expected_hours}
-              onOpenRequestModal={(tab) => {
-                setRequestModalTab(tab || 'leave');
-                setIsRequestModalOpen(true);
-              }}
-              onNavigateView={onNavigateView}
-            />
-          </div>
+          {(perms.isAttendanceTracked || perms.isDailyLogTracked) && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+                <LoggedThisWeekCard
+                  totalHours={weeklyLoggedHours}
+                  pastDaysLogged={pastDaysLoggedCount}
+                  pastDaysTotal={pastDaysTotal}
+                  days={weeklyLoggedDays}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <PresentInMonthCard
+                  monthName={monthName}
+                  daysPresent={timesheetData?.summary?.days_present ?? 0}
+                  workingDaysElapsed={workingDaysElapsed}
+                  lateStrikes={lateStrikes}
+                  isLateToday={Boolean(todayAttendance?.record?.is_late)}
+                  dots={monthDots}
+                  isLoading={isLoadingAttendance}
+                />
+              )}
+              {perms.canAccessAttendance && perms.isAttendanceTracked && (
+                <EmployeePunchCard
+                  variant="your-day"
+                  todayData={todayAttendance}
+                  isLoading={isLoadingAttendance}
+                  onRefresh={loadAttendance}
+                  loggedHours={dayTarget?.logged_hours}
+                  expectedHours={dayTarget?.expected_hours}
+                  onOpenRequestModal={(tab) => {
+                    setRequestModalTab(tab || 'leave');
+                    setIsRequestModalOpen(true);
+                  }}
+                  onNavigateView={onNavigateView}
+                />
+              )}
+            </div>
+          )}
 
           {/* Row 2 */}
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_360px] gap-4">
-            <MyHoursChart
-              days={myHoursDays}
-              range={myHoursRange}
-              onRangeChange={setMyHoursRange}
-              dateRangeLabel={chartDateRangeLabel}
-              isLoading={isLoadingMyHours}
-              className="lg:col-span-2"
-            />
+            {perms.canAccessDailyLog && perms.isDailyLogTracked && (
+              <MyHoursChart
+                days={myHoursDays}
+                range={myHoursRange}
+                onRangeChange={setMyHoursRange}
+                dateRangeLabel={chartDateRangeLabel}
+                isLoading={isLoadingMyHours}
+                className="lg:col-span-2"
+              />
+            )}
             <NeedsAttentionCard
               items={needsAttentionItems}
               onNavigateView={onNavigateView}
+              className={perms.canAccessDailyLog && perms.isDailyLogTracked ? undefined : 'lg:col-span-3'}
             />
           </div>
 
           {/* Row 3: Full-width department card (own items) */}
-          {deptCategories.includes('sales') && (
+          {deptCategories.includes('sales') && perms.can('sales', 'own') && (
             <StageCountCard
               title="Sales pipeline"
               subtitle="my leads + unassigned"
@@ -1591,7 +1635,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               layout="two-col"
             />
           )}
-          {deptCategories.includes('content') && (
+          {deptCategories.includes('content') && perms.can('content_calendar', 'view') && (
             <StageCountCard
               title="Content calendar"
               subtitle="my assigned items"
@@ -1603,7 +1647,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
               layout="two-col"
             />
           )}
-          {deptCategories.includes('website') && (
+          {deptCategories.includes('website') && perms.can('website', 'view') && (
             <StageCountCard
               title="Website pipeline"
               subtitle="my projects & tasks"

@@ -26,6 +26,7 @@ from app.schemas.daily_log import (
 )
 from app.schemas.user import UserLogActivityResponse
 from app.models.user import UserRole
+from app.services.access import is_tracked, effective_access
 
 
 router = APIRouter(
@@ -272,14 +273,13 @@ async def get_my_log_activity(
     db = get_database()
     uid = current_user["id"]
     fname = current_user.get("full_name") or current_user.get("name", "User")
-    user_role = current_user.get("role", "team_member")
-    is_exempt = user_role in (
-        UserRole.ADMIN.value, "admin",
-        UserRole.OPERATIONS.value, "operations",
-        UserRole.CLIENT.value, "client"
-    )
+    if not is_tracked(current_user, "daily_log"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Daily log is off for this account.",
+        )
 
-    if is_exempt or db is None:
+    if db is None:
         return {
             "user_id": uid,
             "full_name": fname,
@@ -741,6 +741,24 @@ async def get_sheets(
     return sheets
 
 
+@router.get("/my-entries")
+@router.get("/entries/mine")
+async def get_my_entries(
+    current_user: dict = Depends(get_current_user),
+):
+    """Retrieve personal daily log entries for the current user."""
+    if not is_tracked(current_user, "daily_log"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Daily log is off for this account.",
+        )
+    db = get_database()
+    if db is None:
+        return []
+    cursor = db.daily_log_entries.find({"user_id": current_user["id"]}, {"_id": 0})
+    return await cursor.to_list(1000)
+
+
 @router.get("/entries", response_model=List[DailyLogEntryResponse])
 async def get_entries(
     month_sheet: Optional[str] = Query(None, description="Month sheet tab filter e.g. 'August - 2026'"),
@@ -777,6 +795,13 @@ async def get_entries(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Client accounts do not have access to internal daily logs.",
+        )
+
+    eff = effective_access(current_user)
+    if not is_tracked(current_user, "daily_log") and eff["levels"].get("daily_log") in ("none", None):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Daily log is off for this account.",
         )
 
     current_uid = current_user["id"]
@@ -1095,15 +1120,10 @@ async def create_entry(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    user_role = current_user.get("role", "team_member")
-    if user_role in (
-        "client", UserRole.CLIENT.value,
-        "operations", UserRole.OPERATIONS.value,
-        "admin", UserRole.ADMIN.value,
-    ):
+    if not is_tracked(current_user, "daily_log"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin, Operations, and Client accounts do not log daily entries.",
+            detail="Daily log is off for this account.",
         )
 
     now_iso = datetime.now(timezone.utc).isoformat()
@@ -1225,6 +1245,12 @@ async def update_entry(
     existing_entry = await db.daily_log_entries.find_one({"id": entry_id})
     if not existing_entry:
         raise HTTPException(status_code=404, detail=f"Log entry '{entry_id}' not found.")
+
+    if not is_tracked(current_user, "daily_log") and effective_access(current_user)["levels"].get("daily_log") not in ("all", "manage"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Daily log is off for this account.",
+        )
 
     author_user_doc = None
     if existing_entry.get("user_id"):
