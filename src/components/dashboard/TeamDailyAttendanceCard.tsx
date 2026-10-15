@@ -143,10 +143,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
     return sortAttendanceRows(filtered);
   }, [rows, selectedDept, searchTerm, activeFilter]);
 
-  const displayedRows = useMemo(
-    () => filteredAndSortedRows.slice(0, 10),
-    [filteredAndSortedRows]
-  );
+  const displayedRows = filteredAndSortedRows;
 
   return (
     <div
@@ -252,7 +249,7 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
 
       {/* Rows Table */}
       <div className="overflow-y-auto max-h-[440px] flex-1 divide-y divide-border/60">
-        <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] px-4 py-2 bg-subtle/50 text-[11px] font-semibold text-fg-muted uppercase tracking-wider">
+        <div className="grid grid-cols-[1.5fr_1fr_1fr_1fr_1fr] px-4 py-2 bg-subtle text-[11px] font-semibold text-fg-muted uppercase tracking-wider sticky top-0 z-10 border-b border-border/60">
           <span>Employee</span>
           <span>Shift</span>
           <span>Check-in</span>
@@ -332,11 +329,15 @@ export const TeamDailyAttendanceCard: React.FC<TeamDailyAttendanceCardProps> = (
       {/* Footer */}
       <div className="p-3 border-t border-border bg-subtle/20 text-xs text-fg-muted flex items-center justify-between">
         <span>
-          Showing {displayedRows.length} of {filteredAndSortedRows.length} · scroll for more
+          {rows.length === 0
+            ? 'No employees'
+            : filteredAndSortedRows.length === rows.length
+            ? `Showing all ${rows.length} ${rows.length === 1 ? 'employee' : 'employees'}`
+            : `Showing ${filteredAndSortedRows.length} of ${rows.length} ${rows.length === 1 ? 'employee' : 'employees'}`}
         </span>
         <button
           type="button"
-          onClick={() => onNavigateView('attendance')}
+          onClick={() => onNavigateView('attendance', 'daily-matrix')}
           className="text-accent-text hover:underline font-medium inline-flex items-center gap-1 cursor-pointer"
         >
           Open daily attendance
