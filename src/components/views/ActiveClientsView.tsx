@@ -152,7 +152,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
     <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-canvas p-6">
       {/* Page Header */}
       <PageHeader
-        viewOnly={Boolean(user?.permissions?.view_only) || user?.role === 'operations'}
+        viewOnly={user?.role !== 'admin' && user?.role !== 'operations'}
         title={
           <div className="flex items-center gap-2.5">
             <span>Active clients</span>

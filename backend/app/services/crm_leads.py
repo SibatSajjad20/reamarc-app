@@ -810,6 +810,12 @@ async def register_lead_as_client(lead_id: str, payload: Dict[str, Any], user: D
 
     The proposal file on this payload is the client's proposal. Deal proposals are not copied.
     """
+    role = str(user.get("role") or "").lower().strip()
+    if role not in ("admin", "operations", "ops"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only operations and admins can register a client workspace.",
+        )
     lead = await get_lead_or_404(lead_id, user)
     if lead.get("converted_workspace_id"):
         return serialize_lead(lead)

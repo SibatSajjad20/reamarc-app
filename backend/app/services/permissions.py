@@ -196,7 +196,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "view",
         "website": "view",
         "sales": "all",
-        "active_clients": "view",
+        "active_clients": "manage",
         "ads": "view",
     },
     "team_lead": {
@@ -482,10 +482,7 @@ def _department_default_level(
 
     if module == "active_clients":
         if dept_norm in SALES_DEPTS:
-            if role in ("team_lead", "lead"):
-                return "manage"
-            if role in ("team_member", "member"):
-                return "view"
+            return "view"
         return "none"
 
     return base_level
@@ -693,15 +690,14 @@ _OPS_WRITE_PREFIXES = (
     "/api/v1/website-projects",
     "/api/v1/marketing",
     "/api/v1/daily-log",
-    "/api/v1/workspaces",
-    "/api/v1/admin/workspaces",
     "/api/v1/admin/ad-accounts",
 )
 
 # Won-deal approve/reject stays available. Leave, WFH, shift, and attendance
-# approvals live outside these prefixes and stay available too.
+# approvals live outside these prefixes and stay available too. Client workspace
+# creation and conversion from leads stays available for operations.
 _OPS_WRITE_ALLOW = re.compile(
-    r"^/api/v1/crm/(?:approvals/won-deals/[^/]+/(?:approve|reject)|deals/[^/]+/approve-won|leads/[^/]+/approve-won)$"
+    r"^/api/v1/crm/(?:approvals/won-deals/[^/]+/(?:approve|reject)|deals/[^/]+/approve-won|leads/[^/]+/approve-won|leads/[^/]+/register-client|leads/[^/]+/convert-to-workspace)$"
 )
 
 

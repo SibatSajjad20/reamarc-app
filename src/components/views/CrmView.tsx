@@ -541,6 +541,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         pendingClientFormCount > 0;
 
   const openRegisterClient = (lead: CrmLead) => {
+    if (user?.role !== 'admin' && user?.role !== 'operations') {
+      addToast('Permission Denied', 'Only Operations and Admins can create and manage client workspaces.', 'warning');
+      return;
+    }
     if (lead.converted_workspace_id) {
       addToast('Already a client', `${lead.company || lead.name} already has a workspace.`, 'info');
       return;
@@ -1037,6 +1041,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               assignees={assignees}
               templates={templates}
               canAssign={canAssign}
+              canManageWorkspaces={user?.role === 'admin' || user?.role === 'operations'}
               busy={busy}
               onClose={() => {
                 detailAbortRef.current?.abort();

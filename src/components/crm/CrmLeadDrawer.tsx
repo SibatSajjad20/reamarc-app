@@ -171,6 +171,7 @@ interface CrmLeadDrawerProps {
   onCreateDeal?: () => void;
   onEditDeal?: (deal: CrmDeal) => void;
   initialTab?: 'overview' | 'brief' | 'activity' | 'deals';
+  canManageWorkspaces?: boolean;
 }
 
 type DrawerTab = 'overview' | 'brief' | 'activity' | 'deals';
@@ -220,6 +221,7 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
   onCreateDeal,
   onEditDeal,
   initialTab = 'overview',
+  canManageWorkspaces = false,
 }) => {
   const [activeTab, setActiveTab] = useState<DrawerTab>(initialTab);
   const [note, setNote] = useState('');
@@ -625,6 +627,8 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
                     type="button"
                     variant="primary"
                     size="sm"
+                    disabled={!canManageWorkspaces}
+                    title={!canManageWorkspaces ? 'Only Operations and Admins can create client workspaces' : undefined}
                     onClick={() => void onWon()}
                     className="w-full"
                   >
@@ -1108,7 +1112,8 @@ export const CrmLeadDrawer: React.FC<CrmLeadDrawerProps> = ({
           <Button
             type="button"
             variant="primary"
-            disabled={busy}
+            disabled={busy || !canManageWorkspaces}
+            title={!canManageWorkspaces ? 'Only Operations and Admins can create client workspaces' : undefined}
             onClick={() => void onWon()}
             className="flex-1"
           >

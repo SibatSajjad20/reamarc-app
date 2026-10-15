@@ -20,7 +20,7 @@ export const OPERATIONS_MODULE_LEVELS: Record<string, string> = {
   content_calendar: 'view',
   website: 'view',
   sales: 'all',
-  active_clients: 'view',
+  active_clients: 'manage',
   ads: 'view',
 };
 

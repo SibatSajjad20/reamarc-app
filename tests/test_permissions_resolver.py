@@ -91,12 +91,12 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(summary["sales"], "all")
         self.assertEqual(summary["content_calendar"], "view")
         self.assertEqual(summary["website"], "view")
-        self.assertEqual(summary["active_clients"], "view")
+        self.assertEqual(summary["active_clients"], "manage")
         self.assertEqual(summary["exceptions"], "all")
         self.assertTrue(payload["permissions"]["view_only"])
 
     def test_operations_role_defaults(self):
-        """Operations can view every module. Department does not narrow that."""
+        """Operations can view every module and manage active clients. Department does not narrow that."""
         user = {
             "id": "ops-1",
             "role": "operations",
@@ -108,7 +108,7 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(resolve(ctx, "daily_log"), "all")
         self.assertEqual(resolve(ctx, "attendance"), "all")
         self.assertEqual(resolve(ctx, "exceptions"), "all")
-        self.assertEqual(resolve(ctx, "active_clients"), "view")
+        self.assertEqual(resolve(ctx, "active_clients"), "manage")
         self.assertEqual(resolve(ctx, "content_calendar"), "view")
         self.assertEqual(resolve(ctx, "website"), "view")
         self.assertEqual(resolve(ctx, "sales"), "all")
@@ -308,7 +308,7 @@ class PermissionsResolverTests(unittest.TestCase):
             "primary_department": "Content",
             "departments": ["Content"],
         })
-        self.assertEqual(resolve(lead, "active_clients"), "manage")
+        self.assertEqual(resolve(lead, "active_clients"), "view")
         self.assertEqual(resolve(member, "active_clients"), "view")
         self.assertEqual(resolve(content, "active_clients"), "none")
 
@@ -357,6 +357,31 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertFalse(
             operations_mutation_blocked(
                 "POST", "/api/v1/leaves/requests/abc/status", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/workspaces", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "PATCH", "/api/v1/workspaces/ws-1", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/admin/workspaces", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/crm/leads/lead-1/register-client", "operations"
+            )
+        )
+        self.assertFalse(
+            operations_mutation_blocked(
+                "POST", "/api/v1/crm/leads/lead-1/convert-to-workspace", "operations"
             )
         )
         self.assertFalse(operations_mutation_blocked("POST", "/api/v1/crm/leads", "admin"))

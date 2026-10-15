@@ -13,7 +13,7 @@ from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
-from app.core.security import get_current_user
+from app.core.security import get_current_user, require_operations_or_admin
 from app.schemas.crm import (
     CrmActivityResponse,
     CrmApproveWonRequest,
@@ -188,7 +188,7 @@ async def set_outcome(lead_id: str, payload: CrmOutcomeRequest, current_user: di
 @router.post("/leads/{lead_id}/convert", response_model=CrmLeadResponse)
 async def convert_lead(
     lead_id: str,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_operations_or_admin),
     payload: CrmConvertRequest = Body(default_factory=CrmConvertRequest),
 ):
     """Mark Won and create/link an Active Client workspace."""
@@ -201,7 +201,7 @@ async def convert_lead(
 async def register_client(
     lead_id: str,
     payload: CrmRegisterClientRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_operations_or_admin),
 ):
     """Mark the lead won and create the active client from the workspace form."""
     return CrmLeadResponse(**await crm.register_lead_as_client(lead_id, payload.model_dump(), current_user))
