@@ -40,6 +40,8 @@ from app.schemas.content_calendar import (
 )
 from app.services.content_calendar_workflow import (
     WorkflowError,
+    CONTENT_STAGES,
+    CREATIVE_STAGES,
     can_edit_item,
     can_delete_item,
     can_view_item,
@@ -227,6 +229,7 @@ async def get_items(
     if approval_status:
         query["approval_status"] = approval_status
 
+    client_match_clauses = None
     if viewer and str(viewer.get("role") or "").lower() == "client":
         raw_ws = viewer.get("workspace_ids") or []
         if isinstance(raw_ws, str):
@@ -237,7 +240,32 @@ async def get_items(
         if workspace_id and workspace_id not in workspace_ids:
             query["workspace_id"] = "__none__"
         else:
-            query["workspace_id"] = {"$in": workspace_ids or ["__none__"]}
+            ws_names: List[str] = []
+            if workspace_ids and db is not None:
+                try:
+                    ws_docs = await db["workspaces"].find(
+                        {"id": {"$in": workspace_ids}},
+                        {"id": 1, "name": 1}
+                    ).to_list(len(workspace_ids) + 5)
+                    for w in ws_docs:
+                        wn = str(w.get("name") or "").strip()
+                        if wn and wn not in ws_names:
+                            ws_names.append(wn)
+                except Exception as exc:
+                    logger.warning("Error fetching client workspace names: %s", exc)
+            v_name = str(viewer.get("full_name") or viewer.get("name") or "").strip()
+            if v_name and v_name not in ws_names:
+                ws_names.append(v_name)
+
+            ownership_ors: List[Dict[str, Any]] = [{"workspace_id": {"$in": workspace_ids or ["__none__"]}}]
+            for nm in ws_names:
+                escaped = re.escape(nm)
+                ownership_ors.append({"client_name": {"$regex": f"^{escaped}$", "$options": "i"}})
+                clean_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", nm, flags=re.I).strip()
+                if clean_corp and clean_corp.lower() != nm.lower():
+                    clean_esc = re.escape(clean_corp)
+                    ownership_ors.append({"client_name": {"$regex": f"^{clean_esc}", "$options": "i"}})
+            client_match_clauses = ownership_ors
 
     if start_date and end_date:
         query["publish_date"] = {"$gte": start_date, "$lte": end_date}
@@ -248,7 +276,7 @@ async def get_items(
 
     if search and search.strip():
         q = re.escape(search.strip())
-        query["$or"] = [
+        search_or = [
             {"serial": {"$regex": q, "$options": "i"}},
             {"client_name": {"$regex": q, "$options": "i"}},
             {"content_concept": {"$regex": q, "$options": "i"}},
@@ -258,6 +286,12 @@ async def get_items(
             {"content_pillar": {"$regex": q, "$options": "i"}},
             {"campaign_type": {"$regex": q, "$options": "i"}},
         ]
+        if client_match_clauses:
+            query["$and"] = [{"$or": client_match_clauses}, {"$or": search_or}]
+        else:
+            query["$or"] = search_or
+    elif client_match_clauses:
+        query["$or"] = client_match_clauses
 
     coll = db[COLLECTION_NAME]
 
@@ -273,20 +307,23 @@ async def get_items(
         clause = _viewer_stage_clause(viewer, None)
         if clause:
             base_count_query.update(clause)
-    if viewer and str(viewer.get("role") or "").lower() == "client":
-        workspace_ids = [str(value) for value in (viewer.get("workspace_ids") or []) if value]
-        if workspace_id and workspace_id not in workspace_ids:
-            base_count_query["workspace_id"] = "__none__"
-        else:
-            base_count_query["workspace_id"] = {"$in": workspace_ids or ["__none__"]}
+    if workspace_id and client_match_clauses and workspace_id not in (workspace_ids or []):
+        base_count_query["workspace_id"] = "__none__"
+
     if search and search.strip():
         q = re.escape(search.strip())
-        base_count_query["$or"] = [
+        count_search_or = [
             {"serial": {"$regex": q, "$options": "i"}},
             {"client_name": {"$regex": q, "$options": "i"}},
             {"content_concept": {"$regex": q, "$options": "i"}},
             {"primary_text": {"$regex": q, "$options": "i"}},
         ]
+        if client_match_clauses:
+            base_count_query["$and"] = [{"$or": client_match_clauses}, {"$or": count_search_or}]
+        else:
+            base_count_query["$or"] = count_search_or
+    elif client_match_clauses:
+        base_count_query["$or"] = client_match_clauses
 
     pipeline = [
         {"$match": base_count_query},
@@ -317,6 +354,18 @@ async def get_items(
                         doc["created_by_name"] = u_map[doc["created_by"]]
             except Exception:
                 pass
+
+        if db is not None:
+            for doc in raw:
+                cname = doc.get("client_name")
+                if cname:
+                    try:
+                        resolved = await _resolve_workspace_id_for_client(db, cname)
+                        if resolved and doc.get("workspace_id") != resolved:
+                            doc["workspace_id"] = resolved
+                            asyncio.create_task(coll.update_one({"id": doc.get("id") or str(doc.get("_id", ""))}, {"$set": {"workspace_id": resolved}}))
+                    except Exception:
+                        pass
         return [_present_doc(doc) for doc in raw]
 
     async def _fetch_counts():
@@ -665,9 +714,9 @@ async def update_item(
                 new_serial = await get_next_serial(db, new_client)
                 update_data["serial"] = new_serial
 
-    # Auto-link workspace_id if missing from both update and existing document
-    if "workspace_id" not in update_data and not current_doc.get("workspace_id"):
-        target_client = update_data.get("client_name") or current_doc.get("client_name")
+    # Auto-link or synchronize workspace_id with matching active workspace for the client
+    target_client = update_data.get("client_name") or current_doc.get("client_name")
+    if target_client:
         resolved_ws = await _resolve_workspace_id_for_client(db, target_client)
         if resolved_ws:
             update_data["workspace_id"] = resolved_ws
@@ -767,10 +816,10 @@ async def transition_item(
     if not current:
         return None
 
-    # Auto-link workspace_id if missing so client approval stages aren't blocked
-    if not current.get("workspace_id") and current.get("client_name"):
+    # Auto-link workspace_id if missing or mismatched so client approval stages aren't blocked
+    if current.get("client_name"):
         resolved_ws = await _resolve_workspace_id_for_client(db, current.get("client_name"))
-        if resolved_ws:
+        if resolved_ws and current.get("workspace_id") != resolved_ws:
             current["workspace_id"] = resolved_ws
             await coll.update_one({"$or": [{"id": item_id}, {"serial": item_id}]}, {"$set": {"workspace_id": resolved_ws}})
 
@@ -2239,12 +2288,19 @@ async def notify_content_calendar_event(
         from app.services.push_service import dispatch_to_users
 
         item_id = str(item.get("id") or item.get("_id") or "")
-        serial = str(item.get("serial") or "Campaign")
+        serial = str(item.get("serial") or "Content")
         client_name = str(item.get("client_name") or "Client")
         stage = str(item.get("stage") or "Content")
         workspace_id = item.get("workspace_id")
         creator_id = str(item.get("created_by") or "")
         effective_assignee = str(assignee_id or item.get("assignee_id") or "")
+
+        is_creative_stage = stage in CREATIVE_STAGES or "creative" in stage.lower()
+        if not is_creative_stage and old_item:
+            old_st = str(old_item.get("stage") or "")
+            if old_st in CREATIVE_STAGES or "creative" in old_st.lower():
+                is_creative_stage = True
+        stage_noun = "Creative" if is_creative_stage else "Content"
 
         actor_name = "Team Member"
         actor_id = None
@@ -2290,7 +2346,7 @@ async def notify_content_calendar_event(
             return [u for u in uids if u]
 
         recipients: List[str] = []
-        title = f"Campaign Update: {serial}"
+        title = f"{stage_noun} Update: {serial}"
         body = f"{serial} ({client_name}) updated by {actor_name}."
 
         act = str(action or "").lower().strip().replace(" ", "_")
@@ -2298,7 +2354,8 @@ async def notify_content_calendar_event(
         if act in ("assign", "assign_creative"):
             if effective_assignee:
                 recipients = [effective_assignee]
-                title = f"Campaign Assigned: {serial}"
+                assign_noun = "Creative" if (act == "assign_creative" or is_creative_stage) else "Content"
+                title = f"{assign_noun} Assigned: {serial}"
                 body = f"You were assigned to {serial} ({client_name}) for {stage} by {actor_name}."
 
         elif act == "submit":
@@ -2312,7 +2369,7 @@ async def notify_content_calendar_event(
                 body = f"{actor_name} submitted {serial} ({client_name}) for internal creative review."
             else:
                 recipients = await _find_content_leads()
-                title = f"Campaign Submitted: {serial}"
+                title = f"{stage_noun} Submitted: {serial}"
                 body = f"{actor_name} submitted {serial} ({client_name}) to {stage}."
 
         elif act in ("approve", "approved"):
@@ -2342,7 +2399,7 @@ async def notify_content_calendar_event(
                 body = f"{actor_name} approved deliverables for {serial} ({client_name}). Advanced to Ready to Post."
             else:
                 recipients = await _find_content_leads()
-                title = f"Campaign Approved: {serial}"
+                title = f"{stage_noun} Approved: {serial}"
                 body = f"{serial} ({client_name}) approved by {actor_name} to {stage}."
 
         elif act == "send_back":
@@ -2367,7 +2424,7 @@ async def notify_content_calendar_event(
             recipients = await _find_content_leads() + await _find_client_users()
             if creator_id:
                 recipients.append(creator_id)
-            title = f"Campaign Posted: {serial} 🚀"
+            title = f"Content Posted: {serial} 🚀"
             body = f"{serial} ({client_name}) marked as posted by {actor_name}."
 
         elif act in ("reject", "rejected"):
@@ -2376,7 +2433,7 @@ async def notify_content_calendar_event(
                 recipients.append(creator_id)
             if effective_assignee:
                 recipients.append(effective_assignee)
-            title = f"Campaign Rejected: {serial} ❌"
+            title = f"{stage_noun} Rejected: {serial} ❌"
             detail = f": {note}" if note else "."
             body = f"{serial} ({client_name}) was rejected by {actor_name}{detail}"
 
@@ -2386,7 +2443,7 @@ async def notify_content_calendar_event(
                 recipients.append(creator_id)
             if effective_assignee:
                 recipients.append(effective_assignee)
-            title = f"Campaign Returned to Creative: {serial} ↩️"
+            title = f"Returned to Creative: {serial} ↩️"
             detail = f": {note}" if note else "."
             body = f"{serial} ({client_name}) was returned to creative by {actor_name}{detail}"
 
@@ -2401,7 +2458,7 @@ async def notify_content_calendar_event(
             recipients = [u for u in [effective_assignee, creator_id] if u]
             if not recipients:
                 recipients = await _find_content_leads()
-            title = f"Campaign Moved: {serial}"
+            title = f"{stage_noun} Moved: {serial}"
             body = f"{actor_name} moved {serial} ({client_name}) to {stage}."
 
         cleaned_recipients = [str(r) for r in dict.fromkeys(recipients) if r]

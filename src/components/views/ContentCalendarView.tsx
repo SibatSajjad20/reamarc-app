@@ -378,7 +378,7 @@ export const ContentCalendarView: React.FC = () => {
       // 3. Silent background refresh (NEVER flashes skeleton screens)
       await loadData({ silent: true });
     } catch (err: any) {
-      addToast('Could not move campaign', err?.message || 'That action is not allowed', 'error');
+      addToast('Could not move item', err?.message || 'That action is not allowed', 'error');
     }
   };
 

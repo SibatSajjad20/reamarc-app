@@ -30,9 +30,11 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
 
     k = (kind or "").strip().lower()
 
-    att_kinds = {
-        "attendance_check_in", "attendance_check_out", "late_checkin",
-        "employee_late", "pre_shift", "checkout", "missed_yesterday",
+    staff_att_kinds = {
+        "attendance_check_in", "attendance_check_out", "employee_late",
+    }
+    employee_att_kinds = {
+        "late_checkin", "pre_shift", "checkout", "missed_yesterday",
         "missed_punch_inquiry", "missed_punch_resolved", "attendance_reminder",
     }
     log_kinds = {
@@ -56,7 +58,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
 
     req_module = None
     req_tracking = None
-    if k in att_kinds:
+    if k in employee_att_kinds:
         req_tracking = "attendance"
     elif k in log_kinds:
         req_tracking = "daily_log"
@@ -69,7 +71,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
     elif k in ads_kinds:
         req_module = "ads"
 
-    if not req_module and not req_tracking:
+    if not req_module and not req_tracking and k not in staff_att_kinds:
         return user_ids
 
     users_cursor = db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "hashed_password": 0})
@@ -81,11 +83,21 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
         u = user_map.get(uid)
         if not u:
             continue
+        role = str(u.get("role") or "").lower()
+        if role in ("admin", "super_admin"):
+            allowed.append(uid)
+            continue
+        if k in staff_att_kinds:
+            if role in ("hr", "operations", "team_lead", "lead"):
+                allowed.append(uid)
+                continue
+            if effective_access(u)["modules"].get("attendance"):
+                allowed.append(uid)
+                continue
         if req_tracking:
             if not is_tracked(u, req_tracking):
                 continue
         if req_module:
-            role = str(u.get("role") or "").lower()
             if role == "client" and req_module in ("website", "content_calendar"):
                 pass
             elif not effective_access(u)["modules"].get(req_module):
@@ -423,16 +435,84 @@ async def get_attendance_staff_user_ids() -> List[str]:
     return await _user_ids_by_roles(ATTENDANCE_STAFF_ROLES)
 
 
+async def get_team_lead_user_ids_for_member(
+    subject_user_id: str,
+    subject_user: Optional[dict] = None,
+) -> List[str]:
+    """Finds active team leads whose department overlaps with the subject employee."""
+    db = get_database()
+    if db is None or not subject_user_id:
+        return []
+
+    if subject_user is None:
+        subject_user = await db.users.find_one({"id": subject_user_id}, {"_id": 0, "hashed_password": 0})
+    if not subject_user:
+        return []
+
+    from app.services.access import (
+        normalize_role,
+        normalize_dept,
+        get_user_primary_department,
+        parse_user_departments,
+    )
+
+    sub_role = normalize_role(subject_user.get("role"))
+    # Only regular team members report to team leads
+    if sub_role not in ("team_member", "member"):
+        return []
+
+    sub_primary = normalize_dept(get_user_primary_department(subject_user))
+    sub_depts = {normalize_dept(d) for d in parse_user_departments(subject_user) if d}
+    if sub_primary:
+        sub_depts.add(sub_primary)
+    sub_depts = {d for d in sub_depts if d}
+    if not sub_depts:
+        return []
+
+    leads_cursor = db.users.find(
+        {
+            "role": {"$in": ["team_lead", "lead", "TEAM_LEAD"]},
+            "is_active": {"$ne": False},
+        },
+        {"_id": 0, "hashed_password": 0},
+    )
+    leads = await leads_cursor.to_list(100)
+
+    matched_lead_ids: List[str] = []
+    for lead in leads:
+        lead_id = lead.get("id")
+        if not lead_id or lead_id == subject_user_id:
+            continue
+        lead_primary = normalize_dept(get_user_primary_department(lead))
+        lead_depts = {normalize_dept(d) for d in parse_user_departments(lead) if d}
+        if lead_primary:
+            lead_depts.add(lead_primary)
+        lead_depts = {d for d in lead_depts if d}
+
+        if lead_depts & sub_depts:
+            matched_lead_ids.append(lead_id)
+
+    return matched_lead_ids
+
+
 async def resolve_attendance_alert_recipients(
     subject_user_id: Optional[str],
     subject_role: Optional[str],
+    subject_user: Optional[dict] = None,
 ) -> List[str]:
     """Staff recipients for check-in / check-out / late alerts about subject."""
     roles = staff_roles_for_subject(subject_role)
     if roles is None:
         return []
     recipients = await _user_ids_by_roles(roles)
+
+    # Fan out to department team leads when subject is a team member
     if subject_user_id:
-        recipients = [uid for uid in recipients if uid != subject_user_id]
+        team_leads = await get_team_lead_user_ids_for_member(subject_user_id, subject_user)
+        recipients.extend(team_leads)
+
+    if subject_user_id:
+        recipients = [uid for uid in dict.fromkeys(recipients) if uid != subject_user_id]
     return recipients
+
 

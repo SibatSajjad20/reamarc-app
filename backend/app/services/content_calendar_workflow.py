@@ -280,10 +280,19 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
 
 def client_owns(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
     workspace_id = item.get("workspace_id")
-    if not workspace_id:
-        return False
-    allowed = [str(value) for value in (user or {}).get("workspace_ids") or []]
-    return str(workspace_id) in allowed
+    allowed = [str(value).strip() for value in (user or {}).get("workspace_ids") or [] if str(value).strip()]
+    if user and user.get("workspace_id") and str(user.get("workspace_id")).strip() not in allowed:
+        allowed.append(str(user.get("workspace_id")).strip())
+    if workspace_id and str(workspace_id).strip() in allowed:
+        return True
+    item_client = str(item.get("client_name") or "").strip().lower()
+    user_name = str((user or {}).get("full_name") or (user or {}).get("name") or "").strip().lower()
+    if item_client and user_name:
+        clean_item = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", item_client).strip()
+        clean_user = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", user_name).strip()
+        if clean_item and clean_user and (clean_item == clean_user or clean_item in clean_user or clean_user in clean_item):
+            return True
+    return False
 
 
 def can_view_item(user: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:

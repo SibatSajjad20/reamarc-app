@@ -65,7 +65,16 @@ function getNotificationMeta(n: Item) {
       bg: '#FFF1F2',
     };
   }
-  if (key.includes('pre_shift') || key.includes('shift') || key.includes('checkout') || key.includes('daily_log') || key.includes('reminder')) {
+  if (key.includes('daily_log') || key.includes('log_reminder')) {
+    return {
+      label: 'Daily Log',
+      sender: 'Daily Log Reminder',
+      icon: 'document-text-outline' as const,
+      color: colors.indigo,
+      bg: '#EEF2FF',
+    };
+  }
+  if (key.includes('pre_shift') || key.includes('shift') || key.includes('checkout') || key.includes('reminder')) {
     return {
       label: 'Reminder',
       sender: 'Automated Reminder',
@@ -276,6 +285,22 @@ export default function AlertsScreen() {
                     }}
                   >
                     <Text style={styles.ctaText}>Open in Sales Pipeline</Text>
+                    <Ionicons name="arrow-forward" size={14} color={colors.indigo} />
+                  </Pressable>
+                ) : null}
+                {n.kind === 'daily_log_reminder' || String(n.kind).includes('daily_log') || String(n.kind).includes('log_reminder') ? (
+                  <Pressable
+                    style={styles.cta}
+                    onPress={() => {
+                      const data = (n as any).data;
+                      if (data?.date) {
+                        router.push({ pathname: '/daily-log', params: { date: data.date } });
+                      } else {
+                        router.push('/daily-log');
+                      }
+                    }}
+                  >
+                    <Text style={styles.ctaText}>Open Daily Log</Text>
                     <Ionicons name="arrow-forward" size={14} color={colors.indigo} />
                   </Pressable>
                 ) : null}

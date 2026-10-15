@@ -236,10 +236,10 @@ export const ContentCalendarClientReviews: React.FC = () => {
         assignee_name: extra?.assignee_name,
         target_stage: extra?.target_stage,
       });
-      addToast('Stage updated', 'Campaign moved successfully.', 'success');
+      addToast('Stage updated', 'Moved successfully.', 'success');
       await loadData({ silent: true });
     } catch (err: any) {
-      addToast('Action not allowed', err?.message || 'Could not move campaign.', 'error');
+      addToast('Action not allowed', err?.message || 'Could not move item.', 'error');
       throw err;
     }
   };

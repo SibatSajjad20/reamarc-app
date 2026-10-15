@@ -147,7 +147,8 @@ export const ContentCalendarModal: React.FC<Props> = ({
       });
     } else {
       const defaultClient = activeClients && activeClients.length > 0 ? activeClients[0].name : 'Apex Transfers LLC';
-      const defaultWsId = activeClients && activeClients.length > 0 ? activeClients[0].id : undefined;
+      const matchedDefaultWs = findMatchingClient(defaultClient, activeClients);
+      const defaultWsId = matchedDefaultWs?.id;
       setFormData({
         serial: '',
         client_name: defaultClient,
@@ -318,7 +319,7 @@ export const ContentCalendarModal: React.FC<Props> = ({
       const concept = formData.content_concept?.trim() || '';
       const autoOwner = detectStageOwner(formData.stage, formData.creative_category);
       const matchedWs = findMatchingClient(formData.client_name, activeClients);
-      const finalWsId = matchedWs?.id || formData.workspace_id;
+      const finalWsId = matchedWs?.id;
       await onSave({
         ...formData,
         workspace_id: finalWsId,

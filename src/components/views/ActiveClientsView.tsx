@@ -156,7 +156,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
   }, [selectedClient]);
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-canvas p-6">
+    <div className="flex-1 min-h-0 min-w-0 overflow-y-auto bg-canvas p-6 custom-scrollbar">
       {/* Page Header */}
       <PageHeader
         viewOnly={!canManage}
@@ -206,7 +206,7 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
       </div>
 
       {/* Client List DataTable */}
-      <TableCard>
+      <TableCard className="shrink-0 mb-6">
         <Table>
           <THead>
             <tr>

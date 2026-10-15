@@ -30,6 +30,9 @@ export function viewForNotificationKind(kind: string | undefined, userRole?: str
   if (name.startsWith('website_') || name === 'website_project') {
     return 'website-pipeline';
   }
+  if (name.startsWith('daily_log') || name.startsWith('log_') || name === 'admin_reminder') {
+    return 'daily-log';
+  }
   return 'dashboard';
 }
 
@@ -39,6 +42,7 @@ export function viewFromNotificationPath(path: string): ViewType | null {
   if (segment === 'crm') return 'crm';
   if (segment === 'won-deal-approvals' || segment === 'won_deal_approvals') return 'won-deal-approvals';
   if (segment === 'attendance') return 'attendance';
+  if (segment === 'daily-log' || segment === 'daily_log') return 'daily-log';
   if (segment === 'content-calendar' || segment === 'content_calendar' || segment === 'calendar') return 'content-calendar';
   if (segment === 'website-pipeline' || segment === 'website_pipeline' || segment === 'website') return 'website-pipeline';
   if (segment === 'portal' || segment === 'client-portal') return 'portal';

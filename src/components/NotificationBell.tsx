@@ -6,6 +6,7 @@ import {
   Clock,
   CalendarCheck2,
   CalendarDays,
+  ClipboardList,
 } from 'lucide-react';
 import type { ViewType } from '@/types';
 import { apiClient } from '@/services/apiClient';
@@ -91,6 +92,7 @@ function getNotificationIcon(kind?: string) {
   if (k.includes('leave') || k.includes('attendance') || k.includes('checkin') || k.includes('shift')) {
     return k.includes('leave') ? CalendarCheck2 : Clock;
   }
+  if (k.includes('log')) return ClipboardList;
   if (k.startsWith('content_calendar') || k.startsWith('campaign')) return CalendarDays;
   return Bell;
 }

@@ -188,6 +188,19 @@ async def run_evening_log_reminder_check():
             except Exception as err:
                 logger.error(f"[Scheduler] Failed to send evening reminder to {m['email']}: {err}")
 
+            try:
+                from app.services import push_service
+                if await push_service.try_claim_scheduled_push(uid, today_str, "daily_log_evening_push"):
+                    await push_service.dispatch_to_users(
+                        user_ids=[uid],
+                        title="Daily Log Reminder",
+                        body="Please remember to record your daily tasks and hours for today before wrapping up your shift.",
+                        kind="daily_log_reminder",
+                        data={"date": today_str, "type": "evening_log_reminder"},
+                    )
+            except Exception as p_err:
+                logger.warning(f"[Scheduler] Failed to dispatch evening push notification to {uid}: {p_err}")
+
     logger.info(f"[Scheduler] Evening reminder check complete. {reminded_count} members reminded for {today_str}.")
 
 
@@ -260,6 +273,19 @@ async def run_morning_log_reminder_check():
                 logger.info(f"[Scheduler] Morning reminder email dispatched to {m['email']}")
             except Exception as err:
                 logger.error(f"[Scheduler] Failed to send morning reminder to {m['email']}: {err}")
+
+            try:
+                from app.services import push_service
+                if await push_service.try_claim_scheduled_push(uid, today_str, "daily_log_morning_push"):
+                    await push_service.dispatch_to_users(
+                        user_ids=[uid],
+                        title="Daily Log Reminder",
+                        body=f"You have an unlogged work submission for {prev_workday_str}. Please take 2 minutes to backfill your tasks.",
+                        kind="daily_log_reminder",
+                        data={"date": prev_workday_str, "type": "morning_log_reminder"},
+                    )
+            except Exception as p_err:
+                logger.warning(f"[Scheduler] Failed to dispatch morning push notification to {uid}: {p_err}")
 
     logger.info(f"[Scheduler] Morning reminder check complete. {reminded_count} members reminded for {prev_workday_str}.")
 
