@@ -41,6 +41,9 @@ export function canAccessCrm(user?: RoleUserLike | null): boolean {
   if (role === 'admin' || role === 'super_admin') return true;
   if (role === 'client' || role === 'hr') return false;
   if (role === 'operations') return true;
+  if (user.permissions?.modules?.sales !== undefined) {
+    return Boolean(user.permissions.modules.sales);
+  }
   const sales = user.permissions?.summary?.sales;
   if (sales != null) {
     return sales !== 'none';

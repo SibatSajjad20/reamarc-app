@@ -33,7 +33,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
     att_kinds = {
         "attendance_check_in", "attendance_check_out", "late_checkin",
         "employee_late", "pre_shift", "checkout", "missed_yesterday",
-        "missed_punch_inquiry", "missed_punch_resolved",
+        "missed_punch_inquiry", "missed_punch_resolved", "attendance_reminder",
     }
     log_kinds = {
         "daily_log", "daily_log_reminder", "log_reminder", "log_exception_followup",
