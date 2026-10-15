@@ -21,6 +21,7 @@ import { workspaceService } from '../../services/workspaceService';
 import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
+import { cn } from '../../lib/utils';
 
 export const DEPARTMENTS = [
   'Website',
@@ -70,7 +71,8 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [phone, setPhone] = useState('');
   const [role, setRole] = useState<UserRole>(defaultRole);
   const [primaryDepartment, setPrimaryDepartment] = useState<string>('Website');
-  const selectedDepartments = [primaryDepartment];
+  const [secondaryDepartments, setSecondaryDepartments] = useState<string[]>([]);
+  const selectedDepartments = [primaryDepartment, ...secondaryDepartments.filter((d) => d !== primaryDepartment)];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -90,6 +92,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
       const initialRole = defaultRole === 'client' ? 'client' : (defaultRole === 'member' ? 'team_member' : defaultRole);
       setRole(initialRole);
       setPrimaryDepartment('Website');
+      setSecondaryDepartments([]);
       const today = new Date().toISOString().slice(0, 10);
       setJoiningDate(today);
       setEmploymentType('contract');
@@ -205,6 +208,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
         role: isClientForm ? 'client' : role,
         department: deptValue,
         departments: deptsList,
+        primary_department: isClientForm ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
         joining_date: isClientForm ? null : joiningDate.trim() || null,
         employment_type: isClientForm ? 'contract' : employmentType,
         temporary_password: temporaryPassword,
@@ -458,36 +462,75 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
             </div>
           )}
 
-          {/* Row 5: Departments multi-select (Only for team_member and team_lead) */}
+          {/* Row 5: Department selection (Only for team_member and team_lead) */}
           {!isClientForm && role !== 'operations' && role !== 'hr' && role !== 'admin' && (
-            <div>
-              <label className="block text-ui font-medium text-fg mb-1.5">
-                Primary department <span className="text-danger-fg">*</span>
-              </label>
-              <CustomSelect
-                value={primaryDepartment}
-                onChange={(val) => {
-                  setPrimaryDepartment(val);
-                  if (hasSubmitted && val) {
-                    setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
-                  }
-                }}
-                options={DEPARTMENTS.filter((d) => d !== 'HR').map((dept) => ({
-                  value: dept,
-                  label: dept,
-                }))}
-                placeholder="Select primary department..."
-                aria-invalid={!!fieldErrors.departments}
-              />
-              <p className="text-caption text-fg-muted mt-1.5">
-                Extra content calendar stages are set in Settings &gt; Access
-              </p>
-              {fieldErrors.departments && (
-                <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{fieldErrors.departments}</span>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Primary department <span className="text-danger-fg">*</span>
+                </label>
+                <CustomSelect
+                  value={primaryDepartment}
+                  onChange={(val) => {
+                    setPrimaryDepartment(val);
+                    setSecondaryDepartments((prev) => prev.filter((d) => d !== val));
+                    if (hasSubmitted && val) {
+                      setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
+                    }
+                  }}
+                  options={DEPARTMENTS.filter((d) => d !== 'HR').map((dept) => ({
+                    value: dept,
+                    label: dept,
+                  }))}
+                  placeholder="Select primary department..."
+                  aria-invalid={!!fieldErrors.departments}
+                />
+                <p className="text-caption text-fg-muted mt-1.5">
+                  Primary department determines default pipeline stage and department scoping.
+                </p>
+                {fieldErrors.departments && (
+                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                    <span>{fieldErrors.departments}</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Secondary departments <span className="text-caption text-fg-muted font-normal">(Optional)</span>
+                </label>
+                <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-border bg-subtle/40">
+                  {DEPARTMENTS.filter((d) => d !== 'HR' && d !== primaryDepartment).map((dept) => {
+                    const isSelected = secondaryDepartments.includes(dept);
+                    return (
+                      <button
+                        key={dept}
+                        type="button"
+                        onClick={() => {
+                          setSecondaryDepartments((prev) =>
+                            prev.includes(dept)
+                              ? prev.filter((d) => d !== dept)
+                              : [...prev, dept]
+                          );
+                        }}
+                        className={cn(
+                          'px-2.5 py-1 text-xs font-medium rounded-md border transition-all cursor-pointer flex items-center gap-1.5',
+                          isSelected
+                            ? 'bg-accent text-accent-fg border-accent shadow-xs'
+                            : 'bg-surface text-fg-muted border-border hover:bg-hover hover:text-fg'
+                        )}
+                      >
+                        {isSelected && <Check className="w-3 h-3 shrink-0" />}
+                        <span>{dept}</span>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+                <p className="text-caption text-fg-muted mt-1.5">
+                  Additional departments this member contributes to. Extra content stages can also be granted in Settings &gt; Access.
+                </p>
+              </div>
             </div>
           )}
 

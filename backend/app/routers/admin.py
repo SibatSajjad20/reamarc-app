@@ -101,6 +101,7 @@ def _format_member_resp(doc: dict) -> dict:
         "phone": member_phone_from_doc(doc),
         "department": dept,
         "departments": depts,
+        "primary_department": doc.get("primary_department") or (depts[0] if depts else None),
         "joining_date": doc.get("joining_date"),
         "employment_type": employment_type,
         "probation_start_date": doc.get("probation_start_date"),
@@ -557,7 +558,11 @@ async def create_member(
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
         "departments": depts_list,
-        "primary_department": (depts_list[0] if depts_list else dept_val),
+        "primary_department": (
+            member_in.primary_department.strip()
+            if member_in.primary_department
+            else (depts_list[0] if depts_list else dept_val)
+        ),
         "joining_date": member_in.joining_date.strip() if member_in.joining_date else None,
         "employment_type": member_in.employment_type.value,
         "probation_start_date": member_in.probation_start_date,
@@ -658,12 +663,14 @@ async def update_member(
         UserRole.ADMIN.value, UserRole.OPERATIONS.value, UserRole.HR.value, UserRole.CLIENT.value
     )
     if not is_special_role:
+        if member_in.primary_department is not None:
+            update_fields["primary_department"] = member_in.primary_department.strip() or None
         if member_in.departments is not None:
             cleaned_depts = [d.strip() for d in member_in.departments if d and d.strip()]
             update_fields["departments"] = cleaned_depts
             if member_in.department is None:
                 update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
-            if cleaned_depts:
+            if cleaned_depts and not member_in.primary_department:
                 update_fields["primary_department"] = cleaned_depts[0]
         if member_in.department is not None:
             cleaned_str = member_in.department.strip()
@@ -674,7 +681,7 @@ async def update_member(
                 (p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()),
                 cleaned_str or None,
             )
-            if first:
+            if first and not member_in.primary_department:
                 update_fields["primary_department"] = first
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active

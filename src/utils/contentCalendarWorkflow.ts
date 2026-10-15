@@ -164,6 +164,15 @@ export function getActorDepartments(user?: CalendarActor | null): string[] {
       .filter(Boolean);
     rawList.push(...split);
   }
+  const contentStages = user.permissions?.content_stages || (user as any).content_stages;
+  if (Array.isArray(contentStages)) {
+    for (const st of contentStages) {
+      const s = String(st).toLowerCase().replace(/[_-]+/g, ' ').trim();
+      if (s === 'content') rawList.push('content');
+      if (s === 'creative') rawList.push('creative');
+      if (s === 'social media' || s === 'social') rawList.push('social media');
+    }
+  }
   const normalized = new Set<string>();
   for (const item of rawList) {
     const cleaned = item.toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -196,7 +205,11 @@ export function isContentLead(user?: CalendarActor | null): boolean {
   if (!user || user.is_active === false) return false;
   if (roleOf(user) === 'admin') return true;
   if (roleOf(user) !== 'team_lead') return false;
-  if (user.permissions?.modules?.content_calendar) {
+  const contentStages = user.permissions?.content_stages || (user as any).content_stages;
+  if (Array.isArray(contentStages) && contentStages.some((s) => String(s).toLowerCase().includes('content'))) {
+    return true;
+  }
+  if (user.permissions?.modules?.content_calendar && typeof user.permissions.modules.content_calendar === 'object') {
     const lvl = user.permissions.modules.content_calendar['Content'] || user.permissions.modules.content_calendar['content'];
     if (lvl) return lvl === 'manage';
   }
@@ -212,7 +225,11 @@ export function isCreativeLead(user?: CalendarActor | null): boolean {
   if (!user || user.is_active === false) return false;
   if (roleOf(user) === 'admin') return true;
   if (roleOf(user) !== 'team_lead') return false;
-  if (user.permissions?.modules?.content_calendar) {
+  const contentStages = user.permissions?.content_stages || (user as any).content_stages;
+  if (Array.isArray(contentStages) && contentStages.some((s) => String(s).toLowerCase().includes('creative'))) {
+    return true;
+  }
+  if (user.permissions?.modules?.content_calendar && typeof user.permissions.modules.content_calendar === 'object') {
     const lvl = user.permissions.modules.content_calendar['Creative'] || user.permissions.modules.content_calendar['creative'];
     if (lvl) return lvl === 'manage';
   }
@@ -266,7 +283,23 @@ export function visiblePipelineStages(user?: CalendarActor | null): PipelineStag
     return [...PIPELINE_STAGES];
   }
 
-  if (user.permissions?.modules?.content_calendar) {
+  // 1. Check permissions.content_stages or user.content_stages from Access settings
+  const rawContentStages = user.permissions?.content_stages || (user as any).content_stages;
+  if (Array.isArray(rawContentStages) && rawContentStages.length > 0) {
+    const stages: PipelineStage[] = [];
+    for (const item of rawContentStages) {
+      const s = String(item).toLowerCase().replace(/[_-]+/g, ' ').trim();
+      if (s === 'content') stages.push(...CONTENT_STAGES);
+      else if (s === 'creative') stages.push(...CREATIVE_STAGES);
+      else if (s === 'social media' || s === 'social') stages.push(...SOCIAL_STAGES);
+    }
+    if (stages.length > 0) {
+      return PIPELINE_STAGES.filter((s) => stages.includes(s));
+    }
+  }
+
+  // 2. Legacy permissions check
+  if (user.permissions?.modules?.content_calendar && typeof user.permissions.modules.content_calendar === 'object') {
     const mod = user.permissions.modules.content_calendar;
     const stages: PipelineStage[] = [];
     const LEVEL_RANKS: Record<string, number> = { none: 0, view: 1, own_stages: 2, manage: 3 };
@@ -283,6 +316,7 @@ export function visiblePipelineStages(user?: CalendarActor | null): PipelineStag
     }
   }
 
+  // 3. Fallback to actor departments
   const depts = getActorDepartments(user);
   const stages: PipelineStage[] = [];
   if (depts.includes('content')) stages.push(...CONTENT_STAGES);

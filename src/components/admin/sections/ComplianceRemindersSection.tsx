@@ -356,7 +356,7 @@ export const ComplianceRemindersSection: React.FC<ComplianceRemindersSectionProp
   const fallbackSummary = `${submittedCount} of ${expectedCount} ${pluralize(expectedCount, 'person', 'people')} logged.`;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-y-auto bg-canvas p-6 space-y-6">
+    <div className="w-full min-w-0 p-6 space-y-6 pb-24">
       <PageHeader
         title="Log compliance"
         description="Track daily log submissions, missing logs, and send compliance reminders."

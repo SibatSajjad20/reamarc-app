@@ -31,6 +31,7 @@ export interface AuthUser {
   crm_paused?: boolean;
   workspace_ids?: string[];
   avatar_url?: string | null;
+  content_stages?: string[];
 }
 
 export interface LoginPayload {

@@ -306,6 +306,35 @@ class TestAuthMeContext(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(mapping["tracked"]["daily_log"])
         self.assertEqual(mapping["access_version"], 2)
 
+    def test_creative_user_with_granted_content_and_social_stages(self):
+        """Verify test account with creative dept + granted content and social stages."""
+        user = {
+            "id": "u_creative_multi",
+            "name": "Creative Test Account",
+            "role": "team_member",
+            "primary_department": "Creative",
+            "departments": ["Creative"],
+            "content_stages": ["content", "social_media"],
+        }
+        eff = effective_access(user)
+        self.assertIn("creative", eff["content_stages"])
+        self.assertIn("content", eff["content_stages"])
+        self.assertIn("social_media", eff["content_stages"])
+
+        # Check workflow visible_stages
+        stages = visible_stages(user)
+        self.assertIn("Content", stages)
+        self.assertIn("Content Internal Review", stages)
+        self.assertIn("Creative Production", stages)
+        self.assertIn("Creative Internal Review", stages)
+        self.assertIn("Ready to Post", stages)
+        self.assertIn("Posted", stages)
+
+        # Check actor capabilities
+        self.assertTrue(is_content_actor(user))
+        self.assertTrue(is_creative_actor(user))
+        self.assertTrue(is_social_actor(user))
+
 
 if __name__ == "__main__":
     unittest.main()

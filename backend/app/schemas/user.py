@@ -50,6 +50,7 @@ class MemberCreate(BaseModel):
     phone: str = Field(..., min_length=5, description="Member's contact phone number")
     department: Optional[str] = None
     departments: Optional[List[str]] = Field(default=None, description="All departments assigned to the member")
+    primary_department: Optional[str] = Field(default=None, description="Primary department for permissions and scoping")
     joining_date: Optional[str] = Field(None, description="First day attendance tracking starts (YYYY-MM-DD)")
     employment_type: EmploymentType = EmploymentType.CONTRACT
     probation_start_date: Optional[str] = Field(
@@ -126,6 +127,7 @@ class MemberUpdate(BaseModel):
     role: Optional[UserRole] = None
     department: Optional[str] = None
     departments: Optional[List[str]] = None
+    primary_department: Optional[str] = None
     joining_date: Optional[str] = None
     employment_type: Optional[EmploymentType] = None
     probation_start_date: Optional[str] = None
@@ -193,6 +195,7 @@ class MemberResponse(BaseModel):
     phone: Optional[str] = None
     department: Optional[str] = None
     departments: List[str] = Field(default_factory=list)
+    primary_department: Optional[str] = None
     joining_date: Optional[str] = None
     employment_type: EmploymentType = EmploymentType.CONTRACT
     probation_start_date: Optional[str] = None

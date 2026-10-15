@@ -382,7 +382,7 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             primary_stage = get_primary_stage(primary_dept)
             if primary_stage:
                 content_stages.append(primary_stage)
-            stored_stages = user.get("content_stages") or []
+            stored_stages = user.get("content_stages") or (user.get("access") or {}).get("content_stages") or []
             if isinstance(stored_stages, list):
                 for st in stored_stages:
                     norm_st = normalize_stage(st)

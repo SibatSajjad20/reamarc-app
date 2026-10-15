@@ -253,7 +253,7 @@ def is_social_actor(user: Optional[Dict[str, Any]]) -> bool:
         return False
     if is_admin(user) or is_operations(user):
         return True
-    return _team(user) and "social_media" in eff["content_stages"]
+    return _team(user) and ("social_media" in eff["content_stages"] or "social" in eff["content_stages"])
 
 
 def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
@@ -266,13 +266,13 @@ def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
     eff = effective_access(user)
     if not eff["modules"]["content_calendar"]:
         return []
-    c_stages = eff["content_stages"]
+    c_stages = [str(s).lower().replace(" ", "_") for s in eff["content_stages"]]
     stages: List[str] = []
     if "content" in c_stages:
         stages.extend(CONTENT_STAGES)
     if "creative" in c_stages:
         stages.extend(CREATIVE_STAGES)
-    if "social_media" in c_stages:
+    if "social_media" in c_stages or "social" in c_stages:
         stages.extend(SOCIAL_STAGES)
     res = [s for s in PIPELINE_STAGES if s in stages]
     return res if res else []

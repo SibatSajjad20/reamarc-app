@@ -32,6 +32,7 @@ class UserResponse(BaseModel):
     crm_paused: Optional[bool] = None
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
+    content_stages: Optional[List[str]] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

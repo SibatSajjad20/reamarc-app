@@ -105,6 +105,7 @@ def _build_user_response(user_doc: dict) -> dict:
     if "role" in safe:
         safe["role"] = role_str
     ctx = load_ctx(safe)
+    eff_map = effective_map(ctx)
     return {
         "id": user_doc.get("id") or str(user_doc.get("_id")),
         "email": user_doc["email"],
@@ -113,7 +114,8 @@ def _build_user_response(user_doc: dict) -> dict:
         "department": user_doc.get("department"),
         "departments": parse_user_departments(user_doc),
         "primary_department": get_user_primary_department(user_doc),
-        "permissions": effective_map(ctx),
+        "permissions": eff_map,
+        "content_stages": eff_map.get("content_stages") or [],
         "designation": user_doc.get("designation"),
         "joining_date": user_doc.get("joining_date"),
         "employment_type": user_doc.get("employment_type") or "contract",
@@ -284,6 +286,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     resp["departments"] = ctx.departments
     resp["primary_department"] = ctx.primary_department
     resp["permissions"] = effective_map(ctx)
+    resp["content_stages"] = resp["permissions"].get("content_stages") or []
     return resp
 
 
