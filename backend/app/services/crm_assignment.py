@@ -294,14 +294,23 @@ def _email_html(body: str, crm_url: str) -> str:
     return f'<p>{safe_body}</p><p><a href="{safe_url}">Open CRM</a></p>'
 
 
-async def notify_users(user_ids: List[str], title: str, body: str, data: Optional[Dict[str, Any]] = None) -> None:
+async def notify_users(
+    user_ids: List[str],
+    title: str,
+    body: str,
+    data: Optional[Dict[str, Any]] = None,
+    kind: str = "crm_lead",
+) -> None:
     ids = [u for u in dict.fromkeys(user_ids) if u]
     if not ids:
         return
     try:
-        from app.services.push_service import dispatch_to_users
+        from app.services.push_service import dispatch_to_users, filter_allowed_recipients
 
-        await dispatch_to_users(ids, title, body, kind="crm_lead", data=data)
+        ids = await filter_allowed_recipients(ids, kind)
+        if not ids:
+            return
+        await dispatch_to_users(ids, title, body, kind=kind, data=data)
     except Exception as err:
         logger.warning("CRM push failed: %s", err)
     try:
@@ -649,9 +658,9 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 
 
 async def run_sla_tick() -> Dict[str, int]:
-    """15/60 uncontacted nags + due follow-up reminders.
+    """60-minute uncontacted SLA only. Other sales-pipeline alerts are suppressed.
 
-    Two clocks (MVP): nags stop when WhatsApp was opened OR contacted=true.
+    Clock stops when WhatsApp was opened OR contacted=true.
     Uncontacted badge stays until mark-contacted.
     """
     db = get_database()
@@ -678,13 +687,18 @@ async def run_sla_tick() -> Dict[str, int]:
         age = (now - start).total_seconds()
         lid = lead.get("id")
         name = lead.get("name") or "A lead"
-        if age >= 15 * 60 and not lead.get("sla_15_sent_at"):
-            targets = [lead["assigned_to"]] if lead.get("assigned_to") else await manager_user_ids()
-            await notify_users(targets, "CRM SLA 15m", f"{name} is still uncontacted.", data={"type": "crm_lead", "lead_id": lid})
-            await db.crm_leads.update_one({"id": lid}, {"$set": {"sla_15_sent_at": _now()}})
-            n15 += 1
         if age >= 60 * 60 and not lead.get("sla_60_sent_at"):
-            await notify_users(await manager_user_ids(), "CRM SLA 60m", f"{name} has been uncontacted for an hour.", data={"type": "crm_lead", "lead_id": lid})
+            targets = list(await manager_user_ids())
+            assignee = lead.get("assigned_to")
+            if assignee and assignee not in targets:
+                targets.append(assignee)
+            await notify_users(
+                targets,
+                "CRM SLA 60m",
+                f"{name} has been uncontacted for an hour.",
+                data={"type": "crm_lead", "lead_id": lid},
+                kind="crm_sla",
+            )
             await db.crm_leads.update_one({"id": lid}, {"$set": {"sla_60_sent_at": _now()}})
             n60 += 1
 

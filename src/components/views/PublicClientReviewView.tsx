@@ -26,6 +26,58 @@ interface Props {
   theme?: 'dark' | 'light';
 }
 
+function isVisualAsset(asset: { kind?: string; content_type?: string; url?: string } | null | undefined) {
+  if (!asset?.url) return false;
+  const kind = String(asset.kind || '').toLowerCase();
+  const type = String(asset.content_type || '').toLowerCase();
+  return kind === 'image' || kind === 'video' || type.startsWith('image/') || type.startsWith('video/');
+}
+
+function waitForMedia(
+  asset: { kind?: string; content_type?: string; url?: string },
+  signal?: AbortSignal,
+  timeoutMs = 45000,
+): Promise<void> {
+  return new Promise((resolve) => {
+    const url = String(asset.url || '').trim();
+    if (!url || signal?.aborted) {
+      resolve();
+      return;
+    }
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+
+    const timer = window.setTimeout(finish, timeoutMs);
+    signal?.addEventListener('abort', finish, { once: true });
+
+    const isVideo =
+      String(asset.kind || '').toLowerCase() === 'video' ||
+      String(asset.content_type || '').toLowerCase().startsWith('video/');
+
+    if (isVideo) {
+      const video = document.createElement('video');
+      video.preload = 'auto';
+      video.oncanplaythrough = finish;
+      video.onerror = finish;
+      video.src = url;
+      video.load();
+      return;
+    }
+
+    const img = new Image();
+    img.onload = finish;
+    img.onerror = finish;
+    img.src = url;
+  });
+}
+
 function parseHookLines(text?: string | null): string[] {
   if (!text) return [];
   return text
@@ -44,7 +96,10 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const [token, setToken] = useState<string>('');
   const [item, setItem] = useState<ContentCalendarItem | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadingMessage, setLoadingMessage] = useState('Loading campaign review...');
   const [error, setError] = useState<string | null>(null);
+  const [isMediaReady, setIsMediaReady] = useState(false);
+  const readyMediaUrlRef = useRef<string | null>(null);
 
   // Review action state
   const [reviewerName, setReviewerName] = useState('');
@@ -89,23 +144,41 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       return;
     }
 
+    const abort = new AbortController();
     const fetchReviewData = async () => {
       try {
-        const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(resolved)}`);
+        const res = await fetch(`/api/v1/content-calendar/public/review/${encodeURIComponent(resolved)}`, {
+          signal: abort.signal,
+        });
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.detail || 'Campaign not found or link has expired.');
         }
         const data = await res.json();
         setItem(data);
+
+        const contentStages = ['Content', 'Content Internal Review', 'Content Client Review', 'Content Revision'];
+        const firstVisual = (data.attachments || []).find((asset: { kind?: string; content_type?: string; url?: string }) =>
+          isVisualAsset(asset),
+        );
+        if (firstVisual && !contentStages.includes(String(data.stage || ''))) {
+          setLoadingMessage('Loading creative…');
+          await waitForMedia(firstVisual, abort.signal);
+          if (!abort.signal.aborted) {
+            readyMediaUrlRef.current = String(firstVisual.url || '');
+            setIsMediaReady(true);
+          }
+        }
       } catch (err: any) {
+        if (err?.name === 'AbortError') return;
         setError(err.message || 'Failed to load campaign review.');
       } finally {
-        setIsLoading(false);
+        if (!abort.signal.aborted) setIsLoading(false);
       }
     };
 
     void fetchReviewData();
+    return () => abort.abort();
   }, []);
 
   useEffect(() => {
@@ -209,11 +282,27 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     item && ['Creative Production', 'Creative Internal Review', 'Ready to Post', 'Posted'].includes(item.stage),
   );
 
+  const activePreviewAsset = item?.attachments?.[activeAssetIndex];
+  const activeIsVisual = isVisualAsset(activePreviewAsset);
+
+  useEffect(() => {
+    const url = String(activePreviewAsset?.url || '');
+    if (!activeIsVisual) {
+      setIsMediaReady(true);
+      return;
+    }
+    if (readyMediaUrlRef.current === url) {
+      setIsMediaReady(true);
+      return;
+    }
+    setIsMediaReady(false);
+  }, [activePreviewAsset?.url, activePreviewAsset?.id, activeIsVisual]);
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-fg-muted">
         <div className="w-8 h-8 border-2 border-accent border-t-transparent rounded-full animate-spin mb-3" />
-        <p className="text-xs font-medium text-fg-muted">Loading campaign review...</p>
+        <p className="text-xs font-medium text-fg-muted">{loadingMessage}</p>
       </div>
     );
   }
@@ -329,21 +418,49 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
                 {/* Main Media Preview Frame */}
                 {activeAsset && (activeAsset.kind === 'video' || activeAsset.kind === 'image') ? (
-                  <div className="relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center">
+                  <div
+                    className={cn(
+                      'relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center',
+                      !isMediaReady && 'min-h-[min(70vh,28rem)]',
+                    )}
+                  >
+                    {!isMediaReady && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
+                        <div className="w-8 h-8 border-2 border-white/80 border-t-transparent rounded-full animate-spin" />
+                        <p className="text-xs font-medium text-white/80">Loading creative…</p>
+                      </div>
+                    )}
                     {activeAsset.kind === 'video' ? (
                       <video
                         key={activeAsset.url}
                         src={activeAsset.url}
-                        controls
+                        controls={isMediaReady}
                         playsInline
-                        className="w-full h-auto max-h-[70vh] object-contain"
+                        preload="auto"
+                        onCanPlayThrough={() => {
+                          readyMediaUrlRef.current = activeAsset.url;
+                          setIsMediaReady(true);
+                        }}
+                        onError={() => setIsMediaReady(true)}
+                        className={cn(
+                          'w-full h-auto max-h-[70vh] object-contain',
+                          !isMediaReady && 'opacity-0',
+                        )}
                       />
                     ) : (
                       <img
                         key={activeAsset.url}
                         src={activeAsset.url}
                         alt={activeAsset.filename || 'Creative asset'}
-                        className="w-full h-auto max-h-[70vh] object-contain"
+                        onLoad={() => {
+                          readyMediaUrlRef.current = activeAsset.url;
+                          setIsMediaReady(true);
+                        }}
+                        onError={() => setIsMediaReady(true)}
+                        className={cn(
+                          'w-full h-auto max-h-[70vh] object-contain',
+                          !isMediaReady && 'opacity-0',
+                        )}
                       />
                     )}
                   </div>

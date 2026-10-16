@@ -18,30 +18,48 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+STAFF_ATT_KINDS = frozenset({
+    "attendance_check_in", "attendance_check_out", "employee_late",
+})
+ADMIN_NOTIFICATION_KINDS = frozenset({
+    "attendance_check_in", "attendance_check_out", "crm_sla",
+})
+CRM_KINDS = frozenset({
+    "crm_lead", "crm_deal", "crm_sla", "crm_followup", "crm_meeting",
+})
+
+
+def _is_crm_kind(kind: str) -> bool:
+    k = (kind or "").strip().lower()
+    return k in CRM_KINDS or k.startswith("crm")
+
+
+def _is_blocked_crm_kind(kind: str) -> bool:
+    """Sales pipeline alerts other than the 60-minute uncontacted SLA are suppressed."""
+    k = (kind or "").strip().lower()
+    return _is_crm_kind(k) and k != "crm_sla"
+
+
 async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]:
     """Filters recipient user IDs based on effective access and tracking switches for notification kind."""
     if not user_ids:
         return []
+    k = (kind or "").strip().lower()
+    if _is_blocked_crm_kind(k):
+        return []
+
     db = get_database()
     if db is None:
         return user_ids
 
     from app.services.access import is_tracked, effective_access
 
-    k = (kind or "").strip().lower()
-
-    staff_att_kinds = {
-        "attendance_check_in", "attendance_check_out", "employee_late",
-    }
     employee_att_kinds = {
         "late_checkin", "pre_shift", "checkout", "missed_yesterday",
         "missed_punch_inquiry", "missed_punch_resolved", "attendance_reminder",
     }
     log_kinds = {
         "daily_log", "daily_log_reminder", "log_reminder", "log_exception_followup",
-    }
-    crm_kinds = {
-        "crm_lead", "crm_deal", "crm_sla", "crm_followup", "crm_meeting",
     }
     content_kinds = {
         "content_calendar",
@@ -50,7 +68,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
         "website_task_due", "website_task_overdue", "website_review_requested",
         "website_stage_completed", "website_task_assigned", "website_client_feedback",
         "website_task_comment", "website_client_approval", "website_file_uploaded",
-        "revision",
+        "website_project", "revision",
     }
     ads_kinds = {
         "marketing", "ads",
@@ -62,21 +80,20 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
         req_tracking = "attendance"
     elif k in log_kinds:
         req_tracking = "daily_log"
-    elif k in crm_kinds:
+    elif _is_crm_kind(k):
         req_module = "sales"
-    elif k in content_kinds:
+    elif k in content_kinds or k.startswith("content_calendar"):
         req_module = "content_calendar"
-    elif k in website_kinds:
+    elif k in website_kinds or k.startswith("website_"):
         req_module = "website"
     elif k in ads_kinds:
         req_module = "ads"
 
-    if not req_module and not req_tracking and k not in staff_att_kinds:
-        return user_ids
-
     users_cursor = db.users.find({"id": {"$in": user_ids}}, {"_id": 0, "hashed_password": 0})
     users_list = await users_cursor.to_list(len(user_ids))
     user_map = {u.get("id"): u for u in users_list if u.get("id")}
+
+    classified = bool(req_module or req_tracking or k in STAFF_ATT_KINDS)
 
     allowed = []
     for uid in user_ids:
@@ -85,9 +102,13 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
             continue
         role = str(u.get("role") or "").lower()
         if role in ("admin", "super_admin"):
+            if k in ADMIN_NOTIFICATION_KINDS:
+                allowed.append(uid)
+            continue
+        if not classified:
             allowed.append(uid)
             continue
-        if k in staff_att_kinds:
+        if k in STAFF_ATT_KINDS:
             if role in ("hr", "operations", "team_lead", "lead"):
                 allowed.append(uid)
                 continue
@@ -193,9 +214,26 @@ async def list_notifications(user_id: str, limit: int = 50) -> list:
     docs = (
         await db.mobile_notifications.find({"user_id": user_id}, {"_id": 0})
         .sort("created_at", -1)
-        .to_list(limit)
+        .to_list(max(limit * 4, 50))
     )
-    return docs
+    allowed_kinds = set()
+    denied_kinds = set()
+    visible = []
+    for doc in docs:
+        kind = str(doc.get("kind") or "")
+        if kind in denied_kinds:
+            continue
+        if kind not in allowed_kinds:
+            permitted = await filter_allowed_recipients([user_id], kind)
+            if user_id in permitted:
+                allowed_kinds.add(kind)
+            else:
+                denied_kinds.add(kind)
+                continue
+        visible.append(doc)
+        if len(visible) >= limit:
+            break
+    return visible
 
 
 async def send_expo_push(tokens: Iterable[str], title: str, body: str, data: Optional[dict] = None) -> int:

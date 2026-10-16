@@ -192,6 +192,35 @@ class TestUniversalSchedulersAndNotifications(unittest.IsolatedAsyncioTestCase):
             allowed = await filter_allowed_recipients(["u1", "u2"], "log_reminder")
             self.assertEqual(allowed, ["u1"])
 
+    async def test_admin_receives_punch_and_sla_but_not_pipeline_alerts(self):
+        users = [
+            {"id": "admin", "role": "admin", "primary_department": "All", "is_active": True},
+            {"id": "sales", "role": "team_member", "primary_department": "sales", "is_active": True},
+            {"id": "content", "role": "team_member", "primary_department": "content", "is_active": True},
+        ]
+
+        with patch("app.services.push_service.get_database") as mock_db:
+            db = MagicMock()
+            cursor = MagicMock()
+            cursor.to_list = AsyncMock(return_value=users)
+            db.users.find = MagicMock(return_value=cursor)
+            mock_db.return_value = db
+
+            ids = ["admin", "sales", "content"]
+            punch = await filter_allowed_recipients(ids, "attendance_check_in")
+            self.assertIn("admin", punch)
+
+            sla = await filter_allowed_recipients(ids, "crm_sla")
+            self.assertIn("admin", sla)
+            self.assertIn("sales", sla)
+            self.assertNotIn("content", sla)
+
+            calendar = await filter_allowed_recipients(ids, "content_calendar")
+            self.assertNotIn("admin", calendar)
+            self.assertIn("content", calendar)
+
+            self.assertEqual(await filter_allowed_recipients(ids, "crm_lead"), [])
+
     async def test_email_service_send_log_reminder_guard(self):
         from app.services.email_service import EmailService
 
