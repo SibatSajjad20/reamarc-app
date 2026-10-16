@@ -41,6 +41,9 @@ class Settings(BaseSettings):
     IS_PRODUCTION: bool = False
     # Dedicated Fernet key for ad credentials. Independent of JWT SECRET_KEY.
     ENCRYPTION_KEY: str = ""
+    # Multi-tenant Companies feature flags and secrets
+    MULTI_TENANT_ENABLED: bool = False
+    TENANT_SECRETS_KEYS: str = ""
 
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
