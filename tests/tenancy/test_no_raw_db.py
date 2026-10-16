@@ -39,6 +39,8 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "crm_ingest.py",
     "crm_meta_accounts.py",
     "crm_public.py",
+    "job_locks.py",
+    "integrations.py",
 }
 
 ALLOW_LIST_RAW_DB = {

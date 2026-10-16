@@ -396,6 +396,8 @@ def clean_tenancy_sync(uri: str, db_name: str) -> None:
     for coll_name, docs in data.items():
         ids = [doc["_id"] for doc in docs]
         db[coll_name].delete_many({"_id": {"$in": ids}})
+    db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    db.job_locks.delete_many({})
     client.close()
 
 
@@ -404,3 +406,5 @@ async def clean_tenancy_async(db: Any) -> None:
     for coll_name, docs in data.items():
         ids = [doc["_id"] for doc in docs]
         await db[coll_name].delete_many({"_id": {"$in": ids}})
+    await db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    await db.job_locks.delete_many({})

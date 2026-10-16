@@ -3,7 +3,7 @@ import smtplib
 import logging
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
 import httpx
 from app.config import settings
@@ -16,11 +16,15 @@ def _build_reminder_html(
     missing_dates: List[str],
     custom_message: Optional[str] = None,
     action_url: Optional[str] = None,
+    company_name: Optional[str] = None,
+    accent_color: Optional[str] = None,
 ) -> str:
     app_url = action_url or f"{settings.APP_FRONTEND_URL}/daily-log"
     missing_dates_formatted = ", ".join(missing_dates) if missing_dates else "today"
+    brand_name = company_name or settings.SMTP_FROM_NAME
+    color = accent_color or "#4f46e5"
     custom_note_block = (
-        f"""<div style="background-color: #f4f4f5; border-left: 4px solid #6366f1; padding: 12px 16px; margin: 16px 0; border-radius: 6px; font-size: 13px; color: #3f3f46;">
+        f"""<div style="background-color: #f4f4f5; border-left: 4px solid {color}; padding: 12px 16px; margin: 16px 0; border-radius: 6px; font-size: 13px; color: #3f3f46;">
             <strong>Admin Note:</strong> {custom_message}
         </div>"""
         if custom_message
@@ -38,9 +42,9 @@ def _build_reminder_html(
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);">
     
     <!-- Header -->
-    <div style="background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%); padding: 28px 24px; text-align: left;">
+    <div style="background: linear-gradient(135deg, {color} 0%, {color} 100%); padding: 28px 24px; text-align: left;">
       <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 800; letter-spacing: -0.025em;">
-        {settings.SMTP_FROM_NAME}
+        {brand_name}
       </h1>
       <p style="color: #e0e7ff; margin: 6px 0 0 0; font-size: 13px;">
         Daily Work Log Reminder
@@ -73,7 +77,7 @@ def _build_reminder_html(
 
       <!-- CTA Button -->
       <div style="text-align: center; margin: 28px 0;">
-        <a href="{app_url}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; font-size: 14px; font-weight: 700; text-decoration: none; padding: 12px 28px; border-radius: 10px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);">
+        <a href="{app_url}" style="display: inline-block; background-color: {color}; color: #ffffff; font-size: 14px; font-weight: 700; text-decoration: none; padding: 12px 28px; border-radius: 10px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.3);">
           Submit Daily Log Now &rarr;
         </a>
       </div>
@@ -86,7 +90,7 @@ def _build_reminder_html(
     <!-- Footer -->
     <div style="background-color: #f4f4f5; padding: 16px 24px; text-align: center; border-top: 1px solid #e4e4e7;">
       <p style="font-size: 11px; color: #71717a; margin: 0;">
-        &copy; {datetime.now().year} {settings.PROJECT_NAME}. All rights reserved.
+        &copy; {datetime.now().year} {brand_name}. All rights reserved.
       </p>
     </div>
 
@@ -286,6 +290,43 @@ def _send_smtp_sync(
         return False
 
 
+def _send_custom_smtp_sync(
+    smtp_cfg: dict,
+    recipient_email: str,
+    subject: str,
+    html_content: str,
+) -> bool:
+    host = smtp_cfg.get("host")
+    port = int(smtp_cfg.get("port") or 587)
+    user = smtp_cfg.get("user")
+    password = smtp_cfg.get("password")
+    from_name = smtp_cfg.get("from_name") or "Notifications"
+    from_email = smtp_cfg.get("from_email") or user
+
+    if not host or not user or not password:
+        logger.info(
+            f"[NOTIFICATION RECORD] Email to: {recipient_email} | Subject: '{subject}' | Content: {html_content[:180]}..."
+        )
+        return True
+
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = subject
+    msg["From"] = f"{from_name} <{from_email}>"
+    msg["To"] = recipient_email
+    msg.attach(MIMEText(html_content, "html"))
+
+    try:
+        with smtplib.SMTP(host, port, timeout=10) as server:
+            server.starttls()
+            server.login(user, password)
+            server.send_message(msg)
+            logger.info(f"Successfully dispatched email via custom SMTP to {recipient_email}")
+            return True
+    except Exception as e:
+        logger.error(f"Failed to send email to {recipient_email} via custom SMTP: {e}")
+        return False
+
+
 class EmailService:
     @staticmethod
     async def send_log_reminder(
@@ -296,6 +337,7 @@ class EmailService:
         action_url: Optional[str] = None,
         to_email: Optional[str] = None,
         user_name: Optional[str] = None,
+        company: Optional[Dict] = None,
         **kwargs,
     ) -> bool:
         """Asynchronously dispatches a branded Daily Log reminder email."""
@@ -317,6 +359,9 @@ class EmailService:
                 logger.info(f"Skipping log reminder for {target_email}: daily_log is off for this account.")
                 return False
 
+        comp_name = company.get("name") if company else None
+        accent = company.get("accent_color") if company else None
+
         dates_str = ", ".join(dates)
         subject = f"Reminder: Please submit your Daily Log ({dates_str})"
         html = _build_reminder_html(
@@ -324,7 +369,27 @@ class EmailService:
             missing_dates=dates,
             custom_message=custom_message,
             action_url=action_url,
+            company_name=comp_name,
+            accent_color=accent,
         )
+
+        from app.core.integrations import get_integration
+        from app.core.tenant import get_tenant_context
+
+        ctx = get_tenant_context()
+        cid = (company.get("id") if company else None) or (ctx.company_id if ctx else None)
+        is_non_reamarc = (
+            getattr(settings, "MULTI_TENANT_ENABLED", False)
+            and cid
+            and cid not in ("company_reamarc", "tnt_comp_a")
+        )
+
+        if is_non_reamarc:
+            integ = await get_integration(company=company, kind="smtp")
+            if not integ or not integ.get("connected"):
+                logger.info(f"[Email] Company {cid} has no SMTP configured. Email delivery skipped: not connected.")
+                return False
+            return await asyncio.to_thread(_send_custom_smtp_sync, integ, target_email, subject, html)
 
         # Cascade through configured HTTP REST providers (Brevo first, then Resend, then SendGrid, then SMTP)
         if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
@@ -418,6 +483,25 @@ class EmailService:
         if not recipient_email:
             return False
         target_name = recipient_name or "there"
+
+        from app.core.integrations import get_integration
+        from app.core.tenant import get_tenant_context
+
+        ctx = get_tenant_context()
+        cid = ctx.company_id if ctx else None
+        is_non_reamarc = (
+            getattr(settings, "MULTI_TENANT_ENABLED", False)
+            and cid
+            and cid not in ("company_reamarc", "tnt_comp_a")
+        )
+
+        if is_non_reamarc:
+            integ = await get_integration(kind="smtp")
+            if not integ or not integ.get("connected"):
+                logger.info(f"[Email] Company {cid} has no SMTP configured. Email delivery skipped: not connected.")
+                return False
+            return await asyncio.to_thread(_send_custom_smtp_sync, integ, recipient_email, subject, html)
+
         if settings.BREVO_API_KEY and settings.BREVO_API_KEY.strip():
             try:
                 if await _send_brevo_http(recipient_email, target_name, subject, html):

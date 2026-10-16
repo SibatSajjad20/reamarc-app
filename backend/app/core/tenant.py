@@ -114,6 +114,7 @@ GLOBAL_COLLECTIONS: Set[str] = frozenset({
     "rate_limit_counters",
     "security_events",
     "password_resets",
+    "job_locks",
 })
 
 TENANT_COLLECTIONS: Set[str] = frozenset({
@@ -506,6 +507,13 @@ async def for_each_active_company(fn: Callable[[Dict[str, Any]], Awaitable[None]
                 await fn(company)
             except Exception as e:
                 logger.exception(f"Error executing company job for company {cid}: {e}")
+
+
+def company_tz(company: Optional[Dict[str, Any]] = None) -> str:
+    """Returns company's configured timezone or falls back to settings.TIMEZONE / 'Asia/Karachi'."""
+    if company and company.get("timezone"):
+        return company["timezone"]
+    return getattr(settings, "TIMEZONE", "Asia/Karachi")
 
 
 def resolve_company_from_host(request: Request) -> Optional[str]:

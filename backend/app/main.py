@@ -97,8 +97,16 @@ async def lifespan(app: FastAPI):
             try:
                 # Sleep 6 hours (21600 seconds) between runs
                 await asyncio.sleep(21600)
+                from app.core.job_locks import job_lease
+                from app.core.tenant import for_each_active_company
                 from app.services.marketing_sync import run_daily_ad_metrics_sync
-                await run_daily_ad_metrics_sync()
+
+                async with job_lease("marketing_metrics_sync", ttl_seconds=1800) as acquired:
+                    if acquired:
+                        if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                            await for_each_active_company(lambda comp: run_daily_ad_metrics_sync())
+                        else:
+                            await run_daily_ad_metrics_sync()
             except asyncio.CancelledError:
                 break
             except Exception as err:
@@ -190,10 +198,8 @@ if not settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
 
 from app.services.permissions import operations_view_only_middleware
-from app.core.tenant import TenantPayloadStrippingMiddleware
 
 app.middleware("http")(operations_view_only_middleware)
-app.add_middleware(TenantPayloadStrippingMiddleware)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:

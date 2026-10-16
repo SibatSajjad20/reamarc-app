@@ -234,10 +234,19 @@ async def run_meeting_reminder_tick() -> int:
 
 async def start_crm_meeting_reminder_scheduler() -> None:
     """Continuous 60-second polling loop for scheduled meeting reminders."""
+    from app.core.job_locks import job_lease
+    from app.core.tenant import for_each_active_company
+    from app.config import settings
+
     logger.info("[CRM] Meeting reminder scheduler started (60s tick).")
     while True:
         try:
-            await run_meeting_reminder_tick()
+            async with job_lease("crm_meeting_reminder_tick", ttl_seconds=60) as acquired:
+                if acquired:
+                    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                        await for_each_active_company(lambda comp: run_meeting_reminder_tick())
+                    else:
+                        await run_meeting_reminder_tick()
         except asyncio.CancelledError:
             logger.info("[CRM] Meeting reminder scheduler stopped.")
             raise
