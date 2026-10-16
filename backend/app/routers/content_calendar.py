@@ -452,8 +452,19 @@ async def get_public_campaign_review(
     token: str,
 ):
     """Unauthenticated public review endpoint for clients using a magic link."""
-    db = get_database()
-    return await content_calendar_service.get_public_review_item(db, token=token)
+    from app.core.tenant import get_global_db, tenant_scope
+    clean_tok = str(token or "").strip()
+    gdb = get_global_db()
+    cid = "company_reamarc"
+    if gdb is not None:
+        doc = await gdb.content_calendar_items.find_one({"share_token": clean_tok}, {"company_id": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Campaign review link not found.")
+        cid = doc.get("company_id") or "company_reamarc"
+
+    with tenant_scope(cid):
+        db = get_database()
+        return await content_calendar_service.get_public_review_item(db, token=token)
 
 
 @router.post("/public/review/{token}/action")
@@ -464,14 +475,25 @@ async def submit_public_campaign_review(
     payload: PublicReviewActionPayload,
 ):
     """Submit approval or revision request from an unauthenticated client review link."""
-    db = get_database()
-    return await content_calendar_service.action_public_review_item(
-        db,
-        token=token,
-        action=payload.action,
-        reviewer_name=payload.reviewer_name,
-        note=payload.note,
-    )
+    from app.core.tenant import get_global_db, tenant_scope
+    clean_tok = str(token or "").strip()
+    gdb = get_global_db()
+    cid = "company_reamarc"
+    if gdb is not None:
+        doc = await gdb.content_calendar_items.find_one({"share_token": clean_tok}, {"company_id": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Campaign review link not found.")
+        cid = doc.get("company_id") or "company_reamarc"
+
+    with tenant_scope(cid):
+        db = get_database()
+        return await content_calendar_service.action_public_review_item(
+            db,
+            token=token,
+            action=payload.action,
+            reviewer_name=payload.reviewer_name,
+            note=payload.note,
+        )
 
 
 @router.get("/public/review/{token}/assets/{asset_id}")
@@ -483,13 +505,24 @@ async def get_public_campaign_asset(
     thumb: bool = Query(False, description="Stream thumbnail if available"),
 ):
     """Streams media assets for unauthenticated clients viewing through a verified magic link."""
-    db = get_database()
-    return await content_calendar_service.stream_public_asset(
-        db,
-        token=token,
-        asset_id=asset_id,
-        thumb=thumb,
-        request=request,
-    )
+    from app.core.tenant import get_global_db, tenant_scope
+    clean_tok = str(token or "").strip()
+    gdb = get_global_db()
+    cid = "company_reamarc"
+    if gdb is not None:
+        doc = await gdb.content_calendar_items.find_one({"share_token": clean_tok}, {"company_id": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Campaign review link not found.")
+        cid = doc.get("company_id") or "company_reamarc"
+
+    with tenant_scope(cid):
+        db = get_database()
+        return await content_calendar_service.stream_public_asset(
+            db,
+            token=token,
+            asset_id=asset_id,
+            thumb=thumb,
+            request=request,
+        )
 
 

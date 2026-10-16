@@ -32,11 +32,12 @@ async def get_page_credentials(page_id: Optional[str] = None) -> Optional[Dict[s
     1. Checks MongoDB `crm_meta_pages` for dynamic multi-page configurations.
     2. Falls back to static environment variables (CRM_META_PAGE_ID, CRM_META_PAGE_ACCESS_TOKEN).
     """
-    db = _db()
+    from app.core.tenant import get_global_db
+    gdb = get_global_db()
     pid = str(page_id).strip() if page_id else ""
 
-    if pid:
-        doc = await db.crm_meta_pages.find_one({"page_id": pid, "is_active": {"$ne": False}}, {"_id": 0})
+    if pid and gdb is not None:
+        doc = await gdb.crm_meta_pages.find_one({"page_id": pid, "is_active": {"$ne": False}}, {"_id": 0})
         if doc:
             token = decrypt_string(doc.get("access_token_encrypted") or "")
             secret = decrypt_string(doc.get("app_secret_encrypted") or "") or settings.CRM_META_APP_SECRET
@@ -47,6 +48,7 @@ async def get_page_credentials(page_id: Optional[str] = None) -> Optional[Dict[s
                 "app_secret": secret,
                 "workspace_id": doc.get("workspace_id"),
                 "default_campaign": doc.get("default_campaign"),
+                "company_id": doc.get("company_id") or "company_reamarc",
                 "is_env": False,
             }
 

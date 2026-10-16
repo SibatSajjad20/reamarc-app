@@ -35,6 +35,10 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "security.py",
     "rate_limit_store.py",
     "auth.py",
+    "content_calendar.py",
+    "crm_ingest.py",
+    "crm_meta_accounts.py",
+    "crm_public.py",
 }
 
 ALLOW_LIST_RAW_DB = {

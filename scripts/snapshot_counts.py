@@ -21,10 +21,13 @@ from bson import json_util
 
 
 def normalize_doc_excluding_company_id(doc: Dict[str, Any]) -> Dict[str, Any]:
-    """Return a deep copy / dict with company_id excluded for invariant checksum comparison."""
+    """Return a deep copy / dict with company_id and newly seeded token_version=0 excluded for invariant checksum comparison."""
     cleaned = {}
     for k, v in doc.items():
         if k == "company_id":
+            continue
+        if k == "token_version" and v == 0:
+            # token_version: 0 is seeded where missing by the migration; ignore default 0 for pre/post parity
             continue
         cleaned[k] = v
     return cleaned
@@ -125,9 +128,21 @@ def compare_snapshots(snap1_path: Path, snap2_path: Path) -> tuple[bool, list[st
     c1 = s1.get("collections", {})
     c2 = s2.get("collections", {})
 
+    ADDITIVE_NEW_COLLECTIONS = {
+        "companies",
+        "company_integrations",
+        "owner_audit",
+        "owner_sessions",
+        "migrations",
+        "rate_limit_counters",
+        "security_events",
+    }
+
     all_colls = sorted(set(c1.keys()) | set(c2.keys()))
     for coll in all_colls:
         if coll not in c1:
+            if coll in ADDITIVE_NEW_COLLECTIONS:
+                continue
             diffs.append(f"Collection '{coll}' present in snapshot 2 but missing in snapshot 1")
             continue
         if coll not in c2:
