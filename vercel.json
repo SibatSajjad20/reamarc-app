@@ -46,38 +46,10 @@
     },
     {
       "source": "/review/:token",
-      "has": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(?i)(facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|telegrambot|discordbot|skypeuripreview|whatsapp|googlebot|bingbot|applebot)"
-        }
-      ],
-      "missing": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(?i)Mozilla"
-        }
-      ],
       "destination": "/api/review-og?token=:token"
     },
     {
       "source": "/client-review/:token",
-      "has": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(?i)(facebookexternalhit|facebot|twitterbot|linkedinbot|slackbot|telegrambot|discordbot|skypeuripreview|whatsapp|googlebot|bingbot|applebot)"
-        }
-      ],
-      "missing": [
-        {
-          "type": "header",
-          "key": "user-agent",
-          "value": "(?i)Mozilla"
-        }
-      ],
       "destination": "/api/review-og?token=:token"
     },
     { "source": "/(.*)", "destination": "/index.html" }
