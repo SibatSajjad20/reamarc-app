@@ -483,7 +483,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
             </button>
 
             {/* Upload Button Group: Primary Google Drive, Secondary Local Device Fallback */}
-            <div className="relative inline-flex items-center rounded-lg shadow-xs">
+            <div className="relative inline-flex h-7 items-stretch overflow-hidden rounded-md shadow-xs">
               <Button
                 type="button"
                 size="sm"
@@ -492,7 +492,7 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 loading={isUploading || isOpeningPicker}
                 loadingText="Uploading…"
                 icon={GoogleDriveIcon}
-                className="rounded-r-none"
+                className="h-7 rounded-none shadow-none"
                 title="Insert files using Google Drive (Recent, Upload, My Drive, Starred)"
               >
                 Upload
@@ -503,8 +503,9 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                   <button
                     type="button"
                     disabled={isUploading || isOpeningPicker}
-                    className="px-1.5 py-1 text-xs font-semibold rounded-r-lg bg-accent text-accent-fg hover:opacity-90 transition border-l border-white/20 cursor-pointer disabled:opacity-50 h-8 flex items-center justify-center"
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center bg-accent text-accent-fg hover:bg-accent-hover transition-colors border-l border-white/20 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
                     title="More upload options"
+                    aria-label="More upload options"
                   >
                     <ChevronDown className="w-3.5 h-3.5" />
                   </button>

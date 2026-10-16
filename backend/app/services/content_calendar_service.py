@@ -355,17 +355,27 @@ async def get_items(
             except Exception:
                 pass
 
-        if db is not None:
-            for doc in raw:
-                cname = doc.get("client_name")
-                if cname:
-                    try:
-                        resolved = await _resolve_workspace_id_for_client(db, cname)
-                        if resolved and doc.get("workspace_id") != resolved:
-                            doc["workspace_id"] = resolved
-                            asyncio.create_task(coll.update_one({"id": doc.get("id") or str(doc.get("_id", ""))}, {"$set": {"workspace_id": resolved}}))
-                    except Exception:
-                        pass
+        if db is not None and raw:
+            workspaces = await _load_active_workspaces(db)
+            if workspaces:
+                backfill_ops = []
+                for doc in raw:
+                    cname = doc.get("client_name")
+                    if not cname:
+                        continue
+                    resolved = _match_workspace_id_for_client(cname, workspaces)
+                    if resolved and doc.get("workspace_id") != resolved:
+                        doc["workspace_id"] = resolved
+                        doc_id = doc.get("id") or str(doc.get("_id", ""))
+                        if doc_id:
+                            backfill_ops.append(
+                                UpdateOne(
+                                    {"id": doc_id},
+                                    {"$set": {"workspace_id": resolved}},
+                                )
+                            )
+                if backfill_ops:
+                    asyncio.create_task(coll.bulk_write(backfill_ops, ordered=False))
         return [_present_doc(doc) for doc in raw]
 
     async def _fetch_counts():
@@ -639,41 +649,55 @@ async def create_item(
 
 
 
-async def _resolve_workspace_id_for_client(db, client_name: Optional[str]) -> Optional[str]:
-    """Finds matching active workspace id for a client name using exact, substring, or keyword matching."""
-    if db is None or not client_name:
+def _match_workspace_id_for_client(
+    client_name: Optional[str],
+    workspaces: List[Dict[str, Any]],
+) -> Optional[str]:
+    """Match a client name to an active workspace id (exact, suffix-stripped, or keywords)."""
+    if not client_name or not workspaces:
         return None
     c_clean = str(client_name).strip().lower()
     if not c_clean:
         return None
-    try:
-        workspaces = await db["workspaces"].find(
-            {"status": {"$ne": "inactive"}},
-            {"id": 1, "name": 1}
-        ).to_list(200)
-        # 1. Exact match
+    for w in workspaces:
+        w_name = str(w.get("name") or "").strip().lower()
+        if w_name == c_clean:
+            return w.get("id")
+    clean_c_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", c_clean).strip()
+    if clean_c_corp:
         for w in workspaces:
             w_name = str(w.get("name") or "").strip().lower()
-            if w_name == c_clean:
-                return w["id"]
-        # 2. Corporate suffix stripped exact match (e.g. "Apex Transfers LLC" vs "Apex Transfers")
-        clean_c_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", c_clean).strip()
-        if clean_c_corp:
-            for w in workspaces:
-                w_name = str(w.get("name") or "").strip().lower()
-                clean_w_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", w_name).strip()
-                if clean_w_corp and clean_w_corp == clean_c_corp:
-                    return w["id"]
-        # 3. Multi-token whole word match (at least 2 distinctive tokens >= 3 chars)
-        words = [w for w in re.split(r"\W+", c_clean) if len(w) > 2]
-        if len(words) >= 2:
-            for w in workspaces:
-                w_name = str(w.get("name") or "").strip().lower()
-                if all(re.search(rf"\b{re.escape(word)}\b", w_name) for word in words):
-                    return w["id"]
-    except Exception as exc:
-        logger.warning("Error resolving workspace for client '%s': %s", client_name, exc)
+            clean_w_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", w_name).strip()
+            if clean_w_corp and clean_w_corp == clean_c_corp:
+                return w.get("id")
+    words = [w for w in re.split(r"\W+", c_clean) if len(w) > 2]
+    if len(words) >= 2:
+        for w in workspaces:
+            w_name = str(w.get("name") or "").strip().lower()
+            if all(re.search(rf"\b{re.escape(word)}\b", w_name) for word in words):
+                return w.get("id")
     return None
+
+
+async def _load_active_workspaces(db) -> List[Dict[str, Any]]:
+    if db is None:
+        return []
+    try:
+        return await db["workspaces"].find(
+            {"status": {"$ne": "inactive"}},
+            {"id": 1, "name": 1, "_id": 0},
+        ).to_list(200)
+    except Exception as exc:
+        logger.warning("Error loading workspaces for client match: %s", exc)
+        return []
+
+
+async def _resolve_workspace_id_for_client(db, client_name: Optional[str]) -> Optional[str]:
+    """Finds matching active workspace id for a client name using exact, substring, or keyword matching."""
+    if db is None or not client_name:
+        return None
+    workspaces = await _load_active_workspaces(db)
+    return _match_workspace_id_for_client(client_name, workspaces)
 
 
 async def update_item(

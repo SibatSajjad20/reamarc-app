@@ -335,7 +335,11 @@ body.public-review-page,
 body.public-review-page #root {
   height: auto !important;
   min-height: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
   background-color: #ffffff !important;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 html.dark.public-review-page,
@@ -344,6 +348,8 @@ body.dark.public-review-page,
 body.dark.public-review-page #root {
   height: auto !important;
   min-height: 100% !important;
+  max-width: 100% !important;
+  overflow-x: hidden !important;
   background-color: #0c0e14 !important;
 }
 

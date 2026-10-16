@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Check,
   Clock,
@@ -56,6 +56,14 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
   // Active asset preview
   const [activeAssetIndex, setActiveAssetIndex] = useState(0);
+  const approvalCardRef = useRef<HTMLDivElement>(null);
+
+  const openRevisionForm = () => {
+    setIsRevisionOpen(true);
+    requestAnimationFrame(() => {
+      approvalCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  };
 
   // Uniform canvas styling
   useEffect(() => {
@@ -99,6 +107,22 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
     void fetchReviewData();
   }, []);
+
+  useEffect(() => {
+    const previous = document.title;
+    if (item?.content_concept && item?.client_name) {
+      document.title = `${item.content_concept} · ${item.client_name}`;
+    } else if (item?.content_concept) {
+      document.title = `${item.content_concept} · Reamarc`;
+    } else if (item?.client_name) {
+      document.title = `${item.client_name} campaign review · Reamarc`;
+    } else {
+      document.title = "Campaign review · Reamarc";
+    }
+    return () => {
+      document.title = previous;
+    };
+  }, [item]);
 
   const handleApprove = async () => {
     if (!token) return;
@@ -203,7 +227,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
     return (
       <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-fg">
-        <div className="max-w-md w-full bg-surface p-8 rounded-xl border border-border shadow-xs text-center space-y-4">
+        <div className="max-w-md w-full bg-surface p-6 sm:p-8 rounded-xl border border-border shadow-xs text-center space-y-4">
           <EmptyState
             icon={isApprovedExpired ? CheckCircle2 : isRevisionExpired ? RotateCcw : AlertCircle}
             title={
@@ -234,91 +258,100 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const hookLines = parseHookLines(item.headlines_hooks);
 
   return (
-    <div className="min-h-screen w-full bg-canvas text-fg font-sans antialiased">
+    <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-canvas text-fg font-sans antialiased">
       {/* Top Navbar 56px per §13.17 */}
-      <header className="sticky top-0 z-40 h-14 bg-surface border-b border-border px-4 sm:px-8 flex items-center justify-between">
-        <div className="flex items-center gap-3 min-w-0">
+      <header className="sticky top-0 z-40 min-h-14 bg-surface border-b border-border px-3 sm:px-8 flex items-center justify-between gap-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
           <BrandMark size={28} />
-          <div className="flex items-center gap-2 truncate">
-            <span className="text-sm font-semibold text-fg tracking-tight">Reamarc</span>
-            <span className="text-fg-faint">•</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+            <span className="text-sm font-semibold text-fg tracking-tight shrink-0">Reamarc</span>
+            <span className="text-fg-faint shrink-0">•</span>
             <span className="text-xs text-fg-muted truncate">
               {item.client_name || 'Client review'}
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 max-w-[48%]">
           <span className="text-xs font-numeric font-medium text-fg-muted hidden sm:inline">
             {item.serial}
           </span>
-          <StatusPill status={item.stage} />
+          <StatusPill status={item.stage} className="max-w-full [&_span:last-child]:truncate" />
         </div>
       </header>
 
       {/* Main Content Area: Centred 960px column per §13.17 */}
-      <main className="max-w-[960px] mx-auto px-4 sm:px-6 py-8 space-y-6 pb-24 md:pb-8">
+      <main
+        className={cn(
+          'max-w-[960px] mx-auto w-full px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6',
+          isPendingReview
+            ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8'
+            : 'pb-[max(1.5rem,env(safe-area-inset-bottom))] md:pb-8',
+        )}
+      >
         {/* Banner: Action Feedback */}
         {actionSuccess && (
-          <div className="p-4 rounded-lg bg-success-bg border border-success-bd text-success-fg flex items-center gap-3">
-            <Check className="w-4 h-4 shrink-0" />
-            <div className="flex-1 text-xs font-medium">{actionSuccess}</div>
+          <div className="p-3 sm:p-4 rounded-lg bg-success-bg border border-success-bd text-success-fg flex items-start sm:items-center gap-3">
+            <Check className="w-4 h-4 shrink-0 mt-0.5 sm:mt-0" />
+            <div className="flex-1 min-w-0 text-xs font-medium leading-relaxed">{actionSuccess}</div>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-6 items-start">
           {/* Left Column: Post Details & Deliverables (7 cols) */}
-          <div className="lg:col-span-7 space-y-6">
+          <div className="lg:col-span-7 space-y-4 sm:space-y-6 min-w-0">
             {/* Visual Deliverables Preview Frame (4:5) */}
             {!isContentStage && assets.length > 0 && (
-              <div className="bg-surface rounded-xl border border-border p-5 space-y-4 shadow-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-fg-muted flex items-center gap-2">
-                    <Layers className="w-3.5 h-3.5 text-accent" />
-                    <span>Creative deliverables ({assets.length})</span>
+              <div className="bg-surface rounded-xl border border-border p-3 sm:p-5 space-y-3 sm:space-y-4 shadow-xs">
+                <div className="flex items-center justify-between gap-2 min-w-0">
+                  <span className="text-xs font-medium text-fg-muted flex items-center gap-2 min-w-0">
+                    <Layers className="w-3.5 h-3.5 text-accent shrink-0" />
+                    <span className="truncate">Creative deliverables ({assets.length})</span>
                   </span>
                   {item.creative_type && (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-subtle text-fg-muted border border-border">
+                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-subtle text-fg-muted border border-border shrink-0">
                       {item.creative_type}
                     </span>
                   )}
                 </div>
 
                 {/* Main Media Preview Frame */}
-                {activeAsset && (
-                  <div className="relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center min-h-[300px] max-h-[500px]">
+                {activeAsset && (activeAsset.kind === 'video' || activeAsset.kind === 'image') ? (
+                  <div className="relative w-full rounded-lg overflow-hidden bg-black flex items-center justify-center">
                     {activeAsset.kind === 'video' ? (
                       <video
                         key={activeAsset.url}
                         src={activeAsset.url}
                         controls
                         playsInline
-                        className="max-h-[480px] w-auto max-w-full rounded-md"
+                        className="w-full h-auto max-h-[70vh] object-contain"
                       />
-                    ) : activeAsset.kind === 'image' ? (
+                    ) : (
                       <img
                         key={activeAsset.url}
                         src={activeAsset.url}
                         alt={activeAsset.filename || 'Creative asset'}
-                        className="max-h-[480px] w-auto max-w-full object-contain"
+                        className="w-full h-auto max-h-[70vh] object-contain"
                       />
-                    ) : (
-                      <div className="p-8 text-center text-fg-muted space-y-3">
-                        <FileText className="w-10 h-10 mx-auto text-fg-muted" />
-                        <p className="text-xs font-medium text-fg">{activeAsset.filename}</p>
-                        <a
-                          href={activeAsset.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover transition-colors"
-                        >
-                          <span>Open file</span>
-                          <ExternalLink className="w-3.5 h-3.5" />
-                        </a>
-                      </div>
                     )}
                   </div>
-                )}
+                ) : activeAsset ? (
+                  <div className="rounded-lg border border-border bg-subtle p-5 sm:p-6 text-center text-fg-muted space-y-3">
+                    <FileText className="w-8 h-8 mx-auto text-fg-muted" />
+                    <p className="text-xs font-medium text-fg break-all px-1">
+                      {activeAsset.filename || 'Attached file'}
+                    </p>
+                    <a
+                      href={activeAsset.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover transition-colors"
+                    >
+                      <span>Open file</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
+                  </div>
+                ) : null}
 
                 {/* Thumbnail Strip */}
                 {assets.length > 1 && (
@@ -361,12 +394,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             )}
 
             {/* Ad Copy & Strategy Card */}
-            <div className="bg-surface rounded-xl border border-border p-6 sm:p-7 space-y-5 shadow-xs">
-              <div className="space-y-1">
+            <div className="bg-surface rounded-xl border border-border p-4 sm:p-7 space-y-4 sm:space-y-5 shadow-xs">
+              <div className="space-y-1 min-w-0">
                 <span className="text-xs font-numeric font-medium text-fg-muted">
                   {item.serial}
                 </span>
-                <h2 className="text-base font-semibold text-fg">
+                <h2 className="text-base font-semibold text-fg break-words">
                   {item.content_concept}
                 </h2>
               </div>
@@ -376,7 +409,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                 <span className="text-xs font-medium text-fg-muted block">
                   Ad copy / Caption
                 </span>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap font-sans text-fg py-1">
+                <p className="text-sm leading-relaxed whitespace-pre-wrap break-words font-sans text-fg py-1">
                   {item.primary_text || (item as any).post_copy || (
                     <span className="text-fg-faint italic">No copy written yet.</span>
                   )}
@@ -470,9 +503,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
           </div>
 
           {/* Right Column: Approval Card & Campaign Info (5 cols) */}
-          <div className="lg:col-span-5 space-y-6 lg:sticky lg:top-20">
+          <div className="lg:col-span-5 space-y-4 sm:space-y-6 lg:sticky lg:top-20 min-w-0">
             {/* Approval Decision Card */}
-            <div className="bg-surface rounded-xl border border-border p-6 space-y-4 shadow-xs">
+            <div
+              ref={approvalCardRef}
+              className="bg-surface rounded-xl border border-border p-4 sm:p-6 space-y-4 shadow-xs scroll-mt-20"
+            >
               <div className="space-y-1">
                 <span className="text-xs font-semibold text-accent-text">
                   Client review
@@ -483,9 +519,9 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
               </div>
 
               {/* Current Status */}
-              <div className="py-2 px-3 rounded-md bg-subtle border border-border flex items-center justify-between text-xs">
-                <span className="text-fg-muted">Current stage:</span>
-                <StatusPill status={item.stage} />
+              <div className="py-2 px-3 rounded-md bg-subtle border border-border flex items-center justify-between gap-2 text-xs min-w-0">
+                <span className="text-fg-muted shrink-0">Current stage:</span>
+                <StatusPill status={item.stage} className="max-w-[60%] [&_span:last-child]:truncate" />
               </div>
 
               {isApproved && (
@@ -529,6 +565,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       variant="primary"
                       size="md"
                       block
+                      className="min-h-11 md:min-h-8"
                       disabled={isSubmitting}
                       loading={isSubmitting}
                       onClick={handleApprove}
@@ -543,6 +580,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       variant="outline"
                       size="md"
                       block
+                      className="min-h-11 md:min-h-8"
                       disabled={isSubmitting}
                       onClick={() => setIsRevisionOpen(!isRevisionOpen)}
                       icon={MessageSquare}
@@ -580,8 +618,9 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       />
                       <Button
                         variant="secondary"
-                        size="sm"
+                        size="md"
                         block
+                        className="min-h-11 md:min-h-8"
                         disabled={isSubmitting}
                         loading={isSubmitting}
                         onClick={handleRequestRevision}
@@ -612,27 +651,28 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
             </div>
 
             {/* Campaign Metadata Details */}
-            <div className="p-5 rounded-xl bg-surface border border-border text-xs space-y-2.5 shadow-xs">
+            <div className="p-4 sm:p-5 rounded-xl bg-surface border border-border text-xs space-y-2.5 shadow-xs">
               <span className="text-xs font-medium text-fg-muted block">
                 Campaign details
               </span>
-              <dl className="space-y-2">
-                <div className="flex justify-between py-1 border-b border-border">
-                  <dt className="text-fg-muted">Campaign type</dt>
-                  <dd className="font-medium text-fg">{item.campaign_type || '—'}</dd>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border">
-                  <dt className="text-fg-muted">Content pillar</dt>
-                  <dd className="font-medium text-fg">{item.content_pillar || '—'}</dd>
-                </div>
-                <div className="flex justify-between py-1 border-b border-border">
-                  <dt className="text-fg-muted">Target audience</dt>
-                  <dd className="font-medium text-fg">Public social</dd>
-                </div>
-                <div className="flex justify-between py-1">
-                  <dt className="text-fg-muted">Format</dt>
-                  <dd className="font-medium text-fg">{item.creative_type || 'Post'}</dd>
-                </div>
+              <dl className="space-y-0">
+                {[
+                  ['Campaign type', item.campaign_type || '—'],
+                  ['Content pillar', item.content_pillar || '—'],
+                  ['Target audience', 'Public social'],
+                  ['Format', item.creative_type || 'Post'],
+                ].map(([label, value], idx, list) => (
+                  <div
+                    key={label}
+                    className={cn(
+                      'flex flex-col gap-0.5 sm:flex-row sm:justify-between sm:items-start py-2',
+                      idx < list.length - 1 && 'border-b border-border',
+                    )}
+                  >
+                    <dt className="text-fg-muted shrink-0">{label}</dt>
+                    <dd className="font-medium text-fg break-words sm:text-right sm:max-w-[60%]">{value}</dd>
+                  </div>
+                ))}
               </dl>
             </div>
           </div>
@@ -641,21 +681,23 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
       {/* Mobile Sticky Action Bar at 375px (< 768px) per §13.17 */}
       {isPendingReview && (
-        <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 bg-surface border-t border-border flex items-center gap-2 z-40 shadow-lg">
+        <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-surface/95 backdrop-blur-sm border-t border-border flex items-stretch gap-2 z-40 shadow-lg">
           <Button
             variant="outline"
-            size="sm"
+            size="md"
             block
+            className="min-h-11"
             disabled={isSubmitting}
-            onClick={() => setIsRevisionOpen(true)}
+            onClick={openRevisionForm}
             icon={MessageSquare}
           >
             Request changes
           </Button>
           <Button
             variant="primary"
-            size="sm"
+            size="md"
             block
+            className="min-h-11"
             disabled={isSubmitting}
             loading={isSubmitting}
             onClick={handleApprove}

@@ -1,4 +1,9 @@
 {
+  "functions": {
+    "api/review-og.js": {
+      "includeFiles": "{index.html,dist/index.html}"
+    }
+  },
   "headers": [
     {
       "source": "/(.*)",
@@ -43,6 +48,14 @@
     {
       "source": "/api/v1/:path*",
       "destination": "https://reamarc-app.onrender.com/api/v1/:path*"
+    },
+    {
+      "source": "/review/:token",
+      "destination": "/api/review-og?token=:token"
+    },
+    {
+      "source": "/client-review/:token",
+      "destination": "/api/review-og?token=:token"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
