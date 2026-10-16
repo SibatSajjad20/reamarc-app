@@ -130,7 +130,7 @@ MODULE_CONFIG = {
             ("view", "View"),
             ("manage", "Manage"),
         ],
-        "notes": "—",
+        "notes": "View-only for all internal staff",
         "has_none": True,
     },
     "ads": {
@@ -169,7 +169,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",
         "website": "none",
         "sales": "none",
-        "active_clients": "none",
+        "active_clients": "view",
         "ads": "none",
     },
     "operations": {
@@ -189,7 +189,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",
         "website": "none",
         "sales": "none",
-        "active_clients": "none",
+        "active_clients": "view",
         "ads": "none",
     },
     "team_member": {
@@ -199,7 +199,7 @@ SYSTEM_ROLE_DEFAULTS: Dict[str, Dict[str, str]] = {
         "content_calendar": "none",
         "website": "none",
         "sales": "none",
-        "active_clients": "none",
+        "active_clients": "view",
         "ads": "none",
     },
 }

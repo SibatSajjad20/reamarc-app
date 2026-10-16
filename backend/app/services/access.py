@@ -353,24 +353,28 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             else:
                 levels[m] = "none"
 
-    # Compatibility keys for existing callers: active_clients and exceptions
+    # Active clients is a company-wide view-only directory for internal staff.
+    # Manage stays with admin/operations (create/edit workspaces). Clients stay none.
     if role == "admin":
         levels["active_clients"] = "manage"
         levels["exceptions"] = "all"
     elif role == "operations":
-        levels["active_clients"] = "manage" if modules["sales"] else "none"
+        levels["active_clients"] = "manage"
         levels["exceptions"] = "all" if (modules["attendance"] or modules["daily_log"]) else "none"
     elif role == "hr":
-        levels["active_clients"] = "none"
+        levels["active_clients"] = "view"
         levels["exceptions"] = "all" if modules["daily_log"] else "none"
     elif role == "team_lead":
-        levels["active_clients"] = "view" if modules["sales"] else "none"
+        levels["active_clients"] = "view"
         levels["exceptions"] = "department" if modules["daily_log"] else "none"
     elif role == "team_member":
-        levels["active_clients"] = "view" if modules["sales"] else "none"
+        levels["active_clients"] = "view"
+        levels["exceptions"] = "none"
+    elif role == "client":
+        levels["active_clients"] = "none"
         levels["exceptions"] = "none"
     else:
-        levels["active_clients"] = "none"
+        levels["active_clients"] = "view"
         levels["exceptions"] = "none"
 
     # Content stages: only when content_calendar is on

@@ -52,7 +52,7 @@ class PermissionsResolverTests(unittest.TestCase):
             "departments": [],
         }
         ctx = load_ctx(user)
-        for mod in ["daily_log", "attendance", "exceptions", "content_calendar", "website", "sales", "ads"]:
+        for mod in ["daily_log", "attendance", "exceptions", "content_calendar", "website", "sales", "ads", "active_clients"]:
             self.assertEqual(resolve(ctx, mod), "none", f"Client must have 'none' for {mod}")
 
     def test_hr_role_defaults(self):
@@ -68,7 +68,7 @@ class PermissionsResolverTests(unittest.TestCase):
         self.assertEqual(resolve(ctx, "daily_log"), "all")
         self.assertEqual(resolve(ctx, "attendance"), "all")
         self.assertEqual(resolve(ctx, "exceptions"), "all")
-        self.assertEqual(resolve(ctx, "active_clients"), "none")
+        self.assertEqual(resolve(ctx, "active_clients"), "view")
         self.assertEqual(resolve(ctx, "content_calendar"), "none")
         self.assertEqual(resolve(ctx, "website"), "none")
         self.assertEqual(resolve(ctx, "sales"), "none")
@@ -308,9 +308,27 @@ class PermissionsResolverTests(unittest.TestCase):
             "primary_department": "Content",
             "departments": ["Content"],
         })
+        hr = load_ctx({
+            "id": "hr-ac",
+            "role": "hr",
+            "primary_department": "Human Resources",
+            "departments": ["Human Resources"],
+        })
+        ops_sales_off = load_ctx({
+            "id": "ops-nosales",
+            "role": "operations",
+            "access": {"sales": False},
+        })
+        client = load_ctx({
+            "id": "client-ac",
+            "role": "client",
+        })
         self.assertEqual(resolve(lead, "active_clients"), "view")
         self.assertEqual(resolve(member, "active_clients"), "view")
-        self.assertEqual(resolve(content, "active_clients"), "none")
+        self.assertEqual(resolve(content, "active_clients"), "view")
+        self.assertEqual(resolve(hr, "active_clients"), "view")
+        self.assertEqual(resolve(ops_sales_off, "active_clients"), "manage")
+        self.assertEqual(resolve(client, "active_clients"), "none")
 
     def test_content_lead_extra_departments_add_calendar_stages_only(self):
         user = {

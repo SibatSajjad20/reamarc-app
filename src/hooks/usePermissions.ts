@@ -44,8 +44,19 @@ export function userCan(
   if (role === 'admin') return true;
   if (role === 'client') return false;
 
+  // Company-wide view-only directory: every internal login can open it.
+  if (module === 'active_clients') {
+    if (minLevel === 'view') return true;
+    return role === 'operations';
+  }
+
   const permissions = user.permissions;
-  if (!permissions) return false;
+  if (!permissions) {
+    if (role === 'operations') {
+      return levelGte(module, OPERATIONS_MODULE_LEVELS[module], minLevel);
+    }
+    return false;
+  }
 
   // If the module switch is explicitly false, access is denied
   if (permissions.modules && permissions.modules[module] === false) {

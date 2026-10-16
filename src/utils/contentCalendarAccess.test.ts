@@ -26,6 +26,11 @@ assert(canAccessContentCalendar({ role: 'operations' }), 'Operations must see ca
 assert(userCan({ role: 'operations' }, 'sales', 'own'), 'Operations must see sales without permissions payload');
 assert(userCan({ role: 'operations' }, 'website', 'view'), 'Operations must see website without permissions payload');
 assert(userCan({ role: 'operations' }, 'active_clients', 'view'), 'Operations must see active clients');
+assert(userCan({ role: 'hr' }, 'active_clients', 'view'), 'HR must see active clients');
+assert(userCan({ role: 'team_member' }, 'active_clients', 'view'), 'Team members must see active clients');
+assert(userCan({ role: 'team_lead' }, 'active_clients', 'view'), 'Team leads must see active clients');
+assert(!userCan({ role: 'client' }, 'active_clients', 'view'), 'Clients must not see active clients');
+assert(!userCan({ role: 'team_member' }, 'active_clients', 'manage'), 'Team members must not manage active clients');
 assert(userCan({ role: 'operations' }, 'exceptions', 'department'), 'Operations must see exceptions');
 assert(userCan({ role: 'operations' }, 'ads', 'view'), 'Operations must see performance marketing');
 assert(!userCan({ role: 'operations' }, 'content_calendar', 'manage'), 'Operations must not manage calendar');
