@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Skeleton } from '../ui/skeleton';
 import { cn } from '../../lib/utils';
-import { formatHours } from '../../utils/logTimeChecks';
+import { expectedHoursForStripDay, formatHours } from '../../utils/logTimeChecks';
 
 export interface DailyStripDay {
   label: string; // Mon, Tue, etc.
@@ -98,7 +98,10 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
             </div>
             <p className="text-xs text-fg-muted mt-0.5 font-numeric">
               {(() => {
-                const exp = selectedDay.expectedHours ?? (selectedDay.isOffDay ? 0 : 8);
+                const exp = expectedHoursForStripDay(
+                  Boolean(selectedDay.isOffDay),
+                  selectedDay.expectedHours,
+                );
                 if (selectedDay.isOffDay) {
                   return selectedDay.hours > 0 ? (
                     <span>
@@ -171,7 +174,7 @@ export const LoggedThisWeekCard: React.FC<LoggedThisWeekCardProps> = ({
                 title={
                   isSelected
                     ? 'Click to return to weekly total'
-                    : `Click to view ${day.label} (${formatHours(day.hours)} logged vs ${formatHours(day.expectedHours ?? (day.isOffDay ? 0 : 8))} expected)`
+                    : `Click to view ${day.label} (${formatHours(day.hours)} logged vs ${formatHours(expectedHoursForStripDay(Boolean(day.isOffDay), day.expectedHours))} expected)`
                 }
               >
                 <div className="w-full flex items-end justify-center h-9">
@@ -291,7 +294,10 @@ export const AtWorkThisWeekCard: React.FC<AtWorkThisWeekCardProps> = ({
             </div>
             <p className="text-xs text-fg-muted mt-0.5 font-numeric">
               {(() => {
-                const exp = selectedDay.expectedHours ?? (selectedDay.isOffDay ? 0 : 8);
+                const exp = expectedHoursForStripDay(
+                  Boolean(selectedDay.isOffDay),
+                  selectedDay.expectedHours,
+                );
                 if (selectedDay.isOffDay) {
                   return selectedDay.hours > 0 ? (
                     <span>
@@ -359,7 +365,7 @@ export const AtWorkThisWeekCard: React.FC<AtWorkThisWeekCardProps> = ({
                 title={
                   isSelected
                     ? 'Click to return to weekly total'
-                    : `Click to view ${day.label} (${formatHours(day.hours)} worked vs ${formatHours(day.expectedHours ?? (day.isOffDay ? 0 : 8))} expected)`
+                    : `Click to view ${day.label} (${formatHours(day.hours)} worked vs ${formatHours(expectedHoursForStripDay(Boolean(day.isOffDay), day.expectedHours))} expected)`
                 }
               >
                 <div className="w-full flex items-end justify-center h-9">

@@ -21,6 +21,26 @@ export function hoursFromStartEnd(start?: string | null, end?: string | null): n
 /** UI tolerance: gaps under this are treated as minor / neutral. */
 export const GAP_NEUTRAL_HOURS = 0.5;
 
+/**
+ * Expected hours for a dashboard day strip.
+ * Uses the day's own shift target when present (including 0 for full leave).
+ * Off days are 0. Does not treat WFH / short leave as a rest day.
+ */
+export function expectedHoursForStripDay(
+  isOffDay: boolean,
+  dayExpected?: number | null,
+  fallbackExpected?: number | null,
+): number {
+  if (isOffDay) return 0;
+  if (typeof dayExpected === 'number' && Number.isFinite(dayExpected)) {
+    return dayExpected;
+  }
+  if (typeof fallbackExpected === 'number' && Number.isFinite(fallbackExpected) && fallbackExpected > 0) {
+    return fallbackExpected;
+  }
+  return 8;
+}
+
 export function formatHours(hours: number): string {
   const totalMinutes = Math.round(Math.max(0, hours) * 60);
   const h = Math.floor(totalMinutes / 60);

@@ -15,6 +15,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { usePermissions } from '../../hooks/usePermissions';
 import { getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
+import { expectedHoursForStripDay } from '../../utils/logTimeChecks';
 
 import type {
   TodayAttendanceResponse,
@@ -183,7 +184,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   const [myHoursRange, setMyHoursRange] = useState<'7D' | '14D' | '30D'>('7D');
   const [myHoursDays, setMyHoursDays] = useState<MyHoursDay[]>(() => initialCache?.myHoursDays ?? []);
-  const [isLoadingMyHours, setIsLoadingMyHours] = useState(false);
+  const [isLoadingMyHours, setIsLoadingMyHours] = useState(
+    () => !initialCache?.myHoursDays?.length
+  );
 
   const [logExceptionsInboxCount, setLogExceptionsInboxCount] = useState(() => initialCache?.logExceptionsInboxCount ?? 0);
   const [myActivity, setMyActivity] = useState<UserLogActivity | null>(() => initialCache?.myActivity ?? null);
@@ -373,11 +376,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     if (!startIso) return;
 
     try {
-      const entries = await dailyLogService.getEntries({
-        user_id: user.id,
-        start_date: startIso,
-        end_date: endIso,
-        limit: 500,
+      const [entries, targetResults] = await Promise.all([
+        dailyLogService.getEntries({
+          user_id: user.id,
+          start_date: startIso,
+          end_date: endIso,
+          limit: 500,
+        }),
+        Promise.all(weekDates.map((wd) => dailyLogService.getDayTarget(wd.date).catch(() => null))),
+      ]);
+
+      const expectedByDate: Record<string, number> = {};
+      weekDates.forEach((wd, i) => {
+        const t = targetResults[i];
+        if (t && typeof t.expected_hours === 'number' && Number.isFinite(t.expected_hours)) {
+          expectedByDate[wd.date] = t.expected_hours;
+        }
       });
 
       const perDayMap: Record<string, number> = {};
@@ -389,20 +403,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         perDayMap[e.date] = (perDayMap[e.date] || 0) + hrs;
       });
 
-      const defaultExp = dayTarget?.expected_hours || todayAttendance?.shift?.expected_hours || 8;
+      const fallbackExp = todayAttendance?.shift?.expected_hours;
       const stripDays: DailyStripDay[] = weekDates.map((wd) => {
         const hrs = perDayMap[wd.date] || 0;
         total += hrs;
         if (!wd.isFuture && hrs > 0) pastLoggedCount++;
         const isOff = stableIsDateOff(wd.date);
-        const exp = isOff ? 0 : (wd.label === 'Sat' ? 6 : defaultExp);
         return {
           label: wd.label,
           date: wd.date,
           hours: hrs,
           isFuture: wd.isFuture,
           isToday: wd.isToday,
-          expectedHours: exp,
+          expectedHours: expectedHoursForStripDay(isOff, expectedByDate[wd.date], fallbackExp),
           isOffDay: isOff,
         };
       });
@@ -411,7 +424,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       setWeeklyLoggedDays(stripDays);
       setPastDaysLoggedCount(pastLoggedCount);
     } catch {}
-  }, [isAdmin, isLogger, user?.id, weekDates, todayIso, dayTarget?.expected_hours, todayAttendance?.shift?.expected_hours, stableIsDateOff]);
+  }, [isAdmin, isLogger, user?.id, weekDates, todayIso, todayAttendance?.shift?.expected_hours, stableIsDateOff, perms.canAccessDailyLog, perms.isDailyLogTracked]);
 
   // Operations: derive worked timesheet records from timesheetData
   useEffect(() => {
@@ -426,20 +439,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       perDayMap[r.date] = hrs;
     });
 
-    const defaultExp = todayAttendance?.shift?.expected_hours || 8;
+    const fallbackExp = todayAttendance?.shift?.expected_hours;
     const stripDays: DailyStripDay[] = weekDates.map((wd) => {
       const hrs = perDayMap[wd.date] || 0;
       total += hrs;
       if (!wd.isFuture && hrs > 0) pastWorkedCount++;
       const isOff = stableIsDateOff(wd.date);
-      const exp = isOff ? 0 : (wd.label === 'Sat' ? 6 : defaultExp);
       return {
         label: wd.label,
         date: wd.date,
         hours: hrs,
         isFuture: wd.isFuture,
         isToday: wd.isToday,
-        expectedHours: exp,
+        expectedHours: expectedHoursForStripDay(isOff, undefined, fallbackExp),
         isOffDay: isOff,
       };
     });
@@ -519,8 +531,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
   // 8. My Hours Chart (HR, Members, or Leads with no team, §3c)
   const loadMyHours = useCallback(async () => {
-    if (isAdmin || isOps) return;
-    if (isLead && !hasTeamHours404Ref.current && teamHoursMembersRef.current.length > 0) return;
+    if (isAdmin || isOps) {
+      setIsLoadingMyHours(false);
+      return;
+    }
+    if (isLead && !hasTeamHours404Ref.current && teamHoursMembersRef.current.length > 0) {
+      setIsLoadingMyHours(false);
+      return;
+    }
 
     setIsLoadingMyHours(true);
     const daysCount = myHoursRange === '7D' ? 7 : myHoursRange === '14D' ? 14 : 30;
@@ -739,7 +757,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
 
       if (isLead) {
         promises.push(loadTeamHours());
-      } else if (!isAdmin && !isOps) {
+      }
+      if (!isAdmin && !isOps) {
         promises.push(loadMyHours());
       }
 
@@ -789,17 +808,17 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       isFirstMountMyRange.current = false;
       return;
     }
-    if (!isAdmin && !isOps && (!isLead || hasTeamHours404)) {
+    if (!isAdmin && !isOps && (!isLead || hasTeamHours404 || teamHoursMembers.length === 0)) {
       void loadMyHours();
     }
-  }, [isAdmin, isOps, isLead, hasTeamHours404, myHoursRange, loadMyHours]);
+  }, [isAdmin, isOps, isLead, hasTeamHours404, teamHoursMembers.length, myHoursRange, loadMyHours]);
 
-  // 4. Team Lead fallback to My Hours if team-hours 404s
+  // 4. Team Lead fallback to My Hours if team-hours 404s or the lead has no direct reports
   useEffect(() => {
-    if (isLead && hasTeamHours404) {
+    if (isLead && !isLoadingTeamHours && (hasTeamHours404 || teamHoursMembers.length === 0)) {
       void loadMyHours();
     }
-  }, [isLead, hasTeamHours404, loadMyHours]);
+  }, [isLead, hasTeamHours404, isLoadingTeamHours, teamHoursMembers.length, loadMyHours]);
 
   // 5. Invalidation bus listener: revalidates cards quietly in the background without layout shifts
   useCacheInvalidation(
@@ -831,7 +850,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       if (key === 'daily-log' || key === 'dashboard') {
         void loadWeeklyStats();
         if (isLead) void loadTeamHours();
-        else if (!isAdmin && !isOps) void loadMyHours();
+        if (!isAdmin && !isOps) void loadMyHours();
       }
       if (
         key === 'crm' ||
