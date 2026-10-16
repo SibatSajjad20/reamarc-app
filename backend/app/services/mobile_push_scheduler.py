@@ -1,5 +1,6 @@
 """Shift-relative mobile punch reminders. Times come from each user's assigned shift."""
 import logging
+from typing import Optional
 from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 

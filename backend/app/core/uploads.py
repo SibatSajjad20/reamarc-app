@@ -164,7 +164,8 @@ def content_disposition_header(display: str, *, inline: bool) -> str:
 
 
 def _gridfs_bucket(db) -> AsyncIOMotorGridFSBucket:
-    return AsyncIOMotorGridFSBucket(db, bucket_name=_GRIDFS_BUCKET)
+    raw_db = getattr(db, "_db", db)
+    return AsyncIOMotorGridFSBucket(raw_db, bucket_name=_GRIDFS_BUCKET)
 
 
 async def _delete_gridfs_by_name(bucket: AsyncIOMotorGridFSBucket, key: str) -> None:
