@@ -42,6 +42,7 @@ import { ShortcutsDialog } from './components/layout/ShortcutsDialog';
 import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AccessDenied } from './components/ui/AccessDenied';
+import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -639,6 +640,10 @@ function AppInner() {
 
   if (!user) {
     return <AuthScreen />;
+  }
+
+  if (user?.company?.status === 'suspended') {
+    return <CompanySuspensionGate />;
   }
 
   return (

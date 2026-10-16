@@ -207,7 +207,8 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     user_id = user_doc.get("id") or str(user_doc.get("_id"))
     if user_in.device_uuid:
         from app.services.device_registry import assert_device_login_allowed
-        await assert_device_login_allowed(user_id, user_in.device_uuid)
+        with tenant_scope(cid):
+            await assert_device_login_allowed(user_id, user_in.device_uuid)
 
     session_id = uuid.uuid4().hex
     access_token, refresh_token = _issue_token_pair(claims, session_id)

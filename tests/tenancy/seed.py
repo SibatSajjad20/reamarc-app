@@ -118,7 +118,7 @@ def build_seed_data() -> Dict[str, List[Dict[str, Any]]]:
             data["users"].append({
                 "_id": f"tnt_user_{sfx}_{r}",
                 "id": f"tnt_user_{sfx}_{r}",
-                "email": f"{r}_{sfx}@tnt.test",
+                "email": f"{r}_{sfx}@tnt-example.com",
                 "name": f"{r.title()} {sfx_upper}",
                 "role": r,
                 "hashed_password": hashed_pwd,
