@@ -19,6 +19,41 @@ declare global {
 let gapiLoadingPromise: Promise<void> | null = null;
 let gisLoadingPromise: Promise<void> | null = null;
 
+function loadScript(src: string, failMessage: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[src="${src}"]`) as HTMLScriptElement | null;
+    if (existing) {
+      if (existing.dataset.loaded === '1') {
+        resolve();
+        return;
+      }
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener(
+        'error',
+        () => {
+          existing.remove();
+          reject(new Error(failMessage));
+        },
+        { once: true },
+      );
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => {
+      script.dataset.loaded = '1';
+      resolve();
+    };
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(failMessage));
+    };
+    document.body.appendChild(script);
+  });
+}
+
 function loadGapiScript(): Promise<void> {
   if (typeof window === 'undefined') {
     return Promise.reject(new Error('Window unavailable'));
@@ -30,41 +65,24 @@ function loadGapiScript(): Promise<void> {
     return gapiLoadingPromise;
   }
 
-  gapiLoadingPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector(`script[src="${GAPI_SCRIPT_SRC}"]`);
-    if (!existing) {
-      const script = document.createElement('script');
-      script.src = GAPI_SCRIPT_SRC;
-      script.async = true;
-      script.defer = true;
-      script.onload = () => {
-        if (!window.gapi) {
-          reject(new Error('Google API Client library failed to load'));
-          return;
-        }
-        window.gapi.load('picker', {
-          callback: () => resolve(),
-          onerror: () => reject(new Error('Failed to load Google Picker component')),
-        });
-      };
-      script.onerror = () => reject(new Error('Failed to load Google API script'));
-      document.body.appendChild(script);
-    } else {
-      if (window.gapi?.load) {
-        window.gapi.load('picker', {
-          callback: () => resolve(),
-          onerror: () => reject(new Error('Failed to load Google Picker component')),
-        });
-      } else {
-        existing.addEventListener('load', () => {
+  gapiLoadingPromise = loadScript(GAPI_SCRIPT_SRC, 'Failed to load Google API script')
+    .then(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          if (!window.gapi) {
+            reject(new Error('Google API Client library failed to load'));
+            return;
+          }
           window.gapi.load('picker', {
             callback: () => resolve(),
             onerror: () => reject(new Error('Failed to load Google Picker component')),
           });
-        });
-      }
-    }
-  });
+        }),
+    )
+    .catch((err) => {
+      gapiLoadingPromise = null;
+      throw err;
+    });
 
   return gapiLoadingPromise;
 }
@@ -80,29 +98,17 @@ function loadGisScript(): Promise<void> {
     return gisLoadingPromise;
   }
 
-  gisLoadingPromise = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector(`script[src="${GIS_SCRIPT_SRC}"]`);
-    const onReady = () => {
+  gisLoadingPromise = loadScript(GIS_SCRIPT_SRC, 'Failed to load Google Identity Services')
+    .then(() => {
       if (window.google?.accounts?.oauth2) {
-        resolve();
         return;
       }
-      reject(new Error('Google Identity Services failed to load'));
-    };
-    if (!existing) {
-      const script = document.createElement('script');
-      script.src = GIS_SCRIPT_SRC;
-      script.async = true;
-      script.defer = true;
-      script.onload = onReady;
-      script.onerror = () => reject(new Error('Failed to load Google Identity Services'));
-      document.body.appendChild(script);
-    } else if (window.google?.accounts?.oauth2) {
-      resolve();
-    } else {
-      existing.addEventListener('load', onReady);
-    }
-  });
+      throw new Error('Google Identity Services failed to load');
+    })
+    .catch((err) => {
+      gisLoadingPromise = null;
+      throw err;
+    });
 
   return gisLoadingPromise;
 }
