@@ -24,7 +24,7 @@ export const TabsTrigger = React.forwardRef<
   React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger> & {
     count?: number | string;
   }
->(({ className, count, children, ...props }, ref) => (
+>(({ className, count, children, onFocus, ...props }, ref) => (
   <TabsPrimitive.Trigger
     ref={ref}
     className={cn(
@@ -35,6 +35,16 @@ export const TabsTrigger = React.forwardRef<
       'disabled:pointer-events-none disabled:opacity-50',
       className
     )}
+    onFocus={(event) => {
+      onFocus?.(event);
+      if (event.defaultPrevented) return;
+      const list = event.currentTarget.parentElement;
+      if (!list) return;
+      const left = list.scrollLeft;
+      requestAnimationFrame(() => {
+        list.scrollLeft = left;
+      });
+    }}
     {...props}
   >
     <span>{children}</span>

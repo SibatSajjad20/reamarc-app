@@ -464,7 +464,18 @@ async def get_public_campaign_review(
 
     with tenant_scope(cid):
         db = get_database()
-        return await content_calendar_service.get_public_review_item(db, token=token)
+        res = await content_calendar_service.get_public_review_item(db, token=token)
+        if gdb is not None and isinstance(res, dict):
+            comp = await gdb.companies.find_one({"id": cid})
+            if comp:
+                res["company_name"] = comp.get("name")
+                res["company"] = {
+                    "id": comp.get("id"),
+                    "name": comp.get("name"),
+                    "logo_url": comp.get("logo_url"),
+                    "accent_color": comp.get("accent_color", "#6847E0"),
+                }
+        return res
 
 
 @router.post("/public/review/{token}/action")

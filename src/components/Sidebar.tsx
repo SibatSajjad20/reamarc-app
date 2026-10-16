@@ -545,7 +545,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <BrandMark size={28} className="shrink-0" />
           <div className="min-w-0 flex-1 truncate pr-1 select-none">
             <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
-              Reamarc
+              {user?.company?.name || 'Reamarc'}
             </span>
             <span className="block text-xs text-fg-muted leading-4 truncate">
               Operations hub
@@ -576,7 +576,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Collapsed state R logo expand button */}
+        {/* Collapsed state logo expand button */}
         <div
           className={cn(
             'absolute inset-0 h-11 flex items-center justify-center transition-opacity motion-reduce:transition-none',
@@ -598,7 +598,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 style={{ fontSize: '14px' }}
               >
                 <span className="sidebar-expand-r absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-100 motion-reduce:transition-none pointer-events-none">
-                  R
+                  {(user?.company?.name || 'Reamarc').trim().charAt(0).toUpperCase()}
                 </span>
                 <span className="sidebar-expand-icon absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-0 motion-reduce:transition-none pointer-events-none">
                   <PanelLeftOpen size={16} strokeWidth={1.5} />

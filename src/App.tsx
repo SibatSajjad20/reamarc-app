@@ -23,6 +23,7 @@ import type { SettingsSectionSlug } from './types/settings';
 import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { BrandingProvider } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -1049,11 +1050,13 @@ export function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <ModuleLoadGateProvider>
-          <BreadcrumbProvider>
-            <AppInner />
-          </BreadcrumbProvider>
-        </ModuleLoadGateProvider>
+        <BrandingProvider>
+          <ModuleLoadGateProvider>
+            <BreadcrumbProvider>
+              <AppInner />
+            </BreadcrumbProvider>
+          </ModuleLoadGateProvider>
+        </BrandingProvider>
       </AuthProvider>
     </ToastProvider>
   );

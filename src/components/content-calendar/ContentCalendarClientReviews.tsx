@@ -10,14 +10,17 @@ import {
   Play,
   ExternalLink,
   Eye,
+  Link2,
+  Film,
 } from 'lucide-react';
 import { contentCalendarService } from '../../services/contentCalendarService';
-import type { ContentCalendarItem } from '../../types/contentCalendar';
+import type { ContentCalendarItem, CreativeAsset } from '../../types/contentCalendar';
 import { PIPELINE_STAGES } from '../../types/contentCalendar';
 import { useToast } from '../../context/ToastContext';
 import { useAuth } from '../../context/AuthContext';
 import { useBreadcrumb } from '../layout/BreadcrumbContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
+import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -41,6 +44,30 @@ import { cn } from '../../lib/utils';
 
 type ViewMode = 'approvals' | 'pipeline';
 type ReviewFilter = 'pending' | 'approved' | 'revision';
+
+function pickPreviewAsset(attachments?: CreativeAsset[]): CreativeAsset | null {
+  if (!attachments || attachments.length === 0) return null;
+  return (
+    attachments.find((a) => a.kind === 'image') ||
+    attachments.find((a) => a.kind === 'video') ||
+    attachments.find((a) => a.kind === 'link') ||
+    attachments[0] ||
+    null
+  );
+}
+
+function resolveAssetSrc(asset: CreativeAsset | null | undefined): string {
+  if (!asset) return '';
+  const thumb = isRealThumbnailUrl(asset.thumbnail_url) ? asset.thumbnail_url : null;
+  const candidates = [thumb, asset.url, asset.google_drive_url].filter(
+    (value): value is string => Boolean(value && value.trim()),
+  );
+  for (const candidate of candidates) {
+    const backend = getBackendFileUrl(candidate);
+    if (backend) return backend;
+  }
+  return candidates[0] || '';
+}
 
 function renderChannelIcons(channels?: string[]) {
   if (!channels || channels.length === 0) {
@@ -71,6 +98,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
+  const [failedPreviewIds, setFailedPreviewIds] = useState<Record<string, boolean>>({});
 
   // Detail Dialog state (880px)
   const [detailItem, setDetailItem] = useState<ContentCalendarItem | null>(null);
@@ -254,8 +282,9 @@ export const ContentCalendarClientReviews: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden bg-canvas">
       {/* Page Header */}
-      <div className="px-6 py-5 border-b border-border bg-surface shrink-0">
+      <div className="px-6 py-4 border-b border-border bg-surface shrink-0">
         <PageHeader
+          className="mb-0"
           title="Content approvals"
           description="Review posts from Reamarc before they go live."
           actions={
@@ -285,7 +314,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
       {/* Main View Area */}
       <main className={cn('flex-1 min-h-0 flex flex-col', viewMode === 'approvals' ? 'overflow-y-auto' : 'overflow-hidden')}>
         {error && (
-          <div className="max-w-7xl mx-auto px-6 pt-4">
+          <div className="px-6 pt-4">
             <div className="p-3.5 rounded-lg bg-danger-bg border border-danger-bd text-danger-fg text-xs flex items-center gap-2">
               <span>{error}</span>
             </div>
@@ -293,14 +322,15 @@ export const ContentCalendarClientReviews: React.FC = () => {
         )}
 
         {viewMode === 'approvals' ? (
-          <div className="max-w-7xl mx-auto px-6 py-6 space-y-6">
+          <div className="w-full px-6 py-6 space-y-6">
             {/* Filter Bar with Tabs and Search */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-2 border-b border-border">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-3 pb-2 border-b border-border">
               <Tabs
                 value={activeFilter}
                 onValueChange={(val) => setActiveFilter(val as ReviewFilter)}
+                className="min-w-0"
               >
-                <TabsList className="mb-0 border-b-0 overflow-y-hidden">
+                <TabsList className="mb-0 border-b-0 justify-start overflow-x-auto overflow-y-hidden w-max max-w-full">
                   <TabsTrigger value="pending" count={pendingItems.length}>
                     Pending
                   </TabsTrigger>
@@ -313,7 +343,7 @@ export const ContentCalendarClientReviews: React.FC = () => {
                 </TabsList>
               </Tabs>
 
-              <div className="w-full sm:w-72">
+              <div className="w-full sm:w-72 sm:ml-auto shrink-0">
                 <Input
                   inputSize="sm"
                   icon={Search}
@@ -328,16 +358,19 @@ export const ContentCalendarClientReviews: React.FC = () => {
 
             {/* Loading State */}
             {isLoading && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[1, 2, 3].map((n) => (
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
+                {[1, 2].map((n) => (
                   <div
                     key={n}
-                    className="rounded-lg border border-border bg-surface p-4 space-y-4 animate-pulse"
+                    className="rounded-xl border border-border bg-surface overflow-hidden animate-pulse grid grid-cols-1 md:grid-cols-[minmax(240px,40%)_1fr]"
                   >
-                    <div className="aspect-[4/5] bg-subtle rounded-md" />
-                    <div className="h-4 bg-subtle rounded-sm w-3/4" />
-                    <div className="h-3 bg-subtle rounded-sm w-1/2" />
-                    <div className="h-8 bg-subtle rounded-md" />
+                    <div className="aspect-[16/10] md:aspect-auto md:min-h-[220px] bg-subtle" />
+                    <div className="p-5 space-y-3">
+                      <div className="h-4 bg-subtle rounded-sm w-1/3" />
+                      <div className="h-5 bg-subtle rounded-sm w-3/4" />
+                      <div className="h-3 bg-subtle rounded-sm w-1/2" />
+                      <div className="h-8 bg-subtle rounded-md mt-6" />
+                    </div>
                   </div>
                 ))}
               </div>
@@ -374,57 +407,100 @@ export const ContentCalendarClientReviews: React.FC = () => {
 
             {/* Review Cards Grid (3 columns matching mock 13) */}
             {!isLoading && filteredItems.length > 0 && (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
                 {filteredItems.map((item) => {
-                  const previewAsset = item.attachments?.[0];
+                  const previewAsset = pickPreviewAsset(item.attachments);
+                  const previewSrc = resolveAssetSrc(previewAsset);
+                  const previewFailed = Boolean(previewAsset && failedPreviewIds[previewAsset.id]);
+                  const showMedia =
+                    Boolean(previewAsset) &&
+                    !previewFailed &&
+                    (previewAsset?.kind === 'image' ||
+                      previewAsset?.kind === 'video' ||
+                      (previewAsset?.kind === 'link' && Boolean(previewSrc)));
                   const isPending =
                     item.stage === 'Content Client Review' || item.stage === 'Creative Client Review';
                   const isItemBusy = busyId === item.id;
+                  const extraAssets = Math.max(0, (item.attachments?.length || 0) - 1);
 
                   return (
                     <article
                       key={item.id}
-                      className="rounded-lg border border-border bg-surface shadow-xs hover:border-border-strong hover:shadow-sm transition-all flex flex-col overflow-hidden"
+                      className="rounded-xl border border-border bg-surface shadow-xs hover:border-border-strong hover:shadow-sm transition-all overflow-hidden grid grid-cols-1 md:grid-cols-[minmax(260px,42%)_1fr]"
                     >
-                      {/* Asset Preview Frame 4:5 */}
                       <div
-                        className="aspect-[4/5] w-full bg-subtle relative flex items-center justify-center border-b border-border overflow-hidden cursor-pointer group select-none"
+                        className="relative bg-subtle flex items-center justify-center overflow-hidden cursor-pointer group select-none aspect-[16/10] md:aspect-auto md:min-h-[240px] md:border-r border-b md:border-b-0 border-border"
                         onClick={() => openDetail(item)}
                       >
-                        {previewAsset ? (
-                          previewAsset.kind === 'video' ? (
-                            <div className="relative w-full h-full">
+                        {showMedia && previewAsset?.kind === 'video' ? (
+                          <div className="relative w-full h-full min-h-[200px]">
+                            {isRealThumbnailUrl(previewAsset.thumbnail_url) && !previewFailed ? (
+                              <img
+                                src={resolveAssetSrc({ ...previewAsset, url: previewAsset.thumbnail_url || previewAsset.url })}
+                                alt={item.content_concept || 'Campaign asset'}
+                                className="w-full h-full object-cover"
+                                onError={() =>
+                                  setFailedPreviewIds((prev) => ({ ...prev, [previewAsset.id]: true }))
+                                }
+                              />
+                            ) : (
                               <video
-                                src={previewAsset.url}
+                                src={`${previewSrc}#t=0.001`}
                                 className="w-full h-full object-cover"
                                 preload="metadata"
+                                muted
+                                playsInline
+                                onError={() =>
+                                  setFailedPreviewIds((prev) => ({ ...prev, [previewAsset.id]: true }))
+                                }
                               />
-                              <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/35 transition-colors">
-                                <div className="w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center">
-                                  <Play className="w-5 h-5 fill-white ml-0.5" />
-                                </div>
+                            )}
+                            <div className="absolute inset-0 bg-black/20 flex items-center justify-center group-hover:bg-black/35 transition-colors">
+                              <div className="w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center">
+                                <Play className="w-5 h-5 fill-white ml-0.5" />
                               </div>
                             </div>
-                          ) : (
-                            <img
-                              src={previewAsset.thumbnail_url || previewAsset.url}
-                              alt={item.content_concept || 'Campaign asset'}
-                              className="w-full h-full object-cover group-hover:scale-102 transition-transform duration-200"
-                            />
-                          )
+                            <span className="absolute bottom-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-medium">
+                              <Film className="w-3 h-3" />
+                              Video
+                            </span>
+                          </div>
+                        ) : showMedia && previewSrc ? (
+                          <img
+                            src={previewSrc}
+                            alt={item.content_concept || 'Campaign asset'}
+                            className="w-full h-full min-h-[200px] object-cover group-hover:scale-[1.02] transition-transform duration-200"
+                            onError={() =>
+                              previewAsset
+                                ? setFailedPreviewIds((prev) => ({ ...prev, [previewAsset.id]: true }))
+                                : undefined
+                            }
+                          />
+                        ) : previewAsset?.kind === 'link' || item.draft_preview_link || item.final_asset_link ? (
+                          <div className="flex flex-col items-center justify-center text-fg-muted p-6 text-center gap-2">
+                            <Link2 className="w-8 h-8 text-accent" />
+                            <span className="text-xs font-medium">Preview available</span>
+                            <span className="text-[11px] text-fg-faint max-w-[220px] truncate">
+                              {previewAsset?.filename || 'Open in review to inspect'}
+                            </span>
+                          </div>
                         ) : (
                           <div className="flex flex-col items-center justify-center text-fg-faint p-6 text-center">
-                            <ImageIcon className="w-12 h-12 stroke-[1.25] text-fg-muted/50 mb-2" />
+                            <ImageIcon className="w-10 h-10 stroke-[1.25] text-fg-muted/50 mb-2" />
                             <span className="text-xs text-fg-muted font-medium">Awaiting visual asset</span>
                           </div>
+                        )}
+                        {extraAssets > 0 && (
+                          <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-md bg-black/75 text-white text-[10px] font-medium">
+                            +{extraAssets} more
+                          </span>
                         )}
                         <span className="absolute top-2.5 right-2.5 opacity-0 group-hover:opacity-100 transition-opacity px-2 py-0.5 rounded text-xs font-medium bg-black/80 text-white">
                           Inspect
                         </span>
                       </div>
 
-                      {/* Card Content */}
-                      <div className="p-4.5 flex-1 flex flex-col justify-between space-y-3">
+                      <div className="p-5 flex-1 flex flex-col justify-between space-y-3 min-w-0">
                         <div>
                           {/* Top Meta Line: Serial + Stage Status */}
                           <div className="flex items-center justify-between gap-2">

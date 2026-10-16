@@ -124,10 +124,15 @@ async def _resolve_scheduler_company(request: Request) -> str:
 async def get_public_scheduler_config(request: Request):
     """Retrieve public meeting scheduler metadata (title, duration, services, host, timezone)."""
     from app.services import crm_scheduler
-    from app.core.tenant import tenant_scope
+    from app.core.tenant import tenant_scope, get_global_db
     cid = await _resolve_scheduler_company(request)
     with tenant_scope(cid):
         sched_settings = await crm_scheduler.get_scheduler_settings()
+        gdb = get_global_db()
+        comp = await gdb.companies.find_one({"id": cid}) if gdb is not None else None
+        comp_name = comp.get("name") if comp else "Reamarc"
+        comp_logo = comp.get("logo_url") if comp else None
+        comp_accent = comp.get("accent_color") if comp else "#6847E0"
         return {
             "title": sched_settings.get("title"),
             "description": sched_settings.get("description"),
@@ -146,6 +151,9 @@ async def get_public_scheduler_config(request: Request):
                 "Technical Copywriter",
                 "Other Position",
             ]),
+            "company_name": comp_name,
+            "company_logo": comp_logo,
+            "accent_color": comp_accent,
         }
 
 
