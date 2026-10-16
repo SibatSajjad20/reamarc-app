@@ -6,6 +6,7 @@ import {
   escapeAttr,
   extractReviewToken,
   injectShareMeta,
+  isBuiltSpaHtml,
   isValidReviewToken,
   pickShareImage,
 } from "./review-og-lib.mjs";
@@ -77,8 +78,23 @@ test("uses video thumbnail instead of the video file", () => {
   assert.equal(image, `${origin}/api/v1/content-calendar/public/review/tok/assets/vid?thumb=1`);
 });
 
-test("injects escaped Open Graph tags into the SPA shell", () => {
-  const html = injectShareMeta("<html><head><title>Reamarc</title></head><body><div id=\"root\"></div></body></html>", {
+test("rejects Vite source HTML so the review app is never served unbuilt", () => {
+  assert.equal(
+    isBuiltSpaHtml('<div id="root"></div><script type="module" src="/src/main.tsx"></script>'),
+    false,
+  );
+  assert.equal(
+    isBuiltSpaHtml(
+      '<html><head><script src="/assets/index-yz5LSi-Y.js"></script></head><body><div id="root"></div></body></html>',
+    ),
+    true,
+  );
+});
+
+test("injects escaped Open Graph tags into the built SPA shell", () => {
+  const spa =
+    '<html><head><title>Reamarc</title><script src="/assets/index-yz5LSi-Y.js"></script></head><body><div id="root"></div></body></html>';
+  const html = injectShareMeta(spa, {
     title: 'Review "Q2" <launch>',
     description: "Approve & comment",
     url: "https://reamarc-app.vercel.app/review/abc",
@@ -91,6 +107,21 @@ test("injects escaped Open Graph tags into the SPA shell", () => {
   assert.equal(html.includes("<launch>"), false);
   assert.match(html, /Review &quot;Q2&quot; &lt;launch&gt;/);
   assert.match(html, /<div id="root"><\/div>/);
+  assert.match(html, /\/assets\/index-yz5LSi-Y\.js/);
   assert.equal(escapeAttr('a "b"'), "a &quot;b&quot;");
   assert.equal(absoluteUrl("https://x.test", "/a"), "https://x.test/a");
+});
+
+test("does not inject source HTML if the built shell is missing", () => {
+  const html = injectShareMeta(
+    '<html><head></head><body><div id="root"></div><script src="/src/main.tsx"></script></body></html>',
+    {
+      title: "Campaign review · Reamarc",
+      description: "Open this link",
+      url: "https://x.test/review/a",
+      image: "https://x.test/og-review.png",
+    },
+  );
+  assert.equal(html.includes("/src/main.tsx"), false);
+  assert.match(html, /og:title/);
 });

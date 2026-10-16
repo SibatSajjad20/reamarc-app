@@ -251,7 +251,19 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     );
   }
 
-  if (!item) return null;
+  if (!item) {
+    return (
+      <div className="min-h-screen bg-canvas flex flex-col items-center justify-center p-6 text-fg">
+        <div className="max-w-md w-full bg-surface p-6 sm:p-8 rounded-xl border border-border shadow-xs text-center space-y-4">
+          <EmptyState
+            icon={AlertCircle}
+            title="Review link not found"
+            description="This campaign review could not be loaded. Ask the team for a new link."
+          />
+        </div>
+      </div>
+    );
+  }
 
   const assets = item.attachments || [];
   const activeAsset = assets[activeAssetIndex];

@@ -8,6 +8,15 @@ export function isValidReviewToken(token) {
   return TOKEN_RE.test(String(token || "").trim());
 }
 
+export function isBuiltSpaHtml(html) {
+  const value = String(html || "");
+  return (
+    value.includes('id="root"') &&
+    !value.includes("/src/main.tsx") &&
+    /\/assets\/[^"']+\.(js|css)/.test(value)
+  );
+}
+
 export function extractReviewToken(urlLike) {
   try {
     const url = new URL(urlLike, "https://reamarc.local");
@@ -169,15 +178,12 @@ export function renderMetaTags(meta) {
 export function injectShareMeta(html, meta) {
   const tags = renderMetaTags(meta);
   let next = String(html || "");
-  if (!next) {
+  if (!isBuiltSpaHtml(next)) {
     return `<!doctype html><html lang="en"><head>${tags}</head><body></body></html>`;
   }
   next = next.replace(/<title>[\s\S]*?<\/title>/i, "");
   next = next.replace(/<meta\s+name=["']description["'][^>]*>/i, "");
-  if (/<\/head>/i.test(next)) {
-    return next.replace(/<\/head>/i, `    ${tags}\n  </head>`);
-  }
-  return `<!doctype html><html lang="en"><head>${tags}</head><body>${next}</body></html>`;
+  return next.replace(/<\/head>/i, `    ${tags}\n  </head>`);
 }
 
 export const SHARE_DEFAULTS = { DEFAULT_TITLE, DEFAULT_DESCRIPTION };

@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   buildShareMeta,
   extractReviewToken,
   injectShareMeta,
+  isBuiltSpaHtml,
   isValidReviewToken,
 } from "./review-og-lib.mjs";
 
@@ -16,23 +15,6 @@ function requestOrigin(req) {
     .split(",")[0]
     .trim();
   return `${proto}://${host}`;
-}
-
-function loadSpaShell() {
-  const candidates = [
-    join(process.cwd(), "index.html"),
-    join(process.cwd(), "dist", "index.html"),
-    join(process.cwd(), "..", "index.html"),
-  ];
-  for (const path of candidates) {
-    try {
-      const html = readFileSync(path, "utf8");
-      if (html.includes("<div id=\"root\">") || html.includes("id='root'")) return html;
-    } catch {
-      // try the next build output location
-    }
-  }
-  return null;
 }
 
 async function fetchJson(url) {
@@ -52,16 +34,17 @@ async function fetchJson(url) {
   }
 }
 
-async function fetchText(url) {
+async function fetchBuiltSpa(origin) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_MS);
   try {
-    const res = await fetch(url, {
+    const res = await fetch(`${origin}/index.html`, {
       signal: controller.signal,
       headers: { accept: "text/html" },
     });
     if (!res.ok) return null;
-    return await res.text();
+    const html = await res.text();
+    return isBuiltSpaHtml(html) ? html : null;
   } catch {
     return null;
   } finally {
@@ -89,13 +72,12 @@ export default async function handler(req, res) {
   }
 
   const meta = buildShareMeta(item, { origin, path, token });
-  let spa = loadSpaShell();
-  if (!spa) spa = await fetchText(`${origin}/index.html`);
+  const spa = await fetchBuiltSpa(origin);
   const html = injectShareMeta(spa, meta);
 
   res.statusCode = 200;
   res.setHeader("content-type", "text/html; charset=utf-8");
-  res.setHeader("cache-control", "public, max-age=120, stale-while-revalidate=600");
+  res.setHeader("cache-control", "public, max-age=60, stale-while-revalidate=300");
   res.setHeader("x-robots-tag", "noindex, nofollow");
   res.end(req.method === "HEAD" ? "" : html);
 }
