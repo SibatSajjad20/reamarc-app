@@ -178,6 +178,14 @@ class ApiClient {
       ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),
     };
+
+    if (typeof window !== 'undefined') {
+      const impToken = localStorage.getItem('reamarc_impersonation_token');
+      if (impToken && !headers['Authorization']) {
+        headers['Authorization'] = `Bearer ${impToken}`;
+      }
+    }
+
     return headers;
   }
 

@@ -379,9 +379,25 @@ async def get_current_user(
     token_tv = payload.get("tv")
     token_ctv = payload.get("ctv")
     typ = payload.get("typ") or payload.get("type", "access")
+    is_imp = (typ == "imp")
+
+    if is_imp:
+        if not user_doc.get("is_super_admin"):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonation token invalid for non-super-admin user.",
+            )
+        target_cid = token_cid or payload.get("imp_cid")
+        if target_cid:
+            from app.core.tenant import get_global_db
+            gdb_inst = get_global_db()
+            if gdb_inst is not None:
+                imp_comp = await gdb_inst.companies.find_one({"id": target_cid})
+                if imp_comp:
+                    company_doc = imp_comp
 
     # Multi-tenancy checks
-    if getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid:
+    if (getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid) and not is_imp:
         expected_cid = user_doc.get("company_id") or "company_reamarc"
         if token_cid and token_cid != expected_cid:
             raise HTTPException(
@@ -409,7 +425,7 @@ async def get_current_user(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Company session revoked.",
                 )
-    else:
+    elif not is_imp:
         if token_session_epoch(payload) != user_session_epoch(user_doc):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -550,6 +566,26 @@ def require_roles(allowed_roles: List[str]):
             )
         return current_user
     return _check_role
+
+
+async def require_owner(current_user: dict = Depends(get_current_user)) -> dict:
+    """Dependency guard requiring super-admin owner privileges.
+    Fails closed with 404 (Not Found) for non-owners to prevent route enumeration.
+    Blocks owner actions while in an active impersonation session.
+    """
+    if not current_user.get("is_super_admin"):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Not Found",
+        )
+    from app.core.tenant import get_tenant_context
+    ctx = get_tenant_context()
+    if ctx and ctx.impersonating:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Owner actions blocked during impersonation",
+        )
+    return current_user
 
 
 async def require_admin(current_user: dict = Depends(get_current_user)) -> dict:

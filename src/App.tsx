@@ -14,6 +14,7 @@ import { CrmView } from './components/views/CrmView';
 import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
 import { WebsitePipelineView } from './components/views/WebsitePipelineView';
+import { OwnerView } from './components/views/OwnerView';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
@@ -157,6 +158,7 @@ function AppInner() {
     'website-pipeline',
     'portal',
     'settings',
+    'owner',
   ];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
@@ -326,6 +328,17 @@ function AppInner() {
         setCurrentView('settings');
         setActiveSettingsSection('profile');
         localStorage.setItem('reamarc_active_view', 'settings');
+      } else if (currentPath === 'owner' || currentPath.startsWith('owner/')) {
+        if (user?.is_super_admin) {
+          window.history.replaceState(null, '', '/owner');
+          setCurrentView('owner');
+          localStorage.setItem('reamarc_active_view', 'owner');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
@@ -950,6 +963,16 @@ function AppInner() {
                 onSelectThemePreference={setThemePreference}
               />
             </div>
+          )}
+
+          {currentView === 'owner' && (
+            user?.is_super_admin ? (
+              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+                <OwnerView />
+              </div>
+            ) : (
+              <AccessDenied module="Owner Console" />
+            )
           )}
         </ErrorBoundary>
       </AppShell>

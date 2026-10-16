@@ -1061,6 +1061,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
               <DropdownMenuSeparator />
 
+              {/* Owner Console (Faizan super-admin only) */}
+              {user?.is_super_admin && (
+                <DropdownMenuItem
+                  onClick={() => onSelectView('owner')}
+                  className="text-[13px] gap-2.5 cursor-pointer font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                >
+                  <Shield size={16} />
+                  <span>Owner Console</span>
+                </DropdownMenuItem>
+              )}
+
               {/* 2. Settings */}
               <DropdownMenuItem
                 onClick={() => {
