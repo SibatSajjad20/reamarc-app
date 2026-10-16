@@ -190,8 +190,10 @@ if not settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
 
 from app.services.permissions import operations_view_only_middleware
+from app.core.tenant import TenantPayloadStrippingMiddleware
 
 app.middleware("http")(operations_view_only_middleware)
+app.add_middleware(TenantPayloadStrippingMiddleware)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
 def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:

@@ -204,6 +204,8 @@ class MemberResponse(BaseModel):
     created_at: Optional[str] = None
     workspace_ids: List[str] = Field(default_factory=list)
     avatar_url: Optional[str] = None
+    company_id: Optional[str] = None
+    is_super_admin: Optional[bool] = False
 
 
 class MemberActivityResponse(BaseModel):

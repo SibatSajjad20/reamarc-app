@@ -33,6 +33,9 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
     content_stages: Optional[List[str]] = None
+    company_id: Optional[str] = None
+    is_super_admin: Optional[bool] = False
+    company: Optional[dict] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None
