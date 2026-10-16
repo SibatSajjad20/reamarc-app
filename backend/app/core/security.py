@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
+import time
 import uuid
 import jwt
 import bcrypt
@@ -7,6 +8,9 @@ from fastapi import Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer
 from app.config import settings
 from app.models.user import UserRole
+
+_AUTH_CACHE: Dict[str, Dict[str, Any]] = {}
+_AUTH_CACHE_TTL_SECONDS = 30
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 JWT_ALGORITHM = "HS256"
@@ -21,6 +25,17 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hashed_bytes = hashed_password.encode("utf-8")
     return bcrypt.checkpw(pwd_bytes, hashed_bytes)
 
+async def lookup_company(company_id_or_slug: str) -> Optional[dict]:
+    """Allowed global lookup for companies during authentication."""
+    from app.core.tenant import get_global_db
+    gdb = get_global_db()
+    if gdb is None:
+        return None
+    comp = await gdb.companies.find_one({"id": company_id_or_slug})
+    if not comp:
+        comp = await gdb.companies.find_one({"slug": company_id_or_slug})
+    return comp
+
 def get_password_hash(password: str) -> str:
     pwd_bytes = password.encode("utf-8")[:72]
     salt = bcrypt.gensalt()
@@ -32,7 +47,13 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         expires_delta if expires_delta
         else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    to_encode.update({"exp": expire, "type": "access"})
+    if "jti" not in to_encode:
+        to_encode["jti"] = uuid.uuid4().hex
+    to_encode.update({
+        "exp": expire,
+        "type": to_encode.get("type", "access"),
+        "typ": to_encode.get("typ", "access"),
+    })
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def create_refresh_token(data: dict) -> str:
@@ -40,13 +61,48 @@ def create_refresh_token(data: dict) -> str:
     expire = datetime.now(timezone.utc) + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
     if not to_encode.get("jti"):
         to_encode["jti"] = uuid.uuid4().hex
-    to_encode.update({"exp": expire, "type": "refresh"})
+    to_encode.update({
+        "exp": expire,
+        "type": "refresh",
+        "typ": "refresh",
+    })
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def create_owner_token(user_id: str, company_id: Optional[str] = None) -> str:
+    """15-minute owner re-auth session token."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=15)
+    to_encode = {
+        "sub": user_id,
+        "cid": company_id or "company_reamarc",
+        "jti": uuid.uuid4().hex,
+        "exp": expire,
+        "type": "owner",
+        "typ": "owner",
+    }
+    return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+def create_impersonation_token(user_id: str, company_id: str, read_only: bool = True, reason: str = "") -> str:
+    """Owner impersonation token. Read-only lasts 60m, edit lasts 30m."""
+    duration_minutes = 60 if read_only else 30
+    expire = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+    to_encode = {
+        "sub": user_id,
+        "cid": company_id,
+        "imp_cid": company_id,
+        "ro": read_only,
+        "reason_id": reason,
+        "jti": uuid.uuid4().hex,
+        "exp": expire,
+        "type": "access",
+        "typ": "imp",
+    }
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def decode_access_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "access":
+        typ = payload.get("typ") or payload.get("type")
+        if typ not in ("access", "imp"):
             return None
         return payload
     except jwt.PyJWTError:
@@ -55,7 +111,18 @@ def decode_access_token(token: str) -> Optional[dict]:
 def decode_refresh_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        if payload.get("type") != "refresh":
+        typ = payload.get("typ") or payload.get("type")
+        if typ != "refresh":
+            return None
+        return payload
+    except jwt.PyJWTError:
+        return None
+
+def decode_owner_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        typ = payload.get("typ") or payload.get("type")
+        if typ != "owner":
             return None
         return payload
     except jwt.PyJWTError:
@@ -261,28 +328,46 @@ async def get_current_user(
 
     user_id: str = payload.get("sub")
     email: str = payload.get("email")
-    if not user_id or not email:
+    if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token payload missing required user claims.",
         )
 
-    # Fetch live user record for up-to-date role / is_active / department / designation
-    from app.database import get_database
-    db = get_database()
-    if db is None:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Database unavailable. Authentication cannot be verified.",
-        )
+    now_mono = time.monotonic()
+    cached = _AUTH_CACHE.get(user_id)
+    if cached and (now_mono - cached["time"] < _AUTH_CACHE_TTL_SECONDS):
+        user_doc = cached["user"]
+        company_doc = cached["company"]
+    else:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        if gdb is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Database unavailable. Authentication cannot be verified.",
+            )
 
-    user_doc = await db.users.find_one({"id": user_id}, {"_id": 0, "hashed_password": 0})
-    if not user_doc:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User account not found.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        user_doc = await gdb.users.find_one({"id": user_id}, {"hashed_password": 0})
+        if not user_doc:
+            user_doc = await gdb.users.find_one({"_id": user_id}, {"hashed_password": 0})
+        if not user_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User account not found.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        cid_from_user = user_doc.get("company_id") or "company_reamarc"
+        company_doc = await gdb.companies.find_one({"id": cid_from_user})
+        if not company_doc:
+            company_doc = await gdb.companies.find_one({"slug": "reamarc"})
+
+        _AUTH_CACHE[user_id] = {
+            "user": user_doc,
+            "company": company_doc,
+            "time": now_mono,
+        }
 
     if not user_doc.get("is_active", True):
         raise HTTPException(
@@ -290,15 +375,49 @@ async def get_current_user(
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
-    if token_session_epoch(payload) != user_session_epoch(user_doc):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired. Please sign in again.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    token_cid = payload.get("cid")
+    token_tv = payload.get("tv")
+    token_ctv = payload.get("ctv")
+    typ = payload.get("typ") or payload.get("type", "access")
 
-    # sid is this browser's refresh id. Missing sid is a legacy token and stays
-    # valid until password change. A revoked sid signs out only that browser.
+    # Multi-tenancy checks
+    if getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid:
+        expected_cid = user_doc.get("company_id") or "company_reamarc"
+        if token_cid and token_cid != expected_cid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token company mismatch.",
+            )
+
+        if token_tv is not None:
+            if int(user_doc.get("token_version", 0)) != int(token_tv):
+                _AUTH_CACHE.pop(user_id, None)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session revoked. Please sign in again.",
+                )
+
+        if company_doc:
+            if company_doc.get("status") == "suspended":
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="This company's access is paused.",
+                )
+            if token_ctv is not None and int(company_doc.get("token_version", 0)) != int(token_ctv):
+                _AUTH_CACHE.pop(user_id, None)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Company session revoked.",
+                )
+    else:
+        if token_session_epoch(payload) != user_session_epoch(user_doc):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+    # Legacy sid check
     session_id = str(payload.get("sid") or "").strip()
     if session_id:
         active_sessions = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
@@ -309,11 +428,44 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+    effective_cid = token_cid or user_doc.get("company_id") or "company_reamarc"
+    is_imp = (typ == "imp")
+    is_ro = bool(is_imp and payload.get("ro", True))
+
+    from app.core.tenant import set_tenant_context, TenantContext
+    set_tenant_context(TenantContext(
+        company_id=effective_cid,
+        user_id=user_id,
+        is_owner=bool(user_doc.get("is_super_admin", False)),
+        impersonating=is_imp,
+        read_only=is_ro,
+        request_id=request.headers.get("X-Request-ID"),
+    ))
+
+    # Read-only impersonation restrictions
+    if is_imp:
+        if is_ro and request.method not in ("GET", "HEAD", "OPTIONS"):
+            raise HTTPException(status_code=403, detail="Writes are disabled during read-only owner session")
+        req_path = request.url.path
+        if "/owner" in req_path or "/change-password" in req_path:
+            raise HTTPException(status_code=403, detail="Owner actions blocked during impersonation")
+
     effective_role = _normalize_role(user_doc.get("role"))
+
+    company_payload = None
+    if company_doc:
+        company_payload = {
+            "id": company_doc.get("id"),
+            "name": company_doc.get("name"),
+            "slug": company_doc.get("slug"),
+            "logo_url": company_doc.get("logo_url"),
+            "accent_color": company_doc.get("accent_color", "#6847E0"),
+            "timezone": company_doc.get("timezone", "Asia/Karachi"),
+        }
 
     return {
         "id": user_id,
-        "email": user_doc.get("email") or email,
+        "email": user_doc.get("email") or email or user_doc.get("email"),
         "name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "full_name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "role": effective_role,
@@ -328,6 +480,9 @@ async def get_current_user(
         "access": user_doc.get("access") or {},
         "content_stages": user_doc.get("content_stages"),
         "access_version": user_doc.get("access_version") or 1,
+        "company_id": effective_cid,
+        "is_super_admin": bool(user_doc.get("is_super_admin", False)),
+        "company": company_payload,
     }
 
 

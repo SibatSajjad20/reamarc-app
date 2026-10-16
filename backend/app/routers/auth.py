@@ -26,6 +26,7 @@ from app.core.limiter import limiter, get_client_ip
 from app.core.rate_limit_store import enforce_shared_rate_limit
 from app.services.email_service import EmailService
 from app.database import get_database
+from app.core.tenant import get_global_db, tenant_scope
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -146,20 +147,20 @@ async def register_disabled():
 @router.post("/login", response_model=TokenResponse)
 @limiter.limit("10/minute")
 async def login(request: Request, user_in: UserLogin, response: Response):
-    db = get_database()
-    if db is None:
+    gdb = get_global_db()
+    if gdb is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection to MongoDB is currently unavailable.",
         )
 
     email_clean = str(user_in.email).lower().strip()
-    await enforce_shared_rate_limit(f"login-email:{email_clean}", 10, 60)
-    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", 20, 60)
-    user_doc = await db.users.find_one({"email": email_clean})
+    await enforce_shared_rate_limit(f"login-email:{email_clean}", 10, 3600)
+    await enforce_shared_rate_limit(f"login-ip:{get_client_ip(request)}", 5, 60)
+    user_doc = await gdb.users.find_one({"email": email_clean})
     if not user_doc:
         # Fallback to case-insensitive match if stored in mixed case
-        user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
+        user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
     stored_hash = (user_doc or {}).get("hashed_password") or _DUMMY_PASSWORD_HASH
     password_ok = verify_password(user_in.password, stored_hash)
@@ -175,6 +176,26 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
+    from app.core.security import lookup_company
+    cid = user_doc.get("company_id") or "company_reamarc"
+    company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+
+    if company_doc and company_doc.get("status") == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This company's access is paused.",
+        )
+
+    if company_doc:
+        user_doc["company"] = {
+            "id": company_doc.get("id"),
+            "name": company_doc.get("name"),
+            "slug": company_doc.get("slug"),
+            "logo_url": company_doc.get("logo_url"),
+            "accent_color": company_doc.get("accent_color", "#6847E0"),
+            "timezone": company_doc.get("timezone", "Asia/Karachi"),
+        }
+
     role_str = _normalize_role(user_doc.get("role"))
     claims = claims_with_session(user_doc, {
         "sub": user_doc.get("id") or str(user_doc.get("_id")),
@@ -182,7 +203,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    })
+    }, company_doc=company_doc)
     user_id = user_doc.get("id") or str(user_doc.get("_id"))
     if user_in.device_uuid:
         from app.services.device_registry import assert_device_login_allowed
@@ -191,7 +212,9 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     session_id = uuid.uuid4().hex
     access_token, refresh_token = _issue_token_pair(claims, session_id)
     # A new login adds a session. It does not revoke any other browser or account.
-    await remember_refresh_jti(db, user_id, session_id)
+    db = get_database()
+    with tenant_scope(cid):
+        await remember_refresh_jti(db, user_id, session_id)
     wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
@@ -219,11 +242,13 @@ async def refresh_token(request: Request, response: Response):
     if payload is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
 
-    db = get_database()
-    if db is None:
+    gdb = get_global_db()
+    if gdb is None:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database unavailable.")
 
-    user_doc = await db.users.find_one({"id": payload["sub"]})
+    user_doc = await gdb.users.find_one({"id": payload["sub"]})
+    if not user_doc:
+        user_doc = await gdb.users.find_one({"_id": payload["sub"]})
     if not user_doc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found.")
 
@@ -237,6 +262,12 @@ async def refresh_token(request: Request, response: Response):
     old_jti = str(payload.get("jti") or "").strip()
     existing_jtis = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
 
+    from app.core.security import lookup_company
+    cid = user_doc.get("company_id") or "company_reamarc"
+    company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+    if company_doc and company_doc.get("status") == "suspended":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This company's access is paused.")
+
     role_str = _normalize_role(user_doc.get("role"))
     claims = claims_with_session(user_doc, {
         "sub": user_id,
@@ -244,7 +275,7 @@ async def refresh_token(request: Request, response: Response):
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    })
+    }, company_doc=company_doc)
     session_id = uuid.uuid4().hex
     new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
     recently_retired = bool(old_jti) and retired_jti_is_recent(
@@ -254,19 +285,21 @@ async def refresh_token(request: Request, response: Response):
         old_jti, existing_jtis, recently_retired=recently_retired
     )
 
-    if action == "rotate":
-        rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
-        if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
+    db = get_database()
+    with tenant_scope(cid):
+        if action == "rotate":
+            rotated = await rotate_refresh_jti(db, user_id, old_jti, session_id)
+            if not rotated and not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+        elif action == "grace":
+            if not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
+                raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+        elif action == "legacy":
+            # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
+            await remember_refresh_jti(db, user_id, session_id)
+        else:
+            # Stale token from another browser. Reject this token only.
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
-    elif action == "grace":
-        if not await accept_retired_refresh(db, user_id, old_jti, session_id, fresh_doc=user_doc):
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
-    elif action == "legacy":
-        # Legacy refresh tokens (no jti list yet) are accepted once, then tracked.
-        await remember_refresh_jti(db, user_id, session_id)
-    else:
-        # Stale token from another browser. Reject this token only.
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
 
     wants_json = _wants_json_tokens(request)
     if not wants_json:
@@ -422,17 +455,17 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
     Step 1: Initiates password reset by dispatching a 6-digit OTP code to the registered email.
     Returns generic success message to prevent account enumeration.
     """
-    db = get_database()
-    if db is None:
+    gdb = get_global_db()
+    if gdb is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection is currently unavailable.",
         )
 
     email_clean = str(payload.email).lower().strip()
-    user_doc = await db.users.find_one({"email": email_clean})
+    user_doc = await gdb.users.find_one({"email": email_clean})
     if not user_doc:
-        user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
+        user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
     # Generic success response to prevent user enumeration attacks
     generic_response = {"message": "If an account with that email exists, a verification code has been sent."}
@@ -445,10 +478,10 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
         expires_at = now + timedelta(minutes=10)
 
         # Clear any prior unused reset requests for this email
-        await db.password_resets.delete_many({"email": email_clean})
+        await gdb.password_resets.delete_many({"email": email_clean})
 
         # Insert new reset record
-        await db.password_resets.insert_one({
+        await gdb.password_resets.insert_one({
             "id": str(uuid.uuid4()),
             "email": email_clean,
             "code_hash": code_hash,
@@ -482,8 +515,8 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
     Step 2: Validates the 6-digit OTP code before displaying new password input fields.
     Tracks attempts and locks reset request after 5 failed attempts.
     """
-    db = get_database()
-    if db is None:
+    gdb = get_global_db()
+    if gdb is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection is currently unavailable.",
@@ -492,7 +525,7 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
     email_clean = str(payload.email).lower().strip()
     code_clean = payload.code.strip()
 
-    reset_doc = await db.password_resets.find_one(
+    reset_doc = await gdb.password_resets.find_one(
         {"email": email_clean, "used": False},
         sort=[("created_at", -1)]
     )
@@ -527,7 +560,7 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
         )
 
     if not verify_password(code_clean, reset_doc.get("code_hash", "")):
-        updated = await db.password_resets.find_one_and_update(
+        updated = await gdb.password_resets.find_one_and_update(
             {"_id": reset_doc["_id"]},
             {"$inc": {"attempts": 1}},
             return_document=ReturnDocument.AFTER
@@ -554,8 +587,8 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
     Step 3: Verifies the code one final time, hashes the new password with bcrypt,
     updates the user document in MongoDB, and marks the reset record as used.
     """
-    db = get_database()
-    if db is None:
+    gdb = get_global_db()
+    if gdb is None:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Database connection is currently unavailable.",
@@ -570,9 +603,9 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
     email_clean = str(payload.email).lower().strip()
     code_clean = payload.code.strip()
 
-    user_doc = await db.users.find_one({"email": email_clean})
+    user_doc = await gdb.users.find_one({"email": email_clean})
     if not user_doc:
-        user_doc = await db.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
+        user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
     if not user_doc or not user_doc.get("is_active", True):
         raise HTTPException(
@@ -580,7 +613,7 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
             detail="Invalid or expired verification code. Please request a new code.",
         )
 
-    reset_doc = await db.password_resets.find_one(
+    reset_doc = await gdb.password_resets.find_one(
         {"email": email_clean, "used": False},
         sort=[("created_at", -1)]
     )
@@ -615,7 +648,7 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         )
 
     if not verify_password(code_clean, reset_doc.get("code_hash", "")):
-        updated = await db.password_resets.find_one_and_update(
+        updated = await gdb.password_resets.find_one_and_update(
             {"_id": reset_doc["_id"]},
             {"$inc": {"attempts": 1}},
             return_document=ReturnDocument.AFTER
@@ -633,7 +666,7 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         )
 
     # Invalidate the reset record atomically to prevent race-condition re-use
-    updated_reset = await db.password_resets.find_one_and_update(
+    updated_reset = await gdb.password_resets.find_one_and_update(
         {"_id": reset_doc["_id"], "used": False},
         {"$set": {"used": True, "used_at": now}}
     )
@@ -645,23 +678,128 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
 
     # Hash new password and update user record
     new_hashed_password = get_password_hash(payload.new_password)
-    await db.users.update_one(
-        {"_id": user_doc["_id"]},
-        {
-            "$set": {
-                "hashed_password": new_hashed_password,
-                "updated_at": now.isoformat(),
-                "refresh_jtis": [],
-            },
-            "$inc": {"session_epoch": 1},
-        }
-    )
+    cid = user_doc.get("company_id") or "company_reamarc"
+    db = get_database()
+    with tenant_scope(cid):
+        await db.users.update_one(
+            {"_id": user_doc["_id"]},
+            {
+                "$set": {
+                    "hashed_password": new_hashed_password,
+                    "updated_at": now.isoformat(),
+                    "refresh_jtis": [],
+                },
+                "$inc": {"session_epoch": 1, "token_version": 1},
+            }
+        )
+
+    from app.core.security import _AUTH_CACHE
+    _AUTH_CACHE.pop(str(user_doc.get("id")), None)
 
     # Invalidate / mark used all other pending reset tokens for this user
-    await db.password_resets.update_many(
+    await gdb.password_resets.update_many(
         {"email": email_clean, "used": False},
         {"$set": {"used": True, "used_at": now}}
     )
 
     return {"message": "Password has been successfully reset. You can now log in with your new password."}
+
+
+from pydantic import BaseModel
+
+class InviteVerifyRequest(BaseModel):
+    token: str
+
+class InviteAcceptRequest(BaseModel):
+    token: str
+    password: str
+
+@router.post("/invite/verify")
+async def verify_invite(request: Request, payload: InviteVerifyRequest):
+    """Verifies invite token validity and returns basic recipient information."""
+    import hashlib
+    await enforce_shared_rate_limit(f"invite-ip:{get_client_ip(request)}", 10, 3600)
+    raw_token = payload.token.strip()
+    if not raw_token:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Token missing.")
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database unavailable.")
+
+    user_doc = await gdb.users.find_one({"invite_token_hash": token_hash})
+    if not user_doc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid invite link.")
+
+    if user_doc.get("invite_used_at"):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has already been used.")
+
+    now = datetime.now(timezone.utc)
+    exp = user_doc.get("invite_expires_at")
+    if exp and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp and now > exp:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
+
+    return {
+        "valid": True,
+        "email": user_doc.get("email"),
+        "name": user_doc.get("name") or user_doc.get("full_name"),
+        "company_id": user_doc.get("company_id"),
+    }
+
+@router.post("/invite/accept")
+async def accept_invite(request: Request, payload: InviteAcceptRequest):
+    """Accepts single-use invite, sets admin password, and activates account."""
+    import hashlib
+    from pymongo import ReturnDocument
+    await enforce_shared_rate_limit(f"invite-accept-ip:{get_client_ip(request)}", 10, 3600)
+    if len(payload.password) < 8:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Password must be at least 8 characters.")
+
+    raw_token = payload.token.strip()
+    token_hash = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Database unavailable.")
+
+    user_doc = await gdb.users.find_one({"invite_token_hash": token_hash})
+    if not user_doc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid invite link.")
+
+    if user_doc.get("invite_used_at"):
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has already been used.")
+
+    now = datetime.now(timezone.utc)
+    exp = user_doc.get("invite_expires_at")
+    if exp and exp.tzinfo is None:
+        exp = exp.replace(tzinfo=timezone.utc)
+    if exp and now > exp:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
+
+    hashed_pwd = get_password_hash(payload.password)
+    cid = user_doc.get("company_id") or "company_reamarc"
+    db = get_database()
+    with tenant_scope(cid):
+        updated = await db.users.find_one_and_update(
+            {"_id": user_doc["_id"], "invite_used_at": None},
+            {
+                "$set": {
+                    "hashed_password": hashed_pwd,
+                    "invite_used_at": now,
+                    "is_active": True,
+                },
+                "$inc": {"token_version": 1},
+            },
+            return_document=ReturnDocument.AFTER,
+        )
+    if not updated:
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has already been used.")
+
+    from app.core.security import _AUTH_CACHE
+    _AUTH_CACHE.pop(str(user_doc.get("id")), None)
+
+    return {"message": "Invite accepted successfully. You can now log in.", "email": user_doc.get("email")}
 

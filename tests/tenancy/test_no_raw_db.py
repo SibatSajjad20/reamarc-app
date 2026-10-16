@@ -33,6 +33,8 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "tenant.py",
     "owner.py",
     "security.py",
+    "rate_limit_store.py",
+    "auth.py",
 }
 
 ALLOW_LIST_RAW_DB = {

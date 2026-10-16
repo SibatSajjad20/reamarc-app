@@ -113,6 +113,7 @@ GLOBAL_COLLECTIONS: Set[str] = frozenset({
     "migrations",
     "rate_limit_counters",
     "security_events",
+    "password_resets",
 })
 
 TENANT_COLLECTIONS: Set[str] = frozenset({
