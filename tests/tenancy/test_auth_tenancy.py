@@ -93,6 +93,7 @@ class TestAuthTenancy(unittest.IsolatedAsyncioTestCase):
                 "name": "Alpha Admin",
                 "full_name": "Alpha Admin",
                 "role": "admin",
+                "is_super_admin": True,
                 "company_id": "comp_a",
                 "token_version": 1,
                 "is_active": True,
