@@ -18,11 +18,13 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
 
+from app.config import settings
 from app.core.owner_audit import record_owner_audit_event
 from app.core.security import (
     create_impersonation_token,
     get_password_hash,
     require_owner,
+    invalidate_auth_cache,
 )
 from app.core.tenant import get_global_db
 
@@ -63,6 +65,11 @@ class CompanyUpdateRequest(BaseModel):
 class OwnerEnterRequest(BaseModel):
     reason: str = Field("Inspection / Support", max_length=255)
     read_only: bool = True
+
+
+class GrantCompanyAccessRequest(BaseModel):
+    company_id: str = Field(..., min_length=2, max_length=100)
+
 
 
 # ==============================================================================
@@ -376,3 +383,226 @@ async def get_audit_log(
     gdb = get_global_db()
     records = await gdb.owner_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
     return records
+
+
+@router.get("/members")
+async def list_owner_members(
+    search: Optional[str] = Query(None, description="Search by name or email"),
+    current_user: dict = Depends(require_owner),
+) -> List[Dict[str, Any]]:
+    """List all users with email and their company memberships."""
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    gdb = get_global_db()
+    user_query: Dict[str, Any] = {}
+    if search:
+        s_clean = re.escape(search.strip())
+        user_query["$or"] = [
+            {"email": {"$regex": s_clean, "$options": "i"}},
+            {"name": {"$regex": s_clean, "$options": "i"}},
+            {"full_name": {"$regex": s_clean, "$options": "i"}},
+        ]
+
+    users = await gdb.users.find(user_query, {"hashed_password": 0}).sort("created_at", -1).to_list(1000)
+    user_ids = [u.get("id") or str(u.get("_id")) for u in users]
+
+    memberships = await gdb.company_memberships.find({"user_id": {"$in": user_ids}}).to_list(5000)
+    mems_by_user: Dict[str, List[dict]] = {}
+    for m in memberships:
+        mems_by_user.setdefault(m["user_id"], []).append(m)
+
+    all_companies = await gdb.companies.find({}, {"_id": 0, "id": 1, "name": 1, "slug": 1, "logo_url": 1, "status": 1}).to_list(1000)
+    comp_map = {c["id"]: c for c in all_companies}
+
+    result = []
+    for u in users:
+        uid = u.get("id") or str(u.get("_id"))
+        user_mems = mems_by_user.get(uid, [])
+        formatted_mems = []
+        for m in user_mems:
+            cid = m["company_id"]
+            comp = comp_map.get(cid, {})
+            formatted_mems.append({
+                "id": m.get("id") or str(m.get("_id")),
+                "company_id": cid,
+                "company_name": comp.get("name", cid),
+                "company_slug": comp.get("slug", ""),
+                "company_logo_url": comp.get("logo_url"),
+                "company_status": comp.get("status", "active"),
+                "role": m.get("role", "team_member"),
+                "status": m.get("status", "active"),
+                "needs_setup": bool(m.get("needs_setup", False)),
+                "granted_at": m.get("granted_at"),
+                "removed_at": m.get("removed_at"),
+            })
+
+        result.append({
+            "id": uid,
+            "email": u.get("email"),
+            "name": u.get("full_name") or u.get("name", "User"),
+            "full_name": u.get("full_name") or u.get("name", "User"),
+            "is_active": u.get("is_active", True),
+            "is_super_admin": u.get("is_super_admin", False),
+            "created_at": u.get("created_at"),
+            "memberships": formatted_mems,
+        })
+
+    return result
+
+
+@router.post("/members/{user_id}/companies")
+async def grant_company_access(
+    user_id: str,
+    body: GrantCompanyAccessRequest,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Give a user access to a company. Starts with minimal access and needs_setup=True."""
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    gdb = get_global_db()
+    target_user = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    target_comp = await gdb.companies.find_one({"id": body.company_id})
+    if not target_comp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+    existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
+
+    if existing_mem:
+        mem_id = existing_mem["id"]
+        update_doc = {
+            "status": "active",
+            "role": "team_member",
+            "primary_department": None,
+            "departments": [],
+            "content_stages": [],
+            "access": {
+                "attendance": False,
+                "daily_log": False,
+                "sales": False,
+                "content_calendar": False,
+                "website": False,
+                "ads": False,
+            },
+            "needs_setup": True,
+            "granted_by": current_user["id"],
+            "granted_at": now_iso,
+            "removed_by": None,
+            "removed_at": None,
+            "updated_at": now_iso,
+        }
+        await gdb.company_memberships.update_one(
+            {"_id": existing_mem["_id"]},
+            {"$set": update_doc, "$inc": {"token_version": 1}},
+        )
+    else:
+        mem_id = f"mem_{uuid.uuid4().hex[:12]}"
+        mem_doc = {
+            "_id": mem_id,
+            "id": mem_id,
+            "user_id": user_id,
+            "company_id": body.company_id,
+            "role": "team_member",
+            "primary_department": None,
+            "departments": [],
+            "content_stages": [],
+            "access": {
+                "attendance": False,
+                "daily_log": False,
+                "sales": False,
+                "content_calendar": False,
+                "website": False,
+                "ads": False,
+            },
+            "status": "active",
+            "needs_setup": True,
+            "granted_by": current_user["id"],
+            "granted_at": now_iso,
+            "removed_by": None,
+            "removed_at": None,
+            "token_version": 0,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        await gdb.company_memberships.insert_one(mem_doc)
+
+    invalidate_auth_cache(user_id=user_id, membership_id=mem_id)
+
+    await record_owner_audit_event(
+        global_db=gdb,
+        action="grant_company_access",
+        actor_user_id=current_user["id"],
+        target_company_id=body.company_id,
+        details={
+            "target_user_id": user_id,
+            "target_user_email": target_user.get("email"),
+            "membership_id": mem_id,
+        },
+    )
+
+    return {
+        "ok": True,
+        "membership_id": mem_id,
+        "user_id": user_id,
+        "company_id": body.company_id,
+        "status": "active",
+        "needs_setup": True,
+        "role": "team_member",
+    }
+
+
+@router.post("/members/{user_id}/companies/{company_id}/remove")
+async def remove_company_access(
+    user_id: str,
+    company_id: str,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Soft-remove a user's company membership (sets status=removed, bumps token_version)."""
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    gdb = get_global_db()
+    target_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": company_id})
+    if not target_mem:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Membership not found.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    await gdb.company_memberships.update_one(
+        {"_id": target_mem["_id"]},
+        {
+            "$set": {
+                "status": "removed",
+                "removed_by": current_user["id"],
+                "removed_at": now_iso,
+                "updated_at": now_iso,
+            },
+            "$inc": {"token_version": 1},
+        },
+    )
+
+    invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
+
+    await record_owner_audit_event(
+        global_db=gdb,
+        action="remove_company_access",
+        actor_user_id=current_user["id"],
+        target_company_id=company_id,
+        details={
+            "target_user_id": user_id,
+            "membership_id": target_mem["id"],
+        },
+    )
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "company_id": company_id,
+        "status": "removed",
+    }
+

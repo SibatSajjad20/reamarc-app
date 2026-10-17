@@ -40,6 +40,31 @@ export interface OwnerAuditEvent {
   details?: Record<string, any>;
 }
 
+export interface OwnerMemberMembership {
+  id: string;
+  company_id: string;
+  company_name: string;
+  company_slug: string;
+  company_logo_url?: string | null;
+  company_status?: string;
+  role: string;
+  status: 'active' | 'removed';
+  needs_setup: boolean;
+  granted_at?: string;
+  removed_at?: string;
+}
+
+export interface OwnerMember {
+  id: string;
+  email: string;
+  name: string;
+  full_name: string;
+  is_active: boolean;
+  is_super_admin: boolean;
+  created_at?: string;
+  memberships: OwnerMemberMembership[];
+}
+
 export const ownerService = {
   async getSession() {
     return apiClient.get<{ user: any; is_owner: boolean }>('/owner/session');
@@ -74,5 +99,31 @@ export const ownerService = {
 
   async getAuditLog(limit = 50) {
     return apiClient.get<OwnerAuditEvent[]>(`/owner/audit?limit=${limit}`);
+  },
+
+  async getMembers(search?: string) {
+    const q = search ? `?search=${encodeURIComponent(search)}` : '';
+    return apiClient.get<OwnerMember[]>(`/owner/members${q}`);
+  },
+
+  async grantCompanyAccess(userId: string, companyId: string) {
+    return apiClient.post<{
+      ok: boolean;
+      membership_id: string;
+      user_id: string;
+      company_id: string;
+      status: string;
+      needs_setup: boolean;
+      role: string;
+    }>(`/owner/members/${userId}/companies`, { company_id: companyId });
+  },
+
+  async removeCompanyAccess(userId: string, companyId: string) {
+    return apiClient.post<{
+      ok: boolean;
+      user_id: string;
+      company_id: string;
+      status: string;
+    }>(`/owner/members/${userId}/companies/${companyId}/remove`);
   },
 };

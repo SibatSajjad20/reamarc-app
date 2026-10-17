@@ -27,6 +27,7 @@ from app.schemas.admin import (
     AdAccountUpdate,
     AdAccountResponse,
 )
+from app.config import settings
 from app.schemas.error import ErrorResponse
 from app.core.security import (
     require_admin,
@@ -35,6 +36,8 @@ from app.core.security import (
     require_management_role,
     get_password_hash,
     bump_session_epoch,
+    invalidate_auth_cache,
+    get_current_user,
 )
 from app.core.mongo_filters import exact_ci
 from app.database import get_database
@@ -128,6 +131,7 @@ def _format_member_resp(doc: dict) -> dict:
         "avatar_url": doc.get("avatar_url"),
         "company_id": doc.get("company_id"),
         "is_super_admin": doc.get("is_super_admin", False),
+        "needs_setup": bool(doc.get("needs_setup", False)),
     }
 
 
@@ -223,8 +227,56 @@ async def list_members(
     department: Optional[str] = Query(None, description="Filter by department name"),
     role: Optional[str] = Query(None, description="Filter by member role (admin, hr, operations, team_lead, team_member)"),
     search: Optional[str] = Query(None, description="Search by name or email"),
+    current_user: dict = Depends(get_current_user),
 ):
     """List all registered members in the organization."""
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        current_cid = current_user.get("company_id")
+        mem_query: Dict[str, Any] = {"company_id": current_cid, "status": "active"}
+        if role:
+            mem_query["role"] = role.lower()
+        if department:
+            mem_query["$or"] = [
+                {"department": exact_ci(department)},
+                {"departments": exact_ci(department)},
+                {"primary_department": exact_ci(department)},
+            ]
+
+        mems = await gdb.company_memberships.find(mem_query).to_list(1000)
+        if not mems:
+            return []
+
+        user_ids = [m["user_id"] for m in mems]
+        u_cursor = gdb.users.find({"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]})
+        users = await u_cursor.to_list(1000)
+        user_by_id = {u.get("id") or str(u.get("_id")): u for u in users}
+
+        results = []
+        for m in mems:
+            u = user_by_id.get(m["user_id"])
+            if not u:
+                continue
+            merged = dict(u)
+            merged["role"] = m.get("role", "team_member")
+            merged["department"] = m.get("department")
+            merged["departments"] = m.get("departments") or []
+            merged["primary_department"] = m.get("primary_department")
+            merged["needs_setup"] = bool(m.get("needs_setup", False))
+            merged["company_id"] = current_cid
+
+            if search:
+                s_lower = search.strip().lower()
+                full_name = str(merged.get("full_name") or merged.get("name") or "").lower()
+                email = str(merged.get("email") or "").lower()
+                if s_lower not in full_name and s_lower not in email:
+                    continue
+
+            results.append(_format_member_resp(merged))
+
+        return results
+
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -606,11 +658,28 @@ async def update_member(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
-    if not existing_user:
-        raise HTTPException(status_code=404, detail="Member not found.")
-
-    is_target_admin = existing_user.get("role") in (UserRole.ADMIN.value, "admin")
+    multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    target_mem = None
+    if multi_enabled:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        existing_user = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Member not found.")
+        target_mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": current_user.get("company_id"),
+            "status": "active",
+        })
+        if not target_mem:
+            raise HTTPException(status_code=404, detail="Member not found.")
+        target_role = target_mem.get("role", "team_member")
+        is_target_admin = target_role in (UserRole.ADMIN.value, "admin")
+    else:
+        existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+        if not existing_user:
+            raise HTTPException(status_code=404, detail="Member not found.")
+        is_target_admin = existing_user.get("role") in (UserRole.ADMIN.value, "admin")
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 
     # Super Admin Protection: HR cannot modify the Super Admin account
@@ -761,12 +830,45 @@ async def update_member(
     if not update_fields:
         return _format_member_resp(existing_user)
 
-    update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
-    updated_user = await db.users.find_one_and_update(
-        {"$or": [{"id": user_id}, {"_id": user_id}]},
-        {"$set": update_fields},
-        return_document=True,
-    )
+    if multi_enabled and target_mem:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        mem_set: Dict[str, Any] = {"updated_at": now_iso}
+        if member_in.role is not None:
+            mem_set["role"] = member_in.role.value
+            mem_set["needs_setup"] = False
+        if "department" in update_fields:
+            mem_set["department"] = update_fields["department"]
+        if "departments" in update_fields:
+            mem_set["departments"] = update_fields["departments"]
+        if "primary_department" in update_fields:
+            mem_set["primary_department"] = update_fields["primary_department"]
+
+        await gdb.company_memberships.update_one({"id": target_mem["id"]}, {"$set": mem_set})
+        invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
+
+        update_fields["updated_at"] = now_iso
+        updated_user = await gdb.users.find_one_and_update(
+            {"$or": [{"id": user_id}, {"_id": user_id}]},
+            {"$set": update_fields},
+            return_document=True,
+        )
+        if not updated_user:
+            updated_user = dict(existing_user)
+            updated_user.update(update_fields)
+
+        updated_user["role"] = mem_set.get("role", target_mem.get("role", "team_member"))
+        updated_user["department"] = mem_set.get("department", target_mem.get("department"))
+        updated_user["departments"] = mem_set.get("departments", target_mem.get("departments") or [])
+        updated_user["primary_department"] = mem_set.get("primary_department", target_mem.get("primary_department"))
+        updated_user["needs_setup"] = bool(mem_set.get("needs_setup", target_mem.get("needs_setup", False)))
+        updated_user["company_id"] = current_user.get("company_id")
+    else:
+        update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
+        updated_user = await db.users.find_one_and_update(
+            {"$or": [{"id": user_id}, {"_id": user_id}]},
+            {"$set": update_fields},
+            return_document=True,
+        )
 
     if "hashed_password" in update_fields:
         await bump_session_epoch(db, user_id)

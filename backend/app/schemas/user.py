@@ -208,6 +208,7 @@ class MemberResponse(BaseModel):
     avatar_url: Optional[str] = None
     company_id: Optional[str] = None
     is_super_admin: Optional[bool] = False
+    needs_setup: Optional[bool] = False
 
     @field_validator("created_at", mode="before")
     @classmethod

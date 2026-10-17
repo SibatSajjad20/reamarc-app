@@ -544,9 +544,16 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                       <>
                         {/* Role */}
                         <TD>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg">
-                            {getRoleLabel(m.role)}
-                          </span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium border border-border bg-surface text-fg">
+                              {getRoleLabel(m.role)}
+                            </span>
+                            {m.needs_setup && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                                Needs setup
+                              </span>
+                            )}
+                          </div>
                         </TD>
 
                         {/* Department */}
