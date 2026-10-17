@@ -135,7 +135,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   isMobile = false,
 }) => {
-  const { user } = useAuth();
+  const { user, switchCompany } = useAuth();
   const [internalIsCollapsed, setInternalIsCollapsed] = useState<boolean>(() => {
     try {
       const userKey = user?.id ? `sidebar_collapsed_${user.id}` : 'sidebar_collapsed';
@@ -540,7 +540,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : 'w-[224px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
       )}
     >
-      {/* 1. Brand Block (§8.1, §8.5) */}
+      {/* 1. Brand Block (§8.1, §8.5, Multi-Company Switcher) */}
       <div className="relative h-11 mb-4 shrink-0">
         {/* Expanded state logo row */}
         <div
@@ -551,15 +551,121 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : 'opacity-100 duration-100 delay-200 ease-out'
           )}
         >
-          <BrandMark size={28} className="shrink-0" />
-          <div className="min-w-0 flex-1 truncate pr-1 select-none">
-            <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
-              {user?.company?.name || 'Reamarc'}
-            </span>
-            <span className="block text-xs text-fg-muted leading-4 truncate">
-              Operations hub
-            </span>
-          </div>
+          {Boolean((user?.companies && user.companies.length > 1) || user?.is_super_admin) ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md hover:bg-subtle p-0.5 -ml-0.5 transition-colors group/brand"
+                >
+                  {user?.company?.logo_url ? (
+                    <img
+                      src={user.company.logo_url}
+                      alt=""
+                      className="w-7 h-7 rounded-md object-cover border border-border shrink-0"
+                    />
+                  ) : (
+                    <BrandMark size={28} className="shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1 truncate pr-1 select-none">
+                    <div className="flex items-center gap-1">
+                      <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
+                        {user?.company?.name || 'Reamarc'}
+                      </span>
+                      <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
+                    </div>
+                    <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
+                      {user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                    </span>
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 p-1 z-50">
+                <div className="px-2 py-1 text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
+                  Companies
+                </div>
+                {(user?.companies || [
+                  {
+                    id: user?.company_id || user?.company?.id || 'company_reamarc',
+                    name: user?.company?.name || 'Reamarc',
+                    role: user?.role,
+                    logo_url: user?.company?.logo_url,
+                  },
+                ]).map((comp) => {
+                  const isCurrent = comp.id === (user?.company_id || user?.company?.id);
+                  return (
+                    <DropdownMenuItem
+                      key={comp.id}
+                      onClick={() => {
+                        if (!isCurrent) {
+                          void switchCompany(comp.id);
+                        }
+                      }}
+                      className={cn(
+                        'flex items-center justify-between gap-2 px-2.5 py-1.5 cursor-pointer rounded-md text-xs',
+                        isCurrent && 'bg-subtle font-medium text-fg'
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 truncate">
+                        {comp.logo_url ? (
+                          <img
+                            src={comp.logo_url}
+                            alt=""
+                            className="w-5 h-5 rounded object-cover border border-border shrink-0"
+                          />
+                        ) : (
+                          <div className="w-5 h-5 rounded bg-accent/15 text-accent flex items-center justify-center font-bold text-[10px] shrink-0">
+                            {comp.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 truncate">
+                          <div className="truncate text-fg font-medium">{comp.name}</div>
+                          <div className="text-[10px] text-fg-muted truncate capitalize">
+                            {comp.role ? getRoleDisplayName(comp.role) : 'Member'}
+                          </div>
+                        </div>
+                      </div>
+                      {isCurrent && <Check size={14} className="text-accent shrink-0" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+
+                {user?.is_super_admin && (
+                  <>
+                    <DropdownMenuSeparator className="my-1" />
+                    <DropdownMenuItem
+                      onClick={() => onSelectView('owner' as ViewType)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs font-medium text-fg hover:text-accent rounded-md"
+                    >
+                      <Shield size={14} className="text-accent shrink-0" />
+                      <span>Owner console</span>
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              {user?.company?.logo_url ? (
+                <img
+                  src={user.company.logo_url}
+                  alt=""
+                  className="w-7 h-7 rounded-md object-cover border border-border shrink-0"
+                />
+              ) : (
+                <BrandMark size={28} className="shrink-0" />
+              )}
+              <div className="min-w-0 flex-1 truncate pr-1 select-none">
+                <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
+                  {user?.company?.name || 'Reamarc'}
+                </span>
+                <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
+                  {user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                </span>
+              </div>
+            </>
+          )}
+
           {!isMobile && (
             <Tooltip delayDuration={300}>
               <TooltipTrigger asChild>

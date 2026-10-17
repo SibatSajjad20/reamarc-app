@@ -45,6 +45,16 @@ export interface AuthUser {
   };
   impersonating?: boolean;
   read_only?: boolean;
+  membership_id?: string;
+  needs_setup?: boolean;
+  companies?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    logo_url?: string | null;
+    role?: string;
+    accent_color?: string;
+  }>;
 }
 
 export interface LoginPayload {
@@ -63,4 +73,14 @@ export interface AuthResponse {
   token_type: string;
   user: AuthUser;
   refresh_token?: string | null;
+  membership_id?: string;
+  needs_setup?: boolean;
+  companies?: Array<{
+    id: string;
+    name: string;
+    slug?: string;
+    logo_url?: string | null;
+    role?: string;
+    accent_color?: string;
+  }>;
 }

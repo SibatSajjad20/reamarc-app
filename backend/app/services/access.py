@@ -499,6 +499,44 @@ async def tracked_users(
     """Query MongoDB for users tracked for module, applying extra_filter and Python-side verification."""
     if db is None:
         return []
+
+    from app.config import settings
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        from app.core.tenant import get_tenant_context, get_global_db
+        ctx = get_tenant_context()
+        cid = ctx.company_id if ctx else getattr(db, "company_id", None)
+        gdb = get_global_db()
+        if cid and gdb is not None:
+            mems = await gdb.company_memberships.find({"company_id": cid, "status": "active"}).to_list(1000)
+            if not mems:
+                return []
+            uids = [m["user_id"] for m in mems]
+            users = await gdb.users.find({
+                "$or": [{"id": {"$in": uids}}, {"_id": {"$in": uids}}],
+                "is_active": {"$ne": False},
+            }).to_list(1000)
+            user_by_id = {u.get("id") or str(u.get("_id")): u for u in users}
+
+            results = []
+            for m in mems:
+                u = user_by_id.get(m["user_id"])
+                if not u:
+                    continue
+                merged = dict(u)
+                merged["role"] = m.get("role", "team_member")
+                merged["department"] = m.get("department")
+                merged["departments"] = m.get("departments") or []
+                merged["primary_department"] = m.get("primary_department")
+                merged["access"] = m.get("access") or {}
+                merged["content_stages"] = m.get("content_stages") or []
+                merged["company_id"] = cid
+                merged["needs_setup"] = bool(m.get("needs_setup", False))
+                merged["membership_id"] = m.get("id")
+
+                if is_tracked(merged, module):
+                    results.append(merged)
+            return results
+
     base_filter = tracked_user_filter(module)
     if extra_filter:
         query = {"$and": [base_filter, extra_filter]}

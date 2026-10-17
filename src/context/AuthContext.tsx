@@ -15,6 +15,7 @@ interface AuthContextType {
   login: (payload: LoginPayload) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
+  switchCompany: (companyId: string) => Promise<void>;
   updateUser: (updated: Partial<AuthUser> | AuthUser) => void;
   openAuthModal: (mode?: 'login' | 'register') => void;
   closeAuthModal: () => void;
@@ -152,6 +153,95 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser((prev) => (prev ? { ...prev, ...updated } : (updated as AuthUser)));
   }, []);
 
+  const switchCompany = useCallback(async (companyId: string) => {
+    setIsLoading(true);
+    try {
+      const res = await authService.switchCompany(companyId);
+      clearAllAppCaches();
+
+      if (typeof window !== 'undefined') {
+        try {
+          const toRemove: string[] = [];
+          for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (
+              key &&
+              (key.startsWith('cache_') ||
+                key.startsWith('cc_') ||
+                key.startsWith('dash_') ||
+                key.startsWith('reamarc_cache_'))
+            ) {
+              toRemove.push(key);
+            }
+          }
+          toRemove.forEach((k) => localStorage.removeItem(k));
+          localStorage.setItem('reamarc_active_view', 'dashboard');
+          window.history.replaceState(null, '', '/dashboard');
+        } catch {}
+      }
+
+      setUser(res.user);
+
+      // Notify other tabs to reload
+      try {
+        const channel = new BroadcastChannel('reamarc_company_switch');
+        channel.postMessage({ type: 'company_switched', companyId });
+        channel.close();
+      } catch {}
+
+      // Re-apply accent color if present
+      try {
+        const activeComp = res.user?.companies?.find((c) => c.id === companyId);
+        if (activeComp?.accent_color) {
+          document.documentElement.style.setProperty('--accent', activeComp.accent_color);
+        }
+      } catch {}
+
+      try {
+        const fresh = await authService.getMe();
+        setUser(fresh);
+      } catch {}
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Listen for company switch in other tabs
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('reamarc_company_switch');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'company_switched') {
+          clearAllAppCaches();
+          window.location.reload();
+        }
+      };
+    } catch {}
+    return () => {
+      try {
+        channel?.close();
+      } catch {}
+    };
+  }, []);
+
+  // Auto-switch on URL ?switch=<companyId>
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const targetCompany = params.get('switch');
+      if (targetCompany && targetCompany !== user.company_id) {
+        params.delete('switch');
+        const newSearch = params.toString();
+        const newUrl = `${window.location.pathname}${newSearch ? `?${newSearch}` : ''}`;
+        window.history.replaceState(null, '', newUrl);
+        void switchCompany(targetCompany);
+      }
+    } catch {}
+  }, [user?.company_id, switchCompany]);
+
   return (
     <AuthContext.Provider
       value={{
@@ -164,6 +254,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         login,
         logout,
         refreshUser,
+        switchCompany,
         updateUser,
         openAuthModal,
         closeAuthModal,

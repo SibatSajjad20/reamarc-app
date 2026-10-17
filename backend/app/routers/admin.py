@@ -322,10 +322,20 @@ async def list_members_activity(
     if department:
         query["department"] = exact_ci(department)
 
-    cursor = db.users.find(query).sort("full_name", 1)
-    users = await cursor.to_list(200)
-    from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "daily_log")]
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        from app.services.access import tracked_users
+        users = await tracked_users(db, "daily_log")
+        if department:
+            users = [
+                u for u in users
+                if (u.get("department") == department or department in (u.get("departments") or []))
+            ]
+        users.sort(key=lambda u: (u.get("full_name") or u.get("name") or "").lower())
+    else:
+        cursor = db.users.find(query).sort("full_name", 1)
+        users = await cursor.to_list(200)
+        from app.services.access import is_tracked
+        users = [u for u in users if is_tracked(u, "daily_log")]
 
     now = datetime.now(PKT)
     today_str = pkt_today()
@@ -564,6 +574,12 @@ async def create_member(
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User provisioning is managed exclusively through the Owner Console.",
+        )
 
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 

@@ -191,9 +191,12 @@ async def log_security_event(event_type: str, details: Dict[str, Any]):
     try:
         raw = _get_raw_db()
         if raw is not None:
+            ctx = get_tenant_context()
+            cid = (details or {}).get("company_id") or (ctx.company_id if ctx else None)
             event = {
                 "event_type": event_type,
                 "timestamp": datetime.now(timezone.utc),
+                "company_id": cid,
                 "details": details,
             }
             await raw.security_events.insert_one(event)
