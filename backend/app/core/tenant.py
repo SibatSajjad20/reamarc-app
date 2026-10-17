@@ -322,13 +322,16 @@ class TenantCollection:
         scoped = self._scope_filter(filter)
         ctx = get_tenant_context()
         if ctx and ctx.company_id and isinstance(update, dict):
-            if "$set" in update and isinstance(update["$set"], dict):
-                update["$set"].setdefault("company_id", ctx.company_id)
             if upsert:
-                if "$setOnInsert" in update:
+                if "$set" in update and isinstance(update["$set"], dict) and "company_id" in update["$set"]:
+                    pass
+                elif "$setOnInsert" in update and isinstance(update["$setOnInsert"], dict):
                     update["$setOnInsert"]["company_id"] = ctx.company_id
                 elif any(k.startswith("$") for k in update.keys()):
                     update["$setOnInsert"] = {"company_id": ctx.company_id}
+            else:
+                if "$set" in update and isinstance(update["$set"], dict):
+                    update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.update_one(scoped, update, upsert=upsert, *args, **kwargs)
 
     async def update_many(self, filter, update, upsert=False, *args, **kwargs):
@@ -336,13 +339,16 @@ class TenantCollection:
         scoped = self._scope_filter(filter)
         ctx = get_tenant_context()
         if ctx and ctx.company_id and isinstance(update, dict):
-            if "$set" in update and isinstance(update["$set"], dict):
-                update["$set"].setdefault("company_id", ctx.company_id)
             if upsert:
-                if "$setOnInsert" in update:
+                if "$set" in update and isinstance(update["$set"], dict) and "company_id" in update["$set"]:
+                    pass
+                elif "$setOnInsert" in update and isinstance(update["$setOnInsert"], dict):
                     update["$setOnInsert"]["company_id"] = ctx.company_id
                 elif any(k.startswith("$") for k in update.keys()):
                     update["$setOnInsert"] = {"company_id": ctx.company_id}
+            else:
+                if "$set" in update and isinstance(update["$set"], dict):
+                    update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.update_many(scoped, update, upsert=upsert, *args, **kwargs)
 
     async def replace_one(self, filter, replacement, upsert=False, *args, **kwargs):
@@ -366,8 +372,17 @@ class TenantCollection:
         scoped = self._scope_filter(filter)
         ctx = get_tenant_context()
         if ctx and ctx.company_id and isinstance(update, dict):
-            if "$set" in update and isinstance(update["$set"], dict):
-                update["$set"].setdefault("company_id", ctx.company_id)
+            upsert = kwargs.get("upsert", False)
+            if upsert:
+                if "$set" in update and isinstance(update["$set"], dict) and "company_id" in update["$set"]:
+                    pass
+                elif "$setOnInsert" in update and isinstance(update["$setOnInsert"], dict):
+                    update["$setOnInsert"]["company_id"] = ctx.company_id
+                elif any(k.startswith("$") for k in update.keys()):
+                    update["$setOnInsert"] = {"company_id": ctx.company_id}
+            else:
+                if "$set" in update and isinstance(update["$set"], dict):
+                    update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.find_one_and_update(scoped, update, *args, **kwargs)
 
     async def find_one_and_delete(self, filter, *args, **kwargs):
