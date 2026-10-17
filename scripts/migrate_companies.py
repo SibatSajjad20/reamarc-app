@@ -26,7 +26,12 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 import pymongo
+from pymongo import MongoClient
 from pymongo.collection import Collection
+from dotenv import load_dotenv
+
+env_path = Path(__file__).resolve().parent.parent / "backend" / ".env"
+load_dotenv(env_path)
 
 from app.core.tenant import TENANT_COLLECTIONS
 from scripts.snapshot_counts import take_snapshot, compare_snapshots

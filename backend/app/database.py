@@ -301,6 +301,15 @@ async def _create_indexes_background():
             # Global collections indexes
             await db_instance.db.companies.create_index("id", unique=True, name="uniq_company_id")
             await db_instance.db.companies.create_index("slug", unique=True, name="uniq_company_slug")
+            await db_instance.db.company_memberships.create_index(
+                [("user_id", 1), ("company_id", 1)], unique=True, name="uniq_user_company_membership"
+            )
+            await db_instance.db.company_memberships.create_index(
+                [("company_id", 1), ("status", 1)], name="idx_company_memberships_company_status"
+            )
+            await db_instance.db.company_memberships.create_index(
+                [("user_id", 1), ("status", 1)], name="idx_company_memberships_user_status"
+            )
             await db_instance.db.company_integrations.create_index(
                 [("company_id", 1), ("integration_type", 1)], unique=True, name="uniq_company_integration"
             )

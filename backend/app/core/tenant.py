@@ -107,6 +107,7 @@ class tenant_scope:
 
 GLOBAL_COLLECTIONS: Set[str] = frozenset({
     "companies",
+    "company_memberships",
     "company_integrations",
     "owner_audit",
     "owner_sessions",

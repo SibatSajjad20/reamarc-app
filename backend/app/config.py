@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     ENCRYPTION_KEY: str = ""
     # Multi-tenant Companies feature flags and secrets
     MULTI_TENANT_ENABLED: bool = False
+    MULTI_COMPANY_ENABLED: bool = False
     TENANT_SECRETS_KEYS: str = ""
 
     # MongoDB
