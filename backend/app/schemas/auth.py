@@ -38,12 +38,19 @@ class UserResponse(BaseModel):
     company: Optional[dict] = None
     impersonating: Optional[bool] = False
     read_only: Optional[bool] = False
+    needs_setup: Optional[bool] = False
+    membership_id: Optional[str] = None
+    companies: Optional[List[dict]] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
     refresh_token: Optional[str] = None
+    companies: Optional[List[dict]] = None
+
+class SwitchCompanyRequest(BaseModel):
+    company_id: str
 
 
 class RefreshTokenRequest(BaseModel):

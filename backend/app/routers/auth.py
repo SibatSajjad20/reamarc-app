@@ -7,7 +7,7 @@ import secrets
 import logging
 
 from app.schemas.auth import (
-    UserLogin, TokenResponse, UserResponse,
+    UserLogin, TokenResponse, UserResponse, SwitchCompanyRequest,
     ForgotPasswordRequest, VerifyResetCodeRequest, ResetPasswordRequest,
     ForgotPasswordResponse, VerifyResetCodeResponse, ResetPasswordResponse,
 )
@@ -85,6 +85,8 @@ def _token_payload(access_token: str, refresh_token: str, user_doc: dict, includ
         "token_type": "bearer",
         "user": _build_user_response(user_doc),
     }
+    if "companies" in user_doc:
+        payload["companies"] = user_doc["companies"]
     if include_tokens:
         payload["access_token"] = access_token
         payload["refresh_token"] = refresh_token
@@ -127,6 +129,10 @@ def _build_user_response(user_doc: dict) -> dict:
         "avatar_url": user_doc.get("avatar_url"),
         "company_id": user_doc.get("company_id") or "company_reamarc",
         "is_super_admin": bool(user_doc.get("is_super_admin", False)),
+        "company": user_doc.get("company"),
+        "needs_setup": bool(user_doc.get("needs_setup", False)),
+        "membership_id": user_doc.get("membership_id"),
+        "companies": user_doc.get("companies"),
     }
 
 
@@ -178,15 +184,75 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             detail="Your account has been deactivated. Contact an administrator.",
         )
 
-    from app.core.security import lookup_company
-    cid = user_doc.get("company_id") or "company_reamarc"
-    company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+    user_id = user_doc.get("id") or str(user_doc.get("_id"))
+    multi_company = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    target_membership = None
+    user_companies = []
 
-    if company_doc and company_doc.get("status") == "suspended":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This company's access is paused.",
-        )
+    if multi_company:
+        memberships = await gdb.company_memberships.find({"user_id": user_id, "status": "active"}).to_list(100)
+        if not memberships:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No active company memberships found for this user.",
+            )
+        # Select target membership: last_company_id or the first
+        last_cid = user_doc.get("last_company_id")
+        if last_cid:
+            for m in memberships:
+                if m.get("company_id") == last_cid:
+                    target_membership = m
+                    break
+        if not target_membership:
+            target_membership = memberships[0]
+
+        cid = target_membership["company_id"]
+        company_doc = await gdb.companies.find_one({"id": cid})
+        if not company_doc:
+            company_doc = await gdb.companies.find_one({"slug": "reamarc"})
+
+        if company_doc and company_doc.get("status") == "suspended":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This company's access is paused.",
+            )
+
+        # Build companies: [{id, name, logo_url, role}]
+        comp_ids = [m["company_id"] for m in memberships]
+        comp_docs = await gdb.companies.find({"id": {"$in": comp_ids}}).to_list(100)
+        comp_map = {c["id"]: c for c in comp_docs}
+        for m in memberships:
+            c = comp_map.get(m["company_id"])
+            if c and c.get("status") != "suspended":
+                user_companies.append({
+                    "id": c["id"],
+                    "name": c["name"],
+                    "logo_url": c.get("logo_url"),
+                    "role": m.get("role", "team_member"),
+                })
+
+        await gdb.users.update_one({"id": user_id}, {"$set": {"last_company_id": cid}})
+
+        user_doc["role"] = target_membership.get("role")
+        user_doc["department"] = target_membership.get("primary_department")
+        user_doc["primary_department"] = target_membership.get("primary_department")
+        user_doc["departments"] = target_membership.get("departments") or []
+        user_doc["access"] = target_membership.get("access") or {}
+        user_doc["content_stages"] = target_membership.get("content_stages") or []
+        user_doc["company_id"] = cid
+        user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
+        user_doc["membership_id"] = target_membership.get("id")
+        user_doc["companies"] = user_companies
+    else:
+        from app.core.security import lookup_company
+        cid = user_doc.get("company_id") or "company_reamarc"
+        company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+
+        if company_doc and company_doc.get("status") == "suspended":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This company's access is paused.",
+            )
 
     if company_doc:
         user_doc["company"] = {
@@ -199,14 +265,19 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         }
 
     role_str = _normalize_role(user_doc.get("role"))
-    claims = claims_with_session(user_doc, {
-        "sub": user_doc.get("id") or str(user_doc.get("_id")),
+    base_claims = {
+        "sub": user_id,
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
+        "cid": cid,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    }, company_doc=company_doc)
-    user_id = user_doc.get("id") or str(user_doc.get("_id"))
+    }
+    if target_membership:
+        base_claims["mid"] = target_membership.get("id")
+        base_claims["mtv"] = int(target_membership.get("token_version", 0) or 0)
+
+    claims = claims_with_session(user_doc, base_claims, company_doc=company_doc, membership_doc=target_membership)
     if user_in.device_uuid:
         from app.services.device_registry import assert_device_login_allowed
         with tenant_scope(cid):
@@ -218,6 +289,8 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     db = get_database()
     with tenant_scope(cid):
         await remember_refresh_jti(db, user_id, session_id)
+    if target_membership:
+        _AUTH_CACHE.pop(f"{user_id}:{target_membership['id']}", None)
     _AUTH_CACHE.pop(user_id, None)
     wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
@@ -266,20 +339,65 @@ async def refresh_token(request: Request, response: Response):
     old_jti = str(payload.get("jti") or "").strip()
     existing_jtis = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
 
-    from app.core.security import lookup_company
-    cid = user_doc.get("company_id") or "company_reamarc"
-    company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+    multi_company = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    token_mid = payload.get("mid")
+    token_mtv = payload.get("mtv")
+    target_membership = None
+
+    if (multi_company or token_mid) and token_mid:
+        target_membership = await gdb.company_memberships.find_one({"id": token_mid})
+        if not target_membership:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Membership not found.")
+        if str(target_membership.get("user_id")) != user_id:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Membership does not belong to user.")
+        if target_membership.get("status") != "active":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Membership session revoked.")
+        if token_mtv is not None and int(target_membership.get("token_version", 0)) != int(token_mtv):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Membership session revoked.")
+        cid = target_membership.get("company_id")
+        company_doc = await gdb.companies.find_one({"id": cid})
+        role_str = _normalize_role(target_membership.get("role"))
+        user_doc["role"] = role_str
+        user_doc["department"] = target_membership.get("primary_department")
+        user_doc["primary_department"] = target_membership.get("primary_department")
+        user_doc["departments"] = target_membership.get("departments") or []
+        user_doc["access"] = target_membership.get("access") or {}
+        user_doc["content_stages"] = target_membership.get("content_stages") or []
+        user_doc["company_id"] = cid
+        user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
+        user_doc["membership_id"] = target_membership.get("id")
+    else:
+        from app.core.security import lookup_company
+        cid = user_doc.get("company_id") or "company_reamarc"
+        company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+        role_str = _normalize_role(user_doc.get("role"))
+
     if company_doc and company_doc.get("status") == "suspended":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This company's access is paused.")
 
-    role_str = _normalize_role(user_doc.get("role"))
-    claims = claims_with_session(user_doc, {
+    if company_doc:
+        user_doc["company"] = {
+            "id": company_doc.get("id"),
+            "name": company_doc.get("name"),
+            "slug": company_doc.get("slug"),
+            "logo_url": company_doc.get("logo_url"),
+            "accent_color": company_doc.get("accent_color", "#6847E0"),
+            "timezone": company_doc.get("timezone", "Asia/Karachi"),
+        }
+
+    base_claims = {
         "sub": user_id,
         "email": user_doc["email"],
         "name": user_doc.get("full_name") or user_doc.get("name", "User"),
         "role": role_str,
+        "cid": cid,
         "workspace_ids": user_doc.get("workspace_ids", []),
-    }, company_doc=company_doc)
+    }
+    if target_membership:
+        base_claims["mid"] = target_membership.get("id")
+        base_claims["mtv"] = int(target_membership.get("token_version", 0) or 0)
+    claims = claims_with_session(user_doc, base_claims, company_doc=company_doc, membership_doc=target_membership)
+
     session_id = uuid.uuid4().hex
     new_access_token, new_refresh_token = _issue_token_pair(claims, session_id)
     recently_retired = bool(old_jti) and retired_jti_is_recent(
@@ -304,6 +422,8 @@ async def refresh_token(request: Request, response: Response):
         else:
             # Stale token from another browser. Reject this token only.
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+    if target_membership:
+        _AUTH_CACHE.pop(f"{user_id}:{target_membership['id']}", None)
     _AUTH_CACHE.pop(user_id, None)
 
     wants_json = _wants_json_tokens(request)
@@ -323,8 +443,28 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     resp = dict(current_user)
     resp["departments"] = ctx.departments
     resp["primary_department"] = ctx.primary_department
-    resp["permissions"] = effective_map(ctx)
-    resp["content_stages"] = resp["permissions"].get("content_stages") or []
+    eff_map = effective_map(ctx)
+    resp["permissions"] = eff_map
+    resp["content_stages"] = eff_map.get("content_stages") or []
+
+    gdb = get_global_db()
+    if gdb is not None:
+        active_mems = await gdb.company_memberships.find({"user_id": current_user["id"], "status": "active"}).to_list(100)
+        cids = [m["company_id"] for m in active_mems]
+        comps = await gdb.companies.find({"id": {"$in": cids}}).to_list(100)
+        cmap = {c["id"]: c for c in comps}
+        user_companies = []
+        for m in active_mems:
+            c = cmap.get(m["company_id"])
+            if c and c.get("status") != "suspended":
+                user_companies.append({
+                    "id": c["id"],
+                    "name": c["name"],
+                    "logo_url": c.get("logo_url"),
+                    "role": m.get("role", "team_member"),
+                })
+        resp["companies"] = user_companies
+
     return resp
 
 
@@ -447,6 +587,152 @@ async def logout(request: Request, response: Response):
     response.delete_cookie("access_token", **cookie_opts)
     response.delete_cookie("refresh_token", **cookie_opts)
     return {"message": "Successfully logged out."}
+
+
+@router.post("/switch-company", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def switch_company(
+    request: Request,
+    body: SwitchCompanyRequest,
+    response: Response,
+    current_user: dict = Depends(get_current_user),
+):
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database unavailable.",
+        )
+
+    user_id = current_user["id"]
+    target_cid = body.company_id.strip()
+
+    company_doc = await gdb.companies.find_one({"id": target_cid})
+    if not company_doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+    if company_doc.get("status") == "suspended":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This company's access is paused.")
+
+    membership = await gdb.company_memberships.find_one({
+        "user_id": user_id,
+        "company_id": target_cid,
+        "status": "active",
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You do not have active access to this company.",
+        )
+
+    await gdb.users.update_one({"id": user_id}, {"$set": {"last_company_id": target_cid}})
+
+    from app.core.tenant import log_security_event
+    await log_security_event("company_switch", {
+        "user_id": user_id,
+        "previous_company_id": current_user.get("company_id"),
+        "target_company_id": target_cid,
+        "membership_id": membership["id"],
+    })
+
+    user_doc = await gdb.users.find_one({"id": user_id}) or current_user
+    role_str = _normalize_role(membership.get("role"))
+
+    base_claims = {
+        "sub": user_id,
+        "email": current_user["email"],
+        "name": current_user.get("name") or current_user.get("full_name"),
+        "role": role_str,
+        "cid": target_cid,
+        "mid": membership.get("id"),
+        "mtv": int(membership.get("token_version", 0) or 0),
+        "workspace_ids": user_doc.get("workspace_ids", []),
+    }
+    claims = claims_with_session(user_doc, base_claims, company_doc=company_doc, membership_doc=membership)
+
+    session_id = uuid.uuid4().hex
+    access_token, refresh_token = _issue_token_pair(claims, session_id)
+
+    db = get_database()
+    with tenant_scope(target_cid):
+        await remember_refresh_jti(db, user_id, session_id)
+
+    _AUTH_CACHE.pop(f"{user_id}:{membership['id']}", None)
+    _AUTH_CACHE.pop(user_id, None)
+
+    active_mems = await gdb.company_memberships.find({"user_id": user_id, "status": "active"}).to_list(100)
+    cids = [m["company_id"] for m in active_mems]
+    all_comps = await gdb.companies.find({"id": {"$in": cids}}).to_list(100)
+    cmap = {c["id"]: c for c in all_comps}
+    companies_list = []
+    for m in active_mems:
+        c = cmap.get(m["company_id"])
+        if c and c.get("status") != "suspended":
+            companies_list.append({
+                "id": c["id"],
+                "name": c["name"],
+                "logo_url": c.get("logo_url"),
+                "role": m.get("role", "team_member"),
+            })
+
+    actor_doc = dict(user_doc)
+    actor_doc["role"] = role_str
+    actor_doc["department"] = membership.get("primary_department")
+    actor_doc["primary_department"] = membership.get("primary_department")
+    actor_doc["departments"] = membership.get("departments") or []
+    actor_doc["access"] = membership.get("access") or {}
+    actor_doc["content_stages"] = membership.get("content_stages") or []
+    actor_doc["company_id"] = target_cid
+    actor_doc["needs_setup"] = bool(membership.get("needs_setup", False))
+    actor_doc["membership_id"] = membership.get("id")
+    actor_doc["company"] = {
+        "id": company_doc.get("id"),
+        "name": company_doc.get("name"),
+        "slug": company_doc.get("slug"),
+        "logo_url": company_doc.get("logo_url"),
+        "accent_color": company_doc.get("accent_color", "#6847E0"),
+        "timezone": company_doc.get("timezone", "Asia/Karachi"),
+    }
+    actor_doc["companies"] = companies_list
+
+    wants_json = _wants_json_tokens(request)
+    if not wants_json:
+        _set_auth_cookies(response, access_token, refresh_token)
+
+    return _token_payload(access_token, refresh_token, actor_doc, wants_json)
+
+
+@router.get("/my-companies")
+async def get_my_companies(current_user: dict = Depends(get_current_user)):
+    """List all active company memberships of the current user for the switcher."""
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Database unavailable.",
+        )
+
+    user_id = current_user["id"]
+    current_cid = current_user.get("company_id")
+
+    active_mems = await gdb.company_memberships.find({"user_id": user_id, "status": "active"}).to_list(100)
+    cids = [m["company_id"] for m in active_mems]
+    all_comps = await gdb.companies.find({"id": {"$in": cids}}).to_list(100)
+    cmap = {c["id"]: c for c in all_comps}
+
+    result = []
+    for m in active_mems:
+        c = cmap.get(m["company_id"])
+        if c and c.get("status") != "suspended":
+            result.append({
+                "id": c["id"],
+                "name": c["name"],
+                "slug": c.get("slug"),
+                "logo_url": c.get("logo_url"),
+                "accent_color": c.get("accent_color", "#6847E0"),
+                "role": m.get("role", "team_member"),
+                "is_current": (c["id"] == current_cid),
+            })
+    return result
 
 
 # ──────────────────────────────────────────────────────────

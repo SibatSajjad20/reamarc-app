@@ -12,6 +12,21 @@ from app.models.user import UserRole
 _AUTH_CACHE: Dict[str, Dict[str, Any]] = {}
 _AUTH_CACHE_TTL_SECONDS = 30
 
+
+def invalidate_auth_cache(user_id: Optional[str] = None, membership_id: Optional[str] = None) -> None:
+    """Invalidate cached user, membership, or company entries."""
+    if not user_id and not membership_id:
+        _AUTH_CACHE.clear()
+        return
+    keys_to_del = [
+        k for k in list(_AUTH_CACHE.keys())
+        if (user_id and (k == user_id or k.startswith(f"{user_id}:")))
+        or (membership_id and k.endswith(f":{membership_id}"))
+    ]
+    for k in keys_to_del:
+        _AUTH_CACHE.pop(k, None)
+
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl=f"{settings.API_V1_STR}/auth/login", auto_error=False)
 JWT_ALGORITHM = "HS256"
 _MAX_REFRESH_JTIS = 8
@@ -326,13 +341,23 @@ async def accept_retired_refresh(
     return True
 
 
-def claims_with_session(user_doc: Optional[dict], base: dict, company_doc: Optional[dict] = None) -> dict:
+def claims_with_session(
+    user_doc: Optional[dict],
+    base: dict,
+    company_doc: Optional[dict] = None,
+    membership_doc: Optional[dict] = None,
+) -> dict:
     out = dict(base)
     u = user_doc or {}
+    m = membership_doc or {}
     if "ver" not in out:
         out["ver"] = user_session_epoch(u)
+    if "mid" not in out and m.get("id"):
+        out["mid"] = m.get("id")
+    if "mtv" not in out and ("token_version" in m or m.get("id")):
+        out["mtv"] = int(m.get("token_version", 0) or 0)
     if "cid" not in out:
-        out["cid"] = u.get("company_id") or (company_doc.get("id") if company_doc else None) or "company_reamarc"
+        out["cid"] = m.get("company_id") or u.get("company_id") or (company_doc.get("id") if company_doc else None) or "company_reamarc"
     if "tv" not in out:
         out["tv"] = int(u.get("token_version", 0) or 0)
     if "ctv" not in out and company_doc:
@@ -384,11 +409,22 @@ async def get_current_user(
             detail="Token payload missing required user claims.",
         )
 
+    token_cid = payload.get("cid")
+    token_tv = payload.get("tv")
+    token_ctv = payload.get("ctv")
+    token_mid = payload.get("mid")
+    token_mtv = payload.get("mtv")
+    typ = payload.get("typ") or payload.get("type", "access")
+    is_imp = (typ == "imp")
+
+    cache_key = f"{user_id}:{token_mid}" if token_mid else user_id
     now_mono = time.monotonic()
-    cached = _AUTH_CACHE.get(user_id)
+    cached = _AUTH_CACHE.get(cache_key)
+    membership_doc = None
     if cached and (now_mono - cached["time"] < _AUTH_CACHE_TTL_SECONDS):
         user_doc = cached["user"]
         company_doc = cached["company"]
+        membership_doc = cached.get("membership")
     else:
         from app.core.tenant import get_global_db
         gdb = get_global_db()
@@ -408,14 +444,25 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-        cid_from_user = user_doc.get("company_id") or "company_reamarc"
-        company_doc = await gdb.companies.find_one({"id": cid_from_user})
+        if token_mid:
+            membership_doc = await gdb.company_memberships.find_one({"id": token_mid})
+            cid_to_load = membership_doc.get("company_id") if membership_doc else token_cid
+        else:
+            membership_doc = None
+            cid_to_load = token_cid or user_doc.get("company_id") or "company_reamarc"
+
+        company_doc = None
+        if cid_to_load:
+            company_doc = await gdb.companies.find_one({"id": cid_to_load})
+            if not company_doc:
+                company_doc = await gdb.companies.find_one({"slug": cid_to_load})
         if not company_doc:
             company_doc = await gdb.companies.find_one({"slug": "reamarc"})
 
-        _AUTH_CACHE[user_id] = {
+        _AUTH_CACHE[cache_key] = {
             "user": user_doc,
             "company": company_doc,
+            "membership": membership_doc,
             "time": now_mono,
         }
 
@@ -424,12 +471,6 @@ async def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been deactivated. Contact an administrator.",
         )
-
-    token_cid = payload.get("cid")
-    token_tv = payload.get("tv")
-    token_ctv = payload.get("ctv")
-    typ = payload.get("typ") or payload.get("type", "access")
-    is_imp = (typ == "imp")
 
     if is_imp:
         if not user_doc.get("is_super_admin"):
@@ -446,49 +487,109 @@ async def get_current_user(
                 if imp_comp:
                     company_doc = imp_comp
 
-    # Multi-tenancy checks
-    if (getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid) and not is_imp:
-        expected_cid = user_doc.get("company_id") or "company_reamarc"
+    # Multi-company validation
+    multi_company_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    if (multi_company_enabled or token_mid) and not is_imp:
+        if not token_mid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token missing membership identifier.",
+            )
+        if not membership_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Company membership not found.",
+            )
+        if str(membership_doc.get("user_id")) != user_id:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Membership does not belong to user.",
+            )
+        if membership_doc.get("status") != "active":
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Company membership is revoked or removed.",
+            )
+        expected_cid = membership_doc.get("company_id")
         if token_cid and token_cid != expected_cid:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token company mismatch.",
+                detail="Token company mismatch with membership.",
             )
-
-        if token_tv is not None:
-            if int(user_doc.get("token_version", 0)) != int(token_tv):
-                _AUTH_CACHE.pop(user_id, None)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session revoked. Please sign in again.",
-                )
-
-        if company_doc:
-            if company_doc.get("status") == "suspended":
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="This company's access is paused.",
-                )
-            if token_ctv is not None and int(company_doc.get("token_version", 0)) != int(token_ctv):
-                _AUTH_CACHE.pop(user_id, None)
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Company session revoked.",
-                )
-    elif not is_imp:
-        if token_session_epoch(payload) != user_session_epoch(user_doc):
+        if token_mtv is not None and int(membership_doc.get("token_version", 0)) != int(token_mtv):
+            _AUTH_CACHE.pop(cache_key, None)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Session expired. Please sign in again.",
-                headers={"WWW-Authenticate": "Bearer"},
+                detail="Membership session revoked.",
             )
+        if token_tv is not None and int(user_doc.get("token_version", 0)) != int(token_tv):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session revoked. Please sign in again.",
+            )
+
+        if not company_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Company not found.",
+            )
+        if company_doc.get("status") == "suspended":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This company's access is paused.",
+            )
+        if token_ctv is not None and int(company_doc.get("token_version", 0)) != int(token_ctv):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Company session revoked.",
+            )
+    elif not is_imp:
+        # Multi-tenancy legacy checks when not using membership validation
+        if (getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid):
+            expected_cid = user_doc.get("company_id") or "company_reamarc"
+            if token_cid and token_cid != expected_cid:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token company mismatch.",
+                )
+
+            if token_tv is not None:
+                if int(user_doc.get("token_version", 0)) != int(token_tv):
+                    _AUTH_CACHE.pop(cache_key, None)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Session revoked. Please sign in again.",
+                    )
+
+            if company_doc:
+                if company_doc.get("status") == "suspended":
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="This company's access is paused.",
+                    )
+                if token_ctv is not None and int(company_doc.get("token_version", 0)) != int(token_ctv):
+                    _AUTH_CACHE.pop(cache_key, None)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Company session revoked.",
+                    )
+        else:
+            if token_session_epoch(payload) != user_session_epoch(user_doc):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session expired. Please sign in again.",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
 
     # Legacy sid check
     session_id = str(payload.get("sid") or "").strip()
     if session_id:
         active_sessions = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
         if session_id not in active_sessions and cached:
-            _AUTH_CACHE.pop(user_id, None)
+            _AUTH_CACHE.pop(cache_key, None)
             from app.core.tenant import get_global_db
             gdb = get_global_db()
             if gdb is not None:
@@ -503,8 +604,27 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
-    effective_cid = token_cid or user_doc.get("company_id") or "company_reamarc"
-    is_imp = (typ == "imp")
+    if membership_doc:
+        effective_role = _normalize_role(membership_doc.get("role"))
+        effective_cid = membership_doc.get("company_id")
+        effective_dept = membership_doc.get("primary_department")
+        effective_depts = membership_doc.get("departments") or []
+        effective_primary_dept = membership_doc.get("primary_department")
+        effective_access = membership_doc.get("access") or {}
+        effective_content_stages = membership_doc.get("content_stages") or []
+        needs_setup = bool(membership_doc.get("needs_setup", False))
+        membership_id = membership_doc.get("id")
+    else:
+        effective_role = _normalize_role(user_doc.get("role"))
+        effective_cid = token_cid or user_doc.get("company_id") or "company_reamarc"
+        effective_dept = user_doc.get("department")
+        effective_depts = user_doc.get("departments") or []
+        effective_primary_dept = user_doc.get("primary_department")
+        effective_access = user_doc.get("access") or {}
+        effective_content_stages = user_doc.get("content_stages")
+        needs_setup = False
+        membership_id = None
+
     is_ro = bool(is_imp and payload.get("ro", True))
 
     from app.core.tenant import set_tenant_context, TenantContext
@@ -525,8 +645,6 @@ async def get_current_user(
         if "/owner" in req_path or "/change-password" in req_path:
             raise HTTPException(status_code=403, detail="Owner actions blocked during impersonation")
 
-    effective_role = _normalize_role(user_doc.get("role"))
-
     company_payload = None
     if company_doc:
         company_payload = {
@@ -544,22 +662,24 @@ async def get_current_user(
         "name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "full_name": user_doc.get("full_name") or user_doc.get("name") or payload.get("name", "User"),
         "role": effective_role,
-        "department": user_doc.get("department"),
-        "departments": user_doc.get("departments") or [],
-        "primary_department": user_doc.get("primary_department"),
+        "department": effective_dept,
+        "departments": effective_depts,
+        "primary_department": effective_primary_dept,
         "designation": user_doc.get("designation"),
         "is_active": user_doc.get("is_active", True),
         "workspace_ids": user_doc.get("workspace_ids", []),
         "crm_enabled": user_doc.get("crm_enabled"),
         "crm_paused": user_doc.get("crm_paused"),
-        "access": user_doc.get("access") or {},
-        "content_stages": user_doc.get("content_stages"),
+        "access": effective_access,
+        "content_stages": effective_content_stages,
         "access_version": user_doc.get("access_version") or 1,
         "company_id": effective_cid,
         "is_super_admin": bool(user_doc.get("is_super_admin", False)),
         "company": company_payload,
         "impersonating": is_imp,
         "read_only": is_ro,
+        "needs_setup": needs_setup,
+        "membership_id": membership_id,
     }
 
 
