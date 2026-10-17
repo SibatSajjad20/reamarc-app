@@ -549,7 +549,7 @@ async def relocate_item_folder(file_id: str, parent_id: str, name: str) -> None:
 
 
 async def open_drive_response(file_id: str, filename: str, download: bool = False, range_header: Optional[str] = None):
-    from app.core.uploads import _guess_media_type, content_disposition_header
+    from app.core.uploads import VIEWABLE_EXTENSIONS, content_disposition_header, playable_media_type
 
     try:
         meta = await asyncio.to_thread(_file_meta, file_id)
@@ -582,10 +582,8 @@ async def open_drive_response(file_id: str, filename: str, download: bool = Fals
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Requested file not found.")
 
     display = filename or meta.get("name") or "file"
-    media_type = meta.get("mimeType") or _guess_media_type(display)
+    media_type = playable_media_type(display, meta.get("mimeType"))
     ext = "." + display.rsplit(".", 1)[-1].lower() if "." in display else ""
-    from app.core.uploads import VIEWABLE_EXTENSIONS
-
     inline = ext in VIEWABLE_EXTENSIONS and not download
     out_headers = {
         "Content-Disposition": content_disposition_header(display, inline=inline),

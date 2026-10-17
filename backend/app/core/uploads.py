@@ -73,6 +73,20 @@ def _guess_media_type(filename: str, fallback_meta: Optional[str] = None) -> str
     return "application/octet-stream"
 
 
+def playable_media_type(filename: str, declared: Optional[str] = None) -> str:
+    """Prefer browser-playable types for common video extensions.
+
+    Drive often labels WhatsApp .mp4 files as application/octet-stream; Chrome
+    will not decode that in <video>, even though the bytes are valid.
+    """
+    ext = Path(filename).suffix.lower()
+    if ext in (".mp4", ".m4v"):
+        return "video/mp4"
+    if ext == ".webm":
+        return "video/webm"
+    return _guess_media_type(filename, declared)
+
+
 def uploads_root() -> Path:
     """
     Root directory for on-disk uploads.
@@ -495,7 +509,7 @@ async def open_upload_response(
     try:
         full.relative_to(base)
         if full.is_file():
-            media_type = _guess_media_type(display)
+            media_type = playable_media_type(display)
             return FileResponse(
                 path=str(full),
                 filename=display,
@@ -519,7 +533,7 @@ async def open_upload_response(
                     display, inline=not (download or not is_viewable)
                 )
 
-            media_type = _guess_media_type(
+            media_type = playable_media_type(
                 display,
                 meta.get("content_type") if isinstance(meta, dict) else None,
             )

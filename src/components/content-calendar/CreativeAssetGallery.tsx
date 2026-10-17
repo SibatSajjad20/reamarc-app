@@ -36,7 +36,7 @@ import { contentCalendarService } from '../../services/contentCalendarService';
 import { DriveAttach, type DriveAttachRef, GoogleDriveIcon } from '../ui/DriveAttach';
 import { useToast } from '../../context/ToastContext';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
-import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
+import { openFileAttachment, downloadFileAttachment, getBackendFileUrl, isRealThumbnailUrl, fetchAuthenticatedMediaObjectUrl } from '../../utils/fileUrl';
 import { cn } from '../../lib/utils';
 
 interface CreativeAssetGalleryProps {
@@ -145,6 +145,40 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
   const driveAttachRef = useRef<DriveAttachRef>(null);
 
   const activeAsset: CreativeAsset | undefined = assets[selectedIndex] || assets[0];
+  const [videoObjectUrl, setVideoObjectUrl] = useState('');
+  const [videoLoadError, setVideoLoadError] = useState(false);
+
+  useEffect(() => {
+    if (activeAsset?.kind !== 'video' || !activeAsset.url) {
+      setVideoObjectUrl('');
+      setVideoLoadError(false);
+      return;
+    }
+    let cancelled = false;
+    let created: string | null = null;
+    setVideoObjectUrl('');
+    setVideoLoadError(false);
+    void fetchAuthenticatedMediaObjectUrl(activeAsset.url, activeAsset.filename)
+      .then((objectUrl) => {
+        if (cancelled) {
+          if (objectUrl) URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        if (!objectUrl) {
+          setVideoLoadError(true);
+          return;
+        }
+        created = objectUrl;
+        setVideoObjectUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setVideoLoadError(true);
+      });
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [activeAsset?.kind, activeAsset?.url, activeAsset?.filename]);
 
   const imageCount = assets.filter((a) => a.kind === 'image').length;
   const videoCount = assets.filter((a) => a.kind === 'video').length;
@@ -629,19 +663,31 @@ export const CreativeAssetGallery: React.FC<CreativeAssetGalleryProps> = ({
                 />
               </div>
             ) : activeAsset.kind === 'video' ? (
-              <div className={`w-full h-full ${compact ? 'max-h-[300px]' : 'max-h-[440px]'} flex items-center justify-center p-2`}>
-                <video
-                  key={activeAsset.url}
-                  src={getBackendFileUrl(activeAsset.url) || activeAsset.url}
-                  poster={isRealThumbnailUrl(activeAsset.thumbnail_url) ? (getBackendFileUrl(activeAsset.thumbnail_url!) || activeAsset.thumbnail_url!) : undefined}
-                  controls
-                  playsInline
-                  preload="auto"
-                  crossOrigin="use-credentials"
-                  className={`${compact ? 'max-h-[280px]' : 'max-h-[420px]'} max-w-full rounded-lg shadow-md`}
-                >
-                  Your browser does not support HTML5 video streaming.
-                </video>
+              <div className={`relative w-full h-full ${compact ? 'max-h-[300px]' : 'max-h-[440px]'} flex items-center justify-center p-2`}>
+                {videoObjectUrl ? (
+                  <video
+                    key={videoObjectUrl}
+                    src={videoObjectUrl}
+                    poster={isRealThumbnailUrl(activeAsset.thumbnail_url) ? (getBackendFileUrl(activeAsset.thumbnail_url!) || activeAsset.thumbnail_url!) : undefined}
+                    controls
+                    playsInline
+                    preload="auto"
+                    className={`${compact ? 'max-h-[280px]' : 'max-h-[420px]'} max-w-full rounded-lg shadow-md`}
+                  >
+                    Your browser does not support HTML5 video streaming.
+                  </video>
+                ) : (
+                  <div className="flex flex-col items-center justify-center gap-2 text-white/70 py-16">
+                    {videoLoadError ? (
+                      <p className="text-xs">Video could not be loaded. Try download or open in a new tab.</p>
+                    ) : (
+                      <>
+                        <Loader2 className="w-6 h-6 animate-spin" />
+                        <p className="text-xs">Loading video…</p>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             ) : activeAsset.kind === 'link' ? (
               /* Link Presentation */

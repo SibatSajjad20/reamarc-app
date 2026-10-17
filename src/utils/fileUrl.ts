@@ -9,8 +9,55 @@ export const getBackendFileUrl = (url?: string): string => {
   if (!url) return '';
   const uploads = extractUploadsPath(url);
   if (!uploads) return '';
-  const backendRoot = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
-  return `${backendRoot}${uploads.startsWith('/') ? uploads : `/${uploads}`}`;
+  const cleanKey = uploads.replace(/^\/?uploads\//, '');
+  // Same authenticated route the download/fetch helpers use (`/api/v1/uploads/...`).
+  return `${API_BASE_URL}/uploads/${cleanKey}`;
+};
+
+export const coerceAttachmentBlob = (blob: Blob, filename?: string, headerType?: string): Blob => {
+  const lowerName = (filename || '').split(/[?#]/)[0].toLowerCase();
+  let type = (blob.type || headerType || '').split(';')[0].trim();
+  if (lowerName.endsWith('.pdf')) type = 'application/pdf';
+  else if (lowerName.endsWith('.png')) type = 'image/png';
+  else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) type = 'image/jpeg';
+  else if (lowerName.endsWith('.webp')) type = 'image/webp';
+  else if (lowerName.endsWith('.gif')) type = 'image/gif';
+  else if (lowerName.endsWith('.mp4') || lowerName.endsWith('.m4v')) type = 'video/mp4';
+  else if (lowerName.endsWith('.webm')) type = 'video/webm';
+  else if (lowerName.endsWith('.mov')) type = 'video/mp4';
+  const current = (blob.type || '').split(';')[0].trim();
+  if (type && type !== current) return new Blob([blob], { type });
+  return blob;
+};
+
+const isVideoFilename = (filename?: string, mime?: string) => {
+  const lower = (filename || '').split(/[?#]/)[0].toLowerCase();
+  return (
+    /\.(mp4|m4v|webm|mov)$/.test(lower) ||
+    (mime || '').toLowerCase().startsWith('video/')
+  );
+};
+
+/** Fetch an authenticated upload into a blob URL so <video> can play without CORS Range. */
+export const fetchAuthenticatedMediaObjectUrl = async (
+  url: string,
+  filename?: string,
+): Promise<string | null> => {
+  const uploadsPath = extractUploadsPath(url);
+  if (!uploadsPath) return null;
+  const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
+  const response = await fetch(`${API_BASE_URL}/uploads/${cleanKey}`, {
+    method: 'GET',
+    credentials: 'include',
+    headers: { 'X-Requested-With': 'XMLHttpRequest' },
+  });
+  if (!response.ok) return null;
+  const blob = coerceAttachmentBlob(
+    await response.blob(),
+    filename || url,
+    response.headers.get('content-type') || '',
+  );
+  return URL.createObjectURL(blob);
 };
 
 /** Extract `/uploads/...` path from a relative or absolute backend URL. */
@@ -115,17 +162,8 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         const contentType = response.headers.get('content-type') || '';
         const blob = await response.blob();
 
-        let finalBlob = blob;
         const lowerName = (filename || url).toLowerCase();
-        if (lowerName.endsWith('.pdf') && !contentType.includes('pdf')) {
-          finalBlob = new Blob([blob], { type: 'application/pdf' });
-        } else if (lowerName.endsWith('.png') && !contentType.includes('png')) {
-          finalBlob = new Blob([blob], { type: 'image/png' });
-        } else if ((lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) && !contentType.includes('jpeg')) {
-          finalBlob = new Blob([blob], { type: 'image/jpeg' });
-        } else if (!blob.type && contentType) {
-          finalBlob = new Blob([blob], { type: contentType });
-        }
+        const finalBlob = coerceAttachmentBlob(blob, filename || url, contentType);
 
         const isDocx = lowerName.endsWith('.docx');
         const isDoc = lowerName.endsWith('.doc');
@@ -226,6 +264,29 @@ export const openFileAttachment = async (url: string, filename?: string) => {
               `;
             }
           }
+          return;
+        }
+
+        if (newTab && !newTab.closed && isVideoFilename(filename || url, finalBlob.type)) {
+          const playUrl = window.URL.createObjectURL(finalBlob);
+          const safeTitle = (filename || 'Video').replace(/[<>&"]/g, '');
+          try {
+            newTab.document.title = safeTitle;
+            newTab.document.body.style.margin = '0';
+            newTab.document.body.style.display = 'block';
+            newTab.document.body.style.height = '100vh';
+            newTab.document.body.style.backgroundColor = '#000';
+            newTab.document.body.innerHTML = `
+              <video src="${playUrl}" controls autoplay playsinline style="width:100%;height:100vh;object-fit:contain;background:#000"></video>
+            `;
+          } catch {
+            try {
+              newTab.location.replace(playUrl);
+            } catch {
+              // Ignore fallback error
+            }
+          }
+          setTimeout(() => window.URL.revokeObjectURL(playUrl), 120_000);
           return;
         }
 
