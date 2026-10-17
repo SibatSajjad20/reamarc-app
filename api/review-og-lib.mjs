@@ -93,13 +93,20 @@ export function pickShareImage(item, origin, token) {
     const thumb = String(asset.thumbnail_url || "").trim();
     const url = String(asset.url || "").trim();
     const type = String(asset.content_type || "").toLowerCase();
-    const preferThumb = isVideoAsset(asset) || type.includes("gif") || Boolean(thumb);
+    const video = isVideoAsset(asset);
 
-    let chosen = preferThumb && thumb ? thumb : url || thumb;
-    if (!chosen && assetId && token) {
-      const thumbQuery = isVideoAsset(asset) ? "?thumb=1" : "";
-      chosen = `/api/v1/content-calendar/public/review/${encodeURIComponent(token)}/assets/${encodeURIComponent(assetId)}${thumbQuery}`;
+    // WhatsApp only renders a still image. Never point og:image at the video file.
+    if (video) {
+      const abs = absoluteUrl(origin, thumb);
+      if (abs) return abs;
+      continue;
     }
+
+    let chosen = thumb || url;
+    if (!chosen && assetId && token) {
+      chosen = `/api/v1/content-calendar/public/review/${encodeURIComponent(token)}/assets/${encodeURIComponent(assetId)}`;
+    }
+    if (type.startsWith("video/")) continue;
     const abs = absoluteUrl(origin, chosen);
     if (abs) return abs;
   }

@@ -78,6 +78,25 @@ test("uses video thumbnail instead of the video file", () => {
   assert.equal(image, `${origin}/api/v1/content-calendar/public/review/tok/assets/vid?thumb=1`);
 });
 
+test("does not use a video file as the WhatsApp preview image", () => {
+  const origin = "https://reamarc-app.vercel.app";
+  const image = pickShareImage(
+    {
+      attachments: [
+        {
+          id: "vid",
+          kind: "video",
+          content_type: "video/mp4",
+          url: "/api/v1/content-calendar/public/review/tok/assets/vid",
+        },
+      ],
+    },
+    origin,
+    "tok",
+  );
+  assert.equal(image, `${origin}/og-review.png`);
+});
+
 test("rejects Vite source HTML so the review app is never served unbuilt", () => {
   assert.equal(
     isBuiltSpaHtml('<div id="root"></div><script type="module" src="/src/main.tsx"></script>'),
