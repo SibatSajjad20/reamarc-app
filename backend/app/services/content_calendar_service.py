@@ -376,7 +376,25 @@ async def get_items(
                             )
                 if backfill_ops:
                     asyncio.create_task(coll.bulk_write(backfill_ops, ordered=False))
-        return [_present_doc(doc) for doc in raw]
+        presented_items = [_present_doc(doc) for doc in raw]
+        need_thumbs = [
+            item
+            for item in presented_items
+            if any(
+                isinstance(a, dict) and a.get("kind") == "video" and not a.get("thumbnail_url")
+                for a in (item.get("attachments") or [])
+            )
+        ]
+        if need_thumbs:
+            async def _fill_thumbs() -> None:
+                for item in need_thumbs[:6]:
+                    try:
+                        await _hydrate_missing_video_thumbs(db, item)
+                    except Exception:
+                        pass
+
+            asyncio.create_task(_fill_thumbs())
+        return presented_items
 
     async def _fetch_counts():
         res = {s: 0 for s in PIPELINE_STAGES}
@@ -420,37 +438,7 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
     if viewer is not None and not can_view_item(viewer, presented):
         return None
 
-    # Check if any Google Drive attachments need a thumbnail refresh (e.g. video finished encoding)
-    from app.services import google_drive_service as gdrive
-    if gdrive.configured() and any(
-        a.get("google_drive_file_id") and not a.get("thumbnail_url")
-        for a in presented.get("attachments", [])
-    ):
-        needs_update = False
-        updated_attachments = []
-        for a in presented.get("attachments", []):
-            a_copy = dict(a)
-            if a_copy.get("google_drive_file_id") and not a_copy.get("thumbnail_url"):
-                try:
-                    meta = await gdrive.fetch_file_metadata(a_copy["google_drive_file_id"])
-                    thumb = meta.get("thumbnailLink") if meta else None
-                    if thumb and not _is_generic_drive_icon(thumb):
-                        a_copy["thumbnail_url"] = thumb
-                        needs_update = True
-                except Exception:
-                    pass
-            updated_attachments.append(a_copy)
-        if needs_update:
-            presented["attachments"] = updated_attachments
-            try:
-                await coll.update_one(
-                    {"$or": [{"id": item_id}, {"serial": item_id}]},
-                    {"$set": {"attachments": updated_attachments}},
-                )
-            except Exception:
-                pass
-
-    return presented
+    return await _hydrate_missing_video_thumbs(db, presented)
 
 
 def get_client_abbreviation(client_name: Optional[str]) -> str:
@@ -1002,13 +990,82 @@ def can_manage_assets(viewer: Optional[Dict[str, Any]], item: Dict[str, Any]) ->
     return False
 
 
+def _ffmpeg_bin() -> Optional[str]:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+async def fetch_remote_image_bytes(url: str) -> Optional[bytes]:
+    """Downloads a Drive/HTTP thumbnail so we can store a stable JPEG for previews."""
+    clean = str(url or "").strip()
+    if not clean.startswith("http"):
+        return None
+    try:
+        import httpx
+
+        async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
+            response = await client.get(clean)
+        if response.status_code != 200 or len(response.content) < 32:
+            return None
+        ctype = (response.headers.get("content-type") or "").lower()
+        body = response.content
+        if "image/" in ctype or body[:3] == b"\xff\xd8" or body[:8] == b"\x89PNG\r\n\x1a\n":
+            return body
+    except Exception as exc:
+        logger.warning("Could not fetch remote thumbnail: %s", exc)
+    return None
+
+
+async def _store_video_still(
+    db,
+    presented: Dict[str, Any],
+    asset_id: str,
+    still: bytes,
+    use_drive: bool,
+    drive_folder_id: Optional[str],
+    user_id: Optional[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    from app.core.uploads import save_upload_bytes
+    from app.services import google_drive_service as gdrive
+
+    if not still:
+        return None, None
+    if use_drive and drive_folder_id and gdrive.configured():
+        uploaded = await gdrive.upload_bytes(
+            drive_folder_id, f"{asset_id}_thumb.jpg", still, "image/jpeg"
+        )
+        drive_thumb_id = uploaded.get("id")
+        return gdrive.public_path(drive_thumb_id, f"{asset_id}_thumb.jpg"), drive_thumb_id
+    thumb_key = f"content_calendar/{presented['id']}/{asset_id}_thumb.jpg"
+    url = await save_upload_bytes(
+        db,
+        relative_key=thumb_key,
+        content=still,
+        original_name=f"{asset_id}_thumb.jpg",
+        content_type="image/jpeg",
+        extra_metadata={
+            "workspace_id": presented.get("workspace_id"),
+            "uploaded_by": user_id,
+            "item_id": presented["id"],
+        },
+    )
+    return url, None
+
+
 def process_video_upload(content: bytes, ext: str) -> Tuple[bytes, Optional[bytes], Optional[int], Optional[int], Optional[float]]:
     """
     Optimizes MP4/MOV videos for instant browser playback by moving the moov atom to the
     beginning (+faststart) and extracts a crisp thumbnail frame.
     Returns (optimized_content, thumbnail_bytes, width, height, duration_seconds).
     """
-    ffmpeg_bin = shutil.which("ffmpeg")
+    ffmpeg_bin = _ffmpeg_bin()
     temp_in = None
     temp_out = None
     temp_thumb = None
@@ -1098,6 +1155,98 @@ def process_video_upload(content: bytes, ext: str) -> Tuple[bytes, Optional[byte
                     os.unlink(p)
                 except Exception:
                     pass
+
+
+async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[str, Any]:
+    """Persists a first-frame JPEG for videos that were stored without a thumbnail."""
+    attachments = presented.get("attachments") or []
+    if not any(isinstance(a, dict) and a.get("kind") == "video" and not a.get("thumbnail_url") for a in attachments):
+        return presented
+
+    from app.services import google_drive_service as gdrive
+    from app.core.uploads import uploads_root, normalize_upload_key
+
+    use_drive = gdrive.configured()
+    drive_folder_id = None
+    changed = False
+    updated: List[Dict[str, Any]] = []
+
+    for att in attachments:
+        if not isinstance(att, dict):
+            updated.append(att)
+            continue
+        a_copy = dict(att)
+        if a_copy.get("kind") != "video" or a_copy.get("thumbnail_url"):
+            updated.append(a_copy)
+            continue
+
+        still = None
+        width = height = duration = None
+        gfid = a_copy.get("google_drive_file_id")
+        try:
+            if gfid and use_drive:
+                meta = await gdrive.fetch_file_metadata(gfid)
+                thumb = meta.get("thumbnailLink") if meta else None
+                if thumb and not _is_generic_drive_icon(thumb):
+                    still = await fetch_remote_image_bytes(thumb)
+                if not still:
+                    prefix = await gdrive.download_file_prefix(gfid)
+                    if prefix:
+                        ext = Path(str(a_copy.get("filename") or "clip.mp4")).suffix.lower() or ".mp4"
+                        _opt, still, width, height, duration = await asyncio.to_thread(
+                            process_video_upload, prefix, ext
+                        )
+            else:
+                v_url = a_copy.get("url") or ""
+                rel = normalize_upload_key(v_url)
+                disk_path = uploads_root() / rel
+                if disk_path.is_file():
+                    raw = disk_path.read_bytes()
+                    ext = disk_path.suffix.lower() or ".mp4"
+                    _opt, still, width, height, duration = await asyncio.to_thread(
+                        process_video_upload, raw, ext
+                    )
+        except Exception as exc:
+            logger.warning("Video still capture failed for %s: %s", a_copy.get("id"), exc)
+
+        if still:
+            if use_drive and drive_folder_id is None:
+                try:
+                    drive_folder_id = await gdrive.ensure_item_folder(db, presented)
+                except Exception:
+                    drive_folder_id = None
+            url, thumb_id = await _store_video_still(
+                db,
+                presented,
+                str(a_copy.get("id") or uuid.uuid4().hex[:10]),
+                still,
+                use_drive,
+                drive_folder_id,
+                None,
+            )
+            if url:
+                a_copy["thumbnail_url"] = url
+                if thumb_id:
+                    a_copy["google_drive_thumb_file_id"] = thumb_id
+                if width:
+                    a_copy["width"] = width
+                if height:
+                    a_copy["height"] = height
+                if duration:
+                    a_copy["duration_seconds"] = duration
+                changed = True
+        updated.append(a_copy)
+
+    if changed:
+        presented["attachments"] = updated
+        try:
+            await db[COLLECTION_NAME].update_one(
+                {"id": presented["id"]},
+                {"$set": {"attachments": updated, "updated_at": _now_iso()}},
+            )
+        except Exception as exc:
+            logger.warning("Could not persist video thumbnails for %s: %s", presented.get("id"), exc)
+    return presented
 
 
 async def attach_assets(
@@ -1201,26 +1350,15 @@ async def attach_assets(
 
         thumbnail_url = stored_url if kind == "image" else None
         if kind == "video" and thumbnail_bytes:
-            if use_drive:
-                thumb_upload = await gdrive.upload_bytes(
-                    drive_folder_id, f"{asset_id}_thumb.jpg", thumbnail_bytes, "image/jpeg"
-                )
-                drive_thumb_id = thumb_upload.get("id")
-                thumbnail_url = gdrive.public_path(drive_thumb_id, f"{asset_id}_thumb.jpg")
-            else:
-                thumb_key = f"content_calendar/{presented['id']}/{asset_id}_thumb.jpg"
-                thumbnail_url = await save_upload_bytes(
-                    db,
-                    relative_key=thumb_key,
-                    content=thumbnail_bytes,
-                    original_name=f"{safe_fname}_thumb.jpg",
-                    content_type="image/jpeg",
-                    extra_metadata={
-                        "workspace_id": presented.get("workspace_id"),
-                        "uploaded_by": user_id,
-                        "item_id": presented["id"],
-                    },
-                )
+            thumbnail_url, drive_thumb_id = await _store_video_still(
+                db,
+                presented,
+                asset_id,
+                thumbnail_bytes,
+                use_drive,
+                drive_folder_id,
+                user_id,
+            )
 
         item_role = role
         # Auto-tag as carousel slide if multiple assets uploaded and role is primary/carousel
@@ -1335,6 +1473,28 @@ async def attach_drive_assets(
 
         stored_url = gdrive.public_path(drive_file_id, safe_fname)
         asset_id = f"ast_{uuid.uuid4().hex[:10]}"
+        drive_thumb_id = None
+        width = height = duration_seconds = None
+
+        if kind == "video":
+            still = None
+            if thumbnail_url and not _is_generic_drive_icon(thumbnail_url):
+                still = await fetch_remote_image_bytes(thumbnail_url)
+            if not still:
+                try:
+                    prefix = await gdrive.download_file_prefix(drive_file_id)
+                    if prefix:
+                        _opt, still, width, height, duration_seconds = await asyncio.to_thread(
+                            process_video_upload, prefix, ext or ".mp4"
+                        )
+                except Exception as exc:
+                    logger.warning("Could not extract Drive video still for %s: %s", drive_file_id, exc)
+            if still:
+                thumbnail_url, drive_thumb_id = await _store_video_still(
+                    db, presented, asset_id, still, bool(dest_folder_id), dest_folder_id, user_id
+                )
+            elif thumbnail_url and _is_generic_drive_icon(thumbnail_url):
+                thumbnail_url = None
 
         item_role = role
         if len(files) > 1 and role in ("primary", "carousel_slide"):
@@ -1351,13 +1511,13 @@ async def attach_drive_assets(
             "order": current_count + index,
             "uploaded_at": _now_iso(),
             "uploaded_by": user_name or user_id,
-            "width": None,
-            "height": None,
-            "duration_seconds": None,
+            "width": width,
+            "height": height,
+            "duration_seconds": duration_seconds,
             "thumbnail_url": thumbnail_url or (stored_url if kind == "image" else None),
             "google_drive_file_id": drive_file_id,
             "google_drive_url": drive_url,
-            "google_drive_thumb_file_id": None,
+            "google_drive_thumb_file_id": drive_thumb_id,
         })
 
     if not new_assets:
@@ -2151,6 +2311,7 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             logger.warning("Could not persist share_token for %s: %s", doc.get("id"), exc)
 
     presented = _present_doc(dict(doc))
+    presented = await _hydrate_missing_video_thumbs(db, presented)
 
     # Review links only expire once approved or changes requested
     is_expired, expire_msg = check_review_link_expiration(presented)

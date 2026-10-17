@@ -743,3 +743,26 @@ async def fetch_file_metadata(file_id: str) -> Dict[str, Any]:
     if meta and meta.get("thumbnailLink"):
         meta["thumbnailLink"] = format_drive_thumbnail_url(meta["thumbnailLink"], 800)
     return meta
+
+
+async def download_file_prefix(file_id: str, max_bytes: int = 16 * 1024 * 1024) -> bytes:
+    """Downloads the start of a Drive file so a first-frame still can be extracted."""
+    if not file_id or not configured():
+        return b""
+    creds = _credentials()
+    from google.auth.transport.requests import Request as GoogleAuthRequest
+
+    if not creds.valid or creds.expired:
+        with _creds_lock:
+            creds.refresh(GoogleAuthRequest())
+    headers = {
+        "Authorization": f"Bearer {creds.token}",
+        "Range": f"bytes=0-{max(0, int(max_bytes) - 1)}",
+    }
+    url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+    async with httpx.AsyncClient(timeout=httpx.Timeout(45.0)) as client:
+        response = await client.get(url, headers=headers)
+    if response.status_code not in (200, 206):
+        logger.warning("Drive prefix download returned %s for %s", response.status_code, file_id)
+        return b""
+    return response.content or b""
