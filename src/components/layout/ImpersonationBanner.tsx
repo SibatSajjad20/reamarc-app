@@ -8,23 +8,33 @@ interface ImpersonationBannerProps {
 
 export const ImpersonationBanner: React.FC<ImpersonationBannerProps> = ({ onExit }) => {
   const { user } = useAuth();
+  const [hasLocalToken, setHasLocalToken] = React.useState(false);
 
-  if (!user?.impersonating) {
+  React.useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && localStorage.getItem('reamarc_impersonation_token')) {
+        setHasLocalToken(true);
+      } else {
+        setHasLocalToken(false);
+      }
+    } catch {}
+  }, [user]);
+
+  if (!user?.impersonating && !hasLocalToken) {
     return null;
   }
 
-  const companyName = user.company?.name || user.company_id || 'Tenant';
-  const isReadOnly = user.read_only !== false;
+  const companyName = user?.company?.name || user?.company_id || 'Tenant';
+  const isReadOnly = user?.read_only !== false;
 
   const handleExit = () => {
+    try {
+      localStorage.removeItem('reamarc_impersonation_token');
+    } catch {}
     if (onExit) {
       onExit();
       return;
     }
-    // Remove impersonation token and navigate to /owner
-    try {
-      localStorage.removeItem('reamarc_impersonation_token');
-    } catch {}
     window.location.href = '/owner';
   };
 

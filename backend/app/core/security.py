@@ -151,19 +151,35 @@ def token_session_epoch(payload: Optional[dict]) -> int:
 async def bump_session_epoch(db: Any, user_id: str) -> None:
     if db is None or not user_id:
         return
-    await db.users.update_one(
-        {"id": user_id},
+    res = await db.users.update_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
         {"$inc": {"session_epoch": 1}, "$set": {"refresh_jtis": []}},
     )
+    if getattr(res, "matched_count", 0) == 0:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        if gdb is not None:
+            await gdb.users.update_one(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$inc": {"session_epoch": 1}, "$set": {"refresh_jtis": []}},
+            )
 
 
 async def remember_refresh_jti(db: Any, user_id: str, jti: str) -> None:
     if db is None or not user_id or not jti:
         return
-    await db.users.update_one(
-        {"id": user_id},
+    res = await db.users.update_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
         {"$push": {"refresh_jtis": {"$each": [jti], "$slice": -_MAX_REFRESH_JTIS}}},
     )
+    if getattr(res, "matched_count", 0) == 0:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        if gdb is not None:
+            await gdb.users.update_one(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$push": {"refresh_jtis": {"$each": [jti], "$slice": -_MAX_REFRESH_JTIS}}},
+            )
 
 
 async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) -> bool:
@@ -171,7 +187,7 @@ async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) 
         return False
     now = datetime.now(timezone.utc).isoformat()
     result = await db.users.update_one(
-        {"id": user_id, "refresh_jtis": old_jti},
+        {"$or": [{"id": user_id}, {"_id": user_id}], "refresh_jtis": old_jti},
         {
             "$set": {"refresh_jtis.$": new_jti},
             "$push": {
@@ -182,7 +198,25 @@ async def rotate_refresh_jti(db: Any, user_id: str, old_jti: str, new_jti: str) 
             },
         },
     )
-    return int(getattr(result, "modified_count", 0) or 0) == 1
+    if int(getattr(result, "modified_count", 0) or 0) == 1:
+        return True
+    from app.core.tenant import get_global_db
+    gdb = get_global_db()
+    if gdb is not None:
+        result = await gdb.users.update_one(
+            {"$or": [{"id": user_id}, {"_id": user_id}], "refresh_jtis": old_jti},
+            {
+                "$set": {"refresh_jtis.$": new_jti},
+                "$push": {
+                    "refresh_retired": {
+                        "$each": [{"jti": old_jti, "at": now}],
+                        "$slice": -_MAX_RETIRED_REFRESH_JTIS,
+                    }
+                },
+            },
+        )
+        return int(getattr(result, "modified_count", 0) or 0) == 1
+    return False
 
 
 async def revoke_refresh_jtis(db: Any, user_id: str, jtis: List[str]) -> None:
@@ -190,10 +224,18 @@ async def revoke_refresh_jtis(db: Any, user_id: str, jtis: List[str]) -> None:
     ids = [str(j) for j in jtis if j]
     if db is None or not user_id or not ids:
         return
-    await db.users.update_one(
-        {"id": user_id},
+    res = await db.users.update_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
         {"$pull": {"refresh_jtis": {"$in": ids}}},
     )
+    if getattr(res, "matched_count", 0) == 0:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        if gdb is not None:
+            await gdb.users.update_one(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$pull": {"refresh_jtis": {"$in": ids}}},
+            )
 
 
 def decide_refresh_action(
@@ -284,9 +326,17 @@ async def accept_retired_refresh(
     return True
 
 
-def claims_with_session(user_doc: dict, base: dict) -> dict:
+def claims_with_session(user_doc: Optional[dict], base: dict, company_doc: Optional[dict] = None) -> dict:
     out = dict(base)
-    out["ver"] = user_session_epoch(user_doc)
+    u = user_doc or {}
+    if "ver" not in out:
+        out["ver"] = user_session_epoch(u)
+    if "cid" not in out:
+        out["cid"] = u.get("company_id") or (company_doc.get("id") if company_doc else None) or "company_reamarc"
+    if "tv" not in out:
+        out["tv"] = int(u.get("token_version", 0) or 0)
+    if "ctv" not in out and company_doc:
+        out["ctv"] = int(company_doc.get("token_version", 0) or 0)
     return out
 
 def _normalize_role(raw_role: Optional[str]) -> str:
@@ -437,6 +487,15 @@ async def get_current_user(
     session_id = str(payload.get("sid") or "").strip()
     if session_id:
         active_sessions = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
+        if session_id not in active_sessions and cached:
+            _AUTH_CACHE.pop(user_id, None)
+            from app.core.tenant import get_global_db
+            gdb = get_global_db()
+            if gdb is not None:
+                fresh_user = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]}, {"hashed_password": 0})
+                if fresh_user:
+                    user_doc = fresh_user
+                    active_sessions = [str(j) for j in (user_doc.get("refresh_jtis") or []) if j]
         if session_id not in active_sessions:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -499,6 +558,8 @@ async def get_current_user(
         "company_id": effective_cid,
         "is_super_admin": bool(user_doc.get("is_super_admin", False)),
         "company": company_payload,
+        "impersonating": is_imp,
+        "read_only": is_ro,
     }
 
 

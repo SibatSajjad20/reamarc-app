@@ -3,13 +3,11 @@ import {
   Shield,
   Building2,
   Users,
-  KeyRound,
   ExternalLink,
   Plus,
   RefreshCw,
   Search,
   CheckCircle2,
-  AlertTriangle,
   History,
   Lock,
   PauseCircle,
@@ -19,9 +17,17 @@ import {
 } from 'lucide-react';
 import { ownerService, type Company, type OwnerAuditEvent } from '@/services/ownerService';
 import { useToast } from '@/context/ToastContext';
+import { useAuth } from '@/context/AuthContext';
+import { Skeleton } from '@/components/ui/skeleton';
+import type { ViewType } from '@/types';
 
-export const OwnerView: React.FC = () => {
+interface OwnerViewProps {
+  onNavigateView?: (view: ViewType) => void;
+}
+
+export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const [companies, setCompanies] = useState<Company[]>([]);
   const [auditLogs, setAuditLogs] = useState<OwnerAuditEvent[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -210,28 +216,44 @@ export const OwnerView: React.FC = () => {
               <Building2 className="w-4 h-4" />
               <span>Total Tenants</span>
             </div>
-            <div className="text-xl font-bold mt-1">{companies.length}</div>
+            {isLoading ? (
+              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
+            ) : (
+              <div className="text-xl font-bold mt-1">{companies.length}</div>
+            )}
           </div>
           <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
             <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
               <PlayCircle className="w-4 h-4" />
               <span>Active</span>
             </div>
-            <div className="text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{activeCount}</div>
+            {isLoading ? (
+              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
+            ) : (
+              <div className="text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{activeCount}</div>
+            )}
           </div>
           <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
             <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs font-medium">
               <PauseCircle className="w-4 h-4" />
               <span>Suspended</span>
             </div>
-            <div className="text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{suspendedCount}</div>
+            {isLoading ? (
+              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
+            ) : (
+              <div className="text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{suspendedCount}</div>
+            )}
           </div>
           <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
             <div className="flex items-center gap-2 text-muted-fg text-xs">
               <Users className="w-4 h-4" />
               <span>Fleet Users</span>
             </div>
-            <div className="text-xl font-bold mt-1">{totalFleetUsers}</div>
+            {isLoading ? (
+              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
+            ) : (
+              <div className="text-xl font-bold mt-1">{totalFleetUsers}</div>
+            )}
           </div>
         </div>
 
@@ -246,7 +268,8 @@ export const OwnerView: React.FC = () => {
             }`}
           >
             <Building2 className="w-4 h-4" />
-            Companies ({companies.length})
+            <span>Companies</span>
+            <span className="text-[11px] font-mono text-muted-fg">({isLoading ? '…' : companies.length})</span>
           </button>
           <button
             onClick={() => setActiveTab('audit')}
@@ -257,7 +280,8 @@ export const OwnerView: React.FC = () => {
             }`}
           >
             <History className="w-4 h-4" />
-            Cryptographic Audit Chain ({auditLogs.length})
+            <span>Cryptographic Audit Chain</span>
+            <span className="text-[11px] font-mono text-muted-fg">({isLoading ? '…' : auditLogs.length})</span>
           </button>
         </div>
       </div>
@@ -281,92 +305,184 @@ export const OwnerView: React.FC = () => {
             </div>
 
             {/* Companies Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCompanies.map((comp) => {
-                const isActive = comp.status === 'active';
-                return (
+            {isLoading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading tenants">
+                {[1, 2, 3].map((i) => (
                   <div
-                    key={comp.id}
-                    className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-border-hover transition-all shadow-xs"
+                    key={i}
+                    className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface shadow-xs"
                   >
                     <div>
                       <div className="flex items-start justify-between gap-2">
                         <div className="flex items-center gap-2.5">
-                          <div
-                            className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
-                            style={{ backgroundColor: comp.accent_color || '#6847E0' }}
-                            title={`Accent: ${comp.accent_color}`}
-                          />
-                          <div>
-                            <h2 className="font-semibold text-sm leading-tight text-fg">{comp.name}</h2>
-                            <p className="text-[11px] text-muted-fg font-mono mt-0.5">/{comp.slug}</p>
+                          <Skeleton className="w-3.5 h-3.5 rounded-full shrink-0" />
+                          <div className="space-y-1.5">
+                            <Skeleton className="h-4 w-28 rounded" />
+                            <Skeleton className="h-3 w-16 rounded" />
                           </div>
                         </div>
-
-                        <span
-                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide capitalize ${
-                            isActive
-                              ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                              : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                          }`}
-                        >
-                          {comp.status}
-                        </span>
+                        <Skeleton className="h-4 w-12 rounded-full" />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2 mt-4 text-xs text-muted-fg border-t border-border/50 pt-3">
-                        <div>
-                          <span className="text-[10px] uppercase font-bold tracking-wider block">Plan</span>
-                          <span className="capitalize font-medium text-fg">{comp.plan}</span>
+                      <div className="grid grid-cols-2 gap-2 mt-4 border-t border-border/50 pt-3">
+                        <div className="space-y-1">
+                          <Skeleton className="h-2.5 w-10 rounded" />
+                          <Skeleton className="h-3.5 w-16 rounded" />
                         </div>
-                        <div>
-                          <span className="text-[10px] uppercase font-bold tracking-wider block">Users</span>
-                          <span className="font-medium text-fg">
-                            {comp.user_count ?? 0} / {comp.limits?.max_users ?? 50}
-                          </span>
+                        <div className="space-y-1">
+                          <Skeleton className="h-2.5 w-10 rounded" />
+                          <Skeleton className="h-3.5 w-14 rounded" />
                         </div>
-                        <div className="col-span-2">
-                          <span className="text-[10px] uppercase font-bold tracking-wider block">Timezone</span>
-                          <span className="font-medium text-fg text-[11px] truncate block">
-                            {comp.timezone || 'Asia/Karachi'}
-                          </span>
+                        <div className="col-span-2 space-y-1">
+                          <Skeleton className="h-2.5 w-14 rounded" />
+                          <Skeleton className="h-3.5 w-24 rounded" />
                         </div>
                       </div>
                     </div>
 
                     <div className="mt-5 pt-3 border-t border-border flex items-center justify-between gap-2">
-                      <button
-                        onClick={() => void handleEnterCompany(comp)}
-                        className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity"
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" />
-                        Enter Console
-                      </button>
-
-                      <button
-                        onClick={() => void handleToggleStatus(comp)}
-                        title={isActive ? 'Suspend Company' : 'Reactivate Company'}
-                        className={`p-1.5 rounded-md border text-xs transition-colors ${
-                          isActive
-                            ? 'border-border text-muted-fg hover:text-amber-600 hover:border-amber-300'
-                            : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-                        }`}
-                      >
-                        {isActive ? <PauseCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
-                      </button>
-
-                      <button
-                        onClick={() => void handleResetSessions(comp)}
-                        title="Force Logout All Users"
-                        className="p-1.5 rounded-md border border-border text-muted-fg hover:text-rose-600 hover:border-rose-300 transition-colors"
-                      >
-                        <Lock className="w-4 h-4" />
-                      </button>
+                      <Skeleton className="h-7 flex-1 rounded-md" />
+                      <Skeleton className="h-7 w-7 rounded-md" />
+                      <Skeleton className="h-7 w-7 rounded-md" />
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                ))}
+              </div>
+            ) : filteredCompanies.length === 0 ? (
+              <div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface/50">
+                <Building2 className="w-8 h-8 text-muted-fg mx-auto mb-2 opacity-50" />
+                <p className="text-sm font-medium text-fg">No companies found</p>
+                <p className="text-xs text-muted-fg mt-0.5">Try adjusting your search query</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filteredCompanies.map((comp) => {
+                  const isActive = comp.status === 'active';
+                  const isCurrentCompany = comp.id === user?.company_id || comp.slug === 'reamarc';
+                  return (
+                    <div
+                      key={comp.id}
+                      className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-border-hover transition-all shadow-xs"
+                    >
+                      <div>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
+                              style={{ backgroundColor: comp.accent_color || '#6847E0' }}
+                              title={`Accent: ${comp.accent_color}`}
+                            />
+                            <div>
+                              <div className="flex items-center gap-1.5">
+                                <h2 className="font-semibold text-sm leading-tight text-fg">{comp.name}</h2>
+                                {isCurrentCompany && (
+                                  <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-bold rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
+                                    Current
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-muted-fg font-mono mt-0.5">/{comp.slug}</p>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide capitalize ${
+                              isActive
+                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                            }`}
+                          >
+                            {comp.status}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2 mt-4 text-xs text-muted-fg border-t border-border/50 pt-3">
+                          <div>
+                            <span className="text-[10px] uppercase font-bold tracking-wider block">Plan</span>
+                            <span className="capitalize font-medium text-fg">{comp.plan}</span>
+                          </div>
+                          <div>
+                            <span className="text-[10px] uppercase font-bold tracking-wider block">Users</span>
+                            <span className="font-medium text-fg">
+                              {comp.user_count ?? 0} / {comp.limits?.max_users ?? 50}
+                            </span>
+                          </div>
+                          <div className="col-span-2">
+                            <span className="text-[10px] uppercase font-bold tracking-wider block">Timezone</span>
+                            <span className="font-medium text-fg text-[11px] truncate block">
+                              {comp.timezone || 'Asia/Karachi'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 pt-3 border-t border-border flex items-center justify-between gap-2">
+                        {isCurrentCompany ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onNavigateView) {
+                                onNavigateView('dashboard');
+                              } else {
+                                window.location.href = '/dashboard';
+                              }
+                            }}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+                            title="Currently active organization. Click to return to Dashboard."
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                            Current Company
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleEnterCompany(comp)}
+                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            Enter Console
+                          </button>
+                        )}
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isCurrentCompany) return;
+                            void handleToggleStatus(comp);
+                          }}
+                          disabled={isCurrentCompany}
+                          title={
+                            isCurrentCompany
+                              ? 'Root platform organization cannot be suspended'
+                              : isActive
+                              ? 'Suspend Company'
+                              : 'Reactivate Company'
+                          }
+                          className={`p-1.5 rounded-md border text-xs transition-colors ${
+                            isCurrentCompany
+                              ? 'border-border/40 text-muted-fg/40 cursor-not-allowed opacity-50'
+                              : isActive
+                              ? 'border-border text-muted-fg hover:text-amber-600 hover:border-amber-300'
+                              : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
+                          }`}
+                        >
+                          {isActive ? <PauseCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleResetSessions(comp)}
+                          title="Force Logout All Users"
+                          className="p-1.5 rounded-md border border-border text-muted-fg hover:text-rose-600 hover:border-rose-300 transition-colors"
+                        >
+                          <Lock className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         ) : (
           /* Cryptographic Audit Log Tab */
@@ -379,34 +495,57 @@ export const OwnerView: React.FC = () => {
               <span className="text-xs text-muted-fg font-mono">Showing last 50 owner actions</span>
             </div>
 
-            <div className="space-y-2.5">
-              {auditLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="p-3 rounded-lg border border-border/70 bg-canvas/60 text-xs font-mono flex flex-col md:flex-row md:items-center justify-between gap-2 hover:bg-canvas transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold uppercase text-[10px]">
-                      {log.action}
-                    </span>
-                    <span className="text-fg font-medium">
-                      {log.target_company_id ? `Target: ${log.target_company_id}` : 'System'}
-                    </span>
-                    <span className="text-muted-fg text-[11px]">
-                      by {log.actor_user_id || 'System'}
-                    </span>
+            {isLoading ? (
+              <div className="space-y-2.5" aria-label="Loading audit logs">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div
+                    key={i}
+                    className="p-3 rounded-lg border border-border/70 bg-canvas/60 flex flex-col md:flex-row md:items-center justify-between gap-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Skeleton className="h-4 w-16 rounded" />
+                      <Skeleton className="h-3.5 w-28 rounded" />
+                      <Skeleton className="h-3 w-20 rounded" />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <Skeleton className="h-3 w-24 rounded" />
+                      <Skeleton className="h-3 w-32 rounded" />
+                    </div>
                   </div>
+                ))}
+              </div>
+            ) : auditLogs.length === 0 ? (
+              <div className="text-center py-10 text-muted-fg text-xs">No audit events recorded yet.</div>
+            ) : (
+              <div className="space-y-2.5">
+                {auditLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className="p-3 rounded-lg border border-border/70 bg-canvas/60 text-xs font-mono flex flex-col md:flex-row md:items-center justify-between gap-2 hover:bg-canvas transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold uppercase text-[10px]">
+                        {log.action}
+                      </span>
+                      <span className="text-fg font-medium">
+                        {log.target_company_id ? `Target: ${log.target_company_id}` : 'System'}
+                      </span>
+                      <span className="text-muted-fg text-[11px]">
+                        by {log.actor_user_id || 'System'}
+                      </span>
+                    </div>
 
-                  <div className="flex items-center gap-4 text-muted-fg text-[11px]">
-                    <span title={`Full Hash: ${log.hash}`} className="flex items-center gap-1">
-                      <Hash className="w-3 h-3 text-muted-fg/70" />
-                      {log.hash.slice(0, 12)}...
-                    </span>
-                    <span>{new Date(log.created_at).toLocaleString()}</span>
+                    <div className="flex items-center gap-4 text-muted-fg text-[11px]">
+                      <span title={`Full Hash: ${log.hash}`} className="flex items-center gap-1">
+                        <Hash className="w-3 h-3 text-muted-fg/70" />
+                        {log.hash.slice(0, 12)}...
+                      </span>
+                      <span>{new Date(log.created_at).toLocaleString()}</span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -530,13 +669,25 @@ export const OwnerView: React.FC = () => {
                     />
                   </div>
 
-                  <div className="col-span-2">
+                  <div className="col-span-2 sm:col-span-1">
                     <label className="block font-semibold mb-1">Initial Password (Optional)</label>
                     <input
                       type="password"
-                      placeholder="Leave blank to generate temporary password"
+                      placeholder="Leave blank to generate"
                       value={formAdminPassword}
                       onChange={(e) => setFormAdminPassword(e.target.value)}
+                      className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                  </div>
+
+                  <div className="col-span-2 sm:col-span-1">
+                    <label className="block font-semibold mb-1">Max Users Limit</label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={1000}
+                      value={formMaxUsers}
+                      onChange={(e) => setFormMaxUsers(Math.max(1, parseInt(e.target.value) || 1))}
                       className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
                     />
                   </div>

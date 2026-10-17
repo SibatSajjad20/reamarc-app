@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
-from typing import List, Optional, Dict, Set
+from typing import List, Optional, Dict, Set, Any
 import logging
 import uuid
 import secrets
 import string
 import re
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 
 from app.schemas.user import (
     MemberCreate,
@@ -59,6 +59,22 @@ router = APIRouter(
 )
 
 
+def _format_datetime(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    if hasattr(v, "isoformat"):
+        return v.isoformat()
+    return str(v)
+
+
+def _format_date(v: Any) -> Optional[str]:
+    if v is None:
+        return None
+    if hasattr(v, "strftime"):
+        return v.strftime("%Y-%m-%d")
+    return str(v)
+
+
 def _format_member_resp(doc: dict) -> dict:
     raw_role = doc.get("role", UserRole.TEAM_MEMBER.value)
     try:
@@ -102,14 +118,16 @@ def _format_member_resp(doc: dict) -> dict:
         "department": dept,
         "departments": depts,
         "primary_department": doc.get("primary_department") or (depts[0] if depts else None),
-        "joining_date": doc.get("joining_date"),
+        "joining_date": _format_date(doc.get("joining_date")),
         "employment_type": employment_type,
-        "probation_start_date": doc.get("probation_start_date"),
-        "probation_end_date": doc.get("probation_end_date"),
+        "probation_start_date": _format_date(doc.get("probation_start_date")),
+        "probation_end_date": _format_date(doc.get("probation_end_date")),
         "is_active": doc.get("is_active", True),
-        "created_at": doc.get("created_at"),
+        "created_at": _format_datetime(doc.get("created_at")),
         "workspace_ids": [str(value) for value in (doc.get("workspace_ids") or []) if value],
         "avatar_url": doc.get("avatar_url"),
+        "company_id": doc.get("company_id"),
+        "is_super_admin": doc.get("is_super_admin", False),
     }
 
 
@@ -153,8 +171,8 @@ def _format_workspace_resp(doc: dict) -> dict:
         "proposal_size": doc.get("proposal_size"),
         "project_cycle": doc.get("project_cycle", "Retainer"),
         "priority": doc.get("priority", "Medium"),
-        "contract_start_date": doc.get("contract_start_date"),
-        "contract_end_date": doc.get("contract_end_date"),
+        "contract_start_date": _format_date(doc.get("contract_start_date")),
+        "contract_end_date": _format_date(doc.get("contract_end_date")),
         "services": doc.get("services") or [],
         "health": doc.get("health", "Good"),
         "poc_name": doc.get("poc_name"),
@@ -164,8 +182,8 @@ def _format_workspace_resp(doc: dict) -> dict:
         "billing_email": doc.get("billing_email"),
         "billing_phone": doc.get("billing_phone"),
         "isDefault": bool(doc.get("isDefault", False)),
-        "created_at": doc.get("created_at"),
-        "updated_at": doc.get("updated_at"),
+        "created_at": _format_datetime(doc.get("created_at")),
+        "updated_at": _format_datetime(doc.get("updated_at")),
     }
 
 
@@ -187,8 +205,8 @@ async def _format_ad_account_resp(doc: dict, db=None) -> dict:
         "workspace_id": ws_id,
         "workspace_name": ws_name,
         "currency": doc.get("currency", "USD"),
-        "created_at": doc.get("created_at"),
-        "updated_at": doc.get("updated_at"),
+        "created_at": _format_datetime(doc.get("created_at")),
+        "updated_at": _format_datetime(doc.get("updated_at")),
     }
 
 

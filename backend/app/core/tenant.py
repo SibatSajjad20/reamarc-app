@@ -252,7 +252,10 @@ class TenantCollection:
                     f"which differs from context '{cid}' on collection '{self.name}'"
                 )
         else:
-            res["company_id"] = cid
+            if cid == "company_reamarc":
+                res["company_id"] = {"$in": ["company_reamarc", None]}
+            else:
+                res["company_id"] = cid
 
         _assert_runtime_guard(res, self.name, cid)
         return res
@@ -318,22 +321,28 @@ class TenantCollection:
         self._check_writable()
         scoped = self._scope_filter(filter)
         ctx = get_tenant_context()
-        if upsert and ctx and ctx.company_id:
-            if "$setOnInsert" in update:
-                update["$setOnInsert"]["company_id"] = ctx.company_id
-            elif any(k.startswith("$") for k in update.keys()):
-                update["$setOnInsert"] = {"company_id": ctx.company_id}
+        if ctx and ctx.company_id and isinstance(update, dict):
+            if "$set" in update and isinstance(update["$set"], dict):
+                update["$set"].setdefault("company_id", ctx.company_id)
+            if upsert:
+                if "$setOnInsert" in update:
+                    update["$setOnInsert"]["company_id"] = ctx.company_id
+                elif any(k.startswith("$") for k in update.keys()):
+                    update["$setOnInsert"] = {"company_id": ctx.company_id}
         return await self._coll.update_one(scoped, update, upsert=upsert, *args, **kwargs)
 
     async def update_many(self, filter, update, upsert=False, *args, **kwargs):
         self._check_writable()
         scoped = self._scope_filter(filter)
         ctx = get_tenant_context()
-        if upsert and ctx and ctx.company_id:
-            if "$setOnInsert" in update:
-                update["$setOnInsert"]["company_id"] = ctx.company_id
-            elif any(k.startswith("$") for k in update.keys()):
-                update["$setOnInsert"] = {"company_id": ctx.company_id}
+        if ctx and ctx.company_id and isinstance(update, dict):
+            if "$set" in update and isinstance(update["$set"], dict):
+                update["$set"].setdefault("company_id", ctx.company_id)
+            if upsert:
+                if "$setOnInsert" in update:
+                    update["$setOnInsert"]["company_id"] = ctx.company_id
+                elif any(k.startswith("$") for k in update.keys()):
+                    update["$setOnInsert"] = {"company_id": ctx.company_id}
         return await self._coll.update_many(scoped, update, upsert=upsert, *args, **kwargs)
 
     async def replace_one(self, filter, replacement, upsert=False, *args, **kwargs):
@@ -355,6 +364,10 @@ class TenantCollection:
     async def find_one_and_update(self, filter, update, *args, **kwargs):
         self._check_writable()
         scoped = self._scope_filter(filter)
+        ctx = get_tenant_context()
+        if ctx and ctx.company_id and isinstance(update, dict):
+            if "$set" in update and isinstance(update["$set"], dict):
+                update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.find_one_and_update(scoped, update, *args, **kwargs)
 
     async def find_one_and_delete(self, filter, *args, **kwargs):

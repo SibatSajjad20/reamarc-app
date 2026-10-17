@@ -137,6 +137,7 @@ async def create_company(
 
     company_id = f"comp_{uuid.uuid4().hex[:12]}"
     now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
 
     # 1. Company document
     comp_doc = {
@@ -170,7 +171,8 @@ async def create_company(
         "is_active": True,
         "hashed_password": get_password_hash(raw_password),
         "token_version": 0,
-        "created_at": now,
+        "created_at": now_iso,
+        "updated_at": now_iso,
     }
     await gdb.users.insert_one(admin_doc)
 
@@ -185,7 +187,8 @@ async def create_company(
         "initials": initials,
         "company_id": company_id,
         "is_default": True,
-        "created_at": now,
+        "created_at": now_iso,
+        "updated_at": now_iso,
     })
 
     # 4. Cryptographic audit event

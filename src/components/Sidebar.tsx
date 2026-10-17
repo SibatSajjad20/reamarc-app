@@ -508,6 +508,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               },
             ]
           : []),
+        ...(user?.is_super_admin
+          ? [
+              {
+                id: 'owner' as ViewType,
+                label: 'Owner Console',
+                icon: Building2,
+              },
+            ]
+          : []),
       ],
     },
   ].filter((group) => group.items.length > 0);

@@ -36,6 +36,8 @@ class UserResponse(BaseModel):
     company_id: Optional[str] = None
     is_super_admin: Optional[bool] = False
     company: Optional[dict] = None
+    impersonating: Optional[bool] = False
+    read_only: Optional[bool] = False
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

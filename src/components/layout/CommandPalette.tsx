@@ -136,6 +136,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({
     portal: { label: 'Client portal', icon: CircleCheck },
     profile: { label: 'Settings', icon: Settings },
     settings: { label: 'Settings', icon: Settings },
+    owner: { label: 'Owner Console', icon: Building2 },
   };
 
   return (

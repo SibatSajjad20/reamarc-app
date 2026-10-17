@@ -2,7 +2,7 @@ import React from 'react';
 import { useBranding } from '@/context/BrandingProvider';
 
 interface BrandMarkProps {
-  size?: 24 | 28 | 32 | 40;
+  size?: number;
   className?: string;
   initial?: string;
   logoUrl?: string | null;

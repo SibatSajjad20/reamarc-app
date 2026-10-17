@@ -119,6 +119,9 @@ class ApiClient {
   public setToken(_token: string | null) {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('reamarc_token');
+      if (!_token) {
+        localStorage.removeItem('reamarc_impersonation_token');
+      }
     }
   }
 
@@ -170,7 +173,7 @@ class ApiClient {
     return this.refreshPromise;
   }
 
-  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false): Record<string, string> {
+  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false, endpoint?: string): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
@@ -180,8 +183,9 @@ class ApiClient {
     };
 
     if (typeof window !== 'undefined') {
+      const isAuthEndpoint = endpoint && (endpoint.includes('/auth/login') || endpoint.includes('/auth/logout'));
       const impToken = localStorage.getItem('reamarc_impersonation_token');
-      if (impToken && !headers['Authorization']) {
+      if (impToken && !headers['Authorization'] && !isAuthEndpoint) {
         headers['Authorization'] = `Bearer ${impToken}`;
       }
     }
@@ -222,7 +226,7 @@ class ApiClient {
 
     const config: RequestInit = {
       ...fetchOptions,
-      headers: this.buildHeaders(customHeaders),
+      headers: this.buildHeaders(customHeaders, false, endpoint),
       credentials: 'include',
       signal: controller.signal,
     };
@@ -300,7 +304,7 @@ class ApiClient {
 
     const config: RequestInit = {
       ...fetchOptions,
-      headers: this.buildHeaders(customHeaders),
+      headers: this.buildHeaders(customHeaders, false, endpoint),
       credentials: 'include',
       signal: controller.signal,
     };
@@ -399,7 +403,7 @@ class ApiClient {
     formData: FormData,
     options?: { headers?: HeadersInit; skipWorkspaceHeader?: boolean }
   ): Promise<T> {
-    const headers = this.buildHeaders(options?.headers, true);
+    const headers = this.buildHeaders(options?.headers, true, endpoint);
     if (options?.skipWorkspaceHeader) {
       delete headers['X-Workspace-ID'];
       delete headers['x-workspace-id'];
@@ -452,7 +456,7 @@ class ApiClient {
 
     const config: RequestInit = {
       ...fetchOptions,
-      headers: this.buildHeaders(customHeaders, true),
+      headers: this.buildHeaders(customHeaders, true, endpoint),
       credentials: 'include',
       signal: controller.signal,
     };

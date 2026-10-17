@@ -233,6 +233,11 @@ export const TopBar: React.FC<TopBarProps> = ({
           },
         ];
       }
+      case 'owner':
+        return [
+          { label: 'Platform' },
+          { label: 'Owner Console', onClick: () => onSelectView('owner') },
+        ];
       default:
         return [{ label: 'Reamarc' }];
     }

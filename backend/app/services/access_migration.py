@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from app.database import get_database
+from app.core.tenant import get_global_db
 from app.services.access import (
     MODULES,
     VALID_CONTENT_STAGES,
@@ -46,9 +47,12 @@ async def run_access_settings_migration(
 
     now_iso = datetime.now(timezone.utc).isoformat()
 
+    gdb = get_global_db()
+    mig_coll = getattr(gdb, "migrations", None) if gdb is not None else getattr(db, "migrations", None)
+
     # Check marker document
-    if not force:
-        marker = await db.migrations.find_one({"id": MIGRATION_ID})
+    if not force and mig_coll is not None:
+        marker = await mig_coll.find_one({"id": MIGRATION_ID})
         if marker:
             logger.info("Migration %s already applied at %s", MIGRATION_ID, marker.get("applied_at"))
             return {
@@ -146,7 +150,8 @@ async def run_access_settings_migration(
             "stages_carried": stages_carried_count,
             "overrides_ignored": overrides_ignored,
         }
-        await db.migrations.update_one({"id": MIGRATION_ID}, {"$set": marker_doc}, upsert=True)
+        if mig_coll is not None:
+            await mig_coll.update_one({"id": MIGRATION_ID}, {"$set": marker_doc}, upsert=True)
 
     summary = {
         "status": "DRY_RUN" if dry_run else "APPLIED",

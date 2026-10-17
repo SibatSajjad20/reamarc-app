@@ -20,7 +20,7 @@ from app.core.security import (
     bump_session_epoch, claims_with_session,
     remember_refresh_jti, rotate_refresh_jti,
     decide_refresh_action, retired_jti_is_recent, accept_retired_refresh,
-    revoke_refresh_jtis,
+    revoke_refresh_jtis, _AUTH_CACHE,
 )
 from app.core.limiter import limiter, get_client_ip
 from app.core.rate_limit_store import enforce_shared_rate_limit
@@ -125,6 +125,8 @@ def _build_user_response(user_doc: dict) -> dict:
         "crm_enabled": user_doc.get("crm_enabled"),
         "crm_paused": user_doc.get("crm_paused"),
         "avatar_url": user_doc.get("avatar_url"),
+        "company_id": user_doc.get("company_id") or "company_reamarc",
+        "is_super_admin": bool(user_doc.get("is_super_admin", False)),
     }
 
 
@@ -216,6 +218,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     db = get_database()
     with tenant_scope(cid):
         await remember_refresh_jti(db, user_id, session_id)
+    _AUTH_CACHE.pop(user_id, None)
     wants_json = _wants_json_tokens(request, user_in.device_uuid)
     if not wants_json:
         # Browsers use HttpOnly cookies; mobile uses Bearer tokens only.
@@ -301,6 +304,7 @@ async def refresh_token(request: Request, response: Response):
         else:
             # Stale token from another browser. Reject this token only.
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired refresh token.")
+    _AUTH_CACHE.pop(user_id, None)
 
     wants_json = _wants_json_tokens(request)
     if not wants_json:

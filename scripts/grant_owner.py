@@ -15,12 +15,17 @@ import asyncio
 import os
 import sys
 from pathlib import Path
+
+backend_dir = str(Path(__file__).resolve().parent.parent / "backend")
+if backend_dir not in sys.path:
+    sys.path.insert(0, backend_dir)
+
+from app.config import settings
+from app.core.owner_audit import record_owner_audit_event
 from motor.motor_asyncio import AsyncIOMotorClient
 
-from app.core.owner_audit import record_owner_audit_event
 
-
-async def run_grant_owner(uri: str, db_name: str, email: str, confirm: bool):
+async def run_grant_owner(uri: str, db_name: str, email: str, reason: str, confirm: bool):
     client = AsyncIOMotorClient(uri)
     db = client[db_name]
 
@@ -33,12 +38,14 @@ async def run_grant_owner(uri: str, db_name: str, email: str, confirm: bool):
 
     print("=" * 60)
     print(" GRANT SUPER-ADMIN OWNER PRIVILEGES")
-    print(f" Target User: {user.get('name')} <{email_clean}> (id: {user.get('id')})")
+    print(f" Database: {db_name}")
+    print(f" Target User: {user.get('name') or user.get('full_name')} <{email_clean}> (id: {user.get('id')})")
+    print(f" Reason: {reason}")
     print(f" Current is_super_admin: {user.get('is_super_admin', False)}")
     print("=" * 60)
 
     if not confirm:
-        print("[NOTICE] Running in dry-run mode. Pass --confirm to apply changes.")
+        print("\n[NOTICE] Running in dry-run mode. Pass --confirm to apply changes.")
         client.close()
         sys.exit(0)
 
@@ -62,6 +69,7 @@ async def run_grant_owner(uri: str, db_name: str, email: str, confirm: bool):
             "email": email_clean,
             "target_user_id": str(user.get("id")),
             "cli": True,
+            "reason": reason,
         }
     )
     print(f" Immutable audit logged with hash: {audit_entry['hash'][:16]}...")
@@ -71,13 +79,19 @@ async def run_grant_owner(uri: str, db_name: str, email: str, confirm: bool):
 
 def main():
     parser = argparse.ArgumentParser(description="Grant is_super_admin to owner account via CLI")
-    parser.add_argument("--uri", default=os.environ.get("MONGODB_URL", "mongodb://localhost:27017"))
-    parser.add_argument("--db", default=os.environ.get("MONGODB_DB_NAME", "reamarc_test_db"))
-    parser.add_argument("--email", required=True, help="Owner's corporate email address")
+    parser.add_argument("email_pos", nargs="?", default=None, help="Owner's corporate email address (positional)")
+    parser.add_argument("--email", default=None, help="Owner's corporate email address")
+    parser.add_argument("--reason", default="Initial owner setup", help="Reason for granting owner privileges")
+    parser.add_argument("--uri", default=getattr(settings, "MONGODB_URL", "mongodb://localhost:27017"))
+    parser.add_argument("--db", default=getattr(settings, "MONGODB_DB_NAME", "reamarc_db"))
     parser.add_argument("--confirm", action="store_true", help="Confirm execution of privileges grant")
     args = parser.parse_args()
 
-    asyncio.run(run_grant_owner(args.uri, args.db, args.email, args.confirm))
+    email = (args.email or args.email_pos or "").strip()
+    if not email:
+        parser.error("Owner email is required. Example: python scripts/grant_owner.py your_email@example.com --confirm")
+
+    asyncio.run(run_grant_owner(args.uri, args.db, email, args.reason, args.confirm))
 
 
 if __name__ == "__main__":

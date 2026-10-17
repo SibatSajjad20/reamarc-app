@@ -306,3 +306,32 @@ class TestAuthTenancy(unittest.IsolatedAsyncioTestCase):
             headers={"Authorization": f"Bearer {imp_token}"}
         )
         self.assertEqual(res_put.status_code, 403)
+
+    async def test_08_active_company_login_and_refresh(self):
+        """Active company user can successfully log in and refresh token with company_doc claims."""
+        res_login = await self.client.post(
+            "/api/v1/auth/login",
+            json={"email": self.user_a_email, "password": "Password123!"},
+        )
+        self.assertEqual(res_login.status_code, 200)
+        self.assertIn("access_token", res_login.cookies)
+        self.assertIn("refresh_token", res_login.cookies)
+
+        # Me endpoint with the access cookie
+        res_me = await self.client.get(
+            "/api/v1/auth/me",
+            cookies={"access_token": res_login.cookies["access_token"]}
+        )
+        self.assertEqual(res_me.status_code, 200)
+        me_data = res_me.json()
+        self.assertEqual(me_data["email"], self.user_a_email)
+        self.assertEqual(me_data["company_id"], "comp_a")
+
+        # Refresh token endpoint using the refresh cookie
+        res_refresh = await self.client.post(
+            "/api/v1/auth/refresh",
+            cookies={"refresh_token": res_login.cookies["refresh_token"]}
+        )
+        self.assertEqual(res_refresh.status_code, 200)
+        self.assertIn("access_token", res_refresh.cookies)
+

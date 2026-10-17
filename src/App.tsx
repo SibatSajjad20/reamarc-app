@@ -434,6 +434,7 @@ function AppInner() {
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
+    if (user?.is_super_admin) allowedViews.push('owner');
     allowedViews.push('settings');
 
     const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
@@ -974,7 +975,7 @@ function AppInner() {
           {currentView === 'owner' && (
             user?.is_super_admin ? (
               <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
-                <OwnerView />
+                <OwnerView onNavigateView={handleSelectView} />
               </div>
             ) : (
               <AccessDenied module="Owner Console" />

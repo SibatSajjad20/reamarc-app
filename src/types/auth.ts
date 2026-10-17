@@ -32,6 +32,19 @@ export interface AuthUser {
   workspace_ids?: string[];
   avatar_url?: string | null;
   content_stages?: string[];
+  company_id?: string;
+  is_super_admin?: boolean;
+  company?: {
+    id?: string;
+    name?: string;
+    slug?: string;
+    status?: 'active' | 'suspended';
+    logo_url?: string | null;
+    accent_color?: string;
+    timezone?: string;
+  };
+  impersonating?: boolean;
+  read_only?: boolean;
 }
 
 export interface LoginPayload {
