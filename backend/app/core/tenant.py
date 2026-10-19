@@ -28,6 +28,13 @@ from app.config import settings
 logger = logging.getLogger("app.tenant")
 
 
+def _company_id_clause(cid: str) -> Any:
+    """Reamarc still sees legacy docs that have no company_id."""
+    if cid == "company_reamarc":
+        return {"$in": ["company_reamarc", None]}
+    return cid
+
+
 class CrossTenantError(Exception):
     """Raised when an operation crosses tenant boundaries."""
     pass
@@ -256,10 +263,7 @@ class TenantCollection:
                     f"which differs from context '{cid}' on collection '{self.name}'"
                 )
         else:
-            if cid == "company_reamarc":
-                res["company_id"] = {"$in": ["company_reamarc", None]}
-            else:
-                res["company_id"] = cid
+            res["company_id"] = _company_id_clause(cid)
 
         _assert_runtime_guard(res, self.name, cid)
         return res
@@ -335,6 +339,11 @@ class TenantCollection:
                     update["$setOnInsert"] = {"company_id": ctx.company_id}
             else:
                 if "$set" in update and isinstance(update["$set"], dict):
+                    if "company_id" in update["$set"] and update["$set"]["company_id"] != ctx.company_id:
+                        raise CrossTenantError(
+                            f"CrossTenantError: $set.company_id '{update['$set']['company_id']}' "
+                            f"differs from context '{ctx.company_id}'"
+                        )
                     update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.update_one(scoped, update, upsert=upsert, *args, **kwargs)
 
@@ -352,6 +361,11 @@ class TenantCollection:
                     update["$setOnInsert"] = {"company_id": ctx.company_id}
             else:
                 if "$set" in update and isinstance(update["$set"], dict):
+                    if "company_id" in update["$set"] and update["$set"]["company_id"] != ctx.company_id:
+                        raise CrossTenantError(
+                            f"CrossTenantError: $set.company_id '{update['$set']['company_id']}' "
+                            f"differs from context '{ctx.company_id}'"
+                        )
                     update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.update_many(scoped, update, upsert=upsert, *args, **kwargs)
 
@@ -386,6 +400,11 @@ class TenantCollection:
                     update["$setOnInsert"] = {"company_id": ctx.company_id}
             else:
                 if "$set" in update and isinstance(update["$set"], dict):
+                    if "company_id" in update["$set"] and update["$set"]["company_id"] != ctx.company_id:
+                        raise CrossTenantError(
+                            f"CrossTenantError: $set.company_id '{update['$set']['company_id']}' "
+                            f"differs from context '{ctx.company_id}'"
+                        )
                     update["$set"].setdefault("company_id", ctx.company_id)
         return await self._coll.find_one_and_update(scoped, update, *args, **kwargs)
 
@@ -419,7 +438,7 @@ class TenantCollection:
                         if isinstance(req._filter, dict):
                             if "company_id" in req._filter and req._filter["company_id"] != cid:
                                 raise CrossTenantError("Cross-tenant filter in bulk_write")
-                            req._filter["company_id"] = cid
+                            req._filter["company_id"] = _company_id_clause(cid)
                     if req_type == "ReplaceOne" and hasattr(req, "_doc"):
                         req._doc["company_id"] = cid
         return await self._coll.bulk_write(requests, *args, **kwargs)
@@ -447,15 +466,16 @@ class TenantCollection:
             s_copy = dict(stage)
             if "$lookup" in s_copy:
                 lk = dict(s_copy["$lookup"])
+                clause = {"company_id": _company_id_clause(cid)}
                 if "pipeline" in lk and isinstance(lk["pipeline"], list):
                     sub_pipe = list(lk["pipeline"])
-                    sub_pipe.insert(0, {"$match": {"company_id": cid}})
+                    sub_pipe.insert(0, {"$match": clause})
                     lk["pipeline"] = sub_pipe
                     s_copy["$lookup"] = lk
             if "$graphLookup" in s_copy:
                 gl = dict(s_copy["$graphLookup"])
                 rsm = dict(gl.get("restrictSearchWithMatch") or {})
-                rsm["company_id"] = cid
+                rsm["company_id"] = _company_id_clause(cid)
                 gl["restrictSearchWithMatch"] = rsm
                 s_copy["$graphLookup"] = gl
             if "$unionWith" in s_copy:
@@ -463,12 +483,12 @@ class TenantCollection:
                 if isinstance(uw, dict) and "pipeline" in uw and isinstance(uw["pipeline"], list):
                     uw_copy = dict(uw)
                     sub_pipe = list(uw_copy["pipeline"])
-                    sub_pipe.insert(0, {"$match": {"company_id": cid}})
+                    sub_pipe.insert(0, {"$match": {"company_id": _company_id_clause(cid)}})
                     uw_copy["pipeline"] = sub_pipe
                     s_copy["$unionWith"] = uw_copy
             new_pipe.append(s_copy)
 
-        new_pipe.insert(0, {"$match": {"company_id": cid}})
+        new_pipe.insert(0, {"$match": {"company_id": _company_id_clause(cid)}})
         _assert_runtime_guard(new_pipe, self.name, cid)
         return self._coll.aggregate(new_pipe, *args, **kwargs)
 
@@ -486,6 +506,10 @@ class TenantCollection:
 class TenantDB:
     def __init__(self, raw_db: AsyncIOMotorDatabase):
         self._raw_db = raw_db
+
+    def raw(self) -> AsyncIOMotorDatabase:
+        """Unwrap to the Motor database (GridFS and other non-collection APIs)."""
+        return self._raw_db
 
     def __getitem__(self, name: str) -> TenantCollection:
         if name in GLOBAL_COLLECTIONS:

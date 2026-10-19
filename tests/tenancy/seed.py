@@ -25,7 +25,7 @@ COMPANIES_SEED = [
         "_id": "tnt_comp_a",
         "id": "tnt_comp_a",
         "name": "Reamarc",
-        "slug": "reamarc",
+        "slug": "tnt-reamarc",
         "logo_url": "https://example.com/logo-a.png",
         "accent_color": "#6847E0",
         "timezone": "Asia/Karachi",

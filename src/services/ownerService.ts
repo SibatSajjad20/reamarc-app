@@ -126,4 +126,22 @@ export const ownerService = {
       status: string;
     }>(`/owner/members/${userId}/companies/${companyId}/remove`);
   },
+
+  async provisionMember(payload: {
+    full_name: string;
+    email: string;
+    phone?: string;
+    company_id: string;
+    role?: string;
+    temporary_password?: string;
+  }) {
+    return apiClient.post<{
+      ok: boolean;
+      user_id: string;
+      email: string;
+      membership_id: string;
+      company_id: string;
+      is_new_user: boolean;
+    }>('/owner/members', payload);
+  },
 };

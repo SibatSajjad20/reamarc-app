@@ -28,10 +28,21 @@ from app.core.security import (
 )
 from app.core.tenant import get_global_db
 
+async def require_owner_console(
+    request: Request,
+    current_user: dict = Depends(require_owner),
+) -> dict:
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return current_user
+    if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+    return current_user
+
+
 router = APIRouter(
     prefix="/owner",
     tags=["Owner Console"],
-    dependencies=[Depends(require_owner)],
+    dependencies=[Depends(require_owner_console)],
 )
 
 
@@ -69,6 +80,15 @@ class OwnerEnterRequest(BaseModel):
 
 class GrantCompanyAccessRequest(BaseModel):
     company_id: str = Field(..., min_length=2, max_length=100)
+
+
+class ProvisionMemberRequest(BaseModel):
+    full_name: str = Field(..., min_length=2, max_length=100)
+    email: EmailStr
+    phone: Optional[str] = None
+    company_id: str = Field(..., min_length=2, max_length=100)
+    role: str = Field("team_member", min_length=2, max_length=50)
+    temporary_password: Optional[str] = Field(None, min_length=8)
 
 
 
@@ -143,77 +163,114 @@ async def create_company(
         )
 
     company_id = f"comp_{uuid.uuid4().hex[:12]}"
+    creation_id = f"cr_{uuid.uuid4().hex[:16]}"
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
-
-    # 1. Company document
-    comp_doc = {
-        "_id": company_id,
-        "id": company_id,
-        "name": body.name.strip(),
-        "slug": slug_clean,
-        "plan": body.plan,
-        "status": "active",
-        "timezone": body.timezone or "Asia/Karachi",
-        "accent_color": body.accent_color or "#6847E0",
-        "logo_url": None,
-        "limits": {"max_users": body.max_users or 50},
-        "token_version": 0,
-        "created_at": now,
-        "created_by": current_user["id"],
-    }
-    await gdb.companies.insert_one(comp_doc)
-
-    # 2. Initial Admin User
     admin_id = f"usr_{uuid.uuid4().hex[:12]}"
-    raw_password = body.admin_password or uuid.uuid4().hex[:16]
-    admin_doc = {
-        "_id": admin_id,
-        "id": admin_id,
-        "email": email_clean,
-        "name": body.admin_name.strip(),
-        "full_name": body.admin_name.strip(),
-        "role": "admin",
-        "company_id": company_id,
-        "is_active": True,
-        "hashed_password": get_password_hash(raw_password),
-        "token_version": 0,
-        "created_at": now_iso,
-        "updated_at": now_iso,
-    }
-    await gdb.users.insert_one(admin_doc)
-
-    # 3. Default Workspace
+    mem_id = f"mem_{uuid.uuid4().hex[:12]}"
     ws_id = f"ws_{uuid.uuid4().hex[:12]}"
-    initials = "".join([w[0].upper() for w in body.name.split() if w][:2]) or "CO"
-    await gdb.workspaces.insert_one({
-        "_id": ws_id,
-        "id": ws_id,
-        "name": f"{body.name.strip()} Workspace",
-        "brandColor": body.accent_color or "#6847E0",
-        "initials": initials,
-        "company_id": company_id,
-        "is_default": True,
-        "created_at": now_iso,
-        "updated_at": now_iso,
-    })
+    setup_link = None
 
-    # 4. Cryptographic audit event
-    await record_owner_audit_event(
-        global_db=gdb,
-        action="create_company",
-        actor_user_id=current_user["id"],
-        target_company_id=company_id,
-        details={
-            "name": body.name,
+    async def _rollback() -> None:
+        await gdb.company_memberships.delete_many({"creation_id": creation_id})
+        await gdb.workspaces.delete_many({"creation_id": creation_id})
+        await gdb.users.delete_many({"creation_id": creation_id})
+        await gdb.companies.delete_many({"creation_id": creation_id})
+        await gdb.password_resets.delete_many({"creation_id": creation_id})
+
+    try:
+        comp_doc = {
+            "_id": company_id,
+            "id": company_id,
+            "name": body.name.strip(),
             "slug": slug_clean,
             "plan": body.plan,
-            "admin_email": email_clean,
-        },
-    )
+            "status": "active",
+            "timezone": body.timezone or "Asia/Karachi",
+            "accent_color": body.accent_color or "#6847E0",
+            "logo_url": None,
+            "limits": {"max_users": body.max_users or 50},
+            "token_version": 0,
+            "creation_id": creation_id,
+            "created_at": now,
+            "created_by": current_user["id"],
+        }
+        await gdb.companies.insert_one(comp_doc)
+
+        admin_doc = {
+            "_id": admin_id,
+            "id": admin_id,
+            "email": email_clean,
+            "name": body.admin_name.strip(),
+            "full_name": body.admin_name.strip(),
+            "role": "admin",
+            "company_id": company_id,
+            "is_active": True,
+            "hashed_password": get_password_hash(uuid.uuid4().hex),
+            "token_version": 0,
+            "creation_id": creation_id,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        }
+        await gdb.users.insert_one(admin_doc)
+
+        await gdb.company_memberships.insert_one({
+            "_id": mem_id,
+            "id": mem_id,
+            "user_id": admin_id,
+            "company_id": company_id,
+            "role": "admin",
+            "status": "active",
+            "needs_setup": False,
+            "token_version": 0,
+            "creation_id": creation_id,
+            "granted_by": current_user["id"],
+            "granted_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+        initials = "".join([w[0].upper() for w in body.name.split() if w][:2]) or "CO"
+        await gdb.workspaces.insert_one({
+            "_id": ws_id,
+            "id": ws_id,
+            "name": f"{body.name.strip()} Workspace",
+            "brandColor": body.accent_color or "#6847E0",
+            "initials": initials,
+            "company_id": company_id,
+            "is_default": True,
+            "creation_id": creation_id,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+
+        from app.services.identity_guard import create_password_reset_link, send_password_reset_link_email
+        setup_link = await create_password_reset_link(email_clean, hours=72)
+        await gdb.password_resets.update_many(
+            {"email": email_clean, "purpose": "link", "used": False},
+            {"$set": {"creation_id": creation_id}},
+        )
+        await send_password_reset_link_email(email_clean, body.admin_name.strip(), setup_link)
+
+        await record_owner_audit_event(
+            global_db=gdb,
+            action="create_company",
+            actor_user_id=current_user["id"],
+            target_company_id=company_id,
+            details={
+                "name": body.name,
+                "slug": slug_clean,
+                "plan": body.plan,
+                "admin_email": email_clean,
+            },
+        )
+    except Exception:
+        await _rollback()
+        raise
 
     clean_comp = {k: v for k, v in comp_doc.items() if k != "_id"}
     clean_comp["user_count"] = 1
+    clean_comp["setup_link"] = setup_link
     return clean_comp
 
 
@@ -301,6 +358,26 @@ async def update_company(
 
     updated = await gdb.companies.find_one({"id": company_id}, {"_id": 0})
     return updated
+
+
+@router.post("/companies/{company_id}/resend-invite")
+async def resend_company_invite(
+    company_id: str,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    gdb = get_global_db()
+    company = await gdb.companies.find_one({"id": company_id})
+    if not company:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+    admin = await gdb.users.find_one({"company_id": company_id, "role": "admin"})
+    if not admin:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company admin not found.")
+    from app.services.identity_guard import create_password_reset_link, send_password_reset_link_email
+    email = str(admin.get("email") or "")
+    name = admin.get("full_name") or admin.get("name") or "there"
+    link = await create_password_reset_link(email, hours=72)
+    await send_password_reset_link_email(email, name, link)
+    return {"message": "Invite sent.", "setup_link": link}
 
 
 @router.post("/companies/{company_id}/enter")
@@ -449,6 +526,170 @@ async def list_owner_members(
         })
 
     return result
+
+
+@router.post("/members", status_code=status.HTTP_201_CREATED)
+async def provision_member(
+    body: ProvisionMemberRequest,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Provision a new user account and assign them to an initial company membership."""
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
+
+    gdb = get_global_db()
+    target_comp = await gdb.companies.find_one({"id": body.company_id})
+    if not target_comp:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+
+    email_clean = body.email.lower().strip()
+    existing_user = await gdb.users.find_one({"email": email_clean})
+
+    now = datetime.now(timezone.utc)
+    now_iso = now.isoformat()
+
+    if existing_user:
+        user_id = existing_user.get("id") or str(existing_user.get("_id"))
+        existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
+        if existing_mem and existing_mem.get("status") == "active":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"User is already an active member of {target_comp.get('name')}.",
+            )
+        mem_id = existing_mem["id"] if existing_mem else f"mem_{uuid.uuid4().hex[:12]}"
+        mem_doc = {
+            "status": "active",
+            "role": body.role or "team_member",
+            "primary_department": None,
+            "departments": [],
+            "content_stages": [],
+            "access": {
+                "attendance": False,
+                "daily_log": False,
+                "sales": False,
+                "content_calendar": False,
+                "website": False,
+                "ads": False,
+            },
+            "needs_setup": True,
+            "granted_by": current_user["id"],
+            "granted_at": now_iso,
+            "removed_by": None,
+            "removed_at": None,
+            "updated_at": now_iso,
+        }
+        if existing_mem:
+            await gdb.company_memberships.update_one(
+                {"_id": existing_mem["_id"]},
+                {"$set": mem_doc, "$inc": {"token_version": 1}},
+            )
+        else:
+            mem_doc["_id"] = mem_id
+            mem_doc["id"] = mem_id
+            mem_doc["user_id"] = user_id
+            mem_doc["company_id"] = body.company_id
+            mem_doc["token_version"] = 0
+            mem_doc["created_at"] = now_iso
+            await gdb.company_memberships.insert_one(mem_doc)
+
+        invalidate_auth_cache(user_id=user_id, membership_id=mem_id)
+
+        await record_owner_audit_event(
+            global_db=gdb,
+            action="provision_member",
+            actor_user_id=current_user["id"],
+            target_company_id=body.company_id,
+            details={
+                "user_id": user_id,
+                "email": email_clean,
+                "membership_id": mem_id,
+                "note": "Existing user granted membership via provision",
+            },
+        )
+        return {
+            "ok": True,
+            "user_id": user_id,
+            "email": email_clean,
+            "membership_id": mem_id,
+            "company_id": body.company_id,
+            "is_new_user": False,
+        }
+
+    user_id = f"usr_{uuid.uuid4().hex[:10]}"
+    raw_pwd = (body.temporary_password or "").strip() or "Reamarc123!"
+    hashed_pwd = get_password_hash(raw_pwd)
+
+    new_user_doc = {
+        "_id": user_id,
+        "id": user_id,
+        "email": email_clean,
+        "name": body.full_name.strip(),
+        "full_name": body.full_name.strip(),
+        "phone": body.phone.strip() if body.phone else None,
+        "phone_number": body.phone.strip() if body.phone else None,
+        "hashed_password": hashed_pwd,
+        "role": body.role or "team_member",
+        "company_id": body.company_id,
+        "is_active": True,
+        "is_super_admin": False,
+        "token_version": 0,
+        "session_epoch": 0,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await gdb.users.insert_one(new_user_doc)
+
+    mem_id = f"mem_{uuid.uuid4().hex[:12]}"
+    mem_doc = {
+        "_id": mem_id,
+        "id": mem_id,
+        "user_id": user_id,
+        "company_id": body.company_id,
+        "role": body.role or "team_member",
+        "primary_department": None,
+        "departments": [],
+        "content_stages": [],
+        "access": {
+            "attendance": False,
+            "daily_log": False,
+            "sales": False,
+            "content_calendar": False,
+            "website": False,
+            "ads": False,
+        },
+        "status": "active",
+        "needs_setup": True,
+        "granted_by": current_user["id"],
+        "granted_at": now_iso,
+        "removed_by": None,
+        "removed_at": None,
+        "token_version": 0,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await gdb.company_memberships.insert_one(mem_doc)
+
+    await record_owner_audit_event(
+        global_db=gdb,
+        action="provision_member",
+        actor_user_id=current_user["id"],
+        target_company_id=body.company_id,
+        details={
+            "user_id": user_id,
+            "email": email_clean,
+            "membership_id": mem_id,
+            "role": body.role,
+        },
+    )
+
+    return {
+        "ok": True,
+        "user_id": user_id,
+        "email": email_clean,
+        "membership_id": mem_id,
+        "company_id": body.company_id,
+        "is_new_user": True,
+    }
 
 
 @router.post("/members/{user_id}/companies")

@@ -257,7 +257,7 @@ class ApiClient {
         ) {
           const refreshed = await this.tryRefreshSession();
           if (refreshed) {
-            return this.request<T>(endpoint, { ...options, _retried: true });
+            return this._executeRequest<T>(endpoint, { ...options, _retried: true });
           }
           if (this.onUnauthorizedCallback) {
             this.onUnauthorizedCallback();

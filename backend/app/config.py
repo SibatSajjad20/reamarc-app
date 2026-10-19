@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_FROM_NAME: str = "Reamarc Workspace"
     SMTP_TLS: bool = True
+    EMAILS_ENABLED: bool = True
     APP_FRONTEND_URL: str = "http://localhost:5173"
 
     # Office geofence / attendance security (WAN IPs from env only — no hardcoded allow-list)

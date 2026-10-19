@@ -52,6 +52,10 @@ export const adminService = {
     return res;
   },
 
+  async sendMemberResetLink(userId: string): Promise<{ message: string }> {
+    return apiClient.post<{ message: string }>(`/admin/members/${userId}/send-reset-link`, {});
+  },
+
   async deleteMember(userId: string): Promise<any> {
     const res = await apiClient.delete(`/admin/members/${userId}`);
     adminMembersCache.clear();

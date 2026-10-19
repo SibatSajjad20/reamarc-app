@@ -20,6 +20,9 @@ export interface AdminMember {
   workspace_ids?: string[];
   avatar_url?: string | null;
   needs_setup?: boolean;
+  company_id?: string | null;
+  is_super_admin?: boolean;
+  login_managed_elsewhere?: boolean;
 }
 
 export type AdminUser = AdminMember;

@@ -35,6 +35,9 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "security.py",
     "rate_limit_store.py",
     "auth.py",
+    "admin.py",  # membership directory + identity lookup
+    "identity_guard.py",  # global login identity
+    "access.py",  # per-company membership access rows
     "content_calendar.py",
     "crm_ingest.py",
     "crm_meta_accounts.py",
@@ -42,6 +45,7 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "job_locks.py",
     "integrations.py",
     "access_migration.py",
+    "push_service.py",
 }
 
 ALLOW_LIST_RAW_DB = {

@@ -61,6 +61,16 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
   const [formAdminPassword, setFormAdminPassword] = useState<string>('');
   const [formMaxUsers, setFormMaxUsers] = useState<number>(50);
 
+  // Provision Member Modal State
+  const [isProvisionMemberOpen, setIsProvisionMemberOpen] = useState<boolean>(false);
+  const [provisionName, setProvisionName] = useState<string>('');
+  const [provisionEmail, setProvisionEmail] = useState<string>('');
+  const [provisionPhone, setProvisionPhone] = useState<string>('');
+  const [provisionCompanyId, setProvisionCompanyId] = useState<string>('');
+  const [provisionRole, setProvisionRole] = useState<string>('team_member');
+  const [provisionPassword, setProvisionPassword] = useState<string>('');
+  const [isProvisioningMember, setIsProvisioningMember] = useState<boolean>(false);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -138,6 +148,47 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
         description: err.message || 'Error occurred while revoking access.',
         type: 'error',
       });
+    }
+  };
+
+  const handleProvisionMember = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!provisionName || !provisionEmail || !provisionCompanyId) {
+      addToast({ title: 'Validation Error', description: 'Please fill in name, email, and target company.', type: 'warning' });
+      return;
+    }
+    setIsProvisioningMember(true);
+    try {
+      await ownerService.provisionMember({
+        full_name: provisionName.trim(),
+        email: provisionEmail.trim().toLowerCase(),
+        phone: provisionPhone.trim() || undefined,
+        company_id: provisionCompanyId,
+        role: provisionRole,
+        temporary_password: provisionPassword.trim() || undefined,
+      });
+      addToast({
+        title: 'Member Provisioned',
+        description: `Successfully provisioned ${provisionName} and granted access.`,
+        type: 'success',
+      });
+      setIsProvisionMemberOpen(false);
+      setProvisionName('');
+      setProvisionEmail('');
+      setProvisionPhone('');
+      setProvisionCompanyId('');
+      setProvisionRole('team_member');
+      setProvisionPassword('');
+      const updated = await ownerService.getMembers(searchQuery);
+      setMembers(updated);
+    } catch (err: any) {
+      addToast({
+        title: 'Provisioning Failed',
+        description: err.message || 'Error occurred while provisioning member.',
+        type: 'error',
+      });
+    } finally {
+      setIsProvisioningMember(false);
     }
   };
 
@@ -283,13 +334,24 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
               <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity shadow-xs"
-            >
-              <Plus className="w-4 h-4" />
-              Provision Tenant
-            </button>
+            {activeTab === 'companies' && (
+              <button
+                onClick={() => setIsModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity shadow-xs"
+              >
+                <Plus className="w-4 h-4" />
+                Provision Tenant
+              </button>
+            )}
+            {activeTab === 'members' && (
+              <button
+                onClick={() => setIsProvisionMemberOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity shadow-xs"
+              >
+                <UserPlus className="w-4 h-4" />
+                Provision Member
+              </button>
+            )}
           </div>
         </div>
 
@@ -1016,6 +1078,135 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {isProvisionMemberOpen && (
+        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <span className="p-1 rounded-md bg-accent/10 text-accent">
+                  <UserPlus className="w-5 h-5" />
+                </span>
+                <h3 className="font-semibold text-lg text-fg">Provision New Member</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsProvisionMemberOpen(false)}
+                className="text-muted-fg hover:text-fg p-1 rounded-md"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleProvisionMember} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-fg">Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. John Doe"
+                  value={provisionName}
+                  onChange={(e) => setProvisionName(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-fg">Work Email *</label>
+                <input
+                  type="email"
+                  required
+                  placeholder="e.g. john@company.com"
+                  value={provisionEmail}
+                  onChange={(e) => setProvisionEmail(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-fg">Phone (Optional)</label>
+                <input
+                  type="text"
+                  placeholder="+92 300 1234567"
+                  value={provisionPhone}
+                  onChange={(e) => setProvisionPhone(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-fg">Assign Company *</label>
+                  <select
+                    required
+                    value={provisionCompanyId}
+                    onChange={(e) => setProvisionCompanyId(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="">-- Choose Company --</option>
+                    {companies
+                      .filter((c) => c.status === 'active')
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-fg">Initial Role</label>
+                  <select
+                    value={provisionRole}
+                    onChange={(e) => setProvisionRole(e.target.value)}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                  >
+                    <option value="team_member">Team member</option>
+                    <option value="team_lead">Team lead</option>
+                    <option value="hr">HR</option>
+                    <option value="operations">Operations</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold mb-1 text-fg">Temporary Password (Optional)</label>
+                <input
+                  type="password"
+                  placeholder="Leave blank to use default (Reamarc123!)"
+                  value={provisionPassword}
+                  onChange={(e) => setProvisionPassword(e.target.value)}
+                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
+                />
+              </div>
+
+              <div className="p-2.5 rounded-lg bg-surface-hover/50 border border-border text-xs text-muted-fg">
+                <p>
+                  Provisioning creates the platform user account and assigns their initial active membership to the selected company.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+                <button
+                  type="button"
+                  onClick={() => setIsProvisionMemberOpen(false)}
+                  className="px-3 py-1.5 rounded-md border border-border text-muted-fg hover:bg-surface-hover transition-colors font-medium text-xs"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!provisionName || !provisionEmail || !provisionCompanyId || isProvisioningMember}
+                  className="px-4 py-1.5 rounded-md bg-accent text-accent-fg font-semibold hover:opacity-90 transition-opacity text-xs disabled:opacity-50"
+                >
+                  {isProvisioningMember ? 'Provisioning...' : 'Provision Member'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

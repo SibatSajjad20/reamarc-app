@@ -126,12 +126,15 @@ def _format_member_resp(doc: dict) -> dict:
         "probation_start_date": _format_date(doc.get("probation_start_date")),
         "probation_end_date": _format_date(doc.get("probation_end_date")),
         "is_active": doc.get("is_active", True),
+        "deactivated_at": _format_datetime(doc.get("deactivated_at")),
+        "deactivation_date": _format_date(doc.get("deactivation_date")),
         "created_at": _format_datetime(doc.get("created_at")),
         "workspace_ids": [str(value) for value in (doc.get("workspace_ids") or []) if value],
         "avatar_url": doc.get("avatar_url"),
         "company_id": doc.get("company_id"),
         "is_super_admin": doc.get("is_super_admin", False),
         "needs_setup": bool(doc.get("needs_setup", False)),
+        "login_managed_elsewhere": bool(doc.get("login_managed_elsewhere", False)),
     }
 
 
@@ -227,6 +230,7 @@ async def list_members(
     department: Optional[str] = Query(None, description="Filter by department name"),
     role: Optional[str] = Query(None, description="Filter by member role (admin, hr, operations, team_lead, team_member)"),
     search: Optional[str] = Query(None, description="Search by name or email"),
+    is_active: Optional[bool] = Query(None, description="Filter by active status"),
     current_user: dict = Depends(get_current_user),
 ):
     """List all registered members in the organization."""
@@ -234,7 +238,11 @@ async def list_members(
         from app.core.tenant import get_global_db
         gdb = get_global_db()
         current_cid = current_user.get("company_id")
-        mem_query: Dict[str, Any] = {"company_id": current_cid, "status": "active"}
+        mem_query: Dict[str, Any] = {"company_id": current_cid}
+        if is_active is True:
+            mem_query["status"] = "active"
+        elif is_active is False:
+            mem_query["status"] = "inactive"
         if role:
             mem_query["role"] = role.lower()
         if department:
@@ -252,6 +260,12 @@ async def list_members(
         u_cursor = gdb.users.find({"$or": [{"id": {"$in": user_ids}}, {"_id": {"$in": user_ids}}]})
         users = await u_cursor.to_list(1000)
         user_by_id = {u.get("id") or str(u.get("_id")): u for u in users}
+        extra_ids = set(
+            await gdb.company_memberships.distinct(
+                "user_id",
+                {"user_id": {"$in": user_ids}, "status": "active", "company_id": {"$ne": current_cid}},
+            )
+        )
 
         results = []
         for m in mems:
@@ -265,6 +279,10 @@ async def list_members(
             merged["primary_department"] = m.get("primary_department")
             merged["needs_setup"] = bool(m.get("needs_setup", False))
             merged["company_id"] = current_cid
+            home = u.get("company_id")
+            merged["login_managed_elsewhere"] = bool(
+                u.get("is_super_admin") or home != current_cid or m["user_id"] in extra_ids
+            )
 
             if search:
                 s_lower = search.strip().lower()
@@ -282,6 +300,8 @@ async def list_members(
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     query = {}
+    if is_active is not None:
+        query["is_active"] = is_active
     if department:
         query["department"] = exact_ci(department)
     if role:
@@ -575,12 +595,6 @@ async def create_member(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    if getattr(settings, "MULTI_COMPANY_ENABLED", False):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User provisioning is managed exclusively through the Owner Console.",
-        )
-
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 
     # Prevent creating additional Super Admin accounts
@@ -595,10 +609,24 @@ async def create_member(
             detail="Only an administrator can assign the operations role.",
         )
 
-    existing = await db.users.find_one({"email": member_in.email.lower()})
+    from fastapi.responses import JSONResponse
+    from app.core.tenant import get_global_db
+
+    email_clean = member_in.email.lower()
+    gdb = get_global_db()
+    existing = None
+    if gdb is not None:
+        existing = await gdb.users.find_one({"email": email_clean})
+    if existing is None:
+        existing = await db.users.find_one({"email": email_clean})
     if existing:
+        if getattr(settings, "MULTI_COMPANY_ENABLED", False):
+            return JSONResponse(
+                status_code=200,
+                content={"message": "If this person can be added, they'll get an email"},
+            )
         raise HTTPException(
-            status_code=400, detail="A member with this email address already exists."
+            status_code=400, detail="Could not add this person with that email."
         )
 
     user_id = f"usr_{uuid.uuid4().hex[:10]}"
@@ -658,7 +686,29 @@ async def create_member(
         "created_at": now_iso,
         "updated_at": now_iso,
     }
-    await db.users.insert_one(user_doc)
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False) and gdb is not None:
+        user_cid = current_user.get("company_id")
+        user_doc["company_id"] = user_cid
+        await gdb.users.insert_one(user_doc)
+        mem_id = f"mem_{uuid.uuid4().hex[:12]}"
+        await gdb.company_memberships.insert_one({
+            "_id": mem_id,
+            "id": mem_id,
+            "user_id": user_id,
+            "company_id": user_cid,
+            "role": member_in.role.value,
+            "primary_department": user_doc.get("primary_department"),
+            "departments": user_doc.get("departments") or [],
+            "status": "active",
+            "needs_setup": False,
+            "token_version": 0,
+            "granted_by": current_user["id"],
+            "granted_at": now_iso,
+            "created_at": now_iso,
+            "updated_at": now_iso,
+        })
+    else:
+        await db.users.insert_one(user_doc)
     return _format_member_resp(user_doc)
 
 
@@ -697,6 +747,17 @@ async def update_member(
             raise HTTPException(status_code=404, detail="Member not found.")
         is_target_admin = existing_user.get("role") in (UserRole.ADMIN.value, "admin")
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
+
+    from app.services.identity_guard import (
+        assert_super_admin_protected,
+        can_edit_global_identity,
+        identity_keys_in_update,
+        invalidate_global_login,
+        remove_company_membership,
+        HOME_LOGIN_MSG,
+    )
+    assert_super_admin_protected(current_user, existing_user)
+    may_edit_identity = await can_edit_global_identity(current_user, existing_user)
 
     # Super Admin Protection: HR cannot modify the Super Admin account
     if is_target_admin and not is_caller_admin:
@@ -788,6 +849,15 @@ async def update_member(
                 update_fields["primary_department"] = first
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
+        if member_in.is_active is False:
+            from app.services.attendance_golive import pkt_today_str
+            update_fields["deactivated_at"] = datetime.now(timezone.utc).isoformat()
+            update_fields["deactivation_date"] = (member_in.deactivation_date or "").strip() or pkt_today_str()
+        else:
+            update_fields["deactivated_at"] = None
+            update_fields["deactivation_date"] = None
+    elif member_in.deactivation_date is not None:
+        update_fields["deactivation_date"] = member_in.deactivation_date.strip() or None
     if member_in.crm_enabled is not None:
         update_fields["crm_enabled"] = bool(member_in.crm_enabled)
     if member_in.crm_paused is not None:
@@ -846,6 +916,16 @@ async def update_member(
     if not update_fields:
         return _format_member_resp(existing_user)
 
+    pending_identity = identity_keys_in_update(update_fields)
+    deactivate_only = pending_identity == {"is_active"} and update_fields.get("is_active") is False
+    if pending_identity and not may_edit_identity:
+        if deactivate_only and multi_enabled and target_mem:
+            await remove_company_membership(user_id, current_user.get("company_id"))
+            existing_user["is_active"] = True
+            existing_user["login_managed_elsewhere"] = True
+            return _format_member_resp(existing_user)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HOME_LOGIN_MSG)
+
     if multi_enabled and target_mem:
         now_iso = datetime.now(timezone.utc).isoformat()
         mem_set: Dict[str, Any] = {"updated_at": now_iso}
@@ -858,6 +938,15 @@ async def update_member(
             mem_set["departments"] = update_fields["departments"]
         if "primary_department" in update_fields:
             mem_set["primary_department"] = update_fields["primary_department"]
+        if "is_active" in update_fields:
+            if update_fields["is_active"] is False:
+                mem_set["status"] = "inactive"
+                mem_set["deactivated_at"] = update_fields.get("deactivated_at")
+                mem_set["deactivation_date"] = update_fields.get("deactivation_date")
+            else:
+                mem_set["status"] = "active"
+                mem_set["deactivated_at"] = None
+                mem_set["deactivation_date"] = None
 
         await gdb.company_memberships.update_one({"id": target_mem["id"]}, {"$set": mem_set})
         invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
@@ -886,14 +975,55 @@ async def update_member(
             return_document=True,
         )
 
-    if "hashed_password" in update_fields:
-        await bump_session_epoch(db, user_id)
+    if "hashed_password" in update_fields or "email" in update_fields or update_fields.get("is_active") is False:
+        await invalidate_global_login(user_id)
 
     new_joining = update_fields.get("joining_date")
     if new_joining and new_joining != existing_user.get("joining_date"):
         await purge_pre_joining_attendance(user_id, new_joining)
 
     return _format_member_resp(updated_user)
+
+
+@router.post("/members/{user_id}/send-reset-link")
+@router.post("/users/{user_id}/send-reset-link")
+async def send_member_reset_link(
+    user_id: str,
+    current_user: dict = Depends(require_hr_or_admin),
+):
+    """Email a one-time password reset link. Never shows or sets a password."""
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+
+    from app.core.tenant import get_global_db
+    from app.services.identity_guard import (
+        assert_super_admin_protected,
+        create_password_reset_link,
+        send_password_reset_link_email,
+    )
+
+    gdb = get_global_db()
+    target = await (gdb.users if gdb is not None else db.users).find_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]}
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Member not found.")
+    assert_super_admin_protected(current_user, target)
+    if getattr(settings, "MULTI_COMPANY_ENABLED", False) and gdb is not None:
+        mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": current_user.get("company_id"),
+            "status": "active",
+        })
+        if not mem:
+            raise HTTPException(status_code=404, detail="Member not found.")
+
+    email = str(target.get("email") or "")
+    name = target.get("full_name") or target.get("name") or "there"
+    link = await create_password_reset_link(email)
+    await send_password_reset_link_email(email, name, link)
+    return {"message": "If this person can be reached, they'll get a reset link."}
 
 
 @router.delete("/members/{user_id}")

@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Response, Request
+from pydantic import BaseModel
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import uuid
@@ -246,6 +247,14 @@ async def login(request: Request, user_in: UserLogin, response: Response):
     else:
         from app.core.security import lookup_company
         cid = user_doc.get("company_id") or "company_reamarc"
+        if (
+            not getattr(settings, "MULTI_TENANT_ENABLED", False)
+            and cid not in ("company_reamarc", "reamarc")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace isn't available yet.",
+            )
         company_doc = await lookup_company(cid) or await lookup_company("reamarc")
 
         if company_doc and company_doc.get("status") == "suspended":
@@ -366,9 +375,42 @@ async def refresh_token(request: Request, response: Response):
         user_doc["company_id"] = cid
         user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
         user_doc["membership_id"] = target_membership.get("id")
+    elif multi_company and not token_mid:
+        memberships = await gdb.company_memberships.find({"user_id": user_id, "status": "active"}).to_list(100)
+        if memberships:
+            last_cid = user_doc.get("last_company_id")
+            if last_cid:
+                for m in memberships:
+                    if m.get("company_id") == last_cid:
+                        target_membership = m
+                        break
+            if not target_membership:
+                target_membership = memberships[0]
+            cid = target_membership.get("company_id")
+            company_doc = await gdb.companies.find_one({"id": cid})
+            role_str = _normalize_role(target_membership.get("role"))
+            user_doc["role"] = role_str
+            user_doc["department"] = target_membership.get("primary_department")
+            user_doc["primary_department"] = target_membership.get("primary_department")
+            user_doc["departments"] = target_membership.get("departments") or []
+            user_doc["access"] = target_membership.get("access") or {}
+            user_doc["content_stages"] = target_membership.get("content_stages") or []
+            user_doc["company_id"] = cid
+            user_doc["needs_setup"] = bool(target_membership.get("needs_setup", False))
+            user_doc["membership_id"] = target_membership.get("id")
+        else:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No active company membership found.")
     else:
         from app.core.security import lookup_company
         cid = user_doc.get("company_id") or "company_reamarc"
+        if (
+            not getattr(settings, "MULTI_TENANT_ENABLED", False)
+            and cid not in ("company_reamarc", "reamarc")
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This workspace isn't available yet.",
+            )
         company_doc = await lookup_company(cid) or await lookup_company("reamarc")
         role_str = _normalize_role(user_doc.get("role"))
 
@@ -516,13 +558,14 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
 
         current_hash = user_doc.get("hashed_password")
-        if current_hash:
-            if not profile_in.current_password or not verify_password(profile_in.current_password, current_hash):
-                raise HTTPException(status_code=400, detail="Current password is incorrect.")
+        if not profile_in.current_password or not current_hash or not verify_password(profile_in.current_password, current_hash):
+            raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
         update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
-        await bump_session_epoch(db, user_id)
+        from app.services.identity_guard import invalidate_global_login
+        await invalidate_global_login(user_id)
         user_doc["session_epoch"] = user_session_epoch(user_doc) + 1
+        user_doc["token_version"] = int(user_doc.get("token_version") or 0) + 1
 
     if not update_fields:
         return _build_user_response(user_doc)
@@ -597,6 +640,8 @@ async def switch_company(
     response: Response,
     current_user: dict = Depends(get_current_user),
 ):
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     gdb = get_global_db()
     if gdb is None:
         raise HTTPException(
@@ -704,6 +749,8 @@ async def switch_company(
 @router.get("/my-companies")
 async def get_my_companies(current_user: dict = Depends(get_current_user)):
     """List all active company memberships of the current user for the switcher."""
+    if not getattr(settings, "MULTI_COMPANY_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not Found")
     gdb = get_global_db()
     if gdb is None:
         raise HTTPException(
@@ -993,6 +1040,57 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         {"$set": {"used": True, "used_at": now}}
     )
 
+    return {"message": "Password has been successfully reset. You can now log in with your new password."}
+
+
+class ResetWithTokenRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/reset-password-token")
+@limiter.limit("10/minute")
+async def reset_password_with_token(request: Request, payload: ResetWithTokenRequest):
+    import hashlib
+    gdb = get_global_db()
+    if gdb is None:
+        raise HTTPException(status_code=500, detail="Database unavailable.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long.")
+    raw = (payload.token or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    now = datetime.now(timezone.utc)
+    reset_doc = await gdb.password_resets.find_one({"token_hash": token_hash, "used": False, "purpose": "link"})
+    if not reset_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    expires_at = reset_doc.get("expires_at")
+    if isinstance(expires_at, str):
+        try:
+            expires_at = datetime.fromisoformat(expires_at)
+        except Exception:
+            expires_at = None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if not expires_at or now > expires_at:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    claimed = await gdb.password_resets.find_one_and_update(
+        {"_id": reset_doc["_id"], "used": False},
+        {"$set": {"used": True, "used_at": now}},
+    )
+    if not claimed:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    email_clean = reset_doc.get("email")
+    user_doc = await gdb.users.find_one({"email": email_clean})
+    if not user_doc:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
+    from app.services.identity_guard import invalidate_global_login
+    await gdb.users.update_one(
+        {"_id": user_doc["_id"]},
+        {"$set": {"hashed_password": get_password_hash(payload.new_password), "updated_at": now.isoformat()}},
+    )
+    await invalidate_global_login(str(user_doc.get("id") or user_doc.get("_id")))
     return {"message": "Password has been successfully reset. You can now log in with your new password."}
 
 

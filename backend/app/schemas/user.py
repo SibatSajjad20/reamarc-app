@@ -135,6 +135,7 @@ class MemberUpdate(BaseModel):
     probation_start_date: Optional[str] = None
     probation_end_date: Optional[str] = None
     is_active: Optional[bool] = None
+    deactivation_date: Optional[str] = None
     crm_enabled: Optional[bool] = None
     crm_paused: Optional[bool] = None
     workspace_ids: Optional[List[str]] = None
@@ -203,12 +204,15 @@ class MemberResponse(BaseModel):
     probation_start_date: Optional[str] = None
     probation_end_date: Optional[str] = None
     is_active: bool
+    deactivated_at: Optional[str] = None
+    deactivation_date: Optional[str] = None
     created_at: Optional[str] = None
     workspace_ids: List[str] = Field(default_factory=list)
     avatar_url: Optional[str] = None
     company_id: Optional[str] = None
     is_super_admin: Optional[bool] = False
     needs_setup: Optional[bool] = False
+    login_managed_elsewhere: Optional[bool] = False
 
     @field_validator("created_at", mode="before")
     @classmethod

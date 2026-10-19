@@ -19,6 +19,7 @@ import type { UserRole } from '../../types/auth';
 import type { AdminMember, EmploymentType, UpdateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { workspaceService } from '../../services/workspaceService';
+import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave, phoneForInput } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
@@ -85,6 +86,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [resetLinkSent, setResetLinkSent] = useState(false);
+  const [resetLinkBusy, setResetLinkBusy] = useState(false);
+  const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
   const formRef = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -118,6 +122,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
       setPassword('');
+      setResetLinkSent(false);
+      setResetLinkBusy(false);
       setShowPassword(false);
       setIsActive(member.is_active !== undefined ? member.is_active : true);
       setSelectedWorkspaceId(member.workspace_ids?.[0] || '');
@@ -158,7 +164,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       errs.fullName = 'Full name is required';
     }
     const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail || !looksLikeEmail(normalizedEmail)) {
+    if (!loginManagedElsewhere && (!normalizedEmail || !looksLikeEmail(normalizedEmail))) {
       errs.email = 'A valid work email is required';
     }
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
@@ -213,9 +219,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
     try {
       setIsSubmitting(true);
       const payload: UpdateMemberPayload = {
-        full_name: fullName.trim(),
-        email: normalizedEmail,
-        phone: normalizedPhone,
         role,
         department: deptValue,
         departments: deptsList,
@@ -225,8 +228,13 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         is_active: isActive,
         workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
       };
-      if (password.trim()) {
-        payload.password = password.trim();
+      if (!loginManagedElsewhere) {
+        payload.full_name = fullName.trim();
+        payload.email = normalizedEmail;
+        payload.phone = normalizedPhone;
+        if (password.trim()) {
+          payload.password = password.trim();
+        }
       }
       await onSubmit(member.id, payload);
       onClose();
@@ -281,27 +289,33 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Work email <span className="text-danger-fg">*</span>
+                Work email {!loginManagedElsewhere && <span className="text-danger-fg">*</span>}
               </label>
-              <input
-                type="email"
-                name="email"
-                required
-                value={email}
-                onChange={(e) => {
-                  setEmail(e.target.value);
-                  if (hasSubmitted) {
-                    const norm = e.target.value.trim().toLowerCase();
-                    if (norm && looksLikeEmail(norm)) {
-                      setFieldErrors((prev) => { const n = { ...prev }; delete n.email; return n; });
+              {loginManagedElsewhere ? (
+                <p className="h-9 px-3 flex items-center text-ui text-fg-muted bg-subtle border border-border rounded-md">
+                  {email}
+                </p>
+              ) : (
+                <input
+                  type="email"
+                  name="email"
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (hasSubmitted) {
+                      const norm = e.target.value.trim().toLowerCase();
+                      if (norm && looksLikeEmail(norm)) {
+                        setFieldErrors((prev) => { const n = { ...prev }; delete n.email; return n; });
+                      }
                     }
-                  }
-                }}
-                aria-invalid={!!fieldErrors.email}
-                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.email ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
-                }`}
-              />
+                  }}
+                  aria-invalid={!!fieldErrors.email}
+                  className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                    fieldErrors.email ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
+                  }`}
+                />
+              )}
               {fieldErrors.email && (
                 <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
                   <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
@@ -553,6 +567,34 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
           {/* Row 7: Reset password (optional) */}
           <div className="pt-2 border-t border-border">
+            {loginManagedElsewhere ? (
+              <div className="space-y-2">
+                <p className="text-ui text-fg-muted">
+                  This person's login is managed by their home company.
+                </p>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={resetLinkBusy || resetLinkSent || !member}
+                  onClick={async () => {
+                    if (!member) return;
+                    setResetLinkBusy(true);
+                    setServerError(null);
+                    try {
+                      await adminService.sendMemberResetLink(member.id);
+                      setResetLinkSent(true);
+                    } catch (err: any) {
+                      setServerError(err.message || 'Could not send reset link.');
+                    } finally {
+                      setResetLinkBusy(false);
+                    }
+                  }}
+                >
+                  {resetLinkSent ? 'Reset link sent' : resetLinkBusy ? 'Sending…' : 'Send reset link'}
+                </Button>
+              </div>
+            ) : (
+              <>
             <label className="block text-ui font-medium text-fg mb-1">
               Reset password <span className="text-fg-muted font-normal">(leave blank to keep current)</span>
             </label>
@@ -593,6 +635,8 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                 )}
               </div>
             </div>
+              </>
+            )}
           </div>
         </FormDialogBody>
 
