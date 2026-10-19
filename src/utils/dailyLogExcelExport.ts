@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import type { DailyLogColumn, DailyLogEntry } from '../types/dailyLog';
 import { formatHours } from './logTimeChecks';
 
@@ -78,11 +77,12 @@ function buildFilename(meta: DailyLogExportMeta): string {
  * Single-tab Daily Log workbook matching the on-screen columns,
  * with a title block, period metadata, and a hours total row.
  */
-export function exportDailyLogWorkbook(
+export async function exportDailyLogWorkbook(
   entries: DailyLogEntry[],
   columns: DailyLogColumn[],
   meta: DailyLogExportMeta,
-): string {
+): Promise<string> {
+  const XLSX = await import('xlsx');
   const companyName = meta.companyName || 'Reamarc';
   const exportCols = columns.length > 0 ? columns : [];
   const sorted = [...entries].sort(compareEntries);

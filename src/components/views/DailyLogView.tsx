@@ -586,7 +586,7 @@ export const DailyLogView: React.FC = () => {
         return;
       }
       const period = getExportPeriodMeta();
-      const filename = exportDailyLogWorkbook(exportEntries, columns, {
+      const filename = await exportDailyLogWorkbook(exportEntries, columns, {
         ...period,
         department: selectedDept || 'All',
         exportedBy: user?.full_name || user?.name || user?.email || 'Unknown',

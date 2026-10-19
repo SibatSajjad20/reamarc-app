@@ -2,7 +2,6 @@
  * Excel export and template generator for Content Calendar.
  * Uses SheetJS (xlsx) for 100% client-side operation with zero server load.
  */
-import * as XLSX from 'xlsx';
 import type { ContentCalendarItem, ContentCalendarConstants } from '../types/contentCalendar';
 import { PIPELINE_STAGES } from '../types/contentCalendar';
 import { excelSafeCell } from './safeHttpUrl';
@@ -37,10 +36,11 @@ export const EXCEL_COLUMNS = [
  * Exports strictly the currently visible/filtered rows to an Excel workbook.
  * Runs instantly in-browser without any server API calls.
  */
-export function exportFilteredContentCalendarToExcel(
+export async function exportFilteredContentCalendarToExcel(
   items: ContentCalendarItem[],
   clientNameFilter?: string
-): void {
+): Promise<void> {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
   // Row 1: Section Category Groups
@@ -90,7 +90,8 @@ export function exportFilteredContentCalendarToExcel(
 /**
  * Downloads a pre-formatted template with sample row and an allowed values reference sheet.
  */
-export function downloadContentCalendarTemplate(constants?: ContentCalendarConstants | null): void {
+export async function downloadContentCalendarTemplate(constants?: ContentCalendarConstants | null): Promise<void> {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
   // Sheet 1: Production & Approval

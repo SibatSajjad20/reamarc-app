@@ -1,5 +1,4 @@
 import React, { useState, useRef, useEffect } from 'react';
-import * as XLSX from 'xlsx';
 import {
   Upload,
   FileSpreadsheet,
@@ -194,6 +193,7 @@ export const ContentCalendarImportModal: React.FC<Props> = ({
 
     try {
       const buffer = await selected.arrayBuffer();
+      const XLSX = await import('xlsx');
       const wb = XLSX.read(buffer, { type: 'array' });
 
       // Target 'Production & Approval' sheet or first sheet

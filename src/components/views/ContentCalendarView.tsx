@@ -428,13 +428,13 @@ export const ContentCalendarView: React.FC = () => {
   };
 
   // Export visible view to Excel
-  const handleExportVisible = () => {
+  const handleExportVisible = async () => {
     const toExport = filteredItemsForExport.length > 0 ? filteredItemsForExport : displayItems;
     if (toExport.length === 0) {
       addToast('No items to export', 'There are no items currently visible in the active filter.', 'info');
       return;
     }
-    exportFilteredContentCalendarToExcel(toExport, filter.client_name);
+    await exportFilteredContentCalendarToExcel(toExport, filter.client_name);
     addToast(
       'Export complete',
       `Exported ${toExport.length} visible campaign ${toExport.length === 1 ? 'record' : 'records'} to Excel.`,
@@ -443,8 +443,8 @@ export const ContentCalendarView: React.FC = () => {
   };
 
   // Download template
-  const handleDownloadTemplate = () => {
-    downloadContentCalendarTemplate(constants);
+  const handleDownloadTemplate = async () => {
+    await downloadContentCalendarTemplate(constants);
     addToast('Template downloaded', 'Content Calendar blank Excel template saved to downloads.', 'info');
   };
 

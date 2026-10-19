@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import type {
   MonthlyPunctualityRow,
   MonthlyPunctualitySummary,
@@ -57,14 +56,15 @@ function sanitizeSheetName(name: string, usedNames: Set<string>): string {
  * Tab 1: Company Punctuality Summary
  * Tabs 2..N: Individual Employee Monthly Timesheets with daily records & color/status labels
  */
-export function exportMonthlyAttendanceWorkbook({
+export async function exportMonthlyAttendanceWorkbook({
   year,
   month,
   summaryRows,
   summaryStats,
   employeeTimesheets = {},
   companyName = 'Reamarc',
-}: ExportOptions): void {
+}: ExportOptions): Promise<void> {
+  const XLSX = await import('xlsx');
   const monthName = MONTH_NAMES[month - 1] || `Month-${month}`;
   const wb = XLSX.utils.book_new();
   const usedSheetNames = new Set<string>();
