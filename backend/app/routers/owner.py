@@ -25,6 +25,7 @@ from app.core.security import (
     get_password_hash,
     require_owner,
     invalidate_auth_cache,
+    invalidate_company_cache,
 )
 from app.core.tenant import get_global_db
 
@@ -196,6 +197,7 @@ async def create_company(
             "created_by": current_user["id"],
         }
         await gdb.companies.insert_one(comp_doc)
+        invalidate_company_cache(company_id)
 
         admin_doc = {
             "_id": admin_id,
@@ -346,6 +348,7 @@ async def update_company(
 
     if mongo_update:
         await gdb.companies.update_one({"id": company_id}, mongo_update)
+        invalidate_company_cache(company_id)
 
     # Record audit event
     await record_owner_audit_event(
@@ -433,6 +436,7 @@ async def reset_company_token_version(
         {"$inc": {"token_version": 1}},
         return_document=True,
     )
+    invalidate_company_cache(company_id)
     if not res:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
 

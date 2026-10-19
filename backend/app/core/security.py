@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Any, Dict
+import asyncio
 import time
 import uuid
 import jwt
@@ -11,6 +12,8 @@ from app.models.user import UserRole
 
 _AUTH_CACHE: Dict[str, Dict[str, Any]] = {}
 _AUTH_CACHE_TTL_SECONDS = 30
+_COMPANY_CACHE: Dict[str, Dict[str, Any]] = {}
+_COMPANY_CACHE_TTL_SECONDS = 300
 
 
 def invalidate_auth_cache(user_id: Optional[str] = None, membership_id: Optional[str] = None) -> None:
@@ -40,8 +43,25 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     hashed_bytes = hashed_password.encode("utf-8")
     return bcrypt.checkpw(pwd_bytes, hashed_bytes)
 
+async def verify_password_async(plain_password: str, hashed_password: str) -> bool:
+    return await asyncio.to_thread(verify_password, plain_password, hashed_password)
+
+def invalidate_company_cache(company_id: Optional[str] = None) -> None:
+    """Drop cached company documents after an update."""
+    if not company_id:
+        _COMPANY_CACHE.clear()
+        return
+    for key, entry in list(_COMPANY_CACHE.items()):
+        doc = entry.get("doc") or {}
+        if key == company_id or doc.get("id") == company_id or doc.get("slug") == company_id:
+            _COMPANY_CACHE.pop(key, None)
+
 async def lookup_company(company_id_or_slug: str) -> Optional[dict]:
     """Allowed global lookup for companies during authentication."""
+    now_mono = time.monotonic()
+    cached = _COMPANY_CACHE.get(company_id_or_slug)
+    if cached and (now_mono - cached["time"] < _COMPANY_CACHE_TTL_SECONDS):
+        return cached["doc"]
     from app.core.tenant import get_global_db
     gdb = get_global_db()
     if gdb is None:
@@ -49,12 +69,21 @@ async def lookup_company(company_id_or_slug: str) -> Optional[dict]:
     comp = await gdb.companies.find_one({"id": company_id_or_slug})
     if not comp:
         comp = await gdb.companies.find_one({"slug": company_id_or_slug})
+    _COMPANY_CACHE[company_id_or_slug] = {"doc": comp, "time": now_mono}
+    if comp:
+        if comp.get("id"):
+            _COMPANY_CACHE[str(comp["id"])] = {"doc": comp, "time": now_mono}
+        if comp.get("slug"):
+            _COMPANY_CACHE[str(comp["slug"])] = {"doc": comp, "time": now_mono}
     return comp
 
 def get_password_hash(password: str) -> str:
     pwd_bytes = password.encode("utf-8")[:72]
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(pwd_bytes, salt).decode("utf-8")
+
+async def get_password_hash_async(password: str) -> str:
+    return await asyncio.to_thread(get_password_hash, password)
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     to_encode = data.copy()
@@ -445,19 +474,23 @@ async def get_current_user(
             )
 
         if token_mid:
-            membership_doc = await gdb.company_memberships.find_one({"id": token_mid})
+            cid_guess = token_cid or user_doc.get("company_id") or "company_reamarc"
+            membership_doc, company_doc = await asyncio.gather(
+                gdb.company_memberships.find_one({"id": token_mid}),
+                lookup_company(cid_guess),
+            )
             cid_to_load = membership_doc.get("company_id") if membership_doc else token_cid
+            if cid_to_load and (
+                not company_doc
+                or (company_doc.get("id") != cid_to_load and company_doc.get("slug") != cid_to_load)
+            ):
+                company_doc = await lookup_company(cid_to_load)
         else:
             membership_doc = None
             cid_to_load = token_cid or user_doc.get("company_id") or "company_reamarc"
-
-        company_doc = None
-        if cid_to_load:
-            company_doc = await gdb.companies.find_one({"id": cid_to_load})
-            if not company_doc:
-                company_doc = await gdb.companies.find_one({"slug": cid_to_load})
+            company_doc = await lookup_company(cid_to_load) if cid_to_load else None
         if not company_doc:
-            company_doc = await gdb.companies.find_one({"slug": "reamarc"})
+            company_doc = await lookup_company("reamarc")
 
         _AUTH_CACHE[cache_key] = {
             "user": user_doc,

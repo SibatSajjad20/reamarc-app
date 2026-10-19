@@ -67,8 +67,13 @@ async def _create_indexes_background():
                     name="uniq_user_id",
                     partialFilterExpression={"id": {"$type": "string", "$gt": ""}}
                 )
+            await db_instance.db.users.create_index("id", name="idx_users_id")
         except Exception as e:
             logger.warning(f"Could not create unique user id index: {e}")
+            try:
+                await db_instance.db.users.create_index("id", name="idx_users_id")
+            except Exception as idx_err:
+                logger.warning(f"Could not create users id lookup index: {idx_err}")
 
         # Compound indexes for fast multi-tenant queries
         await db_instance.db.posts.create_index([("user_id", 1), ("status", 1)])
@@ -359,8 +364,38 @@ async def _create_indexes_background():
             await db_instance.db.website_projects.create_index(
                 [("company_id", 1), ("status", 1)], name="idx_company_web_projects"
             )
+            await db_instance.db.crm_leads.create_index(
+                [("company_id", 1), ("outcome", 1), ("assigned_to", 1)],
+                name="idx_company_crm_outcome_assignee",
+            )
         except Exception as e:
             logger.warning(f"Could not initialize multi-tenant indexes: {e}")
+
+        try:
+            await db_instance.db.daily_log_day_scores.create_index(
+                [("user_id", 1), ("date", 1), ("status", 1)],
+                name="idx_day_scores_user_date_status",
+            )
+            await db_instance.db.crm_leads.create_index(
+                [("outcome", 1), ("assigned_to", 1)],
+                name="idx_crm_outcome_assignee",
+            )
+            await db_instance.db.crm_leads.create_index(
+                [("outcome", 1), ("next_follow_up_at", 1)],
+                name="idx_crm_outcome_followup",
+            )
+            await db_instance.db.website_projects.create_index(
+                [("workspace_id", 1), ("stage", 1)],
+                name="idx_website_proj_ws_stage",
+            )
+            await db_instance.db.user_shift_assignments.create_index(
+                [("user_id", 1), ("effective_from", 1)],
+                name="idx_user_shift_effective",
+            )
+            await db_instance.db.system_config.create_index("key", name="idx_system_config_key")
+            await db_instance.db.crm_templates.create_index([("name", 1)], name="idx_crm_tpl_name")
+        except Exception as e:
+            logger.warning(f"Could not create hot-query indexes: {e}")
 
         logger.info("MongoDB background index initialization completed.")
     except Exception as e:
