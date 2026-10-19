@@ -300,11 +300,13 @@ async def attach_deals_to_leads(leads_list: List[Dict[str, Any]]) -> List[Dict[s
 
 async def get_lead_or_404(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     db = _db()
-    doc = await db.crm_leads.find_one({"id": lead_id}, {"_id": 0})
+    doc, deals = await asyncio.gather(
+        db.crm_leads.find_one({"id": lead_id}, {"_id": 0}),
+        db.crm_deals.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(100),
+    )
     if not doc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Lead not found.")
     await _assert_can_see(user, doc)
-    deals = await db.crm_deals.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
     from app.services.crm_deals import serialize_deal
 
     serialized_deals = [serialize_deal(d) for d in deals]
@@ -397,14 +399,16 @@ async def list_leads(
         )
     query: Dict[str, Any] = {"$and": clauses} if clauses else {}
 
-    total = await db.crm_leads.count_documents(query)
     cursor = (
         db.crm_leads.find(query, {"_id": 0})
         .sort("created_at", -1)
         .skip(max(skip, 0))
         .limit(min(max(limit, 1), 500))
     )
-    docs = await cursor.to_list(500)
+    total, docs = await asyncio.gather(
+        db.crm_leads.count_documents(query),
+        cursor.to_list(500),
+    )
     serialized = [serialize_lead(d) for d in docs]
     await attach_deals_to_leads(serialized)
     return serialized, total
@@ -679,12 +683,14 @@ async def assign_lead(lead_id: str, target_user_id: str, user: Dict[str, Any]) -
     if not can_assign_leads(user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You cannot assign leads.")
     db = _db()
-    lead = await get_lead_or_404(lead_id, user)
-    if lead.get("outcome") and not can_manage_outcomes(user):
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed leads cannot be reassigned.")
     from app.services.crm_access import is_crm_user
 
-    assignee = await db.users.find_one({"id": target_user_id}, {"_id": 0, "hashed_password": 0})
+    lead, assignee = await asyncio.gather(
+        get_lead_or_404(lead_id, user),
+        db.users.find_one({"id": target_user_id}, {"_id": 0, "hashed_password": 0}),
+    )
+    if lead.get("outcome") and not can_manage_outcomes(user):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Closed leads cannot be reassigned.")
     if not assignee:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee not found.")
     if not is_crm_user(assignee):
@@ -1178,9 +1184,15 @@ async def mark_contacted(lead_id: str, user: Dict[str, Any]) -> Dict[str, Any]:
     return serialize_lead(updated_doc or lead)
 
 
-async def list_activities(lead_id: str, user: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def list_activities(
+    lead_id: str,
+    user: Dict[str, Any],
+    *,
+    ensure_access: bool = True,
+) -> List[Dict[str, Any]]:
     db = _db()
-    await get_lead_or_404(lead_id, user)
+    if ensure_access:
+        await get_lead_or_404(lead_id, user)
     docs = await db.crm_activities.find({"lead_id": lead_id}, {"_id": 0}).sort("created_at", 1).to_list(200)
     return [serialize_activity(d) for d in docs]
 

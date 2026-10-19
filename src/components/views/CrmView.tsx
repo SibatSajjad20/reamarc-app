@@ -12,7 +12,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
-import { crmService } from '../../services/crmService';
+import { crmService, CRM_VIEW_SOURCE, withCrmInvalidationSource } from '../../services/crmService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { usePermissions } from '../../hooks/usePermissions';
 import { canAssignCrmLeads } from '../../utils/crmAccess';
@@ -257,7 +257,8 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     };
   }, [load]);
 
-  useCacheInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts'], () => {
+  useCacheInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts'], (_key, meta) => {
+    if (meta?.source === CRM_VIEW_SOURCE) return;
     void load();
   });
 
@@ -426,7 +427,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     setBusy(true);
     try {
       // 2. Server mutation
-      const updatedLead = await request();
+      const updatedLead = await withCrmInvalidationSource(CRM_VIEW_SOURCE, request);
 
       // 3. Update with returned entity
       if (updatedLead && typeof updatedLead === 'object' && 'id' in updatedLead) {

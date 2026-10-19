@@ -1,6 +1,6 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
-import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
+import { emitInvalidation, registerCacheClearer, type InvalidationKey, type InvalidationMeta } from '../utils/cacheBus';
 import type { WorkspaceCreatePayload } from './workspaceService';
 import type {
   CrmApproveWonPayload,
@@ -50,6 +50,22 @@ function toQuery(params?: CrmLeadQuery): string {
   if (params.limit) sp.set('limit', String(params.limit));
   const q = sp.toString();
   return q ? `?${q}` : '';
+}
+
+export const CRM_VIEW_SOURCE = 'crm-view';
+let pendingCrmMeta: InvalidationMeta | undefined;
+
+export async function withCrmInvalidationSource<T>(source: string, fn: () => Promise<T>): Promise<T> {
+  pendingCrmMeta = { source };
+  try {
+    return await fn();
+  } finally {
+    pendingCrmMeta = undefined;
+  }
+}
+
+function emitCrmInvalidation(keys: InvalidationKey[] = ['crm', 'crm.leads', 'crm.counts', 'dashboard']) {
+  emitInvalidation(keys, pendingCrmMeta);
 }
 
 // Bounded in-memory caches for CRM module SWR persistence
@@ -181,7 +197,7 @@ export const crmService = {
     const res = await apiClient.post<CrmLead>('/crm/leads', payload);
     crmLeadsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -190,7 +206,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -199,7 +215,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
   },
 
   async assignLead(id: string, userId: string): Promise<CrmLead> {
@@ -207,7 +223,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -216,7 +232,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -225,7 +241,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -238,7 +254,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -250,7 +266,7 @@ export const crmService = {
     crmCountsCache.clear();
     crmDealsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
     return res;
   },
 
@@ -260,7 +276,7 @@ export const crmService = {
     crmCountsCache.clear();
     crmDealsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.leads', 'crm.deals', 'crm.counts', 'workspaces', 'dashboard']);
     return res;
   },
 
@@ -269,7 +285,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -278,7 +294,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -325,7 +341,7 @@ export const crmService = {
     const res = await apiClient.post<CrmDeal>(`/crm/leads/${encodeURIComponent(leadId)}/deals`, payload);
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
     return res;
   },
 
@@ -333,7 +349,7 @@ export const crmService = {
     const res = await apiClient.patch<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}`, payload);
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
     return res;
   },
 
@@ -341,7 +357,7 @@ export const crmService = {
     const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/won`, { note: note || null });
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
     return res;
   },
 
@@ -352,7 +368,7 @@ export const crmService = {
     });
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
     return res;
   },
 
@@ -360,7 +376,7 @@ export const crmService = {
     const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/reopen`, payload || {});
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
     return res;
   },
 
@@ -379,7 +395,7 @@ export const crmService = {
     const res = await apiClient.post<CrmDeal>(`/crm/deals/${encodeURIComponent(dealId)}/approve-won`, payload || {});
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard', 'workspaces']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard', 'workspaces']);
     return res;
   },
 
@@ -387,13 +403,13 @@ export const crmService = {
     await apiClient.delete(`/crm/deals/${encodeURIComponent(dealId)}`);
     crmDealsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.deals', 'crm.counts', 'dashboard']);
   },
 
   async addNote(id: string, body: string): Promise<CrmLead> {
     const res = await apiClient.post<CrmLead>(`/crm/leads/${encodeURIComponent(id)}/notes`, { body });
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'dashboard']);
+    emitCrmInvalidation(['crm', 'crm.leads', 'dashboard']);
     return res;
   },
 
@@ -403,7 +419,7 @@ export const crmService = {
     });
     crmLeadsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -414,7 +430,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -423,7 +439,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -432,7 +448,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -441,7 +457,7 @@ export const crmService = {
     crmLeadsCache.clear();
     crmCountsCache.clear();
     crmLeadDetailCache.delete(id);
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -451,19 +467,19 @@ export const crmService = {
 
   async createRule(payload: CrmRulePayload): Promise<CrmAssignmentRule> {
     const res = await apiClient.post<CrmAssignmentRule>('/crm/rules', payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async updateRule(id: string, payload: Partial<CrmRulePayload>): Promise<CrmAssignmentRule> {
     const res = await apiClient.patch<CrmAssignmentRule>(`/crm/rules/${encodeURIComponent(id)}`, payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async deleteRule(id: string): Promise<void> {
     await apiClient.delete(`/crm/rules/${encodeURIComponent(id)}`);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
   },
 
   async listTemplates(options?: { signal?: AbortSignal }): Promise<CrmTemplate[]> {
@@ -479,21 +495,21 @@ export const crmService = {
   async createTemplate(payload: CrmTemplatePayload): Promise<CrmTemplate> {
     const res = await apiClient.post<CrmTemplate>('/crm/templates', payload);
     crmTemplatesCache.clear();
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async updateTemplate(id: string, payload: Partial<CrmTemplatePayload>): Promise<CrmTemplate> {
     const res = await apiClient.patch<CrmTemplate>(`/crm/templates/${encodeURIComponent(id)}`, payload);
     crmTemplatesCache.clear();
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async deleteTemplate(id: string): Promise<void> {
     await apiClient.delete(`/crm/templates/${encodeURIComponent(id)}`);
     crmTemplatesCache.clear();
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
   },
 
   async listIngestSources(): Promise<CrmIngestSource[]> {
@@ -502,7 +518,7 @@ export const crmService = {
 
   async createIngestSource(payload: CrmIngestSourcePayload): Promise<CrmIngestSource> {
     const res = await apiClient.post<CrmIngestSource>('/crm/ingest-sources', payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
@@ -511,20 +527,20 @@ export const crmService = {
     payload: Partial<CrmIngestSourcePayload> & { enabled?: boolean }
   ): Promise<CrmIngestSource> {
     const res = await apiClient.patch<CrmIngestSource>(`/crm/ingest-sources/${encodeURIComponent(id)}`, payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async deleteIngestSource(id: string): Promise<void> {
     await apiClient.delete(`/crm/ingest-sources/${encodeURIComponent(id)}`);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
   },
 
   async pollMetaForms(): Promise<{ forms: Array<{ form_id: string; created: number; duplicates: number }> }> {
     const res = await apiClient.post<{ forms: Array<{ form_id: string; created: number; duplicates: number }> }>('/crm/meta/poll');
     crmLeadsCache.clear();
     crmCountsCache.clear();
-    emitInvalidation(['crm', 'crm.leads', 'crm.counts', 'dashboard']);
+    emitCrmInvalidation();
     return res;
   },
 
@@ -541,13 +557,13 @@ export const crmService = {
     default_campaign?: string | null;
   }): Promise<CrmMetaPage> {
     const res = await apiClient.post<CrmMetaPage>('/crm/meta/pages', payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 
   async disconnectMetaPage(pageId: string): Promise<void> {
     await apiClient.delete(`/crm/meta/pages/${encodeURIComponent(pageId)}`);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
   },
 
   async getQueueStats(): Promise<CrmQueueStats> {
@@ -560,7 +576,7 @@ export const crmService = {
 
   async updateSchedulerSettings(payload: Record<string, any>): Promise<any> {
     const res = await apiClient.patch('/crm/scheduler/settings', payload);
-    emitInvalidation(['crm', 'settings', 'dashboard']);
+    emitCrmInvalidation(['crm', 'settings', 'dashboard']);
     return res;
   },
 

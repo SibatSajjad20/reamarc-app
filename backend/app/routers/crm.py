@@ -10,6 +10,7 @@ Phases (web only; mobile is deferred):
 Never merge/push to main until the user confirms.
 """
 from typing import Any, Dict, Optional
+import asyncio
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
 
@@ -134,8 +135,10 @@ async def create_lead(payload: CrmLeadCreate, current_user: dict = Depends(get_c
 
 @router.get("/leads/{lead_id}", response_model=CrmLeadDetailResponse)
 async def get_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
-    lead = await crm.get_lead_or_404(lead_id, current_user)
-    activities = await crm.list_activities(lead_id, current_user)
+    lead, activities = await asyncio.gather(
+        crm.get_lead_or_404(lead_id, current_user),
+        crm.list_activities(lead_id, current_user, ensure_access=False),
+    )
     return CrmLeadDetailResponse(**crm.serialize_lead(lead), activities=[CrmActivityResponse(**a) for a in activities])
 
 

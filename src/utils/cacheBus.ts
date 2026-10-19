@@ -24,7 +24,8 @@ export type InvalidationKey =
   | 'settings'
   | 'dashboard';
 
-type InvalidationListener = (key: InvalidationKey) => void;
+export type InvalidationMeta = { source?: string; mutationId?: string };
+type InvalidationListener = (key: InvalidationKey, meta?: InvalidationMeta) => void;
 const listeners = new Set<{ keys: Set<InvalidationKey>; callback: InvalidationListener }>();
 
 type CacheClearer = () => void;
@@ -57,13 +58,16 @@ export function clearAllAppCaches(): void {
 /**
  * Emit an invalidation event for one or more domain keys.
  */
-export function emitInvalidation(keys: InvalidationKey | InvalidationKey[]): void {
+export function emitInvalidation(
+  keys: InvalidationKey | InvalidationKey[],
+  meta?: InvalidationMeta
+): void {
   const keyList = Array.isArray(keys) ? keys : [keys];
   for (const key of keyList) {
     for (const sub of listeners) {
       if (sub.keys.has(key)) {
         try {
-          sub.callback(key);
+          sub.callback(key, meta);
         } catch {
           // ignore listener errors
         }
@@ -95,7 +99,7 @@ export function subscribeInvalidation(
  */
 export function useCacheInvalidation(
   keys: InvalidationKey | InvalidationKey[],
-  onInvalidate: (key: InvalidationKey) => void
+  onInvalidate: (key: InvalidationKey, meta?: InvalidationMeta) => void
 ): void {
   const callbackRef = useRef(onInvalidate);
   useEffect(() => {
