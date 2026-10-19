@@ -1,0 +1,5 @@
+vite v8.2.0 production build (perf/round1 after Q1–Q9)
+dist/assets/docx-preview-DbSgoftL.js   171.37 kB │ gzip:  49.06 kB
+dist/assets/xlsx-CIWsbm6w.js           492.49 kB │ gzip: 160.52 kB
+dist/assets/index-CHqiFPOO.js        2,086.52 kB │ gzip: 512.50 kB
+xlsx is in its own chunk (Q9). Route-level splitting (B2) not yet applied; main JS is still ~2.1 MB raw / 512 KB gzip.
