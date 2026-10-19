@@ -111,6 +111,15 @@ export const dailyLogService = {
     return apiClient.get<import('../types/dailyLog').DayTarget>(`/daily-log/day-target${q}`, options);
   },
 
+  async getDayTargets(
+    from: string,
+    to: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<Record<string, import('../types/dailyLog').DayTarget>> {
+    const params = new URLSearchParams({ from, to });
+    return apiClient.get(`/daily-log/day-targets?${params.toString()}`, options);
+  },
+
   async getSubmissionWindow(date: string): Promise<import('../types/dailyLog').SubmissionWindowResponse> {
     return apiClient.get<import('../types/dailyLog').SubmissionWindowResponse>(`/daily-log/submission-window?date=${encodeURIComponent(date)}`);
   },

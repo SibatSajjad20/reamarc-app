@@ -681,6 +681,244 @@ async def get_day_target(
     }
 
 
+def _punch_from_attendance_doc(rec: Optional[dict]) -> dict:
+    empty = {
+        "has_checkin": False,
+        "has_checkout": False,
+        "work_hours": 0.0,
+        "is_wfh": False,
+        "status": "",
+        "check_in": None,
+        "check_out": None,
+    }
+    if not rec:
+        return empty
+    cin = rec.get("check_in") or rec.get("punch_in")
+    cout = rec.get("check_out") or rec.get("punch_out")
+    try:
+        hours = float(rec.get("work_hours") or 0)
+    except (TypeError, ValueError):
+        hours = 0.0
+    return {
+        "has_checkin": bool(cin),
+        "has_checkout": bool(cout),
+        "work_hours": round(hours, 2),
+        "is_wfh": bool(rec.get("is_wfh")),
+        "status": str(rec.get("status") or ""),
+        "check_in": cin,
+        "check_out": cout,
+    }
+
+
+def _assemble_day_target(date_str: str, target: dict, punch: dict, entries: list, score: Optional[dict], follow_ups: list) -> dict:
+    from app.services.log_compliance import (
+        classify_day_status,
+        person_day_is_leave,
+        compute_time_at_work_hours,
+    )
+
+    logged = 0.0
+    for e in entries:
+        try:
+            logged += float(e.get("hours_utilized") or 0)
+        except (TypeError, ValueError):
+            pass
+    logged = round(logged, 2)
+    is_wfh = bool(target.get("is_wfh") or punch.get("is_wfh"))
+    has_checkout = bool(punch.get("has_checkout"))
+    has_checkin = bool(punch.get("has_checkin"))
+    if has_checkout:
+        worked = float(punch.get("work_hours") or 0)
+        compare_ready = True
+    elif is_wfh and not has_checkin:
+        worked = float(target.get("expected_hours") or 0)
+        compare_ready = True
+    else:
+        worked = float(punch.get("work_hours") or 0)
+        compare_ready = False
+    on_leave = person_day_is_leave(target, punch)
+    status, _exc = classify_day_status(
+        logged,
+        worked,
+        is_full_leave=on_leave,
+        has_checkout=has_checkout,
+        has_checkin=has_checkin,
+        has_log=logged > 0 or len(entries) > 0,
+        is_wfh=is_wfh,
+        compare_ready=compare_ready,
+    )
+    remaining = round(max(0.0, worked - logged), 2) if compare_ready else 0.0
+    check_in = punch.get("check_in")
+    check_out = punch.get("check_out")
+    time_at_work = compute_time_at_work_hours(
+        date_str=date_str,
+        check_in=check_in,
+        check_out=check_out,
+        work_hours=float(punch.get("work_hours") or 0),
+        has_checkin=has_checkin,
+        has_checkout=has_checkout,
+        is_wfh=is_wfh,
+        expected_hours=float(target.get("expected_hours") or 0),
+        shift_start=target.get("shift_start"),
+        shift_end=target.get("shift_end"),
+        break_duration_minutes=int(target.get("break_duration_minutes") or 0),
+        break_start_time=target.get("break_start_time"),
+        break_end_time=target.get("break_end_time"),
+        is_night_shift=bool(target.get("is_night_shift")),
+    )
+    pending_action = None
+    pending_message = None
+    if (not on_leave) and score and score.get("action_status") == "waiting_on_employee":
+        pending_action = score.get("action_type") or "explain"
+        who = "HR" if str(score.get("action_by_role") or "").lower() == "hr" else "your lead"
+        if "hr" in (score.get("action_by_name") or "").lower() and not score.get("action_by_role"):
+            who = "HR"
+        pending_message = f"{who} asked you to {pending_action} your log for {date_str}."
+    return {
+        "date": date_str,
+        "expected_hours": float(target.get("expected_hours") or 0),
+        "worked_hours": worked,
+        "logged_hours": logged,
+        "remaining_hours": remaining,
+        "has_checkin": has_checkin,
+        "has_checkout": has_checkout,
+        "compare_ready": compare_ready,
+        "check_in": check_in,
+        "check_out": check_out,
+        "time_at_work_hours": time_at_work,
+        "shift_name": target.get("shift_name"),
+        "shift_start": target.get("shift_start"),
+        "shift_end": target.get("shift_end"),
+        "break_duration_minutes": int(target.get("break_duration_minutes") or 0),
+        "break_start_time": target.get("break_start_time"),
+        "break_end_time": target.get("break_end_time"),
+        "is_night_shift": bool(target.get("is_night_shift")),
+        "is_full_leave": on_leave,
+        "is_wfh": is_wfh,
+        "status": status,
+        "pending_action": pending_action,
+        "pending_message": pending_message,
+        "follow_ups": follow_ups,
+    }
+
+
+@router.get("/day-targets")
+async def get_day_targets(
+    date_from: str = Query(..., alias="from", description="YYYY-MM-DD"),
+    date_to: str = Query(..., alias="to", description="YYYY-MM-DD"),
+    current_user: dict = Depends(get_current_user),
+):
+    """Logged hours vs attendance for a date range (max 14 days), one payload per day."""
+    from app.services.log_compliance import batch_expected_targets, format_hours_hm
+
+    user_role = current_user.get("role", "team_member")
+    if user_role in (UserRole.CLIENT.value, "client"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Client accounts do not have access to internal daily logs.")
+    try:
+        start = datetime.strptime(date_from, "%Y-%m-%d").date()
+        end = datetime.strptime(date_to, "%Y-%m-%d").date()
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Dates must be YYYY-MM-DD.")
+    if end < start:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="'to' must be on or after 'from'.")
+    if (end - start).days > 13:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Range cannot exceed 14 days.")
+    dates = [(start + timedelta(days=i)).isoformat() for i in range((end - start).days + 1)]
+    uid = current_user["id"]
+    db = get_database()
+    targets = await batch_expected_targets([current_user], dates)
+    att_by_date = {}
+    entries_by_date: dict = {d: [] for d in dates}
+    scores_by_date = {}
+    follow_ups = []
+    if db is not None:
+        att_docs, entry_docs, score_docs = await asyncio.gather(
+            db.attendance_records.find({"user_id": uid, "date": {"$in": dates}}, {"_id": 0}).to_list(50),
+            db.daily_log_entries.find({"user_id": uid, "date": {"$in": dates}}, {"_id": 0}).to_list(500),
+            db.daily_log_day_scores.find({"user_id": uid, "date": {"$in": dates}}, {"_id": 0}).to_list(50),
+        )
+        for rec in att_docs:
+            if rec.get("date"):
+                att_by_date[rec["date"]] = rec
+        for ent in entry_docs:
+            d = ent.get("date")
+            if d in entries_by_date:
+                entries_by_date[d].append(ent)
+        for sc in score_docs:
+            if sc.get("date"):
+                scores_by_date[sc["date"]] = sc
+        window = await _get_recent_workdays(7)
+        waiting = await db.daily_log_day_scores.find(
+            {
+                "user_id": uid,
+                "date": {"$in": window},
+                "action_status": {"$in": ["waiting_on_employee", "waiting_on_reviewer"]},
+            },
+            {"_id": 0},
+        ).to_list(20)
+        if waiting:
+            from app.services.log_compliance import person_day_is_leave
+            waiting_dates = list({item.get("date") for item in waiting if item.get("date")})
+            leave_targets = await batch_expected_targets([current_user], waiting_dates)
+            leave_att = await db.attendance_records.find(
+                {"user_id": uid, "date": {"$in": waiting_dates}},
+                {"_id": 0, "date": 1, "status": 1},
+            ).to_list(20)
+            leave_att_by_day = {d.get("date"): d for d in leave_att if d.get("date")}
+            for item in waiting:
+                item_day = item.get("date")
+                if person_day_is_leave(leave_targets.get((uid, item_day)) or {}, leave_att_by_day.get(item_day)):
+                    continue
+                actor_role = str(item.get("action_by_role") or "").lower()
+                who = item.get("action_by_name") or ("HR" if actor_role == "hr" else "Your lead")
+                astatus = item.get("action_status")
+                day_entries = entries_by_date.get(item_day) or []
+                logged_h = 0.0
+                for e in day_entries:
+                    try:
+                        logged_h += float(e.get("hours_utilized") or 0)
+                    except (TypeError, ValueError):
+                        pass
+                punch = _punch_from_attendance_doc(att_by_date.get(item_day) or leave_att_by_day.get(item_day))
+                worked_h = float(punch.get("work_hours") or 0)
+                signed = round(logged_h - worked_h, 2)
+                if astatus == "waiting_on_reviewer":
+                    msg = f"Your reason for {item.get('date')} is waiting on {who}."
+                else:
+                    verb = "send a reason" if item.get("action_type") == "explain" else "add the missing time"
+                    msg = (
+                        f"{who} asked you to {verb} for {item.get('date')} — "
+                        f"{format_hours_hm(logged_h)} logged vs {format_hours_hm(worked_h)} at work."
+                    )
+                follow_ups.append({
+                    "date": item.get("date"),
+                    "id": item.get("id"),
+                    "action_type": item.get("action_type"),
+                    "action_status": astatus,
+                    "action_by_name": item.get("action_by_name"),
+                    "member_reason": item.get("member_reason") or "",
+                    "logged_hours": round(logged_h, 2),
+                    "worked_hours": worked_h,
+                    "signed_gap_hours": signed,
+                    "is_missing_log": logged_h <= 0,
+                    "can_send_reason": astatus == "waiting_on_employee",
+                    "message": msg,
+                })
+    out = {}
+    for date_str in dates:
+        target = targets.get((uid, date_str)) or {"expected_hours": 8.0}
+        punch = _punch_from_attendance_doc(att_by_date.get(date_str))
+        out[date_str] = _assemble_day_target(
+            date_str,
+            target,
+            punch,
+            entries_by_date.get(date_str) or [],
+            scores_by_date.get(date_str),
+            follow_ups,
+        )
+    return out
+
+
 @router.get("/columns", response_model=List[DailyLogColumn])
 async def get_columns(
     current_user: dict = Depends(get_current_user),

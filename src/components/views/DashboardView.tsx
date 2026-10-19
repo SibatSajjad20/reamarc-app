@@ -348,22 +348,22 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
         canSelfTrackLogs
           ? Promise.all([
               dailyLogService.getMyLogActivity(7).catch(() => null),
-              dailyLogService.getDayTarget(todayIso).catch(() => null),
+              dailyLogService.getDayTargets(weekDates[0]?.date || todayIso, todayIso).catch(() => null),
             ])
           : Promise.resolve([null, null]),
       ];
 
-      const [inquiries, inbox, [act, dt]] = await Promise.all(promises);
+      const [inquiries, inbox, [act, dtMap]] = await Promise.all(promises);
       setMyPendingInquiries(inquiries || []);
       if (isHR || isLead) {
         setLogExceptionsInboxCount(inbox?.length || 0);
       }
       if (canSelfTrackLogs) {
         setMyActivity(act);
-        setDayTarget(dt);
+        setDayTarget(dtMap ? dtMap[todayIso] || null : null);
       }
     } catch {}
-  }, [isAdmin, isHR, isLead, isLogger, perms.canAccessAttendance, perms.isAttendanceTracked, perms.canAccessDailyLog, perms.isDailyLogTracked, todayIso]);
+  }, [isAdmin, isHR, isLead, isLogger, perms.canAccessAttendance, perms.isAttendanceTracked, perms.canAccessDailyLog, perms.isDailyLogTracked, todayIso, weekDates]);
 
   // 5. Load Weekly Stat Strips (Logged)
   const loadWeeklyStats = useCallback(async () => {
@@ -374,19 +374,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     if (!startIso) return;
 
     try {
-      const [entries, targetResults] = await Promise.all([
+      const [entries, targetMap] = await Promise.all([
         dailyLogService.getEntries({
           user_id: user.id,
           start_date: startIso,
           end_date: endIso,
           limit: 500,
         }),
-        Promise.all(weekDates.map((wd) => dailyLogService.getDayTarget(wd.date).catch(() => null))),
+        dailyLogService.getDayTargets(startIso, endIso).catch(() => ({}) as Record<string, DayTarget>),
       ]);
 
       const expectedByDate: Record<string, number> = {};
-      weekDates.forEach((wd, i) => {
-        const t = targetResults[i];
+      weekDates.forEach((wd) => {
+        const t = targetMap ? targetMap[wd.date] : null;
         if (t && typeof t.expected_hours === 'number' && Number.isFinite(t.expected_hours)) {
           expectedByDate[wd.date] = t.expected_hours;
         }
