@@ -194,6 +194,7 @@ _cors_kwargs = dict(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With", "Range"],
     expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
+    max_age=7200,
 )
 if not settings.IS_PRODUCTION:
     _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX

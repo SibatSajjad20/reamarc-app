@@ -173,11 +173,16 @@ class ApiClient {
     return this.refreshPromise;
   }
 
-  private buildHeaders(customHeaders?: HeadersInit, skipContentType = false, endpoint?: string): Record<string, string> {
+  private buildHeaders(
+    customHeaders?: HeadersInit,
+    skipContentType = false,
+    endpoint?: string,
+    hasBody = false,
+  ): Record<string, string> {
     const headers: Record<string, string> = {
       Accept: 'application/json',
       'X-Requested-With': 'XMLHttpRequest',
-      ...(skipContentType ? {} : { 'Content-Type': 'application/json' }),
+      ...(skipContentType || !hasBody ? {} : { 'Content-Type': 'application/json' }),
       ...(this.activeWorkspaceId ? { 'X-Workspace-ID': this.activeWorkspaceId } : {}),
       ...(customHeaders as Record<string, string>),
     };
@@ -224,9 +229,10 @@ class ApiClient {
       }
     }
 
+    const hasBody = fetchOptions.body != null && fetchOptions.body !== '';
     const config: RequestInit = {
       ...fetchOptions,
-      headers: this.buildHeaders(customHeaders, false, endpoint),
+      headers: this.buildHeaders(customHeaders, false, endpoint, hasBody),
       credentials: 'include',
       signal: controller.signal,
     };
@@ -302,9 +308,10 @@ class ApiClient {
       }
     }
 
+    const hasBody = fetchOptions.body != null && fetchOptions.body !== '';
     const config: RequestInit = {
       ...fetchOptions,
-      headers: this.buildHeaders(customHeaders, false, endpoint),
+      headers: this.buildHeaders(customHeaders, false, endpoint, hasBody),
       credentials: 'include',
       signal: controller.signal,
     };
