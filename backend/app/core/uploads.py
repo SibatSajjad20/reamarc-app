@@ -399,12 +399,10 @@ def authorize_upload_key(
 async def authorize_stored_upload(db, current_user: dict, file_path: str) -> None:
     relative = normalize_upload_key(file_path)
     if relative.startswith("gdrive/"):
-        from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_workflow import can_view_item
+        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
         from app.services.google_drive_service import file_id_from_path
 
-        role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES:
+        if is_admin(current_user) or is_operations(current_user):
             return
 
         file_id = file_id_from_path(relative)
@@ -426,11 +424,9 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
         )
 
     if relative.startswith("content_calendar/"):
-        from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_workflow import can_view_item
+        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
 
-        role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES:
+        if is_admin(current_user) or is_operations(current_user):
             return
 
         parts = relative.split("/")

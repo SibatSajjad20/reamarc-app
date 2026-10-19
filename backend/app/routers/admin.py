@@ -42,6 +42,11 @@ from app.core.encryption import encrypt_credential_fields
 from app.services.email_service import EmailService
 from app.services.log_compliance import pkt_today, PKT, batch_expected_targets, person_day_is_leave, person_day_is_due
 from app.routers.daily_log import is_workday, SYSTEM_START_DATE
+from app.services.access import (
+    canonicalize_departments,
+    get_primary_stage,
+    normalize_stage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -67,25 +72,28 @@ def _format_member_resp(doc: dict) -> dict:
         role_val = UserRole.TEAM_MEMBER
 
     dept = doc.get("department")
+    primary_out = None
     if role_val in (UserRole.ADMIN, UserRole.OPERATIONS):
         dept = "All"
         depts = ["All"]
+        primary_out = "All"
     elif role_val == UserRole.HR:
         dept = "HR"
         depts = ["HR"]
+        primary_out = "HR"
     elif role_val == UserRole.CLIENT:
         dept = None
         depts = []
+        primary_out = None
     else:
-        depts = (
-            [str(d).strip() for d in doc.get("departments") if d and str(d).strip()]
-            if isinstance(doc.get("departments"), list) and doc.get("departments")
-            else (
-                [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept, flags=re.IGNORECASE) if p.strip()]
-                if dept and dept not in ("All", "Unassigned")
-                else ([dept] if dept else [])
-            )
+        packed = canonicalize_departments(
+            departments=doc.get("departments") if isinstance(doc.get("departments"), list) else None,
+            primary=doc.get("primary_department"),
+            department=dept if isinstance(dept, str) else None,
         )
+        depts = packed["departments"]
+        dept = packed["department"]
+        primary_out = packed["primary_department"]
 
     raw_emp = str(doc.get("employment_type") or EmploymentType.CONTRACT.value).lower()
     try:
@@ -101,7 +109,7 @@ def _format_member_resp(doc: dict) -> dict:
         "phone": member_phone_from_doc(doc),
         "department": dept,
         "departments": depts,
-        "primary_department": doc.get("primary_department") or (depts[0] if depts else None),
+        "primary_department": primary_out,
         "joining_date": doc.get("joining_date"),
         "employment_type": employment_type,
         "probation_start_date": doc.get("probation_start_date"),
@@ -524,25 +532,28 @@ async def create_member(
     hashed_pwd = get_password_hash(raw_pwd)
 
     # Auto set department: "All" for Admin/Operations, "HR" for HR, None for Client
+    primary_val = None
     if member_in.role in (UserRole.ADMIN, UserRole.OPERATIONS):
         dept_val = "All"
         depts_list = ["All"]
+        primary_val = "All"
     elif member_in.role == UserRole.HR:
         dept_val = "HR"
         depts_list = ["HR"]
+        primary_val = "HR"
     elif member_in.role == UserRole.CLIENT:
         dept_val = None
         depts_list = []
+        primary_val = None
     else:
-        if member_in.departments and len(member_in.departments) > 0:
-            depts_list = [d.strip() for d in member_in.departments if d and d.strip()]
-            dept_val = member_in.department.strip() if member_in.department else ", ".join(depts_list)
-        elif member_in.department:
-            dept_val = member_in.department.strip()
-            depts_list = [p.strip() for p in re.split(r"[,;/]|\band\b|&", dept_val, flags=re.IGNORECASE) if p.strip()]
-        else:
-            dept_val = None
-            depts_list = []
+        packed = canonicalize_departments(
+            departments=list(member_in.departments) if member_in.departments else None,
+            primary=member_in.primary_department,
+            department=member_in.department,
+        )
+        depts_list = packed["departments"]
+        dept_val = packed["department"]
+        primary_val = packed["primary_department"]
 
     now_iso = datetime.now(timezone.utc).isoformat()
     workspace_ids = await _client_workspace_ids(db, member_in.workspace_ids) if member_in.role == UserRole.CLIENT else []
@@ -558,11 +569,7 @@ async def create_member(
         "phone_number": member_in.phone.strip() if member_in.phone else None,
         "department": dept_val,
         "departments": depts_list,
-        "primary_department": (
-            member_in.primary_department.strip()
-            if member_in.primary_department
-            else (depts_list[0] if depts_list else dept_val)
-        ),
+        "primary_department": primary_val,
         "joining_date": member_in.joining_date.strip() if member_in.joining_date else None,
         "employment_type": member_in.employment_type.value,
         "probation_start_date": member_in.probation_start_date,
@@ -662,27 +669,26 @@ async def update_member(
         "admin", "operations", "hr", "client",
         UserRole.ADMIN.value, UserRole.OPERATIONS.value, UserRole.HR.value, UserRole.CLIENT.value
     )
-    if not is_special_role:
-        if member_in.primary_department is not None:
-            update_fields["primary_department"] = member_in.primary_department.strip() or None
-        if member_in.departments is not None:
-            cleaned_depts = [d.strip() for d in member_in.departments if d and d.strip()]
-            update_fields["departments"] = cleaned_depts
-            if member_in.department is None:
-                update_fields["department"] = ", ".join(cleaned_depts) if cleaned_depts else None
-            if cleaned_depts and not member_in.primary_department:
-                update_fields["primary_department"] = cleaned_depts[0]
-        if member_in.department is not None:
-            cleaned_str = member_in.department.strip()
-            update_fields["department"] = cleaned_str
-            if member_in.departments is None:
-                update_fields["departments"] = [p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()]
-            first = next(
-                (p.strip() for p in re.split(r"[,;/]|\band\b|&", cleaned_str, flags=re.IGNORECASE) if p.strip()),
-                cleaned_str or None,
-            )
-            if first and not member_in.primary_department:
-                update_fields["primary_department"] = first
+    if not is_special_role and (
+        member_in.primary_department is not None
+        or member_in.departments is not None
+        or member_in.department is not None
+    ):
+        incoming_depts = member_in.departments if member_in.departments is not None else existing_user.get("departments")
+        incoming_primary = (
+            member_in.primary_department
+            if member_in.primary_department is not None
+            else existing_user.get("primary_department")
+        )
+        incoming_dept_str = member_in.department if member_in.department is not None else None
+        packed = canonicalize_departments(
+            departments=list(incoming_depts) if isinstance(incoming_depts, list) else None,
+            primary=incoming_primary,
+            department=incoming_dept_str,
+        )
+        update_fields["primary_department"] = packed["primary_department"]
+        update_fields["departments"] = packed["departments"]
+        update_fields["department"] = packed["department"]
     if member_in.is_active is not None:
         update_fields["is_active"] = member_in.is_active
     if member_in.crm_enabled is not None:
@@ -742,6 +748,18 @@ async def update_member(
 
     if not update_fields:
         return _format_member_resp(existing_user)
+
+    new_primary = update_fields.get("primary_department", existing_user.get("primary_department"))
+    new_primary_stage = get_primary_stage(new_primary)
+    stored_extras = existing_user.get("content_stages") or []
+    if isinstance(stored_extras, list) and new_primary_stage:
+        cleaned_extras = [
+            s for s in stored_extras
+            if normalize_stage(s) and normalize_stage(s) != new_primary_stage
+        ]
+        if cleaned_extras != list(stored_extras):
+            update_fields["content_stages"] = cleaned_extras
+            update_fields["access_version"] = int(existing_user.get("access_version") or 1) + 1
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated_user = await db.users.find_one_and_update(

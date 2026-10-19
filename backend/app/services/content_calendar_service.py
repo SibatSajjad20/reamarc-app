@@ -57,7 +57,7 @@ from app.services.content_calendar_workflow import (
     normalize_stage,
     resolve_stage,
     stage_owner,
-    stored_stage_aliases,
+    stage_scope_clause,
     visible_stages,
 )
 from app.core.uploads import (
@@ -168,23 +168,9 @@ def _present_doc(doc: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
-def _viewer_stage_clause(viewer: Optional[Dict[str, Any]], stage: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Mongo clause for the viewer's stage scope. None means no extra clause."""
-    if viewer is None:
-        if stage:
-            return {"stage": {"$in": stored_stage_aliases([normalize_stage(stage)])}}
-        return None
-    allowed = visible_stages(viewer)
-    if allowed is not None and len(allowed) == 0:
-        return {"stage": "__none__"}
-    if stage:
-        wanted = normalize_stage(stage)
-        if allowed is not None and wanted not in allowed:
-            return {"stage": "__none__"}
-        return {"stage": {"$in": stored_stage_aliases([wanted])}}
-    if allowed is None:
-        return None
-    return {"stage": {"$in": stored_stage_aliases(allowed)}}
+def _viewer_stage_clause(viewer: Optional[Dict[str, Any]], stage: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Mongo clause for the viewer's stage scope. Delegates to workflow.stage_scope_clause."""
+    return stage_scope_clause(viewer, stage)
 
 
 async def get_items(
@@ -397,7 +383,9 @@ async def get_items(
         return presented_items
 
     async def _fetch_counts():
-        res = {s: 0 for s in PIPELINE_STAGES}
+        allowed = visible_stages(viewer) if viewer is not None else None
+        count_keys = PIPELINE_STAGES if allowed is None else allowed
+        res = {s: 0 for s in count_keys}
         async for agg in coll.aggregate(pipeline):
             st = normalize_stage(agg.get("_id"))
             if st in res:
@@ -2495,18 +2483,38 @@ async def notify_content_calendar_event(
             actor_id = str(actor.get("id") or actor.get("_id") or "") or None
             actor_role = str(actor.get("role") or "team_member")
 
+        _access_fields = {
+            "id": 1,
+            "_id": 1,
+            "role": 1,
+            "department": 1,
+            "departments": 1,
+            "primary_department": 1,
+            "access": 1,
+            "content_stages": 1,
+            "is_active": 1,
+            "access_version": 1,
+            "full_name": 1,
+            "name": 1,
+            "workspace_id": 1,
+            "workspace_ids": 1,
+        }
+
+        async def _iter_staff():
+            async for u in db.users.find({"is_active": {"$ne": False}}, _access_fields):
+                u["is_active"] = True
+                yield u
+
         async def _find_content_leads() -> List[str]:
             uids = []
-            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
-                u["is_active"] = True
+            async for u in _iter_staff():
                 if is_admin(u) or is_content_lead(u):
                     uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
 
         async def _find_creative_leads() -> List[str]:
             uids = []
-            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
-                u["is_active"] = True
+            async for u in _iter_staff():
                 if is_admin(u) or is_creative_lead(u):
                     uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
@@ -2517,16 +2525,25 @@ async def notify_content_calendar_event(
             uids = []
             async for u in db.users.find(
                 {"is_active": {"$ne": False}, "role": "client", "$or": [{"workspace_id": workspace_id}, {"workspace_ids": workspace_id}]},
-                {"id": 1, "_id": 1}
+                _access_fields,
             ):
                 uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
 
         async def _find_social_actors() -> List[str]:
             uids = []
-            async for u in db.users.find({"is_active": {"$ne": False}}, {"id": 1, "_id": 1, "role": 1, "department": 1, "departments": 1}):
-                u["is_active"] = True
-                if is_admin(u) or is_social_actor(u) or is_performance(u):
+            from app.services.access import effective_access
+            async for u in _iter_staff():
+                if is_admin(u) or is_social_actor(u):
+                    uids.append(str(u.get("id") or u.get("_id") or ""))
+                    continue
+                # Performance users are notified only with social_media in stages,
+                # or when this item is an ad creative they can already view.
+                stages = [str(s).lower() for s in (effective_access(u).get("content_stages") or [])]
+                if "social_media" in stages or "social" in stages:
+                    uids.append(str(u.get("id") or u.get("_id") or ""))
+                    continue
+                if is_ad_creative(item) and can_view_item(u, item):
                     uids.append(str(u.get("id") or u.get("_id") or ""))
             return [u for u in uids if u]
 
@@ -2650,8 +2667,29 @@ async def notify_content_calendar_event(
         if not cleaned_recipients:
             return
 
+        recipient_docs = []
+        async for u in db.users.find(
+            {"$or": [{"id": {"$in": cleaned_recipients}}, {"_id": {"$in": cleaned_recipients}}]},
+            _access_fields,
+        ):
+            recipient_docs.append(u)
+        by_id = {}
+        for u in recipient_docs:
+            by_id[str(u.get("id") or "")] = u
+            by_id[str(u.get("_id") or "")] = u
+        visible_recipients = []
+        for uid in cleaned_recipients:
+            rec = by_id.get(uid)
+            if not rec:
+                continue
+            rec["is_active"] = rec.get("is_active", True)
+            if can_view_item(rec, item):
+                visible_recipients.append(uid)
+        if not visible_recipients:
+            return
+
         await dispatch_to_users(
-            user_ids=cleaned_recipients,
+            user_ids=visible_recipients,
             title=title,
             body=body,
             kind="content_calendar",
@@ -2665,6 +2703,7 @@ async def notify_content_calendar_event(
                 "stage": stage,
                 "action": act,
             },
+            item=item,
         )
     except Exception as exc:
         logger.warning("Content calendar notification dispatch failed: %s", exc)

@@ -12,6 +12,8 @@ export interface AccessUserRow {
   avatar?: string | null;
   role: string;
   primary_department: string;
+  departments?: string[];
+  secondary_departments?: string[];
   modules: {
     attendance: AccessModuleStatus;
     daily_log: AccessModuleStatus;

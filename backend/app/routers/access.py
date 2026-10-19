@@ -19,6 +19,7 @@ from app.database import get_database
 from app.services.access import (
     MODULES,
     VALID_CONTENT_STAGES,
+    canonicalize_departments,
     default_access,
     effective_access,
     get_primary_stage,
@@ -26,6 +27,7 @@ from app.services.access import (
     normalize_dept,
     normalize_role,
     normalize_stage,
+    parse_user_departments,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,6 +62,16 @@ def _serialize_user_row(user: Dict[str, Any]) -> Dict[str, Any]:
     avatar = user.get("avatar_url") or user.get("avatar")
     role = normalize_role(user.get("role"))
     primary_department = "" if role == "operations" else get_user_primary_department(user)
+    packed = canonicalize_departments(
+        departments=user.get("departments") if isinstance(user.get("departments"), list) else None,
+        primary=primary_department or None,
+        department=user.get("department") if isinstance(user.get("department"), str) else None,
+    )
+    all_depts = packed["departments"] or parse_user_departments(user)
+    secondary_departments = [
+        d for d in all_depts
+        if primary_department and d.lower() != str(primary_department).lower()
+    ]
 
     defaults = default_access(user)
     stored_access = user.get("access") or {}
@@ -103,6 +115,8 @@ def _serialize_user_row(user: Dict[str, Any]) -> Dict[str, Any]:
         "avatar": avatar,
         "role": role,
         "primary_department": primary_department,
+        "departments": all_depts,
+        "secondary_departments": secondary_departments,
         "modules": modules_res,
         "content_stages": content_stages_res,
     }
