@@ -428,11 +428,9 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
     caller_cid = _caller_company_id(current_user)
 
     if relative.startswith("gdrive/"):
-        from app.core.security import _MANAGEMENT_ROLES
         from app.services.content_calendar_workflow import can_view_item
         from app.services.google_drive_service import file_id_from_path
 
-        role = current_user.get("role")
         file_id = file_id_from_path(relative)
         item = None
         if file_id and db is not None:
@@ -444,7 +442,7 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
                     ]
                 }
             )
-        if item and (role in _MANAGEMENT_ROLES or can_view_item(current_user, item)):
+        if item and can_view_item(current_user, item):
             return
         if item:
             raise HTTPException(
@@ -457,10 +455,8 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
         )
 
     if relative.startswith("content_calendar/"):
-        from app.core.security import _MANAGEMENT_ROLES
         from app.services.content_calendar_workflow import can_view_item
 
-        role = current_user.get("role")
         parts = relative.split("/")
         item = None
         if len(parts) >= 2 and db is not None:
@@ -468,7 +464,7 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
             item = await db.content_calendar_items.find_one(
                 {"$or": [{"id": item_id}, {"serial": item_id}]}
             )
-        if item and (role in _MANAGEMENT_ROLES or can_view_item(current_user, item)):
+        if item and can_view_item(current_user, item):
             return
         if item:
             raise HTTPException(

@@ -22,19 +22,9 @@ import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
 import { cn } from '../../lib/utils';
+import { CANONICAL_DEPARTMENTS, sameDept } from '../../utils/departments';
 
-export const DEPARTMENTS = [
-  'Website',
-  'Creative',
-  'Content',
-  'SEO',
-  'Performance marketing',
-  'Social media',
-  'Sales',
-  'AI',
-  'Software development',
-  'HR',
-] as const;
+export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
 
 export const ROLES: { id: UserRole; label: string; description: string }[] = [
   { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
@@ -72,7 +62,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
   const [role, setRole] = useState<UserRole>(defaultRole);
   const [primaryDepartment, setPrimaryDepartment] = useState<string>('Website');
   const [secondaryDepartments, setSecondaryDepartments] = useState<string[]>([]);
-  const selectedDepartments = [primaryDepartment, ...secondaryDepartments.filter((d) => d !== primaryDepartment)];
+  const selectedDepartments = [
+    primaryDepartment,
+    ...secondaryDepartments.filter((d) => !sameDept(d, primaryDepartment)),
+  ];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [temporaryPassword, setTemporaryPassword] = useState('');
@@ -473,7 +466,7 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                   value={primaryDepartment}
                   onChange={(val) => {
                     setPrimaryDepartment(val);
-                    setSecondaryDepartments((prev) => prev.filter((d) => d !== val));
+                    setSecondaryDepartments((prev) => prev.filter((d) => !sameDept(d, val)));
                     if (hasSubmitted && val) {
                       setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
                     }
@@ -501,16 +494,16 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({
                   Secondary departments <span className="text-caption text-fg-muted font-normal">(Optional)</span>
                 </label>
                 <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-border bg-subtle/40">
-                  {DEPARTMENTS.filter((d) => d !== 'HR' && d !== primaryDepartment).map((dept) => {
-                    const isSelected = secondaryDepartments.includes(dept);
+                  {DEPARTMENTS.filter((d) => d !== 'HR' && !sameDept(d, primaryDepartment)).map((dept) => {
+                    const isSelected = secondaryDepartments.some((d) => sameDept(d, dept));
                     return (
                       <button
                         key={dept}
                         type="button"
                         onClick={() => {
                           setSecondaryDepartments((prev) =>
-                            prev.includes(dept)
-                              ? prev.filter((d) => d !== dept)
+                            prev.some((d) => sameDept(d, dept))
+                              ? prev.filter((d) => !sameDept(d, dept))
                               : [...prev, dept]
                           );
                         }}

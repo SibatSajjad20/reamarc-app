@@ -83,7 +83,13 @@ async def get_content_constants(
 ):
     """Returns all allowed dropdown options and pipeline stages matching the Excel workbook or custom settings."""
     db = get_database()
-    return await content_calendar_service.get_constants_from_db(db)
+    constants = await content_calendar_service.get_constants_from_db(db)
+    from app.services.content_calendar_workflow import visible_stages
+    allowed = visible_stages(current_user)
+    if allowed is not None:
+        constants = dict(constants)
+        constants["pipeline_stages"] = allowed
+    return constants
 
 
 @router.patch("/constants", response_model=ContentCalendarConstantsResponse)

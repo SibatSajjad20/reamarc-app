@@ -575,9 +575,12 @@ export const AccessSection: React.FC = () => {
                                         )}
                                       >
                                         <span>
-                                          {row.content_stages.extra.length > 0
-                                            ? `+${row.content_stages.extra.length} stages`
-                                            : 'Stages'}
+                                          {(() => {
+                                            const extraCount = row.content_stages.extra.filter(
+                                              (s) => s !== row.content_stages.locked,
+                                            ).length;
+                                            return extraCount > 0 ? `+${extraCount} stages` : 'Stages';
+                                          })()}
                                         </span>
                                       </button>
                                     </PopoverTrigger>
@@ -626,12 +629,16 @@ export const AccessSection: React.FC = () => {
                                                     )
                                                   }
                                                 />
-                                                <span>{st.label}</span>
+                                                <span>
+                                                  {isLocked
+                                                    ? `${st.label} (primary department, always on)`
+                                                    : st.label}
+                                                </span>
                                               </label>
                                               {isLocked && (
                                                 <span
                                                   className="inline-flex items-center gap-1 text-[10px] text-fg-muted bg-subtle px-1.5 py-0.5 rounded"
-                                                  title="Primary department"
+                                                  title={`${st.label} is this person's primary department stage and cannot be turned off.`}
                                                 >
                                                   <Lock size={10} />
                                                   <span>Primary</span>
@@ -641,6 +648,11 @@ export const AccessSection: React.FC = () => {
                                           );
                                         })}
                                       </div>
+                                      {(row.secondary_departments || []).length > 0 && (
+                                        <p className="text-[11px] text-fg-muted leading-snug pt-1 border-t border-border">
+                                          Also in: {(row.secondary_departments || []).join(', ')}; no stages granted
+                                        </p>
+                                      )}
                                     </PopoverContent>
                                   </Popover>
                                 )}

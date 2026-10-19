@@ -6,7 +6,7 @@ import json
 import logging
 import re
 import uuid
-from typing import Iterable, Optional
+from typing import Any, Dict, Iterable, Optional
 from urllib.parse import urlparse
 
 from cryptography.hazmat.primitives import serialization
@@ -321,10 +321,11 @@ async def send_web_push(
     body: str,
     kind: str = "custom",
     data: Optional[dict] = None,
+    item: Optional[Dict[str, Any]] = None,
 ) -> int:
     ids = [uid for uid in dict.fromkeys(user_ids) if uid]
     from app.services.push_service import filter_allowed_recipients
-    ids = await filter_allowed_recipients(ids, kind)
+    ids = await filter_allowed_recipients(ids, kind, item=item)
     if not ids or not web_push_configured() or public_application_server_key() is None:
         return 0
     db = get_database()

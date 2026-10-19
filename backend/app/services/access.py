@@ -81,6 +81,38 @@ def normalize_role(role: Optional[str]) -> str:
     return raw
 
 
+CANONICAL_DEPARTMENTS: List[str] = [
+    "Website",
+    "Creative",
+    "Content",
+    "SEO",
+    "Performance marketing",
+    "Social media",
+    "Sales",
+    "AI",
+    "Software development",
+    "HR",
+]
+
+_CANONICAL_DEPT_BY_KEY = {d.lower(): d for d in CANONICAL_DEPARTMENTS}
+_DEPT_ALIAS_TO_CANONICAL = {
+    "social": "Social media",
+    "social_media": "Social media",
+    "socialmedia": "Social media",
+    "performance": "Performance marketing",
+    "performance_marketing": "Performance marketing",
+    "performancemarketing": "Performance marketing",
+    "web development": "Website",
+    "webdevelopment": "Website",
+    "software": "Website",
+    "dev": "Website",
+}
+
+
+def _dept_lookup_key(value: str) -> str:
+    return " ".join(str(value).replace("_", " ").replace("-", " ").split()).strip().lower()
+
+
 def normalize_dept(dept: Optional[str]) -> str:
     """Standardize department strings for uniform matching."""
     if not dept:
@@ -93,6 +125,71 @@ def normalize_dept(dept: Optional[str]) -> str:
     if d in ("web development", "software development", "software", "dev"):
         return "website"
     return d
+
+
+def canonical_department(value: Optional[str]) -> str:
+    """Return a canonical department label. Unknown values are kept trimmed, never dropped."""
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    key = _dept_lookup_key(raw)
+    if not key:
+        return ""
+    if key in _CANONICAL_DEPT_BY_KEY:
+        return _CANONICAL_DEPT_BY_KEY[key]
+    collapsed = key.replace(" ", "")
+    for canon in CANONICAL_DEPARTMENTS:
+        if canon.lower().replace(" ", "") == collapsed:
+            return canon
+    if key in _DEPT_ALIAS_TO_CANONICAL:
+        return _DEPT_ALIAS_TO_CANONICAL[key]
+    for alias, canon in _DEPT_ALIAS_TO_CANONICAL.items():
+        if alias.replace(" ", "").replace("_", "") == collapsed:
+            return canon
+    return raw
+
+
+def canonicalize_departments(
+    departments: Optional[List[Any]] = None,
+    primary: Optional[str] = None,
+    department: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Canonicalise departments: primary first, case-insensitive de-dupe, joined department string."""
+    tokens: List[str] = []
+    if primary and str(primary).strip():
+        tokens.append(str(primary).strip())
+    if isinstance(departments, list):
+        for item in departments:
+            clean = str(item or "").strip()
+            if clean:
+                tokens.append(clean)
+    if isinstance(department, str) and department.strip() and department.strip() not in ("All", "Unassigned"):
+        for part in re.split(r"[,;/]|\band\b|&", department, flags=re.IGNORECASE):
+            clean = part.strip()
+            if clean:
+                tokens.append(clean)
+
+    seen: Set[str] = set()
+    ordered: List[str] = []
+    for token in tokens:
+        canon = canonical_department(token)
+        if not canon:
+            continue
+        marker = canon.lower()
+        if marker in seen:
+            continue
+        seen.add(marker)
+        ordered.append(canon)
+
+    primary_canon = canonical_department(primary) if primary and str(primary).strip() else (ordered[0] if ordered else "")
+    if primary_canon:
+        rest = [d for d in ordered if d.lower() != primary_canon.lower()]
+        ordered = [primary_canon] + rest
+    return {
+        "primary_department": primary_canon or None,
+        "departments": ordered,
+        "department": ", ".join(ordered) if ordered else None,
+    }
 
 
 def normalize_stage(stage: Optional[str]) -> Optional[str]:
@@ -126,28 +223,16 @@ def parse_user_departments(user: Optional[Dict[str, Any]]) -> List[str]:
     result: List[str] = []
     seen: Set[str] = set()
 
-    primary = str(user.get("primary_department") or "").strip()
-    if primary:
-        result.append(primary)
-        seen.add(primary.lower())
-
-    depts = user.get("departments")
-    if isinstance(depts, list):
-        for item in depts:
-            clean = str(item or "").strip()
-            if clean and clean.lower() not in seen:
-                seen.add(clean.lower())
-                result.append(clean)
-
-    dept_str = user.get("department")
-    if isinstance(dept_str, str) and dept_str.strip():
-        tokens = re.split(r"[,;/&]|\band\b", dept_str, flags=re.IGNORECASE)
-        for tok in tokens:
-            clean = tok.strip()
-            if clean and clean.lower() not in seen:
-                seen.add(clean.lower())
-                result.append(clean)
-
+    packed = canonicalize_departments(
+        departments=user.get("departments") if isinstance(user.get("departments"), list) else None,
+        primary=str(user.get("primary_department") or "").strip() or None,
+        department=user.get("department") if isinstance(user.get("department"), str) else None,
+    )
+    for name in packed["departments"]:
+        marker = name.lower()
+        if marker not in seen:
+            seen.add(marker)
+            result.append(name)
     return result
 
 
@@ -158,7 +243,7 @@ def get_user_primary_department(user: Optional[Dict[str, Any]]) -> str:
     role = normalize_role(user.get("role"))
     if role == "operations":
         return ""
-    primary = str(user.get("primary_department") or "").strip()
+    primary = canonical_department(str(user.get("primary_department") or "").strip())
     if primary:
         return primary
     depts = parse_user_departments(user)
@@ -390,11 +475,8 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             if stored_stages is None:
                 stored_stages = (user.get("access") or {}).get("content_stages")
             if stored_stages is None:
+                # Secondary departments never grant stages. Only primary + Access extras.
                 stored_stages = []
-                for d in parse_user_departments(user):
-                    st = normalize_stage(d)
-                    if st and st in VALID_CONTENT_STAGES and st != primary_stage and st not in stored_stages:
-                        stored_stages.append(st)
             if isinstance(stored_stages, list):
                 for st in stored_stages:
                     norm_st = normalize_stage(st)
