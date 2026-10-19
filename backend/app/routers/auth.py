@@ -15,6 +15,7 @@ from app.schemas.auth import (
 from app.schemas.error import ErrorResponse
 from app.core.security import (
     get_password_hash, verify_password,
+    get_password_hash_async, verify_password_async,
     create_access_token, create_refresh_token,
     decode_refresh_token, decode_access_token, get_current_user,
     _normalize_role, user_session_epoch, token_session_epoch,
@@ -172,7 +173,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
 
     stored_hash = (user_doc or {}).get("hashed_password") or _DUMMY_PASSWORD_HASH
-    password_ok = verify_password(user_in.password, stored_hash)
+    password_ok = await verify_password_async(user_in.password, stored_hash)
     if not user_doc or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -558,10 +559,10 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
 
         current_hash = user_doc.get("hashed_password")
-        if not profile_in.current_password or not current_hash or not verify_password(profile_in.current_password, current_hash):
+        if not profile_in.current_password or not current_hash or not await verify_password_async(profile_in.current_password, current_hash):
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
-        update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
+        update_fields["hashed_password"] = await get_password_hash_async(profile_in.new_password)
         from app.services.identity_guard import invalidate_global_login
         await invalidate_global_login(user_id)
         user_doc["session_epoch"] = user_session_epoch(user_doc) + 1
@@ -811,7 +812,7 @@ async def forgot_password(request: Request, payload: ForgotPasswordRequest):
     if user_doc and user_doc.get("is_active", True):
         # Generate secure random 6-digit numeric verification code
         code = f"{secrets.randbelow(900000) + 100000:06d}"
-        code_hash = get_password_hash(code)
+        code_hash = await get_password_hash_async(code)
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(minutes=10)
 
@@ -897,7 +898,7 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
             detail="Verification code has expired. Please request a new code.",
         )
 
-    if not verify_password(code_clean, reset_doc.get("code_hash", "")):
+    if not await verify_password_async(code_clean, reset_doc.get("code_hash", "")):
         updated = await gdb.password_resets.find_one_and_update(
             {"_id": reset_doc["_id"]},
             {"$inc": {"attempts": 1}},
@@ -985,7 +986,7 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
             detail="Verification code has expired. Please request a new code.",
         )
 
-    if not verify_password(code_clean, reset_doc.get("code_hash", "")):
+    if not await verify_password_async(code_clean, reset_doc.get("code_hash", "")):
         updated = await gdb.password_resets.find_one_and_update(
             {"_id": reset_doc["_id"]},
             {"$inc": {"attempts": 1}},
@@ -1015,7 +1016,7 @@ async def reset_password(request: Request, payload: ResetPasswordRequest):
         )
 
     # Hash new password and update user record
-    new_hashed_password = get_password_hash(payload.new_password)
+    new_hashed_password = await get_password_hash_async(payload.new_password)
     cid = user_doc.get("company_id") or "company_reamarc"
     db = get_database()
     with tenant_scope(cid):
@@ -1088,7 +1089,7 @@ async def reset_password_with_token(request: Request, payload: ResetWithTokenReq
     from app.services.identity_guard import invalidate_global_login
     await gdb.users.update_one(
         {"_id": user_doc["_id"]},
-        {"$set": {"hashed_password": get_password_hash(payload.new_password), "updated_at": now.isoformat()}},
+        {"$set": {"hashed_password": await get_password_hash_async(payload.new_password), "updated_at": now.isoformat()}},
     )
     await invalidate_global_login(str(user_doc.get("id") or user_doc.get("_id")))
     return {"message": "Password has been successfully reset. You can now log in with your new password."}
@@ -1168,7 +1169,7 @@ async def accept_invite(request: Request, payload: InviteAcceptRequest):
     if exp and now > exp:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
 
-    hashed_pwd = get_password_hash(payload.password)
+    hashed_pwd = await get_password_hash_async(payload.password)
     cid = user_doc.get("company_id") or "company_reamarc"
     db = get_database()
     with tenant_scope(cid):

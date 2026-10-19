@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional, Tuple
 from fastapi import HTTPException, UploadFile, status
@@ -97,7 +98,8 @@ async def upload_user_avatar(
     import cloudinary.uploader
 
     try:
-        result = cloudinary.uploader.upload(
+        result = await asyncio.to_thread(
+            cloudinary.uploader.upload,
             file_bytes,
             folder="reamarc/avatars",
             public_id=user_id,
@@ -130,7 +132,7 @@ async def upload_user_avatar(
     # If previous public_id was different, delete it
     if current_avatar_public_id and current_avatar_public_id != new_public_id:
         try:
-            cloudinary.uploader.destroy(current_avatar_public_id, invalidate=True)
+            await asyncio.to_thread(cloudinary.uploader.destroy, current_avatar_public_id, invalidate=True)
         except Exception as del_exc:
             logger.warning(
                 "Could not delete old avatar %s: %s",
@@ -151,6 +153,6 @@ async def delete_user_avatar(public_id: Optional[str]) -> None:
     import cloudinary.uploader
 
     try:
-        cloudinary.uploader.destroy(public_id, invalidate=True)
+        await asyncio.to_thread(cloudinary.uploader.destroy, public_id, invalidate=True)
     except Exception as exc:
         logger.warning("Could not delete avatar %s: %s", public_id, type(exc).__name__)

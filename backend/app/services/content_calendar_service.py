@@ -1469,8 +1469,12 @@ async def attach_assets(
         elif kind == "image" and ext != ".svg":
             try:
                 from PIL import Image
-                with Image.open(io.BytesIO(content)) as img:
-                    width, height = img.size
+
+                def _image_size(payload: bytes):
+                    with Image.open(io.BytesIO(payload)) as img:
+                        return img.size
+
+                width, height = await asyncio.to_thread(_image_size, content)
             except Exception:
                 pass
 
