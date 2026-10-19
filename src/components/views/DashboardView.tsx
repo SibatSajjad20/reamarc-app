@@ -14,7 +14,6 @@ import { websiteProjectService } from '../../services/websiteProjectService';
 import { contentCalendarService } from '../../services/contentCalendarService';
 import { useCacheInvalidation } from '../../utils/cacheBus';
 import { usePermissions } from '../../hooks/usePermissions';
-import { getContentCalendarBucket } from '../../utils/contentCalendarWorkflow';
 import { expectedHoursForStripDay } from '../../utils/logTimeChecks';
 
 import type {
@@ -29,7 +28,6 @@ import type {
   TeamHoursMember,
   UserLogActivity,
 } from '../../types/dailyLog';
-import type { ContentCalendarItem } from '../../types/contentCalendar';
 
 import { PageHeader } from '../ui/PageHeader';
 import { Button } from '../ui/button';
@@ -713,14 +711,15 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
     const promises: Promise<any>[] = [];
     if (perms.can('content_calendar', 'view')) {
       promises.push(
-        contentCalendarService.getItems().then((calRes) => {
-          const items = calRes?.items || [];
-          const overdue = items.filter((item: ContentCalendarItem) => getContentCalendarBucket(item) === 'overdue');
-          setCalendarOverdueCount(overdue.length);
-          if (overdue.length > 0) {
-            const first = overdue[0];
-            const dateStr = first.publish_date || first.design_due || '';
-            setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+        contentCalendarService.getOverdueSummary().then((sum) => {
+          const overdueCount = sum?.overdue_count || 0;
+          setCalendarOverdueCount(overdueCount);
+          if (overdueCount > 0) {
+            const first = (sum.sample && sum.sample[0]) || null;
+            if (first) {
+              const dateStr = first.publish_date || first.design_due || '';
+              setCalendarOverdueSubtext(dateStr ? `Oldest due ${dateStr} · ${first.stage} stage` : `${first.stage} stage`);
+            }
           }
         }).catch(() => {})
       );
@@ -729,11 +728,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigateView }) 
       promises.push(
         websiteProjectService.getAllTasks({
           assignee_id: isLead ? undefined : user?.id,
+          overdue: true,
         }).then((tasksRes) => {
-          const overdue = (tasksRes || []).filter((t: any) => {
-            return t.due_date && t.due_date < todayIso && t.status !== 'completed' && t.status !== 'done';
-          });
-          setWebsiteOverdueCount(overdue.length);
+          setWebsiteOverdueCount((tasksRes || []).length);
         }).catch(() => {})
       );
     }

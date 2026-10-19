@@ -124,6 +124,7 @@ export const websiteProjectService = {
     status?: string;
     assignee_id?: string;
     search?: string;
+    overdue?: boolean;
   }): Promise<WebsiteTask[]> {
     const params = new URLSearchParams();
     if (filter?.project_id && filter.project_id !== 'all') params.set('project_id', filter.project_id);
@@ -131,6 +132,7 @@ export const websiteProjectService = {
     if (filter?.status && filter.status !== 'all') params.set('status', filter.status);
     if (filter?.assignee_id && filter.assignee_id !== 'all') params.set('assignee_id', filter.assignee_id);
     if (filter?.search?.trim()) params.set('search', filter.search.trim());
+    if (filter?.overdue) params.set('overdue', 'true');
     const queryStr = params.toString() ? `?${params.toString()}` : '';
     return apiClient.get<WebsiteTask[]>(`/website-projects/tasks${queryStr}`);
   },

@@ -22,6 +22,21 @@ import type {
 } from '../types/contentCalendar';
 
 export const contentCalendarService = {
+  async getOverdueSummary(): Promise<{
+    overdue_count: number;
+    due_today_count: number;
+    sample: Array<{
+      id: string;
+      serial?: string;
+      client_name?: string;
+      stage?: string;
+      publish_date?: string;
+      design_due?: string;
+    }>;
+  }> {
+    return apiClient.get('/content-calendar/overdue-summary');
+  },
+
   async getItems(filter?: ContentCalendarFilter): Promise<ContentCalendarListResponse> {
     const filterKey = JSON.stringify(filter || {});
     const cached = ccItemsCache.get(filterKey);

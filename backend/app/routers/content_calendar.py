@@ -75,6 +75,17 @@ async def list_content_items(
     return res
 
 
+@router.get("/overdue-summary")
+@limiter.limit("120/minute")
+async def overdue_summary(
+    request: Request,
+    current_user: dict = Depends(require_content_calendar_reader),
+):
+    """Lean overdue / due-today counts for the dashboard. Same visibility as the list."""
+    db = get_database()
+    return await content_calendar_service.get_overdue_summary(db, viewer=current_user)
+
+
 @router.get("/constants", response_model=ContentCalendarConstantsResponse)
 @limiter.limit("120/minute")
 async def get_content_constants(

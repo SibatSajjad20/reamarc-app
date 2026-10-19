@@ -416,6 +416,159 @@ async def get_items(
     return {"items": items, "total": total, "stages_count": stages_count}
 
 
+def _pkt_today_iso() -> str:
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d")
+
+
+def _effective_date_expr() -> Dict[str, Any]:
+    """Same target-date rule as getContentCalendarBucket: post stages use publish_date then design_due."""
+    post_aliases = stored_stage_aliases(["Ready to Post", "Posted"])
+    return {
+        "$let": {
+            "vars": {
+                "pub": {"$substrCP": [{"$ifNull": ["$publish_date", ""]}, 0, 10]},
+                "due": {"$substrCP": [{"$ifNull": ["$design_due", ""]}, 0, 10]},
+                "st": {"$ifNull": ["$stage", ""]},
+            },
+            "in": {
+                "$cond": [
+                    {"$in": ["$$st", post_aliases]},
+                    {
+                        "$cond": [
+                            {"$regexMatch": {"input": "$$pub", "regex": r"^\d{4}-\d{2}-\d{2}"}},
+                            "$$pub",
+                            "$$due",
+                        ]
+                    },
+                    {
+                        "$cond": [
+                            {"$regexMatch": {"input": "$$due", "regex": r"^\d{4}-\d{2}-\d{2}"}},
+                            "$$due",
+                            "$$pub",
+                        ]
+                    },
+                ]
+            },
+        }
+    }
+
+
+async def _viewer_match_query(db, viewer: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Visibility used by get_items (stage scope + client workspace ownership)."""
+    query: Dict[str, Any] = {}
+    if viewer is not None:
+        clause = _viewer_stage_clause(viewer, None)
+        if clause:
+            query.update(clause)
+
+    if viewer and str(viewer.get("role") or "").lower() == "client":
+        raw_ws = viewer.get("workspace_ids") or []
+        if isinstance(raw_ws, str):
+            raw_ws = [raw_ws]
+        workspace_ids = [str(value).strip() for value in raw_ws if str(value).strip()]
+        if viewer.get("workspace_id") and str(viewer.get("workspace_id")).strip() not in workspace_ids:
+            workspace_ids.append(str(viewer.get("workspace_id")).strip())
+        ws_names: List[str] = []
+        if workspace_ids and db is not None:
+            try:
+                ws_docs = await db["workspaces"].find(
+                    {"id": {"$in": workspace_ids}},
+                    {"id": 1, "name": 1},
+                ).to_list(len(workspace_ids) + 5)
+                for w in ws_docs:
+                    wn = str(w.get("name") or "").strip()
+                    if wn and wn not in ws_names:
+                        ws_names.append(wn)
+            except Exception as exc:
+                logger.warning("Error fetching client workspace names: %s", exc)
+        v_name = str(viewer.get("full_name") or viewer.get("name") or "").strip()
+        if v_name and v_name not in ws_names:
+            ws_names.append(v_name)
+        ownership_ors: List[Dict[str, Any]] = [{"workspace_id": {"$in": workspace_ids or ["__none__"]}}]
+        for nm in ws_names:
+            escaped = re.escape(nm)
+            ownership_ors.append({"client_name": {"$regex": f"^{escaped}$", "$options": "i"}})
+            clean_corp = re.sub(r"\b(llc|inc|corp|ltd|co|pvt)\b", "", nm, flags=re.I).strip()
+            if clean_corp and clean_corp.lower() != nm.lower():
+                clean_esc = re.escape(clean_corp)
+                ownership_ors.append({"client_name": {"$regex": f"^{clean_esc}", "$options": "i"}})
+        query["$or"] = ownership_ors
+    return query
+
+
+async def get_overdue_summary(db, viewer: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Counts overdue and due-today items with a lean sample. Matches dashboard loadOverdueAlerts."""
+    empty = {"overdue_count": 0, "due_today_count": 0, "sample": []}
+    if db is None:
+        return empty
+
+    query = await _viewer_match_query(db, viewer)
+    today = _pkt_today_iso()
+    rejected_aliases = stored_stage_aliases(["Rejected"])
+    posted_aliases = stored_stage_aliases(["Posted"])
+    valid_date = {"$regexMatch": {"input": "$eff_date", "regex": r"^\d{4}-\d{2}-\d{2}"}}
+    overdue_expr = {
+        "$and": [
+            {"$not": {"$in": ["$stage", rejected_aliases]}},
+            {"$not": {"$in": ["$stage", posted_aliases]}},
+            valid_date,
+            {"$lt": ["$eff_date", today]},
+        ]
+    }
+    due_today_expr = {
+        "$and": [
+            {"$not": {"$in": ["$stage", rejected_aliases]}},
+            valid_date,
+            {"$eq": ["$eff_date", today]},
+        ]
+    }
+    pipeline = [
+        {"$match": query or {}},
+        {"$addFields": {"eff_date": _effective_date_expr()}},
+        {
+            "$facet": {
+                "overdue_count": [
+                    {"$match": {"$expr": overdue_expr}},
+                    {"$count": "n"},
+                ],
+                "due_today_count": [
+                    {"$match": {"$expr": due_today_expr}},
+                    {"$count": "n"},
+                ],
+                "sample": [
+                    {"$match": {"$expr": overdue_expr}},
+                    {"$sort": {"serial": 1}},
+                    {"$limit": 5},
+                    {
+                        "$project": {
+                            "_id": 0,
+                            "id": 1,
+                            "serial": 1,
+                            "client_name": 1,
+                            "stage": 1,
+                            "publish_date": 1,
+                            "design_due": 1,
+                        }
+                    },
+                ],
+            }
+        },
+    ]
+    coll = db[COLLECTION_NAME]
+    rows = await coll.aggregate(pipeline).to_list(1)
+    if not rows:
+        return empty
+    facet = rows[0]
+    overdue_n = facet["overdue_count"][0]["n"] if facet.get("overdue_count") else 0
+    today_n = facet["due_today_count"][0]["n"] if facet.get("due_today_count") else 0
+    sample = facet.get("sample") or []
+    for item in sample:
+        item["id"] = item.get("id") or ""
+        item["stage"] = normalize_stage(item.get("stage"))
+    return {"overdue_count": overdue_n, "due_today_count": today_n, "sample": sample}
+
+
 async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
     """Fetches a single item by id or serial."""
     if db is None:

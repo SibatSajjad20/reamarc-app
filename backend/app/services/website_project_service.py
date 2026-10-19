@@ -718,6 +718,7 @@ async def get_all_tasks(
     status_filter: Optional[str] = None,
     assignee_id: Optional[str] = None,
     search: Optional[str] = None,
+    overdue: bool = False,
     limit: int = 2000,
 ) -> List[Dict[str, Any]]:
     """Returns tasks across all visible projects, optionally filtered by project, stage, status, or assignee."""
@@ -747,6 +748,12 @@ async def get_all_tasks(
     if search and search.strip():
         rgx = {"$regex": re.escape(search.strip()), "$options": "i"}
         q["$or"] = [{"name": rgx}, {"description": rgx}]
+    if overdue:
+        from zoneinfo import ZoneInfo
+        today_iso = datetime.now(ZoneInfo("Asia/Karachi")).strftime("%Y-%m-%d")
+        q["due_date"] = {"$lt": today_iso, "$regex": r"^\d{4}-\d{2}-\d{2}"}
+        if not status_filter or status_filter == "all":
+            q["status"] = {"$nin": ["completed", "done"]}
 
     t_cursor = db.website_project_tasks.find(q).sort("created_at", -1)
     tasks = await t_cursor.to_list(length=limit)

@@ -129,6 +129,7 @@ async def list_all_tasks(
     status: Optional[str] = Query(None, description="Filter by task status"),
     assignee_id: Optional[str] = Query(None, description="Filter by assignee user ID"),
     search: Optional[str] = Query(None, description="Search term for task name or description"),
+    overdue: bool = Query(False, description="Only incomplete tasks with a due date before today"),
     current_user: dict = Depends(require_website_reader),
 ):
     """Returns tasks across visible projects, optionally filtered by project, stage, status, or assignee."""
@@ -141,6 +142,7 @@ async def list_all_tasks(
         status_filter=status,
         assignee_id=assignee_id,
         search=search,
+        overdue=overdue,
     )
 
 
