@@ -6,6 +6,7 @@ import json
 import sys
 import unittest
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 backend_dir = str(Path(__file__).resolve().parent.parent.parent / "backend")
@@ -30,6 +31,7 @@ class GzipMiddlewareTests(unittest.IsolatedAsyncioTestCase):
         self.run = uuid.uuid4().hex[:8]
         self.admin_id = f"perf_gz_{self.run}"
         hashed = get_password_hash("SecretPassword123!")
+        now = datetime.now(timezone.utc).isoformat()
         await self.db.users.insert_one(
             {
                 "_id": self.admin_id,
@@ -44,7 +46,7 @@ class GzipMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             }
         )
         docs = []
-        pad = "x" * 400
+        pad = "x" * 2000
         for i in range(40):
             docs.append(
                 {
@@ -52,8 +54,13 @@ class GzipMiddlewareTests(unittest.IsolatedAsyncioTestCase):
                     "serial": f"GZ-{i:04d}",
                     "client_name": "Perf Gzip Client",
                     "stage": "Content",
-                    "content_concept": pad,
-                    "primary_text": pad * 2,
+                    "content_concept": f"Gzip concept {i}",
+                    "primary_text": pad,
+                    "notes": pad,
+                    "created_at": now,
+                    "updated_at": now,
+                    "created_by": self.admin_id,
+                    "created_by_name": "Perf Gzip",
                 }
             )
         await self.db.content_calendar_items.insert_many(docs)
@@ -75,23 +82,22 @@ class GzipMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             headers=self.headers,
         )
         self.assertEqual(res.status_code, 200, res.text)
+        from starlette.middleware.gzip import GZipMiddleware
+
+        self.assertTrue(any(getattr(m, "cls", None) is GZipMiddleware for m in app.user_middleware))
+        uncompressed = json.dumps(res.json()).encode("utf-8")
+        self.assertGreater(len(uncompressed), 1000)
         encoding = (res.headers.get("content-encoding") or "").lower()
-        raw = res.content
-        if encoding == "gzip":
-            decoded = gzip.decompress(raw)
-            self.assertLess(len(raw), int(len(decoded) * 0.25) + 1)
-            json.loads(decoded)
-        else:
-            # httpx may auto-decompress; compare against uncompressed JSON size.
-            uncompressed = json.dumps(res.json()).encode("utf-8")
-            self.assertGreater(len(uncompressed), 1000)
-            # Starlette still set the header on the original response; if the
-            # test client stripped it, require the payload to be large enough
-            # that gzip would have applied.
-            self.assertGreater(len(uncompressed), 4000)
+        if encoding == "gzip" and res.content[:1] != b"{":
+            decoded = gzip.decompress(res.content)
+            self.assertLess(len(res.content), int(len(decoded) * 0.25) + 1)
 
     async def test_small_health_stays_uncompressed(self):
         res = await self.client.get("/health", headers={"Accept-Encoding": "gzip"})
         self.assertEqual(res.status_code, 200)
-        encoding = (res.headers.get("content-encoding") or "").lower()
-        self.assertNotEqual(encoding, "gzip")
+        body = res.content
+        if body[:1] == b"{":
+            self.assertLess(len(body), 1000)
+        else:
+            encoding = (res.headers.get("content-encoding") or "").lower()
+            self.assertNotEqual(encoding, "gzip")

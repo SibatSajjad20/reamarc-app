@@ -22,6 +22,12 @@ class CommandCounter(monitoring.CommandListener):
         if name in WRITE_COMMANDS:
             self.writes += 1
 
+    def succeeded(self, event: monitoring.CommandSucceededEvent) -> None:
+        return
+
+    def failed(self, event: monitoring.CommandFailedEvent) -> None:
+        return
+
     def reset(self) -> None:
         self.command_names.clear()
         self.writes = 0
