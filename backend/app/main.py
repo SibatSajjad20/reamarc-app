@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request, Query, Depends
 from fastapi.responses import JSONResponse
 import re
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from contextlib import asynccontextmanager
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -13,7 +14,7 @@ from app.config import settings
 from app.core.limiter import limiter
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.security import require_internal_user, get_current_user
-from app.database import connect_to_mongo, close_mongo_connection, get_database
+from app.database import connect_to_mongo, close_mongo_connection, get_database, db_instance
 from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner
 
 class JSONFormatter(logging.Formatter):
@@ -201,6 +202,7 @@ from app.services.permissions import operations_view_only_middleware
 
 app.middleware("http")(operations_view_only_middleware)
 app.add_middleware(CORSMiddleware, **_cors_kwargs)
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:
     """Cookie sessions need CSRF; Bearer tokens do not. JSON is not an exemption."""
@@ -316,11 +318,10 @@ app.include_router(owner.router, prefix=settings.API_V1_STR)
 @app.api_route("/", methods=["GET", "HEAD"])
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
-    db = get_database()
     mongo_ok = False
-    if db is not None:
+    if db_instance.client is not None:
         try:
-            await db.command("ping")
+            await db_instance.client.admin.command("ping")
             mongo_ok = True
         except Exception:
             mongo_ok = False
