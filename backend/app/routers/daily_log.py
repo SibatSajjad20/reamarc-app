@@ -292,19 +292,6 @@ async def get_my_log_activity(
     today_iso = datetime.now(PKT_TIMEZONE).date().isoformat()
     min_date = workdays[-1] if workdays else today_iso
 
-    entries_cursor = db.daily_log_entries.find(
-        {
-            "date": {"$gte": min_date},
-            "$or": [
-                {"user_id": uid},
-                {"resource_name": exact_ci(fname)},
-            ],
-        },
-        {"_id": 0, "date": 1},
-    )
-    entries = await entries_cursor.to_list(length=100)
-    submitted_dates = {e["date"] for e in entries if e.get("date")}
-
     from app.services.log_compliance import (
         batch_expected_targets,
         person_day_is_leave,
@@ -313,33 +300,50 @@ async def get_my_log_activity(
         compute_log_submission_window,
     )
 
-    leave_days = set()
-    not_due_today = False
-    if workdays:
-        targets = await batch_expected_targets([current_user], workdays)
-        att_docs = await db.attendance_records.find(
+    async def _empty():
+        return []
+
+    entries, targets, att_docs = await asyncio.gather(
+        db.daily_log_entries.find(
+            {
+                "date": {"$gte": min_date},
+                "$or": [
+                    {"user_id": uid},
+                    {"resource_name": exact_ci(fname)},
+                ],
+            },
+            {"_id": 0, "date": 1},
+        ).to_list(length=100),
+        batch_expected_targets([current_user], workdays) if workdays else _empty(),
+        db.attendance_records.find(
             {"user_id": uid, "date": {"$in": workdays}},
             {"_id": 0, "date": 1, "status": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "is_wfh": 1},
         ).to_list(40)
-        att_by_day = {d.get("date"): d for d in att_docs if d.get("date")}
-        today_pkt = pkt_today()
-        for day in workdays:
-            att = att_by_day.get(day) or {}
-            target = targets.get((uid, day)) or {}
-            if person_day_is_leave(target, att) or not person_day_is_due(day, today_pkt, target, att):
-                leave_days.add(day)
+        if workdays
+        else _empty(),
+    )
+    submitted_dates = {e["date"] for e in entries if e.get("date")}
+    if not isinstance(targets, dict):
+        targets = {}
+
+    leave_days = set()
+    att_by_day = {d.get("date"): d for d in att_docs if d.get("date")}
+    today_pkt = pkt_today()
+    for day in workdays:
+        att = att_by_day.get(day) or {}
+        target = targets.get((uid, day)) or {}
+        if person_day_is_leave(target, att) or not person_day_is_due(day, today_pkt, target, att):
+            leave_days.add(day)
 
     raw_missing = [
         w for w in workdays
         if w not in submitted_dates and w not in leave_days
     ]
 
-    # Only include missing dates whose 48 working-hour window is currently active/open
-    missing = []
-    for m_day in raw_missing:
-        win = await compute_log_submission_window(uid, m_day, user_dept=current_user.get("department"))
-        if win.get("is_open"):
-            missing.append(m_day)
+    windows = await asyncio.gather(
+        *[compute_log_submission_window(uid, m_day, user_dept=current_user.get("department")) for m_day in raw_missing]
+    ) if raw_missing else []
+    missing = [m_day for m_day, win in zip(raw_missing, windows) if win.get("is_open")]
 
     logged_today = today_iso in submitted_dates
 

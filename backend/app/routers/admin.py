@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from typing import List, Optional, Dict, Set, Any
+import asyncio
 import logging
 import uuid
 import secrets
@@ -342,9 +343,14 @@ async def list_members_activity(
     if department:
         query["department"] = exact_ci(department)
 
+    from app.services.workdays import recent_company_workdays
+
     if getattr(settings, "MULTI_COMPANY_ENABLED", False):
         from app.services.access import tracked_users
-        users = await tracked_users(db, "daily_log")
+        users, workdays = await asyncio.gather(
+            tracked_users(db, "daily_log"),
+            recent_company_workdays(7, start_date=SYSTEM_START_DATE),
+        )
         if department:
             users = [
                 u for u in users
@@ -352,9 +358,11 @@ async def list_members_activity(
             ]
         users.sort(key=lambda u: (u.get("full_name") or u.get("name") or "").lower())
     else:
-        cursor = db.users.find(query).sort("full_name", 1)
-        users = await cursor.to_list(200)
         from app.services.access import is_tracked
+        users, workdays = await asyncio.gather(
+            db.users.find(query).sort("full_name", 1).to_list(200),
+            recent_company_workdays(7, start_date=SYSTEM_START_DATE),
+        )
         users = [u for u in users if is_tracked(u, "daily_log")]
 
     now = datetime.now(PKT)
@@ -365,51 +373,64 @@ async def list_members_activity(
     except Exception:
         start_date_obj = now.date()
 
-    from app.services.workdays import recent_company_workdays
-    workdays = await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
-
     user_ids = [u.get("id") or str(u.get("_id")) for u in users]
-    att_by_key: dict = {}
-    if user_ids and workdays:
-        att_docs = await db.attendance_records.find(
+    async def _empty_list():
+        return []
+
+    att_coro = (
+        db.attendance_records.find(
             {"user_id": {"$in": user_ids}, "date": {"$in": workdays}},
             {"_id": 0, "user_id": 1, "date": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "work_hours": 1, "status": 1},
         ).to_list(4000)
-        for rec in att_docs:
-            if rec.get("user_id") and rec.get("date"):
-                att_by_key[(rec["user_id"], rec["date"])] = rec
-    targets = await batch_expected_targets(users, workdays) if workdays else {}
-
-    # Batch load all daily log entries for the workdays in a single query
-    entries_by_user: Dict[str, Set[str]] = {}
-    entries_by_name: Dict[str, Set[str]] = {}
-    if workdays:
-        all_entries = await db.daily_log_entries.find(
+        if user_ids and workdays
+        else _empty_list()
+    )
+    entries_coro = (
+        db.daily_log_entries.find(
             {"date": {"$in": workdays}},
-            {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1}
+            {"_id": 0, "user_id": 1, "resource_name": 1, "date": 1},
         ).to_list(5000)
-        for e in all_entries:
-            d = e.get("date")
-            if not d:
-                continue
-            e_uid = e.get("user_id")
-            if e_uid:
-                entries_by_user.setdefault(str(e_uid), set()).add(d)
-            rname = str(e.get("resource_name") or "").strip().lower()
-            if rname:
-                entries_by_name.setdefault(rname, set()).add(d)
-
-    # Batch load last logged date per user in a single aggregation pipeline
-    last_logged_by_user: Dict[str, str] = {}
-    if user_ids:
-        last_entries = await db.daily_log_entries.aggregate([
+        if workdays
+        else _empty_list()
+    )
+    last_coro = (
+        db.daily_log_entries.aggregate([
             {"$match": {"user_id": {"$in": user_ids}}},
             {"$sort": {"date": -1}},
-            {"$group": {"_id": "$user_id", "last_date": {"$first": "$date"}}}
+            {"$group": {"_id": "$user_id", "last_date": {"$first": "$date"}}},
         ]).to_list(len(user_ids) + 50)
-        for row in last_entries:
-            if row.get("_id") and row.get("last_date"):
-                last_logged_by_user[str(row["_id"])] = row["last_date"]
+        if user_ids
+        else _empty_list()
+    )
+    targets_coro = batch_expected_targets(users, workdays) if workdays else _empty_list()
+    att_docs, all_entries, last_entries, targets = await asyncio.gather(
+        att_coro, entries_coro, last_coro, targets_coro,
+    )
+    if not isinstance(targets, dict):
+        targets = {}
+
+    att_by_key: dict = {}
+    for rec in att_docs:
+        if rec.get("user_id") and rec.get("date"):
+            att_by_key[(rec["user_id"], rec["date"])] = rec
+
+    entries_by_user: Dict[str, Set[str]] = {}
+    entries_by_name: Dict[str, Set[str]] = {}
+    for e in all_entries:
+        d = e.get("date")
+        if not d:
+            continue
+        e_uid = e.get("user_id")
+        if e_uid:
+            entries_by_user.setdefault(str(e_uid), set()).add(d)
+        rname = str(e.get("resource_name") or "").strip().lower()
+        if rname:
+            entries_by_name.setdefault(rname, set()).add(d)
+
+    last_logged_by_user: Dict[str, str] = {}
+    for row in last_entries:
+        if row.get("_id") and row.get("last_date"):
+            last_logged_by_user[str(row["_id"])] = row["last_date"]
 
     result = []
     for u in users:

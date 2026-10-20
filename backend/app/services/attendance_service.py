@@ -976,6 +976,12 @@ def invalidate_shifts_cache() -> None:
     global _cached_active_shifts, _cached_shifts_time
     _cached_active_shifts = None
     _cached_shifts_time = 0.0
+    try:
+        from app.services.log_compliance import invalidate_shift_lookup_cache
+
+        invalidate_shift_lookup_cache()
+    except Exception:
+        pass
 
 
 async def ensure_default_shifts() -> List[dict]:
@@ -1656,6 +1662,11 @@ async def persist_auto_absent(
 
 async def get_security_settings() -> SecuritySettingsSchema:
     """Retrieves system attendance security settings from system_config collection."""
+    from app.core.ttl_cache import cache_get, cache_set
+
+    cached = cache_get("attendance_security")
+    if cached is not None:
+        return cached
     db = get_database()
     if db is None:
         return SecuritySettingsSchema(
@@ -1678,6 +1689,7 @@ async def get_security_settings() -> SecuritySettingsSchema:
             {"$set": {"key": "attendance_security", **default_settings.model_dump()}},
             upsert=True
         )
+        cache_set("attendance_security", default_settings, 60.0)
         return default_settings
 
     doc.pop("key", None)
@@ -1702,7 +1714,9 @@ async def get_security_settings() -> SecuritySettingsSchema:
     doc["office_ip_whitelist"] = merged_ips
     doc["office_latitude"] = OFFICE_LATITUDE
     doc["office_longitude"] = OFFICE_LONGITUDE
-    return SecuritySettingsSchema(**doc)
+    settings_out = SecuritySettingsSchema(**doc)
+    cache_set("attendance_security", settings_out, 60.0)
+    return settings_out
 
 
 async def update_security_settings(new_settings: SecuritySettingsSchema) -> SecuritySettingsSchema:
@@ -1732,6 +1746,9 @@ async def update_security_settings(new_settings: SecuritySettingsSchema) -> Secu
         {"$set": {"key": "attendance_security", **settings_dict}},
         upsert=True
     )
+    from app.core.ttl_cache import cache_clear
+
+    cache_clear("attendance_security")
     return new_settings
 
 
@@ -2739,18 +2756,41 @@ async def get_my_timesheet(
     department = user.get("department")
 
     month_str = f"{year:04d}-{month:02d}"
-    shift = await get_shift_for_user(user_id, department)
     shifts_by_id: Dict[str, ShiftResponse] = {}
     assignment: Optional[Dict[str, Any]] = None
-    if shift and getattr(shift, "id", None):
-        shifts_by_id[shift.id] = shift
 
     records = []
     if db is not None:
         from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start
+        from app.services.workdays import load_calendar_overrides
         min_date = get_effective_start_date()
         employee_start = get_employee_attendance_start(user)
-        assignment = await db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0})
+        month_last_day = calendar.monthrange(year, month)[1]
+        start_date = max(min_date, employee_start, f"{month_str}-01")
+        end_date = f"{month_str}-{month_last_day:02d}"
+        month_start_date = date(year, month, 1)
+        month_end_date = date(year, month, month_last_day)
+
+        async def _no_docs():
+            return []
+
+        shift, assignment, docs, cal = await asyncio.gather(
+            get_shift_for_user(user_id, department),
+            db.user_shift_assignments.find_one({"user_id": user_id}, {"_id": 0}),
+            db.attendance_records.find(
+                {
+                    "user_id": user_id,
+                    "date": {"$gte": start_date, "$lte": end_date},
+                },
+                {"_id": 0},
+            ).sort("date", 1).to_list(100)
+            if start_date <= end_date
+            else _no_docs(),
+            load_calendar_overrides(month_start_date, month_end_date),
+        )
+        holidays_set, _working_sats, holiday_titles = cal
+        if shift and getattr(shift, "id", None):
+            shifts_by_id[shift.id] = shift
         override_ids = [
             ov.get("shift_id")
             for ov in ((assignment or {}).get("date_overrides") or [])
@@ -2763,19 +2803,6 @@ async def get_my_timesheet(
                 shifts_by_id[parsed.id] = parsed
             except Exception:
                 continue
-        month_last_day = calendar.monthrange(year, month)[1]
-        start_date = max(min_date, employee_start, f"{month_str}-01")
-        end_date = f"{month_str}-{month_last_day:02d}"
-        if start_date > end_date:
-            docs = []
-        else:
-            docs = await db.attendance_records.find(
-                {
-                    "user_id": user_id,
-                    "date": {"$gte": start_date, "$lte": end_date},
-                },
-                {"_id": 0}
-            ).sort("date", 1).to_list(100)
         needed_ids = {
             d.get("shift_id") for d in docs
             if d.get("shift_id") and d.get("shift_id") not in shifts_by_id
@@ -2787,12 +2814,6 @@ async def get_my_timesheet(
                     shifts_by_id[parsed.id] = parsed
                 except Exception:
                     continue
-        # Load calendar overrides for this month
-        from app.services.workdays import load_calendar_overrides
-        month_start_date = date(year, month, 1)
-        month_last_day = calendar.monthrange(year, month)[1]
-        month_end_date = date(year, month, month_last_day)
-        holidays_set, _working_sats, holiday_titles = await load_calendar_overrides(month_start_date, month_end_date)
 
         seen_record_dates = set()
         for d in docs:
@@ -3155,25 +3176,23 @@ async def get_daily_matrix(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
     from app.services.access import is_tracked
+    users, records_list, leaves_list, calendar_event, all_shifts, all_assignments = await asyncio.gather(
+        db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000),
+        db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000),
+        db.leave_requests.find({
+            "status": LeaveStatus.APPROVED.value,
+            "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
+            "start_date": {"$lte": target_date},
+            "end_date": {"$gte": target_date},
+        }, {"_id": 0}).to_list(1000),
+        db.company_calendar.find_one({"date": target_date}, {"_id": 0}),
+        db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100),
+        db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000),
+    )
     users = [u for u in users if is_tracked(u, "attendance")]
-
-    # 2. Fetch all attendance records for date
-    records_list = await db.attendance_records.find({"date": target_date}, {"_id": 0}).to_list(1000)
     records_by_user = {r["user_id"]: r for r in records_list}
-
-    # 3. Fetch approved leaves covering date (excluding non-leave requests)
-    leaves_list = await db.leave_requests.find({
-        "status": LeaveStatus.APPROVED.value,
-        "leave_type": {"$nin": list(NON_LEAVE_REQUEST_TYPES)},
-        "start_date": {"$lte": target_date},
-        "end_date": {"$gte": target_date},
-    }, {"_id": 0}).to_list(1000)
     leaves_by_user = {l["user_id"]: l for l in leaves_list}
-
-    # 4. Check company calendar for holiday or workday override
-    calendar_event = await db.company_calendar.find_one({"date": target_date}, {"_id": 0})
     is_holiday = bool(
         calendar_event and (
             calendar_event.get("is_off_day") is True
@@ -3186,11 +3205,8 @@ async def get_daily_matrix(
     is_first_sat = is_first_saturday_of_month(parsed_date) and not is_workday_override
 
     # 5. Batch-load shifts and user assignments for instant O(1) in-memory resolution
-    all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
     shifts_by_id = {s["id"]: s for s in all_shifts}
     std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
-
-    all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
     user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     needed_shift_ids = set()
@@ -3668,31 +3684,31 @@ async def get_monthly_punctuality_summary(
     if department and department.lower() != "all":
         user_query["department"] = exact_ci(department)
 
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000)
     from app.services.access import is_tracked
-    users = [u for u in users if is_tracked(u, "attendance")]
-    month_prefix = f"{year:04d}-{month:02d}"
-
-    # Batch-load all shifts & assignments
-    all_shifts = await db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100)
-    shifts_by_id = {s["id"]: s for s in all_shifts}
-    std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
-
-    all_assignments = await db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000)
-    user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
-
-    # Batch-load all monthly records for all users in a single query
     from app.services.attendance_golive import get_effective_start_date, get_employee_attendance_start
+    month_prefix = f"{year:04d}-{month:02d}"
     min_date = get_effective_start_date()
     num_days = calendar.monthrange(year, month)[1]
     start_date = max(min_date, f"{month_prefix}-01") if min_date else f"{month_prefix}-01"
     end_date = f"{month_prefix}-{num_days:02d}"
-    all_monthly_records = await db.attendance_records.find(
-        {
-            "date": {"$gte": start_date, "$lte": end_date}
-        },
-        {"_id": 0}
-    ).to_list(10000)
+
+    users, all_shifts, all_assignments, all_monthly_records, month_events = await asyncio.gather(
+        db.users.find(user_query, {"_id": 0, "hashed_password": 0}).sort("full_name", 1).to_list(1000),
+        db.shifts.find({"is_active": True}, {"_id": 0}).to_list(100),
+        db.user_shift_assignments.find({}, {"_id": 0}).to_list(1000),
+        db.attendance_records.find(
+            {"date": {"$gte": start_date, "$lte": end_date}},
+            {"_id": 0},
+        ).to_list(10000),
+        db.company_calendar.find(
+            {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}},
+            {"_id": 0},
+        ).to_list(100),
+    )
+    users = [u for u in users if is_tracked(u, "attendance")]
+    shifts_by_id = {s["id"]: s for s in all_shifts}
+    std_shift, hr_shift = resolve_fallback_shifts(all_shifts)
+    user_assignment_map = {a["user_id"]: a for a in all_assignments if a.get("user_id")}
 
     records_by_user: Dict[str, list] = {}
     for r in all_monthly_records:
@@ -3700,13 +3716,8 @@ async def get_monthly_punctuality_summary(
         if uid:
             records_by_user.setdefault(uid, []).append(r)
 
-    # Batch-load company calendar events once for this month (eliminates N+1 queries in user loop)
     holidays_set = set()
     working_saturdays_set = set()
-    month_events = await db.company_calendar.find(
-        {"date": {"$gte": f"{month_prefix}-01", "$lte": f"{month_prefix}-{num_days:02d}"}},
-        {"_id": 0}
-    ).to_list(100)
     for ev in month_events:
         ev_date = ev.get("date")
         if ev.get("event_type") == CalendarEventType.HOLIDAY.value or ev.get("event_type") == "holiday":

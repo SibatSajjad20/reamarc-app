@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from app.core.ttl_cache import cache_clear, cache_get, cache_set
 from app.database import get_database
 from app.models.attendance import NON_LEAVE_REQUEST_TYPES
 from app.models.user import UserRole
@@ -646,8 +647,15 @@ def _target_from_shift_and_leaves(
     }
 
 
+def invalidate_shift_lookup_cache() -> None:
+    cache_clear("shift_lookup")
+
+
 async def load_shift_lookup() -> Tuple[Dict[str, dict], Dict[str, dict], dict, dict]:
     """One-shot assignment + shift maps for many users. Reads only — does not seed or backfill."""
+    cached = cache_get("shift_lookup")
+    if cached is not None:
+        return cached
     from app.services.attendance_service import resolve_fallback_shifts
 
     db = get_database()
@@ -672,7 +680,9 @@ async def load_shift_lookup() -> Tuple[Dict[str, dict], Dict[str, dict], dict, d
             std = std_doc
         if hr_doc:
             hr = hr_doc
-    return assign_map, shift_map, std, hr
+    packed = (assign_map, shift_map, std, hr)
+    cache_set("shift_lookup", packed, 60.0)
+    return packed
 
 
 def shift_doc_for_user(

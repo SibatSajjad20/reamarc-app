@@ -1,6 +1,7 @@
 """Expo Push sender + in-app notification feed."""
 from datetime import datetime, timezone
 from typing import FrozenSet, Iterable, List, Optional
+import asyncio
 import logging
 import uuid
 
@@ -235,20 +236,14 @@ async def list_notifications(user_id: str, limit: int = 50) -> list:
         .sort("created_at", -1)
         .to_list(max(limit * 4, 50))
     )
-    allowed_kinds = set()
-    denied_kinds = set()
+    kinds = list({str(doc.get("kind") or "") for doc in docs})
+    permitted_lists = await asyncio.gather(*[filter_allowed_recipients([user_id], kind) for kind in kinds]) if kinds else []
+    allowed_kinds = {kind for kind, permitted in zip(kinds, permitted_lists) if user_id in permitted}
     visible = []
     for doc in docs:
         kind = str(doc.get("kind") or "")
-        if kind in denied_kinds:
-            continue
         if kind not in allowed_kinds:
-            permitted = await filter_allowed_recipients([user_id], kind)
-            if user_id in permitted:
-                allowed_kinds.add(kind)
-            else:
-                denied_kinds.add(kind)
-                continue
+            continue
         visible.append(doc)
         if len(visible) >= limit:
             break

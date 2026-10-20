@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from typing import List, Optional, Dict
 from datetime import datetime, timezone
+import asyncio
 import re
 import uuid
 
@@ -122,14 +123,18 @@ async def list_exception_inbox(
     viewer_id = current_user.get("id")
     viewer_dept = (current_user.get("department") or "").strip()
     today = pkt_today()
-    window = [date] if date else await recent_company_workdays(7, start_date=SYSTEM_START_DATE)
-    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
-    off_idx = await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
-
     user_query: dict = {"is_active": {"$ne": False}, "role": {"$in": list(LOGGERS_ROLES)}}
+
+    async def _fixed_window():
+        return [date]
+
+    window_coro = _fixed_window() if date else recent_company_workdays(7, start_date=SYSTEM_START_DATE)
     if role == "team_lead":
         from app.services.permissions import load_context, departments_with, normalize_dept
-        lead_user_doc = await db.users.find_one({"id": viewer_id})
+        lead_user_doc, window = await asyncio.gather(
+            db.users.find_one({"id": viewer_id}),
+            window_coro,
+        )
         ctx = await load_context(lead_user_doc or current_user, db=db)
         lead_depts = departments_with(ctx, "exceptions", "department")
         if not lead_depts:
@@ -138,21 +143,41 @@ async def list_exception_inbox(
         dept_regexes = [{"primary_department": {"$regex": f"^{re.escape(d)}$", "$options": "i"}} for d in lead_depts]
         user_query["$or"] = dept_regexes
         user_query["id"] = {"$ne": viewer_id}
+        users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).to_list(500)
     else:
         user_query["role"] = {"$in": ["team_member", "team_lead", UserRole.TEAM_MEMBER.value, UserRole.TEAM_LEAD.value]}
         user_query["id"] = {"$ne": viewer_id}
-
-    users = await db.users.find(user_query, {"_id": 0, "hashed_password": 0}).to_list(500)
+        users, window = await asyncio.gather(
+            db.users.find(user_query, {"_id": 0, "hashed_password": 0}).to_list(500),
+            window_coro,
+        )
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "daily_log")]
     user_ids = [u.get("id") for u in users if u.get("id") and u.get("id") != viewer_id]
     if not user_ids or not window:
         return []
 
-    log_docs = await db.daily_log_entries.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0, "user_id": 1, "date": 1, "hours_utilized": 1, "task_status": 1},
-    ).to_list(8000)
+    parsed_days = [parse_iso_date(d) for d in window if parse_iso_date(d)]
+
+    async def _off():
+        return await load_off_day_index(min(parsed_days), max(parsed_days)) if parsed_days else None
+
+    off_idx, log_docs, att_docs, score_docs, targets = await asyncio.gather(
+        _off(),
+        db.daily_log_entries.find(
+            {"user_id": {"$in": user_ids}, "date": {"$in": window}},
+            {"_id": 0, "user_id": 1, "date": 1, "hours_utilized": 1, "task_status": 1},
+        ).to_list(8000),
+        db.attendance_records.find(
+            {"user_id": {"$in": user_ids}, "date": {"$in": window}},
+            {"_id": 0, "user_id": 1, "date": 1, "work_hours": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "status": 1, "is_wfh": 1},
+        ).to_list(4000),
+        db.daily_log_day_scores.find(
+            {"user_id": {"$in": user_ids}, "date": {"$in": window}},
+            {"_id": 0},
+        ).to_list(2000),
+        batch_expected_targets(users, window),
+    )
     hours_by_key: dict = {}
     tasks_by_key: dict = {}
     for entry in log_docs:
@@ -174,10 +199,6 @@ async def list_exception_inbox(
         if uid and day:
             log_count_by_key[(uid, day)] = log_count_by_key.get((uid, day), 0) + 1
 
-    att_docs = await db.attendance_records.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0, "user_id": 1, "date": 1, "work_hours": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "status": 1, "is_wfh": 1},
-    ).to_list(4000)
     att_by_key: dict = {}
     for rec in att_docs:
         uid = rec.get("user_id")
@@ -185,13 +206,7 @@ async def list_exception_inbox(
         if uid and day:
             att_by_key[(uid, day)] = rec
 
-    score_docs = await db.daily_log_day_scores.find(
-        {"user_id": {"$in": user_ids}, "date": {"$in": window}},
-        {"_id": 0},
-    ).to_list(2000)
     score_by_key = {(s.get("user_id"), s.get("date")): s for s in score_docs if s.get("user_id") and s.get("date")}
-
-    targets = await batch_expected_targets(users, window)
     items: List[dict] = []
 
     for user in users:
@@ -676,17 +691,24 @@ async def get_operating_snapshot(
     from app.services.access import is_tracked
     users = [u for u in users if is_tracked(u, "daily_log")]
 
-    targets = await batch_expected_targets(users, window)
     all_user_ids = [u.get("id") for u in users if u.get("id")]
-    att_by_key: dict = {}
-    if all_user_ids:
-        att_docs_early = await db.attendance_records.find(
+    async def _empty():
+        return []
+
+    targets, att_docs_early, entries = await asyncio.gather(
+        batch_expected_targets(users, window),
+        db.attendance_records.find(
             {"user_id": {"$in": all_user_ids}, "date": {"$in": window}},
             {"_id": 0, "user_id": 1, "date": 1, "work_hours": 1, "check_in": 1, "punch_in": 1, "check_out": 1, "punch_out": 1, "status": 1, "is_wfh": 1},
         ).to_list(4000)
-        for rec in att_docs_early:
-            if rec.get("user_id") and rec.get("date"):
-                att_by_key[(rec["user_id"], rec["date"])] = rec
+        if all_user_ids
+        else _empty(),
+        db.daily_log_entries.find({"date": {"$in": window}}, {"_id": 0}).to_list(8000),
+    )
+    att_by_key: dict = {}
+    for rec in att_docs_early:
+        if rec.get("user_id") and rec.get("date"):
+            att_by_key[(rec["user_id"], rec["date"])] = rec
 
     expected_people = []
     for user in users:
@@ -710,7 +732,6 @@ async def get_operating_snapshot(
     logger_ids = [u.get("id") for u in expected_people if u.get("id")]
     employees_expected = len(expected_people)
 
-    entries = await db.daily_log_entries.find({"date": {"$in": window}}, {"_id": 0}).to_list(8000)
     logged_hours = 0.0
     tasks_completed = 0
     hours_by_user: dict = {uid: 0.0 for uid in logger_ids}
