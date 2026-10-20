@@ -17,5 +17,6 @@ google-api-python-client>=2.140.0
 google-auth>=2.35.0
 google-auth-oauthlib>=1.2.0
 cloudinary>=1.40.0
+Pillow>=10.3.0
 imageio-ffmpeg>=0.5.1
 Pillow>=10

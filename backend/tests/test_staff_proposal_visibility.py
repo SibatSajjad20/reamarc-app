@@ -240,9 +240,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(a.get("poc_name"))
         self.assertIsNone(a.get("billing_name"))
         self.assertEqual(a.get("brandGuidelines") or "", "")
-        self.assertIsNotNone(c)
-        self.assertIsNone(c.get("proposal_url"))
-        self.assertIsNone(c.get("proposal_name"))
+        self.assertIsNone(c)  # clients never see other clients' workspaces
 
         self.assertEqual((await self._download(self.client_user, self.files["a_url"])).status_code, 200)
         self.assertEqual((await self._download(self.client_user, self.files["c_url"])).status_code, 403)

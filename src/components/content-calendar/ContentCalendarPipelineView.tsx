@@ -28,6 +28,8 @@ import { usePrompt } from '../ui/ConfirmProvider';
 import { getBackendFileUrl, isRealThumbnailUrl } from '../../utils/fileUrl';
 import { renderPlatformIcon } from './ContentCalendarTableView';
 import { Avatar } from '../ui/Avatar';
+import { ClientAvatar } from '../ui/ClientAvatar';
+import { useResolvedClient } from '../../hooks/useClientLookup';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 function parseDateScore(dateStr?: string | null): number {
   if (!dateStr || !dateStr.trim()) return Infinity;
@@ -253,6 +255,7 @@ function StageCardList({
   onCardDragEnd,
 }: StageCardListProps) {
   const { getAvatarUrl } = useMemberAvatars();
+  const resolveClient = useResolvedClient();
   const parentRef = useRef<HTMLDivElement>(null);
   const count = isLoading ? SKELETON_CARD_COUNT : items.length;
   const { addToast } = useToast();
@@ -283,8 +286,8 @@ function StageCardList({
     getScrollElement: () => parentRef.current,
     estimateSize: (index) => {
       const it = items[index];
-      if (it?.attachments && it.attachments.length > 0) return 220;
-      return 116;
+      if (it?.attachments && it.attachments.length > 0) return 228;
+      return 124;
     },
     overscan: 6,
   });
@@ -356,20 +359,19 @@ function StageCardList({
                 {/* Card Header: Platform Icon, Serial & Format */}
                 <div className="flex items-center justify-between gap-1.5 mb-2">
                   <div className="flex items-center gap-1.5 truncate min-w-0">
-                    {renderPlatformIcon(item)}
-                    <span className="font-numeric font-medium text-xs text-accent shrink-0">
-                      {item.serial}
-                    </span>
-                    {item.client_name && (
-                      <span
-                        className="text-xs font-medium text-fg-muted truncate max-w-[110px]"
-                        title={item.client_name}
-                      >
-                        • {item.client_name}
-                      </span>
-                    )}
+                    {(() => {
+                      const client = resolveClient(item);
+                      const clientName = client?.name || item.client_name || 'Client';
+                      return (
+                        <>
+                          <ClientAvatar name={clientName} logoUrl={client?.logo_url} clientId={client?.id || item.workspace_id} brandColor={client?.brandColor} initials={client?.initials} size={20} decorative />
+                          <span className="text-xs font-medium text-fg-2 truncate" title={clientName}>{clientName}</span>
+                        </>
+                      );
+                    })()}
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
+                    {renderPlatformIcon(item)}
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-caption font-medium bg-subtle border border-border text-fg-muted shrink-0">
                       {item.creative_type}
                     </span>
@@ -652,6 +654,7 @@ function StageCardList({
                     <div className="pt-2 border-t border-border flex flex-col gap-1.5 text-xs text-fg-muted">
                       <div className="flex items-center justify-between gap-1.5 w-full">
                         <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                          <span className="font-numeric font-medium text-xs text-accent shrink-0">{item.serial}</span>
                           {dateStr ? (
                             <span
                               className={`font-numeric text-caption inline-flex items-center gap-1 font-medium shrink-0 ${

@@ -161,7 +161,7 @@ async def _client_workspace_ids(db, raw_ids: list) -> list:
     found = await db.workspaces.find(
         {"id": {"$in": cleaned}, "status": {"$ne": "inactive"}},
         {"id": 1},
-    ).to_list(length=None)
+    ).to_list(length=200)
     found_ids = {str(doc.get("id")) for doc in found}
     missing = [workspace_id for workspace_id in cleaned if workspace_id not in found_ids]
     if missing:

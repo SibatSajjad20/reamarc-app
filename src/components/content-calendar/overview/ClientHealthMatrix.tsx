@@ -6,7 +6,8 @@ import {
   ChevronUp,
 } from 'lucide-react';
 import type { ClientHealthItem } from '../../../utils/contentCalendarOverview';
-import { getInitials } from '../../../utils/badgeStyles';
+import { ClientAvatar } from '../../ui/ClientAvatar';
+import { useResolvedClient } from '../../../hooks/useClientLookup';
 
 interface Props {
   matrix: ClientHealthItem[];
@@ -19,6 +20,7 @@ export const ClientHealthMatrix: React.FC<Props> = ({
   isLoading = false,
   onOpenClient,
 }) => {
+  const resolveClient = useResolvedClient();
   const [filterSearch, setFilterSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
 
@@ -111,7 +113,7 @@ export const ClientHealthMatrix: React.FC<Props> = ({
               </tr>
             ) : (
               displayedRows.map((row) => {
-                const initials = getInitials(row.clientName);
+                const client = resolveClient({ client_name: row.clientName });
                 const inProduction = row.contentPhase + row.creativePhase;
 
                 return (
@@ -123,9 +125,15 @@ export const ClientHealthMatrix: React.FC<Props> = ({
                     {/* 1. Client Name + Avatar */}
                     <td className="py-2.5 px-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        <div className="w-5 h-5 rounded-md bg-subtle border border-border flex items-center justify-center text-[9px] font-medium text-fg-2 shrink-0">
-                          {initials}
-                        </div>
+                        <ClientAvatar
+                          name={row.clientName}
+                          logoUrl={client?.logo_url}
+                          clientId={client?.id}
+                          brandColor={client?.brandColor}
+                          initials={client?.initials}
+                          size={24}
+                          decorative
+                        />
                         <span className="font-semibold text-fg text-xs group-hover:text-accent transition-colors truncate">
                           {row.clientName}
                         </span>

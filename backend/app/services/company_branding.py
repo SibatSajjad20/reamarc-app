@@ -15,7 +15,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.owner_audit import record_owner_audit_event
 from app.core.tenant import get_global_db
-from app.services import avatar_service, cloudinary_service
+from app.services import avatar_service, cloudinary_service, image_pipeline
 
 logger = logging.getLogger("app.services.company_branding")
 
@@ -220,53 +220,7 @@ def _detect_svg(data: bytes) -> bool:
 
 
 async def read_and_validate_logo(file: UploadFile) -> bytes:
-    content_length = file.headers.get("content-length") if getattr(file, "headers", None) else None
-    if content_length:
-        try:
-            if int(content_length) > MAX_CONTENT_LENGTH:
-                raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must be 2 MB or smaller.")
-        except ValueError:
-            pass
-
-    buffer = bytearray()
-    while True:
-        chunk = await file.read(64 * 1024)
-        if not chunk:
-            break
-        buffer.extend(chunk)
-        if len(buffer) > MAX_LOGO_BYTES:
-            raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Logo must be 2 MB or smaller.")
-
-    data = bytes(buffer)
-    if not data:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty file uploaded.")
-    if _detect_svg(data):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="SVG isn't accepted. Upload a PNG, JPG or WebP.")
-    avatar_service.sniff_image_type(data)
-
-    try:
-        with Image.open(io.BytesIO(data)) as img:
-            width, height = img.size
-            if width < MIN_SIDE or height < MIN_SIDE:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Logo must be at least 128 × 128 px.")
-            if width > MAX_SIDE or height > MAX_SIDE:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Logo can't be larger than 4096 × 4096 px.")
-            img = ImageOps.exif_transpose(img).convert("RGBA")
-            side = max(img.size)
-            canvas = Image.new("RGBA", (side, side), (0, 0, 0, 0))
-            canvas.paste(img, ((side - img.size[0]) // 2, (side - img.size[1]) // 2), img)
-            canvas.thumbnail((MAX_OUTPUT, MAX_OUTPUT))
-            out = io.BytesIO()
-            canvas.save(out, format="PNG", optimize=True)
-            return out.getvalue()
-    except HTTPException:
-        raise
-    except Image.DecompressionBombError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Logo can't be larger than 4096 × 4096 px.")
-    except UnidentifiedImageError:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Couldn't read that image. Upload a PNG, JPG or WebP.")
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Couldn't read that image. Upload a PNG, JPG or WebP.")
+    return await image_pipeline.read_validate_square_logo(file, label="Logo")
 
 
 async def get_branding(company_id: str) -> dict:

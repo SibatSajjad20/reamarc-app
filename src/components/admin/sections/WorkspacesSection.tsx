@@ -12,6 +12,7 @@ import { PageHeader } from '../../ui/PageHeader';
 import { Button, IconButton } from '../../ui/button';
 import { StatusPill } from '../../ui/StatusPill';
 import { HealthBadge, PriorityBadge } from '../../ui/WorkspaceBadges';
+import { ClientAvatar } from '../../ui/ClientAvatar';
 import { SegmentedControl } from '../../ui/SegmentedControl';
 import {
   TableCard,
@@ -147,20 +148,11 @@ export const WorkspacesSection: React.FC<WorkspacesSectionProps> = ({
               filteredWorkspaces.map((ws) => {
                 const isInactive = ws.status === 'inactive';
                 const membersCount = members.filter((m) => (m.workspace_ids || []).includes(ws.id)).length;
-                const initials = ws.initials || ws.name.slice(0, 2).toUpperCase();
-                const brandColor = ws.brandColor?.startsWith('#') ? ws.brandColor : '#6847E0';
-
                 return (
                   <TR key={ws.id} className="hover:bg-hover transition-colors">
-                    {/* ClientMark + Name */}
                     <TD>
                       <div className="flex items-center gap-2.5">
-                        <div
-                          className="w-7 h-7 rounded-md flex items-center justify-center font-semibold text-xs text-white shadow-xs shrink-0"
-                          style={{ backgroundColor: brandColor }}
-                        >
-                          {initials}
-                        </div>
+                        <ClientAvatar name={ws.name} logoUrl={ws.logo_url} clientId={ws.id} brandColor={ws.brandColor} initials={ws.initials} size={32} decorative />
                         <div className="min-w-0">
                           <div className="font-medium text-fg truncate">
                             {ws.name}

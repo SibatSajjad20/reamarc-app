@@ -178,6 +178,7 @@ TENANT_COLLECTIONS: Set[str] = frozenset({
     "system_config",
     "knowledge_sources",
     "knowledge_chunks",
+    "workspace_audit",
 })
 
 

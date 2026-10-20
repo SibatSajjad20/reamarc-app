@@ -2,6 +2,8 @@ import React from 'react';
 import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
 import type { UrgentWatchlistItem } from '../../../utils/contentCalendarOverview';
 import type { ContentCalendarItem } from '../../../types/contentCalendar';
+import { ClientAvatar } from '../../ui/ClientAvatar';
+import { useResolvedClient } from '../../../hooks/useClientLookup';
 
 interface Props {
   watchlist: UrgentWatchlistItem[];
@@ -16,6 +18,7 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
   onSelectItem,
   onViewAll,
 }) => {
+  const resolveClient = useResolvedClient();
   const itemsToShow = watchlist.slice(0, 5);
   const remainingCount = watchlist.length - itemsToShow.length;
 
@@ -87,6 +90,7 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
           <div className="space-y-1">
             {itemsToShow.map((entry) => {
               const { item } = entry;
+              const clientWs = resolveClient(item);
               const dateRaw = item.publish_date || item.design_due;
               const dateStr = dateRaw ? dateRaw.split('T')[0] : 'No date';
 
@@ -145,12 +149,23 @@ export const UrgentWatchlistCard: React.FC<Props> = ({
                   onClick={() => onSelectItem(item)}
                   className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg hover:bg-hover transition cursor-pointer group border border-transparent hover:border-border"
                 >
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 flex items-center gap-2">
+                    <ClientAvatar
+                      name={clientWs?.name || item.client_name || 'Client'}
+                      logoUrl={clientWs?.logo_url}
+                      clientId={clientWs?.id || item.workspace_id}
+                      brandColor={clientWs?.brandColor}
+                      initials={clientWs?.initials}
+                      size={18}
+                      decorative
+                    />
+                    <div className="min-w-0 flex-1">
                     <div className="text-xs font-semibold text-fg truncate group-hover:text-accent transition-colors">
                       {item.content_concept || item.primary_text || 'Untitled campaign'}
                     </div>
                     <div className="text-caption text-fg-muted truncate font-numeric mt-0.5">
                       {item.client_name || 'No client'} · #{item.serial} · {dateStr}
+                    </div>
                     </div>
                   </div>
                   <div className="shrink-0">

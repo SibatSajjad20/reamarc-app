@@ -73,6 +73,9 @@ logger = logging.getLogger(__name__)
 COLLECTION_NAME = "content_calendar_items"
 _indexes_ready = False
 _index_lock = asyncio.Lock()
+_ffmpeg_lock = asyncio.Semaphore(1)
+_thumb_hydrate_lock = asyncio.Semaphore(1)
+_UPLOAD_CHUNK = 1024 * 1024
 
 
 async def ensure_indexes(db) -> None:
@@ -371,25 +374,7 @@ async def get_items(
                             )
                 if backfill_ops:
                     asyncio.create_task(coll.bulk_write(backfill_ops, ordered=False))
-        presented_items = [_present_doc(doc) for doc in raw]
-        need_thumbs = [
-            item
-            for item in presented_items
-            if any(
-                isinstance(a, dict) and a.get("kind") == "video" and not a.get("thumbnail_url")
-                for a in (item.get("attachments") or [])
-            )
-        ]
-        if need_thumbs:
-            async def _fill_thumbs() -> None:
-                for item in need_thumbs[:6]:
-                    try:
-                        await _hydrate_missing_video_thumbs(db, item)
-                    except Exception:
-                        pass
-
-            asyncio.create_task(_fill_thumbs())
-        return presented_items
+        return [_present_doc(doc) for doc in raw]
 
     async def _fetch_counts():
         allowed = visible_stages(viewer) if viewer is not None else None
@@ -435,7 +420,7 @@ async def get_item_by_id(db, item_id: str, viewer: Optional[Dict[str, Any]] = No
     if viewer is not None and not can_view_item(viewer, presented):
         return None
 
-    return await _hydrate_missing_video_thumbs(db, presented)
+    return presented
 
 
 def get_client_abbreviation(client_name: Optional[str]) -> str:
@@ -964,7 +949,7 @@ ALLOWED_ASSET_EXTENSIONS = {
     ".pdf", ".docx", ".doc", ".txt", ".md",
 }
 MAX_IMAGE_DOC_SIZE = 50 * 1024 * 1024   # 50MB
-MAX_VIDEO_SIZE = 250 * 1024 * 1024      # 250MB
+MAX_VIDEO_SIZE = 100 * 1024 * 1024      # 100MB
 
 
 def can_manage_assets(viewer: Optional[Dict[str, Any]], item: Dict[str, Any]) -> bool:
@@ -1056,108 +1041,171 @@ async def _store_video_still(
     return url, None
 
 
-def process_video_upload(content: bytes, ext: str) -> Tuple[bytes, Optional[bytes], Optional[int], Optional[int], Optional[float]]:
+def _probe_video_meta(path: str) -> Tuple[Optional[int], Optional[int], Optional[float]]:
+    ffprobe = shutil.which("ffprobe")
+    if not ffprobe:
+        return None, None, None
+    try:
+        res = subprocess.run(
+            [
+                ffprobe, "-v", "error", "-select_streams", "v:0",
+                "-show_entries", "stream=width,height,duration",
+                "-of", "default=noprint_wrappers=1:nokey=0",
+                path,
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+            text=True,
+        )
+        if res.returncode != 0:
+            return None, None, None
+        width = height = duration = None
+        for line in (res.stdout or "").splitlines():
+            if "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            if key == "width":
+                width = int(val) if val.isdigit() else None
+            elif key == "height":
+                height = int(val) if val.isdigit() else None
+            elif key == "duration":
+                try:
+                    duration = round(float(val), 2)
+                except (TypeError, ValueError):
+                    duration = None
+        return width, height, duration
+    except Exception:
+        return None, None, None
+
+
+def process_video_upload(input_path: str, ext: str) -> Tuple[str, Optional[bytes], Optional[int], Optional[int], Optional[float]]:
     """
-    Optimizes MP4/MOV videos for instant browser playback by moving the moov atom to the
-    beginning (+faststart) and extracts a crisp thumbnail frame.
-    Returns (optimized_content, thumbnail_bytes, width, height, duration_seconds).
+    Faststart-optimizes MP4/MOV on disk and extracts one JPEG still.
+    Returns (output_path, thumbnail_bytes, width, height, duration_seconds).
+    Caller owns input_path and any returned output_path that differs from it.
     """
     ffmpeg_bin = _ffmpeg_bin()
-    temp_in = None
     temp_out = None
     temp_thumb = None
+    output_path = input_path
 
     try:
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f_in:
-            temp_in = f_in.name
-            f_in.write(content)
+        file_size = os.path.getsize(input_path) if os.path.exists(input_path) else 0
+        skip_faststart = file_size > MAX_VIDEO_SIZE
 
-        out_ext = ".mp4" if ext in (".mp4", ".mov", ".m4v") else ext
-        with tempfile.NamedTemporaryFile(suffix=out_ext, delete=False) as f_out:
-            temp_out = f_out.name
-
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f_thumb:
-            temp_thumb = f_thumb.name
-
-        optimized_content = content
-        source_for_thumb = temp_in
-
-        # 1. Faststart pass (moves moov atom to start in ~0.05s with zero re-encoding)
-        if ffmpeg_bin and ext in (".mp4", ".mov", ".m4v"):
+        if ffmpeg_bin and ext in (".mp4", ".mov", ".m4v") and not skip_faststart:
+            out_ext = ".mp4"
+            with tempfile.NamedTemporaryFile(suffix=out_ext, delete=False) as f_out:
+                temp_out = f_out.name
             try:
                 cmd_faststart = [
-                    ffmpeg_bin, "-y", "-i", temp_in,
+                    ffmpeg_bin, "-y", "-i", input_path,
                     "-c", "copy", "-movflags", "+faststart",
-                    temp_out
+                    temp_out,
                 ]
                 res = subprocess.run(cmd_faststart, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20)
                 if res.returncode == 0 and os.path.exists(temp_out) and os.path.getsize(temp_out) > 0:
-                    with open(temp_out, "rb") as f_read:
-                        optimized_content = f_read.read()
-                    source_for_thumb = temp_out
+                    output_path = temp_out
+                else:
+                    os.unlink(temp_out)
+                    temp_out = None
             except Exception as e:
                 logger.warning("ffmpeg faststart optimization skipped: %s", e)
+                if temp_out and os.path.exists(temp_out) and temp_out != output_path:
+                    try:
+                        os.unlink(temp_out)
+                    except Exception:
+                        pass
+                    temp_out = None
 
-        # 2. Extract crisp thumbnail frame
         thumb_bytes = None
         if ffmpeg_bin:
-            for timestamp in ("00:00:01", "00:00:00.1", "00:00:00"):
-                try:
-                    cmd_thumb = [
-                        ffmpeg_bin, "-y", "-ss", timestamp, "-i", source_for_thumb,
-                        "-vframes", "1", "-q:v", "2", "-vf", "scale='min(800,iw)':-2",
-                        temp_thumb
-                    ]
-                    res = subprocess.run(cmd_thumb, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
-                    if res.returncode == 0 and os.path.exists(temp_thumb) and os.path.getsize(temp_thumb) > 0:
-                        with open(temp_thumb, "rb") as f_t:
-                            thumb_bytes = f_t.read()
-                        break
-                except Exception:
-                    continue
+            with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f_thumb:
+                temp_thumb = f_thumb.name
+            try:
+                cmd_thumb = [
+                    ffmpeg_bin, "-y", "-ss", "1", "-i", output_path,
+                    "-frames:v", "1", "-vf", "scale=640:-2",
+                    temp_thumb,
+                ]
+                res = subprocess.run(cmd_thumb, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+                if res.returncode == 0 and os.path.exists(temp_thumb) and os.path.getsize(temp_thumb) > 0:
+                    with open(temp_thumb, "rb") as f_t:
+                        thumb_bytes = f_t.read()
+            except Exception as e:
+                logger.warning("ffmpeg thumbnail skipped: %s", e)
 
-        # 3. Extract dimensions & duration via cv2
-        width, height, duration = None, None, None
-        try:
-            import cv2
-            cap = cv2.VideoCapture(source_for_thumb)
-            if cap.isOpened():
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or None
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or None
-                fps = cap.get(cv2.CAP_PROP_FPS) or 0
-                frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
-                if fps > 0 and frames > 0:
-                    duration = round(frames / fps, 2)
-
-                # Fallback thumbnail if ffmpeg failed or not in PATH
-                if not thumb_bytes:
-                    success, frame = cap.read()
-                    if success and frame is not None:
-                        is_ok, buffer = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
-                        if is_ok:
-                            thumb_bytes = buffer.tobytes()
-                cap.release()
-        except Exception:
-            pass
-
-        return optimized_content, thumb_bytes, width, height, duration
+        width, height, duration = _probe_video_meta(output_path)
+        return output_path, thumb_bytes, width, height, duration
 
     except Exception as exc:
         logger.warning("Video processing failed: %s", exc)
-        return content, None, None, None, None
+        if temp_out and os.path.exists(temp_out):
+            try:
+                os.unlink(temp_out)
+            except Exception:
+                pass
+            temp_out = None
+        return input_path, None, None, None, None
     finally:
-        for p in (temp_in, temp_out, temp_thumb):
-            if p and os.path.exists(p):
-                try:
-                    os.unlink(p)
-                except Exception:
-                    pass
+        if temp_thumb and os.path.exists(temp_thumb):
+            try:
+                os.unlink(temp_thumb)
+            except Exception:
+                pass
+        if temp_out and temp_out != output_path and os.path.exists(temp_out):
+            try:
+                os.unlink(temp_out)
+            except Exception:
+                pass
+
+
+def _video_needs_still(att: Dict[str, Any]) -> bool:
+    if not isinstance(att, dict) or att.get("kind") != "video":
+        return False
+    if att.get("thumbnail_url"):
+        return False
+    if att.get("thumbnail_failed_at"):
+        return False
+    return True
+
+
+async def _copy_upload_to_temp(file: UploadFile, max_size: int, suffix: str) -> Tuple[str, int]:
+    """Stream an upload to disk in 1 MB chunks and abort as soon as it exceeds max_size."""
+    fd, path = tempfile.mkstemp(suffix=suffix)
+    total = 0
+    try:
+        with os.fdopen(fd, "wb") as out:
+            while True:
+                chunk = await file.read(_UPLOAD_CHUNK)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_size:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"File '{file.filename}' exceeds {max_size // (1024 * 1024)}MB size limit.",
+                    )
+                out.write(chunk)
+        return path, total
+    except Exception:
+        try:
+            os.close(fd)
+        except Exception:
+            pass
+        try:
+            if os.path.exists(path):
+                os.unlink(path)
+        except Exception:
+            pass
+        raise
 
 
 async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[str, Any]:
-    """Persists a first-frame JPEG for videos that were stored without a thumbnail."""
+    """Persists a still for one item. Never download or transcode Drive video bytes."""
     attachments = presented.get("attachments") or []
-    if not any(isinstance(a, dict) and a.get("kind") == "video" and not a.get("thumbnail_url") for a in attachments):
+    if not any(_video_needs_still(a) for a in attachments if isinstance(a, dict)):
         return presented
 
     from app.services import google_drive_service as gdrive
@@ -1173,7 +1221,7 @@ async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[s
             updated.append(att)
             continue
         a_copy = dict(att)
-        if a_copy.get("kind") != "video" or a_copy.get("thumbnail_url"):
+        if not _video_needs_still(a_copy):
             updated.append(a_copy)
             continue
 
@@ -1186,23 +1234,16 @@ async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[s
                 thumb = meta.get("thumbnailLink") if meta else None
                 if thumb and not _is_generic_drive_icon(thumb):
                     still = await fetch_remote_image_bytes(thumb)
-                if not still:
-                    prefix = await gdrive.download_file_prefix(gfid)
-                    if prefix:
-                        ext = Path(str(a_copy.get("filename") or "clip.mp4")).suffix.lower() or ".mp4"
-                        _opt, still, width, height, duration = await asyncio.to_thread(
-                            process_video_upload, prefix, ext
-                        )
             else:
                 v_url = a_copy.get("url") or ""
                 rel = normalize_upload_key(v_url)
                 disk_path = uploads_root() / rel
                 if disk_path.is_file():
-                    raw = disk_path.read_bytes()
                     ext = disk_path.suffix.lower() or ".mp4"
-                    _opt, still, width, height, duration = await asyncio.to_thread(
-                        process_video_upload, raw, ext
-                    )
+                    async with _ffmpeg_lock:
+                        _out, still, width, height, duration = await asyncio.to_thread(
+                            process_video_upload, str(disk_path), ext
+                        )
         except Exception as exc:
             logger.warning("Video still capture failed for %s: %s", a_copy.get("id"), exc)
 
@@ -1223,6 +1264,7 @@ async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[s
             )
             if url:
                 a_copy["thumbnail_url"] = url
+                a_copy.pop("thumbnail_failed_at", None)
                 if thumb_id:
                     a_copy["google_drive_thumb_file_id"] = thumb_id
                 if width:
@@ -1232,6 +1274,12 @@ async def _hydrate_missing_video_thumbs(db, presented: Dict[str, Any]) -> Dict[s
                 if duration:
                     a_copy["duration_seconds"] = duration
                 changed = True
+            else:
+                a_copy["thumbnail_failed_at"] = _now_iso()
+                changed = True
+        else:
+            a_copy["thumbnail_failed_at"] = _now_iso()
+            changed = True
         updated.append(a_copy)
 
     if changed:
@@ -1272,11 +1320,18 @@ async def attach_assets(
     user_id = viewer.get("id") or str(viewer.get("_id", "")) if viewer else None
     user_name = viewer.get("full_name") or viewer.get("name") or viewer.get("email") if viewer else None
 
+    from app.core.uploads import save_upload_from_path
     from app.services import google_drive_service as gdrive
     use_drive = gdrive.configured()
     drive_folder_id = None
     if use_drive:
         drive_folder_id = await gdrive.ensure_item_folder(db, presented)
+
+    extra_meta = {
+        "workspace_id": presented.get("workspace_id"),
+        "uploaded_by": user_id,
+        "item_id": presented["id"],
+    }
 
     for index, file in enumerate(files):
         filename = (file.filename or "upload").strip()
@@ -1287,100 +1342,108 @@ async def attach_assets(
                 detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(sorted(ALLOWED_ASSET_EXTENSIONS))}",
             )
 
-        content = await file.read()
         kind = "image" if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg") else (
             "video" if ext in (".mp4", ".mov", ".webm", ".m4v") else "document"
         )
         max_size = MAX_VIDEO_SIZE if kind == "video" else MAX_IMAGE_DOC_SIZE
-        if len(content) > max_size:
-            limit_mb = max_size // (1024 * 1024)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"File '{filename}' exceeds {limit_mb}MB size limit.",
-            )
+        temp_path = None
+        processed_path = None
+        content: Optional[bytes] = None
+        try:
+            temp_path, size_bytes = await _copy_upload_to_temp(file, max_size, ext or ".bin")
 
-        if ext == ".svg":
-            content = sanitize_svg(content)
+            width, height, duration_seconds = None, None, None
+            thumbnail_bytes = None
+            thumbnail_failed_at = None
 
-        width, height, duration_seconds = None, None, None
-        thumbnail_bytes = None
+            if kind == "video":
+                async with _ffmpeg_lock:
+                    processed_path, thumbnail_bytes, width, height, duration_seconds = await asyncio.to_thread(
+                        process_video_upload, temp_path, ext
+                    )
+                size_bytes = os.path.getsize(processed_path)
+            elif ext == ".svg":
+                raw = Path(temp_path).read_bytes()
+                content = sanitize_svg(raw)
+                Path(temp_path).write_bytes(content)
+                size_bytes = len(content)
+            elif kind == "image":
+                try:
+                    from PIL import Image
+                    with Image.open(temp_path) as img:
+                        width, height = img.size
+                except Exception:
+                    pass
 
-        if kind == "video":
-            # Optimize video with +faststart for instantaneous browser streaming and extract thumbnail
-            content, thumbnail_bytes, width, height, duration_seconds = await asyncio.to_thread(
-                process_video_upload, content, ext
-            )
-        elif kind == "image" and ext != ".svg":
-            try:
-                from PIL import Image
-                with Image.open(io.BytesIO(content)) as img:
-                    width, height = img.size
-            except Exception:
-                pass
+            upload_path = processed_path or temp_path
+            content_type = file.content_type or _guess_media_type(filename)
+            asset_id = f"ast_{uuid.uuid4().hex[:10]}"
+            safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
+            relative_key = f"content_calendar/{presented['id']}/{asset_id}_{safe_fname}"
+            drive_file_id = None
+            drive_url = None
+            drive_thumb_id = None
 
-        content_type = file.content_type or _guess_media_type(filename)
-        asset_id = f"ast_{uuid.uuid4().hex[:10]}"
-        safe_fname = re.sub(r"[^a-zA-Z0-9._-]", "_", filename)
-        relative_key = f"content_calendar/{presented['id']}/{asset_id}_{safe_fname}"
-        drive_file_id = None
-        drive_url = None
-        drive_thumb_id = None
+            if use_drive:
+                uploaded = await gdrive.upload_path(drive_folder_id, safe_fname, upload_path, content_type)
+                drive_file_id = uploaded.get("id")
+                drive_url = uploaded.get("webViewLink")
+                stored_url = gdrive.public_path(drive_file_id, safe_fname)
+            else:
+                stored_url = await save_upload_from_path(
+                    db,
+                    relative_key=relative_key,
+                    path=upload_path,
+                    original_name=filename,
+                    content_type=content_type,
+                    extra_metadata=extra_meta,
+                )
 
-        if use_drive:
-            uploaded = await gdrive.upload_bytes(drive_folder_id, safe_fname, content, content_type)
-            drive_file_id = uploaded.get("id")
-            drive_url = uploaded.get("webViewLink")
-            stored_url = gdrive.public_path(drive_file_id, safe_fname)
-        else:
-            stored_url = await save_upload_bytes(
-                db,
-                relative_key=relative_key,
-                content=content,
-                original_name=filename,
-                content_type=content_type,
-                extra_metadata={
-                    "workspace_id": presented.get("workspace_id"),
-                    "uploaded_by": user_id,
-                    "item_id": presented["id"],
-                },
-            )
+            thumbnail_url = stored_url if kind == "image" else None
+            if kind == "video" and thumbnail_bytes:
+                thumbnail_url, drive_thumb_id = await _store_video_still(
+                    db,
+                    presented,
+                    asset_id,
+                    thumbnail_bytes,
+                    use_drive,
+                    drive_folder_id,
+                    user_id,
+                )
+            if kind == "video" and not thumbnail_url:
+                thumbnail_failed_at = _now_iso()
 
-        thumbnail_url = stored_url if kind == "image" else None
-        if kind == "video" and thumbnail_bytes:
-            thumbnail_url, drive_thumb_id = await _store_video_still(
-                db,
-                presented,
-                asset_id,
-                thumbnail_bytes,
-                use_drive,
-                drive_folder_id,
-                user_id,
-            )
+            item_role = role
+            if len(files) > 1 and role in ("primary", "carousel_slide"):
+                item_role = "carousel_slide"
 
-        item_role = role
-        # Auto-tag as carousel slide if multiple assets uploaded and role is primary/carousel
-        if len(files) > 1 and role in ("primary", "carousel_slide"):
-            item_role = "carousel_slide"
-
-        new_assets.append({
-            "id": asset_id,
-            "url": stored_url,
-            "filename": filename,
-            "size_bytes": len(content),
-            "content_type": content_type,
-            "kind": kind,
-            "role": item_role,
-            "order": current_count + index,
-            "uploaded_at": _now_iso(),
-            "uploaded_by": user_name or user_id,
-            "width": width,
-            "height": height,
-            "duration_seconds": duration_seconds,
-            "thumbnail_url": thumbnail_url,
-            "google_drive_file_id": drive_file_id,
-            "google_drive_url": drive_url,
-            "google_drive_thumb_file_id": drive_thumb_id,
-        })
+            new_assets.append({
+                "id": asset_id,
+                "url": stored_url,
+                "filename": filename,
+                "size_bytes": size_bytes,
+                "content_type": content_type,
+                "kind": kind,
+                "role": item_role,
+                "order": current_count + index,
+                "uploaded_at": _now_iso(),
+                "uploaded_by": user_name or user_id,
+                "width": width,
+                "height": height,
+                "duration_seconds": duration_seconds,
+                "thumbnail_url": thumbnail_url,
+                "thumbnail_failed_at": thumbnail_failed_at,
+                "google_drive_file_id": drive_file_id,
+                "google_drive_url": drive_url,
+                "google_drive_thumb_file_id": drive_thumb_id,
+            })
+        finally:
+            for p in {temp_path, processed_path}:
+                if p and os.path.exists(p):
+                    try:
+                        os.unlink(p)
+                    except Exception:
+                        pass
 
     now_str = _now_iso()
     await coll.update_one(
@@ -1473,25 +1536,19 @@ async def attach_drive_assets(
         drive_thumb_id = None
         width = height = duration_seconds = None
 
+        thumbnail_failed_at = None
         if kind == "video":
             still = None
             if thumbnail_url and not _is_generic_drive_icon(thumbnail_url):
                 still = await fetch_remote_image_bytes(thumbnail_url)
-            if not still:
-                try:
-                    prefix = await gdrive.download_file_prefix(drive_file_id)
-                    if prefix:
-                        _opt, still, width, height, duration_seconds = await asyncio.to_thread(
-                            process_video_upload, prefix, ext or ".mp4"
-                        )
-                except Exception as exc:
-                    logger.warning("Could not extract Drive video still for %s: %s", drive_file_id, exc)
             if still:
                 thumbnail_url, drive_thumb_id = await _store_video_still(
                     db, presented, asset_id, still, bool(dest_folder_id), dest_folder_id, user_id
                 )
-            elif thumbnail_url and _is_generic_drive_icon(thumbnail_url):
+            if thumbnail_url and _is_generic_drive_icon(thumbnail_url):
                 thumbnail_url = None
+            if not thumbnail_url:
+                thumbnail_failed_at = _now_iso()
 
         item_role = role
         if len(files) > 1 and role in ("primary", "carousel_slide"):
@@ -1512,6 +1569,7 @@ async def attach_drive_assets(
             "height": height,
             "duration_seconds": duration_seconds,
             "thumbnail_url": thumbnail_url or (stored_url if kind == "image" else None),
+            "thumbnail_failed_at": thumbnail_failed_at,
             "google_drive_file_id": drive_file_id,
             "google_drive_url": drive_url,
             "google_drive_thumb_file_id": drive_thumb_id,
@@ -1593,53 +1651,44 @@ async def attach_link(
     return _present_doc(dict(updated_doc))
 
 
-async def backfill_missing_video_thumbnails(db) -> int:
-    """Backfills thumbnails and faststart optimization for existing videos that lack a thumbnail."""
+async def hydrate_missing_video_thumbs_job(
+    db,
+    item_id: Optional[str] = None,
+    limit: int = 1,
+) -> Dict[str, Any]:
+    """Admin/one-off still capture. Processes one item at a time and never retries failures."""
     if db is None:
-        return 0
+        return {"processed": 0, "item_ids": []}
+    limit = max(1, min(int(limit or 1), 20))
     coll = db[COLLECTION_NAME]
-    cursor = coll.find({"attachments.kind": "video"})
-    count = 0
-    from app.core.uploads import uploads_root, normalize_upload_key
+    processed_ids: List[str] = []
+    async with _thumb_hydrate_lock:
+        if item_id:
+            doc = await coll.find_one({"$or": [{"id": item_id}, {"serial": item_id}]})
+            docs = [doc] if doc else []
+        else:
+            cursor = coll.find({"attachments.kind": "video"}).limit(200)
+            docs = []
+            async for doc in cursor:
+                attachments = doc.get("attachments") or []
+                if any(_video_needs_still(a) for a in attachments if isinstance(a, dict)):
+                    docs.append(doc)
+                if len(docs) >= limit:
+                    break
+        for doc in docs[:limit]:
+            presented = _present_doc(dict(doc))
+            try:
+                await _hydrate_missing_video_thumbs(db, presented)
+                processed_ids.append(presented.get("id") or "")
+            except Exception as exc:
+                logger.warning("Admin video thumb hydrate failed for %s: %s", presented.get("id"), exc)
+    return {"processed": len(processed_ids), "item_ids": [i for i in processed_ids if i]}
 
-    async for doc in cursor:
-        attachments = doc.get("attachments") or []
-        modified = False
-        for att in attachments:
-            if att.get("kind") == "video" and not att.get("thumbnail_url"):
-                v_url = att.get("url") or ""
-                try:
-                    rel = normalize_upload_key(v_url)
-                    disk_path = uploads_root() / rel
-                    if disk_path.is_file():
-                        raw = disk_path.read_bytes()
-                        ext = disk_path.suffix.lower()
-                        opt, thumb, w, h, dur = await asyncio.to_thread(process_video_upload, raw, ext)
-                        if opt != raw:
-                            disk_path.write_bytes(opt)
-                        if thumb:
-                            t_key = f"content_calendar/{doc['id']}/{att['id']}_thumb.jpg"
-                            t_url = await save_upload_bytes(
-                                db,
-                                relative_key=t_key,
-                                content=thumb,
-                                original_name=f"{att.get('filename')}_thumb.jpg",
-                                content_type="image/jpeg",
-                            )
-                            att["thumbnail_url"] = t_url
-                        if w:
-                            att["width"] = w
-                        if h:
-                            att["height"] = h
-                        if dur:
-                            att["duration_seconds"] = dur
-                        modified = True
-                except Exception as exc:
-                    logger.warning("Backfill video failed for %s: %s", v_url, exc)
-        if modified:
-            await coll.update_one({"id": doc["id"]}, {"$set": {"attachments": attachments}})
-            count += 1
-    return count
+
+async def backfill_missing_video_thumbnails(db) -> int:
+    """One-off script helper: hydrate a single pending item."""
+    result = await hydrate_missing_video_thumbs_job(db, limit=1)
+    return int(result.get("processed") or 0)
 
 
 
@@ -2308,7 +2357,6 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
             logger.warning("Could not persist share_token for %s: %s", doc.get("id"), exc)
 
     presented = _present_doc(dict(doc))
-    presented = await _hydrate_missing_video_thumbs(db, presented)
 
     # Review links only expire once approved or changes requested
     is_expired, expire_msg = check_review_link_expiration(presented)
@@ -2328,10 +2376,20 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
                 att_copy["thumbnail_url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1"
         public_attachments.append(att_copy)
 
+    client_logo_url = None
+    workspace_id = presented.get("workspace_id")
+    if workspace_id:
+        ws_doc = await db.workspaces.find_one({"id": workspace_id}, {"logo_url": 1})
+        if ws_doc:
+            from app.services.client_logo import sanitize_client_logo_url
+
+            client_logo_url = sanitize_client_logo_url(ws_doc.get("logo_url"))
+
     return {
         "id": presented["id"],
         "serial": presented.get("serial"),
         "client_name": presented.get("client_name"),
+        "client_logo_url": client_logo_url,
         "content_concept": presented.get("content_concept"),
         "campaign_type": presented.get("campaign_type"),
         "content_pillar": presented.get("content_pillar"),
