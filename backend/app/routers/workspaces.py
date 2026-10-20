@@ -366,9 +366,6 @@ async def download_proposal(
     db = get_database()
     candidates = _proposal_url_candidates(file_path)
     lookup = {"proposal_url": {"$in": candidates}}
-    company_id = str((current_user or {}).get("company_id") or "").strip()
-    if company_id:
-        lookup["company_id"] = company_id
 
     ws = None
     if db is not None:
