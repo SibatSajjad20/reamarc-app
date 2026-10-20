@@ -94,7 +94,7 @@ export const ClientAvatar: React.FC<ClientAvatarProps> = ({
   const seed = clientId || name;
   const bg = useMemo(() => resolveClientMarkColor(brandColor, seed), [brandColor, seed]);
   const mark = (initials && initials.trim()) || clientInitials(name);
-  const src = !hasError && logoUrl ? cloudinaryThumbUrl(logoUrl, size) : null;
+  const src = !hasError && logoUrl ? (cloudinaryThumbUrl(logoUrl, size) ?? (/^(data:image\/|blob:)/.test(logoUrl) ? logoUrl : null)) : null;
   const radius = Math.round(size * 0.25);
   const fontSize = Math.max(8, Math.round(size * 0.38));
 

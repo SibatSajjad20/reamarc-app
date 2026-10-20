@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { AlertCircle, Calendar, CheckCircle2, Download, ExternalLink, FileText, Loader2, Trash2, UploadCloud } from 'lucide-react';
 import { CustomSelect } from '../ui/CustomSelect';
 import { CustomDatePicker } from '../ui/CustomDatePicker';
@@ -24,6 +24,7 @@ interface Props {
 
 export const ClientForm: React.FC<Props> = ({ form, workspace, canManage, onWorkspacePatched, sectionRefs }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [proposalDragOver, setProposalDragOver] = useState(false);
   const { values, patch, fieldErrors, hasAttemptedSubmit, setFieldErrors } = form;
   const setSection = (id: string) => (el: HTMLElement | null) => { sectionRefs.current[id] = el; };
 
@@ -134,7 +135,31 @@ export const ClientForm: React.FC<Props> = ({ form, workspace, canManage, onWork
         ) : (
           <>
             <input ref={fileInputRef} type="file" className="hidden" accept=".pdf,.doc,.docx,.xlsx,.xls,.zip,.png,.jpg,.jpeg" onChange={(e) => { const f = e.target.files?.[0]; if (f) void form.handleProposalFileUpload(f); e.target.value = ''; }} />
-            <button type="button" disabled={form.isUploadingProposal} onClick={() => fileInputRef.current?.click()} className="w-full py-4 border border-dashed border-border rounded-xl text-xs text-fg-muted">
+            <button
+              type="button"
+              disabled={form.isUploadingProposal}
+              onClick={() => fileInputRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); if (!form.isUploadingProposal) setProposalDragOver(true); }}
+              onDragEnter={(e) => { e.preventDefault(); if (!form.isUploadingProposal) setProposalDragOver(true); }}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node)) setProposalDragOver(false);
+              }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setProposalDragOver(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f && !form.isUploadingProposal) void form.handleProposalFileUpload(f);
+              }}
+              className={cn(
+                'w-full py-4 border rounded-xl text-xs cursor-pointer outline-none',
+                'transition-[border-color,background-color,color,border-style] duration-150',
+                'focus-visible:focus-ring',
+                proposalDragOver
+                  ? 'border-solid border-accent bg-accent-soft text-accent'
+                  : 'border-dashed border-border text-fg-muted hover:border-solid hover:border-accent hover:bg-accent-soft hover:text-accent focus-visible:border-solid focus-visible:border-accent focus-visible:bg-accent-soft focus-visible:text-accent',
+                form.isUploadingProposal && 'pointer-events-none opacity-60'
+              )}
+            >
               {form.isUploadingProposal ? <span className="inline-flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" /> Uploading…</span> : <span className="inline-flex items-center gap-2"><UploadCloud className="w-5 h-5" /> Click to upload (max 25MB)</span>}
             </button>
           </>

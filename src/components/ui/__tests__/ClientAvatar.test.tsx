@@ -37,4 +37,11 @@ describe('ClientAvatar', () => {
     const { getByTitle } = render(<ClientAvatar name="Sample Client A" size={20} />);
     expect(getByTitle('Sample Client A')).toBeTruthy();
   });
+
+  it('renders an img for a data:image URL', () => {
+    const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+    const { getByAltText } = render(<ClientAvatar name="Local Preview" logoUrl={dataUrl} size={40} />);
+    const img = getByAltText('Local Preview logo') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe(dataUrl);
+  });
 });

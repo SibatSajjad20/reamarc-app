@@ -44,7 +44,9 @@ export const ClientLogoField: React.FC<Props> = ({
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [preview, setPreview] = useState<string | null>(localPreviewUrl || null);
 
-  useEffect(() => { setPreview(localPreviewUrl || null); }, [localPreviewUrl]);
+  useEffect(() => {
+    if (localPreviewUrl) setPreview(localPreviewUrl);
+  }, [localPreviewUrl]);
   if (!canManage) return null;
 
   const shownUrl = preview || logoUrl || null;
@@ -67,8 +69,8 @@ export const ClientLogoField: React.FC<Props> = ({
       setUploading(true);
       try {
         const updated = await workspaceService.uploadLogo(workspaceId, file);
+        setPreview(updated.logo_url || null);
         onPendingFile(null, null);
-        setPreview(null);
         onWorkspacePatched?.(updated);
       } catch (err: any) {
         setError(err?.message || "Couldn't upload the logo. Try again.");
