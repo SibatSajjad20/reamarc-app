@@ -24,6 +24,17 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+/** Keep login/upload avatar_url when getMe omits the field; honor an explicit null. */
+export function keepAvatarUrl<T extends { avatar_url?: string | null }>(
+  previous: T | null | undefined,
+  next: T,
+): T {
+  if (next.avatar_url === undefined && previous && previous.avatar_url !== undefined) {
+    return { ...next, avatar_url: previous.avatar_url };
+  }
+  return next;
+}
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -63,7 +74,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsLoading(true);
     try {
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      setUser((prev) => keepAvatarUrl(prev, currentUser));
     } catch {
       setUser(null);
     } finally {
@@ -107,7 +118,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(res.user);
     try {
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      setUser((prev) => keepAvatarUrl(prev, currentUser));
     } catch {
       // Login user payload is enough to render; /auth/me refresh is best-effort.
     }
@@ -137,7 +148,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUser = useCallback(async () => {
     try {
       const currentUser = await authService.getMe();
-      setUser(currentUser);
+      setUser((prev) => keepAvatarUrl(prev, currentUser));
     } catch {
       // Keep existing session if a background refresh fails
     }
