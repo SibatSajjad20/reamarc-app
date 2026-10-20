@@ -121,6 +121,7 @@ class ApiClient {
       localStorage.removeItem('reamarc_token');
       if (!_token) {
         localStorage.removeItem('reamarc_impersonation_token');
+        sessionStorage.removeItem('reamarc_impersonation_token');
       }
     }
   }
@@ -184,7 +185,7 @@ class ApiClient {
 
     if (typeof window !== 'undefined') {
       const isAuthEndpoint = endpoint && (endpoint.includes('/auth/login') || endpoint.includes('/auth/logout'));
-      const impToken = localStorage.getItem('reamarc_impersonation_token');
+      const impToken = sessionStorage.getItem('reamarc_impersonation_token') || localStorage.getItem('reamarc_impersonation_token');
       if (impToken && !headers['Authorization'] && !isAuthEndpoint) {
         headers['Authorization'] = `Bearer ${impToken}`;
       }
@@ -194,6 +195,12 @@ class ApiClient {
   }
 
   public request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+    if (typeof window !== 'undefined') {
+      const impToken = sessionStorage.getItem('reamarc_impersonation_token') || localStorage.getItem('reamarc_impersonation_token');
+      if (impToken && endpoint.startsWith('/owner/') && endpoint !== '/owner/exit') {
+        return Promise.reject(new Error('Cannot call owner endpoints while impersonating'));
+      }
+    }
     const isGet = (!options.method || options.method.toUpperCase() === 'GET') && !options.signal;
     if (isGet) {
       const cacheKey = `${this.activeWorkspaceId || ''}::${endpoint}`;

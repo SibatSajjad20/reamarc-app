@@ -67,7 +67,7 @@ export const StartingPasswordField: React.FC<StartingPasswordFieldProps> = ({
   value,
   onChange,
   label = 'Starting password',
-  helperText = "At least 10 characters. Share it with the admin yourself. They can change it from Profile. You won't see it again after this.",
+  helperText = 'Share this with the admin. They can change it from Profile.',
   required = true,
   error,
   id,

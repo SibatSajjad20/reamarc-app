@@ -471,11 +471,15 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             primary_stage = get_primary_stage(primary_dept)
             if primary_stage:
                 content_stages.append(primary_stage)
+            if role == "team_lead":
+                for dept in parse_user_departments(user):
+                    sec_stage = get_primary_stage(dept)
+                    if sec_stage and sec_stage in VALID_CONTENT_STAGES and sec_stage not in content_stages:
+                        content_stages.append(sec_stage)
             stored_stages = user.get("content_stages")
             if stored_stages is None:
                 stored_stages = (user.get("access") or {}).get("content_stages")
             if stored_stages is None:
-                # Secondary departments never grant stages. Only primary + Access extras.
                 stored_stages = []
             if isinstance(stored_stages, list):
                 for st in stored_stages:

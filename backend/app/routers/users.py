@@ -26,7 +26,10 @@ async def upload_my_avatar(
     Upload and set avatar for the current authenticated user (owner only).
     Enforces magic byte validation (JPEG, PNG, WebP) and 5 MB size limit.
     """
-    db = get_database()
+    from app.core.tenant import get_global_db
+    db = get_global_db()
+    if db is None:
+        db = get_database()
 
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
@@ -74,7 +77,10 @@ async def delete_my_avatar(
     Remove avatar for the current authenticated user (owner only).
     Destroys the asset on Cloudinary and clears user avatar fields.
     """
-    db = get_database()
+    from app.core.tenant import get_global_db
+    db = get_global_db()
+    if db is None:
+        db = get_database()
 
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")

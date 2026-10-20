@@ -49,6 +49,7 @@ export interface AuthUser {
   read_only?: boolean;
   membership_id?: string;
   needs_setup?: boolean;
+  effective_access?: Record<string, boolean>;
   companies?: Array<{
     id: string;
     name: string;
@@ -77,6 +78,7 @@ export interface AuthResponse {
   refresh_token?: string | null;
   membership_id?: string;
   needs_setup?: boolean;
+  effective_access?: Record<string, boolean>;
   companies?: Array<{
     id: string;
     name: string;

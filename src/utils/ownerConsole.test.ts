@@ -62,9 +62,9 @@ const mockCompanies = new Map<string, Company>([
       slug: 'sample-company-a',
       plan: 'pro',
       status: 'active',
-      people_limit: 50,
-      active_members_count: 5,
-      is_current: false,
+      timezone: 'UTC',
+      accent_color: '#6847E0',
+      limits: { max_users: 50 },
     },
   ],
 ]);
@@ -76,9 +76,9 @@ const mockMembers = new Map<string, OwnerMember>([
       id: 'usr_1',
       email: 'admin@sample-a.test',
       name: 'Sample Admin A',
-      role: 'admin',
+      full_name: 'Sample Admin A',
       is_active: true,
-      has_password: true,
+      is_super_admin: false,
       memberships: [],
     },
   ],
@@ -87,7 +87,9 @@ const mockMembers = new Map<string, OwnerMember>([
 // create_company
 const createEv: OwnerAuditEvent = {
   id: 'ev_1',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'create_company',
   target_company_id: 'comp_1',
@@ -100,7 +102,9 @@ assert(createSentence.secondary === 'First admin: admin@sample-a.test', 'create_
 // update_company -> suspended
 const suspendEv: OwnerAuditEvent = {
   id: 'ev_2',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'update_company',
   target_company_id: 'comp_1',
@@ -112,7 +116,9 @@ assert(suspendSentence.sentence === 'Paused Sample Company A', 'update_company s
 // update_company -> active
 const resumeEv: OwnerAuditEvent = {
   id: 'ev_3',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'update_company',
   target_company_id: 'comp_1',
@@ -124,7 +130,9 @@ assert(resumeSentence.sentence === 'Resumed Sample Company A', 'update_company r
 // enter_company
 const enterEv: OwnerAuditEvent = {
   id: 'ev_4',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'enter_company',
   target_company_id: 'comp_1',
@@ -135,7 +143,9 @@ assert(enterSentence.sentence === 'Opened Sample Company A as owner (read-only)'
 // reset_token_version
 const resetEv: OwnerAuditEvent = {
   id: 'ev_5',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'reset_token_version',
   target_company_id: 'comp_1',
@@ -146,7 +156,9 @@ assert(resetSentence.sentence === 'Signed everyone out of Sample Company A', 're
 // provision_member
 const provEv: OwnerAuditEvent = {
   id: 'ev_6',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'provision_member',
   target_company_id: 'comp_1',
@@ -158,7 +170,9 @@ assert(provSentence.sentence === 'Added Sample Admin A to Sample Company A', 'pr
 // grant_company_access
 const grantEv: OwnerAuditEvent = {
   id: 'ev_7',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'grant_company_access',
   target_company_id: 'comp_1',
@@ -170,7 +184,9 @@ assert(grantSentence.sentence === 'Gave Sample Admin A access to Sample Company 
 // remove_company_access
 const removeEv: OwnerAuditEvent = {
   id: 'ev_8',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'remove_company_access',
   target_company_id: 'comp_1',
@@ -182,7 +198,9 @@ assert(removeSentence.sentence === "Removed Sample Admin A's access to Sample Co
 // set_starting_password
 const pwdEv: OwnerAuditEvent = {
   id: 'ev_9',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'set_starting_password',
   details: { target_user_id: 'usr_1' },
@@ -193,7 +211,9 @@ assert(pwdSentence.sentence === 'Set a new starting password for Sample Admin A'
 // branding events
 const brandEv: OwnerAuditEvent = {
   id: 'ev_10',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'company_branding_updated',
   target_company_id: 'comp_1',
@@ -202,7 +222,9 @@ assert(formatAuditSentence(brandEv, mockCompanies, mockMembers).sentence === 'Up
 
 const logoEv: OwnerAuditEvent = {
   id: 'ev_11',
-  timestamp: new Date().toISOString(),
+  created_at: new Date().toISOString(),
+  hash: 'mock_hash',
+  prev_hash: 'mock_prev_hash',
   actor_user_id: 'owner_1',
   action: 'company_logo_uploaded',
   target_company_id: 'comp_1',

@@ -275,13 +275,17 @@ class TestRouteMatrix(unittest.IsolatedAsyncioTestCase):
             ],
         }
 
-        app_secret = getattr(settings, "CRM_META_APP_SECRET", "")
-        headers = {}
+        app_secret = "test_meta_app_secret_123"
+        settings.CRM_META_APP_SECRET = app_secret
         payload_bytes = json.dumps(meta_payload_b).encode("utf-8")
-        if app_secret:
-            sig = hmac.new(app_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
-            headers["X-Hub-Signature-256"] = f"sha256={sig}"
 
+        # Unsigned request -> 401
+        resp_unsigned = await self.client.post("/crm/meta/webhook", content=payload_bytes)
+        self.assertEqual(resp_unsigned.status_code, 401)
+
+        # Signed request -> 200
+        sig = hmac.new(app_secret.encode("utf-8"), payload_bytes, hashlib.sha256).hexdigest()
+        headers = {"X-Hub-Signature-256": f"sha256={sig}"}
         resp_meta = await self.client.post("/crm/meta/webhook", content=payload_bytes, headers=headers)
         self.assertEqual(resp_meta.status_code, 200)
 
@@ -291,11 +295,10 @@ class TestRouteMatrix(unittest.IsolatedAsyncioTestCase):
             "entry": [{"id": "meta_unknown_page_999", "changes": [{"field": "leadgen", "value": {}}]}],
         }
         unknown_bytes = json.dumps(meta_payload_unknown).encode("utf-8")
-        if app_secret:
-            sig = hmac.new(app_secret.encode("utf-8"), unknown_bytes, hashlib.sha256).hexdigest()
-            headers["X-Hub-Signature-256"] = f"sha256={sig}"
+        unknown_sig = hmac.new(app_secret.encode("utf-8"), unknown_bytes, hashlib.sha256).hexdigest()
+        headers_unknown = {"X-Hub-Signature-256": f"sha256={unknown_sig}"}
 
-        resp_unknown = await self.client.post("/crm/meta/webhook", content=unknown_bytes, headers=headers)
+        resp_unknown = await self.client.post("/crm/meta/webhook", content=unknown_bytes, headers=headers_unknown)
         self.assertEqual(resp_unknown.status_code, 200)
 
         # Check security_events collection for recorded drop
@@ -304,13 +307,12 @@ class TestRouteMatrix(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sec_evt.get("page_id"), "meta_unknown_page_999")
 
         # 3. Bad signature -> 401
-        if app_secret:
-            resp_bad_sig = await self.client.post(
-                "/crm/meta/webhook",
-                content=payload_bytes,
-                headers={"X-Hub-Signature-256": "sha256=invalidsignaturehere1234567890"},
-            )
-            self.assertEqual(resp_bad_sig.status_code, 401)
+        resp_bad_sig = await self.client.post(
+            "/crm/meta/webhook",
+            content=payload_bytes,
+            headers={"X-Hub-Signature-256": "sha256=invalidsignaturehere1234567890"},
+        )
+        self.assertEqual(resp_bad_sig.status_code, 401)
 
     async def test_07_runtime_guard_clean_execution(self):
         """Confirm that legitimate tenant operations execute without triggering runtime guard blocks."""

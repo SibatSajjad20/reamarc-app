@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.services.access import (
     MODULES,
@@ -267,6 +267,18 @@ class MockAsyncCursor:
 
 
 class AccessMigrationTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from app.database import db_instance
+        self.client_mongo = AsyncIOMotorClient("mongodb://localhost:27017")
+        self.test_db = self.client_mongo["reamarc_test_db"]
+        db_instance.client = self.client_mongo
+        db_instance.db = self.test_db
+
+    async def asyncTearDown(self):
+        if hasattr(self, 'client_mongo'):
+            self.client_mongo.close()
+
     def _create_mock_db(self, initial_users, existing_marker=None):
         db = MagicMock()
         db.migrations.find_one = AsyncMock(return_value=existing_marker)
@@ -298,7 +310,8 @@ class AccessMigrationTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
         db = self._create_mock_db(users, existing_marker=None)
-        res = await run_access_settings_migration(db, dry_run=True)
+        with patch("app.services.access_migration.get_global_db", return_value=None):
+            res = await run_access_settings_migration(db, dry_run=True)
 
         self.assertEqual(res["status"], "DRY_RUN")
         self.assertEqual(res["users_processed"], 2)  # Client skipped
@@ -326,7 +339,8 @@ class AccessMigrationTests(unittest.IsolatedAsyncioTestCase):
             },
         ]
         db = self._create_mock_db(users, existing_marker=None)
-        res = await run_access_settings_migration(db, dry_run=False)
+        with patch("app.services.access_migration.get_global_db", return_value=None):
+            res = await run_access_settings_migration(db, dry_run=False)
 
         self.assertEqual(res["status"], "APPLIED")
         self.assertEqual(res["users_processed"], 2)
@@ -341,7 +355,8 @@ class AccessMigrationTests(unittest.IsolatedAsyncioTestCase):
         # Idempotency check: rerun with marker already present
         marker_doc = {"id": MIGRATION_ID, "applied_at": "2026-10-15T00:00:00Z", "users_processed": 2}
         db2 = self._create_mock_db(users, existing_marker=marker_doc)
-        res2 = await run_access_settings_migration(db2, dry_run=False)
+        with patch("app.services.access_migration.get_global_db", return_value=None):
+            res2 = await run_access_settings_migration(db2, dry_run=False)
         self.assertEqual(res2["status"], "ALREADY_APPLIED")
         db2.users.update_one.assert_not_called()
 

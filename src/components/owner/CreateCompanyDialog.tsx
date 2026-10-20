@@ -93,8 +93,8 @@ export const CreateCompanyDialog: React.FC<CreateCompanyDialogProps> = ({
     }
     if (!adminPassword) {
       errs.adminPassword = 'Starting password is required';
-    } else if (adminPassword.length < 10) {
-      errs.adminPassword = 'Starting password must be at least 10 characters';
+    } else if (adminPassword.length < 8) {
+      errs.adminPassword = 'Starting password must be at least 8 characters';
     }
     setClientErrors(errs);
     return Object.keys(errs).length === 0;

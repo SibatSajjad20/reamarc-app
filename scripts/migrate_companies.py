@@ -35,6 +35,10 @@ load_dotenv(env_path)
 
 from app.core.tenant import TENANT_COLLECTIONS
 from scripts.snapshot_counts import take_snapshot, compare_snapshots
+try:
+    from scripts._prod_guard import enforce_prod_guard_before_connect, is_prod
+except ImportError:
+    from _prod_guard import enforce_prod_guard_before_connect, is_prod
 
 REAMARC_COMPANY_ID = "company_reamarc"
 REAMARC_SLUG = "reamarc"
@@ -278,24 +282,12 @@ def main():
         print_rollback_plan(args.i_have_a_backup or "reamarc-prod-YYYYMMDD.gz")
         sys.exit(0)
 
+    enforce_prod_guard_before_connect(args.uri, args.db, args)
+
     client = pymongo.MongoClient(args.uri)
     db = client[args.db]
 
-    is_prod = (args.db == "reamarc" or "prod" in args.db.lower() or os.environ.get("ENVIRONMENT") == "production")
-
     if args.apply:
-        if is_prod:
-            if not args.i_have_a_backup:
-                print("[ERROR] Production migration requires --i-have-a-backup <archive.gz>", file=sys.stderr)
-                client.close()
-                sys.exit(1)
-            b_path = Path(args.i_have_a_backup)
-            if not b_path.exists():
-                print(f"[ERROR] Specified backup archive file does not exist: {b_path}", file=sys.stderr)
-                client.close()
-                sys.exit(1)
-            print(f"[PROD CHECK] Backup verified: {b_path} ({b_path.stat().st_size} bytes)")
-
         # Take pre-snapshot
         print(f"Taking pre-migration snapshot of '{args.db}'...")
         pre_snap = take_snapshot(args.uri, args.db)

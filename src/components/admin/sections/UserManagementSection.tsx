@@ -47,6 +47,7 @@ import {
   getRoleLabel,
 } from '../../../utils/badgeStyles';
 import { formatPhoneDisplay } from '../../../utils/phone';
+import { brandNameOf } from '../../../utils/branding';
 import { CANONICAL_DEPARTMENTS, uniqueCanonicalDepts } from '../../../utils/departments';
 
 export const SYSTEM_DEPARTMENTS = [...CANONICAL_DEPARTMENTS];
@@ -241,7 +242,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       {/* Page Header matching Mock 08 */}
       <PageHeader
         title="Team directory"
-        description="People, roles and access across Reamarc."
+        description={`People, roles and access across ${brandNameOf(user?.company)}.`}
         actions={
           <div className="flex items-center gap-2">
             {onNavigateSection && (
@@ -637,19 +638,41 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             </DropdownMenuItem>
 
                             {onToggleStatus && m.role !== 'admin' && (
-                              <DropdownMenuItem onClick={() => onToggleStatus(m)}>
-                                {m.is_active ? (
-                                  <>
-                                    <UserX className="w-3.5 h-3.5 mr-2 text-warning-fg" />
-                                    <span>Deactivate member</span>
-                                  </>
+                              m.login_managed_elsewhere ? (
+                                m.is_active ? (
+                                  <DropdownMenuItem
+                                    variant="destructive"
+                                    onClick={() => {
+                                      const compName = brandNameOf(user?.company);
+                                      if (window.confirm(`Remove ${m.full_name} from ${compName}? Their access to this company ends.`)) {
+                                        onToggleStatus(m);
+                                      }
+                                    }}
+                                  >
+                                    <UserX className="w-3.5 h-3.5 mr-2 text-danger-fg" />
+                                    <span>Remove from company</span>
+                                  </DropdownMenuItem>
                                 ) : (
-                                  <>
+                                  <DropdownMenuItem onClick={() => onToggleStatus(m)}>
                                     <UserCheck className="w-3.5 h-3.5 mr-2 text-success-fg" />
                                     <span>Reactivate member</span>
-                                  </>
-                                )}
-                              </DropdownMenuItem>
+                                  </DropdownMenuItem>
+                                )
+                              ) : (
+                                <DropdownMenuItem onClick={() => onToggleStatus(m)}>
+                                  {m.is_active ? (
+                                    <>
+                                      <UserX className="w-3.5 h-3.5 mr-2 text-warning-fg" />
+                                      <span>Deactivate member</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <UserCheck className="w-3.5 h-3.5 mr-2 text-success-fg" />
+                                      <span>Reactivate member</span>
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                              )
                             )}
 
                             {m.role !== 'admin' && (

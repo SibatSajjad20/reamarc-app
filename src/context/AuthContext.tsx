@@ -98,6 +98,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const login = async (payload: LoginPayload) => {
     if (typeof window !== 'undefined') {
       localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
     }
     const res = await authService.login(payload);
     // Session is established via HttpOnly cookies; do not store JWTs in localStorage.
@@ -106,6 +107,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const initialView = role === 'client' ? 'marketing' : 'dashboard';
     if (typeof window !== 'undefined') {
       localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
       localStorage.setItem('reamarc_active_view', initialView);
       window.history.replaceState(null, '', `/${initialView}`);
     }
@@ -134,6 +136,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (typeof window !== 'undefined') {
         localStorage.removeItem('reamarc_token');
         localStorage.removeItem('reamarc_impersonation_token');
+      sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_active_view');
         window.history.replaceState(null, '', '/');
       }

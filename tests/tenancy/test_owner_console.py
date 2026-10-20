@@ -64,9 +64,23 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         await clean_tenancy_async(self.db)
         await seed_tenancy_async(self.db)
 
-        # Seed Owner Super-Admin User (Faizan)
+        # Seed Owner Super-Admin User (Faizan) and company_reamarc
         self.owner_id = "usr_owner_faizan"
         self.owner_email = "faizan@reamarc.com"
+
+        await self.db.companies.replace_one(
+            {"id": "company_reamarc"},
+            {
+                "_id": "company_reamarc",
+                "id": "company_reamarc",
+                "name": "Reamarc",
+                "slug": "reamarc",
+                "status": "active",
+                "token_version": 0,
+            },
+            upsert=True,
+        )
+
         await self.db.users.replace_one(
             {"id": self.owner_id},
             {
@@ -81,6 +95,21 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
                 "is_active": True,
                 "token_version": 0,
                 "hashed_password": get_password_hash("SuperSecretOwnerPass1!"),
+            },
+            upsert=True,
+        )
+
+        await self.db.company_memberships.replace_one(
+            {"id": "mem_owner_faizan"},
+            {
+                "_id": "mem_owner_faizan",
+                "id": "mem_owner_faizan",
+                "user_id": self.owner_id,
+                "company_id": "company_reamarc",
+                "role": "admin",
+                "status": "active",
+                "is_active": True,
+                "token_version": 0,
             },
             upsert=True,
         )
@@ -134,12 +163,13 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
 
     async def test_02_impersonator_blocked_from_owner_console(self):
         """Active impersonation session cannot execute owner console actions (403)."""
-        imp_token = create_impersonation_token(
-            user_id=self.owner_id,
-            company_id=CID_B,
-            read_only=True,
-            reason="Investigating ticket",
+        enter_res = await self.client.post(
+            f"/api/v1/owner/companies/{CID_B}/enter",
+            json={"reason": "Investigating ticket", "read_only": True},
+            headers=self.owner_headers,
         )
+        self.assertEqual(enter_res.status_code, 200)
+        imp_token = enter_res.json()["impersonation_token"]
         headers = {"Authorization": f"Bearer {imp_token}"}
 
         res = await self.client.get("/api/v1/owner/companies", headers=headers)
@@ -323,6 +353,36 @@ class TestOwnerConsole(unittest.IsolatedAsyncioTestCase):
         # Verify cryptographic hash chain using Phase 1 verifier
         chain_valid = await verify_owner_audit_chain(self.db)
         self.assertTrue(chain_valid)
+
+
+
+    async def test_08_company_detail_and_user_count_metrics(self):
+        """Owner list user_count counts active memberships and detail returns minimal user fields."""
+        # 1. Company list user_count
+        res_list = await self.client.get("/api/v1/owner/companies", headers=self.owner_headers)
+        self.assertEqual(res_list.status_code, 200)
+        comps = {c["id"]: c for c in res_list.json()}
+
+        # Count active memberships in DB directly
+        count_a = await self.db.company_memberships.count_documents({"company_id": CID_A, "status": "active"})
+        self.assertEqual(comps[CID_A]["user_count"], count_a)
+
+        # 2. Company detail endpoint
+        res_detail = await self.client.get(f"/api/v1/owner/companies/{CID_A}", headers=self.owner_headers)
+        self.assertEqual(res_detail.status_code, 200)
+        detail = res_detail.json()
+
+        self.assertEqual(detail["id"], CID_A)
+        self.assertEqual(detail["user_count"], count_a)
+        self.assertIn("users", detail)
+
+        # Each user object has only: id, name, email, role, is_active
+        allowed_keys = {"id", "name", "email", "role", "is_active"}
+        for u in detail["users"]:
+            self.assertEqual(set(u.keys()), allowed_keys)
+            self.assertNotIn("hashed_password", u)
+            self.assertNotIn("password", u)
+            self.assertNotIn("access", u)
 
 
 if __name__ == "__main__":

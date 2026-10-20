@@ -43,6 +43,7 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "crm_meta_accounts.py",
     "crm_public.py",
     "job_locks.py",
+    "users.py",  # R6 global avatar upload/delete
     "integrations.py",
     "access_migration.py",
     "push_service.py",

@@ -747,7 +747,6 @@ async def update_member(
         target_mem = await gdb.company_memberships.find_one({
             "user_id": user_id,
             "company_id": current_user.get("company_id"),
-            "status": "active",
         })
         if not target_mem:
             raise HTTPException(status_code=404, detail="Member not found.")
@@ -947,8 +946,10 @@ async def update_member(
             del update_fields[k]
         elif k == "email" and update_fields[k] == (existing_user.get("email") or "").lower():
             del update_fields[k]
-        elif k == "is_active" and update_fields[k] == existing_user.get("is_active"):
-            del update_fields[k]
+        elif k == "is_active":
+            mem_active = (target_mem.get("status") == "active") if target_mem else existing_user.get("is_active")
+            if update_fields[k] == existing_user.get("is_active") and update_fields[k] == mem_active:
+                del update_fields[k]
 
     pending_identity = identity_keys_in_update(update_fields)
     # If caller is non-home company, is_active only toggles membership in this company
@@ -1053,6 +1054,16 @@ async def delete_member(
     if multi_enabled:
         from app.core.tenant import get_global_db
         gdb = get_global_db()
+
+    caller_cid = current_user.get("company_id")
+    if multi_enabled and gdb is not None:
+        caller_mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": caller_cid,
+            "status": "active",
+        })
+        if not caller_mem:
+            raise HTTPException(status_code=404, detail="Member not found.")
 
     target_coll = gdb.users if multi_enabled and gdb is not None else db.users
     existing_user = await target_coll.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})

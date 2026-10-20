@@ -1,3 +1,4 @@
+import { brandNameOf } from '../utils/branding';
 import React, { useState, useEffect, useCallback } from 'react';
 import type { ViewType, ThemeMode, ThemePreference } from '@/types';
 import { useAuth } from '@/context/AuthContext';
@@ -224,17 +225,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
+  const eff = user?.effective_access;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.canAccessCrm;
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
+  const canSeeCrm = eff ? !!eff.sales : perms.canAccessCrm;
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.canAccessContentCalendar;
-  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline;
-  const canSeeAttendance = perms.canAccessAttendance;
-  const canSeeDailyLog = perms.canAccessDailyLog;
+  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.canAccessContentCalendar;
+  const canSeeWebsitePipeline = eff ? !!eff.website : perms.canAccessWebsitePipeline;
+  const canSeeAttendance = eff ? !!eff.attendance : perms.canAccessAttendance;
+  const canSeeDailyLog = eff ? !!eff.daily_log : perms.canAccessDailyLog;
   const isManagementRole = isAdmin || isHR || isOperations;
 
-  const canSeeMarketing = perms.canAccessAds;
+  const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -293,7 +295,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }[];
   }
 
-  const groups: NavGroup[] = [
+  const groups: NavGroup[] = user?.needs_setup
+    ? [
+        {
+          id: 'overview',
+          label: 'Overview',
+          items: [
+            {
+              id: 'dashboard' as ViewType,
+              label: 'Dashboard',
+              icon: LayoutDashboard,
+            },
+          ],
+        },
+      ]
+    : [
     {
       id: 'overview',
       label: 'Overview',
@@ -570,12 +586,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <div className="min-w-0 flex-1 truncate pr-1 select-none">
                     <div className="flex items-center gap-1">
                       <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
-                        {user?.company?.name || 'Reamarc'}
+                        {brandNameOf(user?.company)}
                       </span>
                       <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
                     </div>
                     <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
-                      {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                      {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                     </span>
                   </div>
                 </button>
@@ -587,7 +603,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {(user?.companies || [
                   {
                     id: user?.company_id || user?.company?.id || 'company_reamarc',
-                    name: user?.company?.name || 'Reamarc',
+                    name: brandNameOf(user?.company),
                     role: user?.role,
                     logo_url: user?.company?.logo_url,
                   },
@@ -659,10 +675,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
               )}
               <div className="min-w-0 flex-1 truncate pr-1 select-none">
                 <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
-                  {user?.company?.name || 'Reamarc'}
+                  {brandNameOf(user?.company)}
                 </span>
                 <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
-                  {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                  {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                 </span>
               </div>
             </>
@@ -715,7 +731,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 style={{ fontSize: '14px' }}
               >
                 <span className="sidebar-expand-r absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-100 motion-reduce:transition-none pointer-events-none">
-                  {(user?.company?.name || 'Reamarc').trim().charAt(0).toUpperCase()}
+                  {brandNameOf(user?.company).trim().charAt(0).toUpperCase()}
                 </span>
                 <span className="sidebar-expand-icon absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-0 motion-reduce:transition-none pointer-events-none">
                   <PanelLeftOpen size={16} strokeWidth={1.5} />

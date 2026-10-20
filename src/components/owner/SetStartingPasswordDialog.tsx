@@ -40,8 +40,8 @@ export const SetStartingPasswordDialog: React.FC<SetStartingPasswordDialogProps>
       setError('Starting password is required');
       return;
     }
-    if (password.length < 10) {
-      setError('Password must be at least 10 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
 
@@ -97,7 +97,7 @@ export const SetStartingPasswordDialog: React.FC<SetStartingPasswordDialogProps>
           <Button
             type="submit"
             variant="primary"
-            disabled={isSubmitting || !password || password.length < 10}
+            disabled={isSubmitting || !password || password.length < 8}
             loading={isSubmitting}
             loadingText="Setting password…"
           >

@@ -42,7 +42,7 @@ export const ImpersonationBanner: React.FC<ImpersonationBannerProps> = ({ onExit
   useEffect(() => {
     try {
       if (typeof window !== 'undefined') {
-        const tok = localStorage.getItem('reamarc_impersonation_token');
+        const tok = sessionStorage.getItem('reamarc_impersonation_token') || localStorage.getItem('reamarc_impersonation_token');
         setTokenStr(tok);
         setMinutesRemaining(getMinutesRemaining(tok));
       }
@@ -77,13 +77,14 @@ export const ImpersonationBanner: React.FC<ImpersonationBannerProps> = ({ onExit
       );
     } finally {
       try {
+        sessionStorage.removeItem('reamarc_impersonation_token');
         localStorage.removeItem('reamarc_impersonation_token');
       } catch {}
       setIsExiting(false);
       if (onExit) {
         onExit();
       } else {
-        window.location.href = '/owner';
+        window.location.reload();
       }
     }
   };

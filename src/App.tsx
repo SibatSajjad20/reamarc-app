@@ -1,3 +1,4 @@
+import { brandNameOf } from './utils/branding';
 import { useState, useEffect, useCallback } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -132,16 +133,17 @@ function AppInner() {
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
 
-  const canSeeMarketing = perms.can('ads', 'view');
+  const eff = user?.effective_access;
+  const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
+  const canSeeCrm = eff ? !!eff.sales : perms.can('sales', 'own');
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.can('content_calendar', 'view');
-  const canSeeWebsitePipeline = perms.can('website', 'view');
-  const canSeeAttendance = !isClient && perms.canAccessAttendance;
-  const canSeeDailyLog = !isClient && perms.canAccessDailyLog;
+  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
+  const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
+  const canSeeAttendance = !isClient && (eff ? !!eff.attendance : perms.canAccessAttendance);
+  const canSeeDailyLog = !isClient && (eff ? !!eff.daily_log : perms.canAccessDailyLog);
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -207,6 +209,13 @@ function AppInner() {
       }
 
       const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian'];
+
+      if (user?.needs_setup && currentPath !== 'dashboard' && currentPath !== 'settings') {
+        window.history.replaceState(null, '', '/dashboard');
+        setCurrentView('dashboard');
+        localStorage.setItem('reamarc_active_view', 'dashboard');
+        return;
+      }
 
       if (nonV1Routes.includes(currentPath)) {
         const fallback = getDefaultViewForUser();
@@ -618,7 +627,7 @@ function AppInner() {
 
   const handleSignOut = () => {
     logout();
-    addToast('Signed Out', 'You have been safely signed out of Reamarc.', 'warning');
+    addToast('Signed Out', `You have been safely signed out of ` + brandNameOf(user?.company) + `.`, 'warning');
   };
 
   const currentPathLower = window.location.pathname.toLowerCase();
@@ -639,7 +648,7 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    return <LoadingScreen fullScreen message="Checking your session…" title="Reamarc" />;
+    return <LoadingScreen fullScreen message="Checking your session…" title={brandNameOf(user?.company)} />;
   }
 
   if (!user) {

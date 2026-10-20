@@ -126,9 +126,9 @@ async def list_companies(current_user: dict = Depends(require_owner)) -> List[Di
     gdb = get_global_db()
     companies = await gdb.companies.find({}, {"_id": 0}).to_list(1000)
 
-    # Compute live user counts per company
-    pipeline = [{"$group": {"_id": "$company_id", "count": {"$sum": 1}}}]
-    user_counts = {doc["_id"]: doc["count"] async for doc in gdb.users.aggregate(pipeline)}
+    # Compute live user counts per company from active memberships
+    pipeline = [{"$match": {"status": "active"}}, {"$group": {"_id": "$company_id", "count": {"$sum": 1}}}]
+    user_counts = {doc["_id"]: doc["count"] async for doc in gdb.company_memberships.aggregate(pipeline)}
 
     for comp in companies:
         cid = comp.get("id")
@@ -186,7 +186,6 @@ async def create_company(
         await gdb.workspaces.delete_many({"creation_id": creation_id})
         await gdb.users.delete_many({"creation_id": creation_id})
         await gdb.companies.delete_many({"creation_id": creation_id})
-        await gdb.password_resets.delete_many({"creation_id": creation_id})
 
     try:
         comp_doc = {
@@ -293,11 +292,31 @@ async def get_company_detail(
     if not comp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
 
-    users = await gdb.users.find({"company_id": company_id}, {"_id": 0, "hashed_password": 0}).to_list(100)
+    memberships = await gdb.company_memberships.find({"company_id": company_id}).to_list(200)
+    user_ids = [m["user_id"] for m in memberships if m.get("user_id")]
+    user_docs = {}
+    if user_ids:
+        async for u in gdb.users.find({"id": {"$in": user_ids}}):
+            user_docs[u["id"]] = u
+
+    clean_members = []
+    active_count = 0
+    for m in memberships:
+        u = user_docs.get(m.get("user_id"), {})
+        is_active = (m.get("status") == "active")
+        if is_active:
+            active_count += 1
+        clean_members.append({
+            "id": u.get("id") or m.get("user_id"),
+            "name": u.get("full_name") or u.get("name") or "",
+            "email": u.get("email") or "",
+            "role": m.get("role") or u.get("role") or "team_member",
+            "is_active": is_active,
+        })
     workspaces = await gdb.workspaces.find({"company_id": company_id}, {"_id": 0}).to_list(20)
 
-    comp["users"] = users
-    comp["user_count"] = len(users)
+    comp["users"] = clean_members
+    comp["user_count"] = active_count
     comp["workspaces"] = workspaces
     return comp
 

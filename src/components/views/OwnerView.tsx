@@ -155,7 +155,9 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
     addToast(`Opening ${comp.name}…`, undefined, 'info');
     try {
       const res = await ownerService.enterCompany(comp.id, 'Inspection / Support', true);
-      localStorage.setItem('reamarc_impersonation_token', res.impersonation_token);
+      sessionStorage.setItem('reamarc_impersonation_token', res.impersonation_token);
+      sessionStorage.removeItem('reamarc_impersonation_token');
+      localStorage.removeItem('reamarc_impersonation_token');
       window.location.href = '/dashboard';
     } catch (err: any) {
       addToast(`Couldn't open ${comp.name}`, err.message, 'error');
@@ -169,6 +171,7 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
     } catch {
       // Ignore exit error and clear locally
     } finally {
+      sessionStorage.removeItem('reamarc_impersonation_token');
       localStorage.removeItem('reamarc_impersonation_token');
       window.location.href = '/owner';
     }

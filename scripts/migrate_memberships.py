@@ -31,6 +31,17 @@ from dotenv import load_dotenv
 
 env_path = Path(__file__).resolve().parent.parent / "backend" / ".env"
 load_dotenv(env_path)
+try:
+    from scripts._prod_guard import enforce_prod_guard_before_connect, is_prod
+except ImportError:
+    from _prod_guard import enforce_prod_guard_before_connect, is_prod
+
+
+def is_test_user(u: Dict[str, Any]) -> bool:
+    uid = str(u.get("id") or u.get("_id") or "")
+    email = str(u.get("email") or "").lower()
+    cid = str(u.get("company_id") or "")
+    return uid.startswith(("test_", "tnt_")) or email.endswith(("@example.com", "@test.com", "@a.test", "@b.test", "@c.test")) or cid.startswith(("tnt_", "test_"))
 
 MODULE_KEYS = ("attendance", "daily_log", "sales", "content_calendar", "website", "ads")
 
@@ -113,7 +124,7 @@ def ensure_membership_indexes(db: pymongo.database.Database):
     )
 
 
-def run_dry_run(db: pymongo.database.Database, batch_size: int = 100):
+def run_dry_run(db: pymongo.database.Database, batch_size: int = 100, skip_test_users: bool = False):
     print("=" * 70)
     print(f" MEMBERSHIP MIGRATION DRY-RUN — Database: '{db.name}'")
     print("=" * 70)
@@ -130,6 +141,8 @@ def run_dry_run(db: pymongo.database.Database, batch_size: int = 100):
 
     cursor = users_coll.find({"company_id": {"$exists": True, "$ne": None}}).batch_size(batch_size)
     for u in cursor:
+        if skip_test_users and is_test_user(u):
+            continue
         uid = str(u.get("id") or u.get("_id"))
         cid = str(u.get("company_id"))
         exists = memberships_coll.find_one({"user_id": uid, "company_id": cid})
@@ -148,7 +161,7 @@ def run_dry_run(db: pymongo.database.Database, batch_size: int = 100):
     return {"would_insert": would_insert, "already_present": already_present}
 
 
-def apply_migration(db: pymongo.database.Database, batch_size: int = 100) -> Dict[str, Any]:
+def apply_migration(db: pymongo.database.Database, batch_size: int = 100, skip_test_users: bool = False) -> Dict[str, Any]:
     print("=" * 70)
     print(f" APPLYING MEMBERSHIP MIGRATION — Database: '{db.name}'")
     print("=" * 70)
@@ -171,6 +184,8 @@ def apply_migration(db: pymongo.database.Database, batch_size: int = 100) -> Dic
     batch: List[Dict[str, Any]] = []
 
     for u in cursor:
+        if skip_test_users and is_test_user(u):
+            continue
         uid = str(u.get("id") or u.get("_id"))
         cid = str(u.get("company_id"))
 
@@ -199,9 +214,18 @@ def apply_migration(db: pymongo.database.Database, batch_size: int = 100) -> Dic
         print("[ERROR] Users collection changed during membership migration!", file=sys.stderr)
         sys.exit(1)
 
-    # 4. Invariant count checks
+    # 4. Invariant check: every user with company_id has a home membership
     users_with_company = users_coll.count_documents({"company_id": {"$exists": True, "$ne": None}})
     total_memberships = memberships_coll.count_documents({})
+
+    missing_home = 0
+    for u in users_coll.find({"company_id": {"$exists": True, "$ne": None}}):
+        if skip_test_users and is_test_user(u):
+            continue
+        uid = str(u.get("id") or u.get("_id"))
+        cid = str(u.get("company_id"))
+        if not memberships_coll.find_one({"user_id": uid, "company_id": cid}):
+            missing_home += 1
 
     print(f"[OK] Memberships inserted:          {inserted_count}")
     print(f"[OK] Memberships skipped (existing): {skipped_count}")
@@ -209,8 +233,8 @@ def apply_migration(db: pymongo.database.Database, batch_size: int = 100) -> Dic
     print(f"[OK] Users with company_id:         {users_with_company}")
     print(f"[OK] Users collection unchanged:    100% matched checksum")
 
-    if total_memberships != users_with_company:
-        print(f"[ERROR] Counts mismatch: {total_memberships} memberships vs {users_with_company} users with company", file=sys.stderr)
+    if missing_home > 0:
+        print(f"[ERROR] Invariant failed: {missing_home} users with company_id lack home membership!", file=sys.stderr)
         sys.exit(1)
 
     print("=" * 70)
@@ -230,15 +254,19 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Print planned migration changes without writing")
     parser.add_argument("--apply", action="store_true", help="Execute additive membership migration")
     parser.add_argument("--batch-size", type=int, default=100, help="Batch size for reads/writes")
+    parser.add_argument("--i-have-a-backup", help="Path to verified pre-flight backup archive (required on prod)")
+    parser.add_argument("--skip-test-users", action="store_true", help="Skip test/seed users during migration")
     args = parser.parse_args()
+
+    enforce_prod_guard_before_connect(args.uri, args.db, args)
 
     client = MongoClient(args.uri)
     db = client[args.db]
 
     if args.apply:
-        apply_migration(db, batch_size=args.batch_size)
+        apply_migration(db, batch_size=args.batch_size, skip_test_users=args.skip_test_users)
     else:
-        run_dry_run(db, batch_size=args.batch_size)
+        run_dry_run(db, batch_size=args.batch_size, skip_test_users=args.skip_test_users)
 
     client.close()
 

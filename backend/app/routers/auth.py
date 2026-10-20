@@ -128,7 +128,7 @@ def _build_user_response(user_doc: dict) -> dict:
         "crm_enabled": user_doc.get("crm_enabled"),
         "crm_paused": user_doc.get("crm_paused"),
         "avatar_url": user_doc.get("avatar_url"),
-        "company_id": user_doc.get("company_id") or "company_reamarc",
+        "company_id": user_doc.get("company_id") or (None if getattr(settings, "MULTI_TENANT_ENABLED", False) else "company_reamarc"),
         "is_super_admin": bool(user_doc.get("is_super_admin", False)),
         "company": user_doc.get("company"),
         "needs_setup": bool(user_doc.get("needs_setup", False)),
@@ -257,16 +257,29 @@ async def login(request: Request, user_in: UserLogin, response: Response):
         user_doc["companies"] = user_companies
     else:
         from app.core.security import lookup_company
-        cid = user_doc.get("company_id") or "company_reamarc"
+        mt_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
+        cid = user_doc.get("company_id") or (None if mt_enabled else "company_reamarc")
+        if mt_enabled and not cid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not linked to a company",
+            )
         if (
-            not getattr(settings, "MULTI_TENANT_ENABLED", False)
+            not mt_enabled
             and cid not in ("company_reamarc", "reamarc")
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This workspace isn't available yet.",
             )
-        company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+        company_doc = await lookup_company(cid)
+        if not company_doc and not mt_enabled:
+            company_doc = await lookup_company("reamarc")
+        if mt_enabled and not company_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not linked to a company",
+            )
 
         if company_doc and company_doc.get("status") == "suspended":
             raise HTTPException(
@@ -419,16 +432,29 @@ async def refresh_token(request: Request, response: Response):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="No active company membership found.")
     else:
         from app.core.security import lookup_company
-        cid = user_doc.get("company_id") or "company_reamarc"
+        mt_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
+        cid = user_doc.get("company_id") or (None if mt_enabled else "company_reamarc")
+        if mt_enabled and not cid:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not linked to a company",
+            )
         if (
-            not getattr(settings, "MULTI_TENANT_ENABLED", False)
+            not mt_enabled
             and cid not in ("company_reamarc", "reamarc")
         ):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This workspace isn't available yet.",
             )
-        company_doc = await lookup_company(cid) or await lookup_company("reamarc")
+        company_doc = await lookup_company(cid)
+        if not company_doc and not mt_enabled:
+            company_doc = await lookup_company("reamarc")
+        if mt_enabled and not company_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not linked to a company",
+            )
         role_str = _normalize_role(user_doc.get("role"))
 
     if company_doc and company_doc.get("status") == "suspended":
@@ -667,12 +693,19 @@ def _logout_target(request: Request) -> tuple[Optional[str], list[str]]:
 async def logout(request: Request, response: Response):
     user_id, session_ids = _logout_target(request)
     if user_id:
-        db = get_database()
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        db_to_use = gdb if gdb is not None else get_database()
         if session_ids:
-            await revoke_refresh_jtis(db, user_id, session_ids)
+            await revoke_refresh_jtis(db_to_use, user_id, session_ids)
         else:
             # Legacy tokens have no session id, so this browser cannot be split out.
-            await bump_session_epoch(db, user_id)
+            await bump_session_epoch(db_to_use, user_id)
+            await db_to_use.users.update_one(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$inc": {"token_version": 1}},
+            )
+            invalidate_auth_cache(user_id=user_id)
 
     is_prod = settings.IS_PRODUCTION
     cookie_opts = dict(
@@ -1072,7 +1105,13 @@ async def accept_invite(request: Request, payload: InviteAcceptRequest):
         raise HTTPException(status_code=status.HTTP_410_GONE, detail="Invite has expired.")
 
     hashed_pwd = get_password_hash(payload.password)
-    cid = user_doc.get("company_id") or "company_reamarc"
+    mt_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
+    cid = user_doc.get("company_id") or (None if mt_enabled else "company_reamarc")
+    if mt_enabled and not cid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Account not linked to a company",
+        )
     db = get_database()
     with tenant_scope(cid):
         updated = await db.users.find_one_and_update(

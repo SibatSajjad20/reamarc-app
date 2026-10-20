@@ -147,7 +147,7 @@ class TestAuthTenancy(unittest.IsolatedAsyncioTestCase):
             headers={"Authorization": f"Bearer {forged_token}"}
         )
         self.assertEqual(res.status_code, 401)
-        self.assertIn("mismatch", res.json().get("detail", "").lower())
+        self.assertTrue(any(w in res.json().get("detail", "").lower() for w in ["mismatch", "not linked"]))
 
     async def test_02_password_change_kills_old_tokens(self):
         """Bumping token_version immediately invalidates older tokens with 401."""
@@ -286,12 +286,30 @@ class TestAuthTenancy(unittest.IsolatedAsyncioTestCase):
 
     async def test_07_read_only_impersonation_blocks_non_get(self):
         """Impersonation token with ro=True allows GET but blocks POST/PUT/DELETE with 403."""
+        await self.db.users.update_one({"id": self.user_a_id}, {"$set": {"is_super_admin": True}})
+        import uuid
+        from datetime import timedelta
+        sess_jti = f"jti_{uuid.uuid4().hex[:12]}"
+        now = datetime.now(timezone.utc)
+        await self.db.owner_sessions.insert_one({
+            "_id": sess_jti,
+            "jti": sess_jti,
+            "user_id": self.user_a_id,
+            "company_id": "comp_a",
+            "read_only": True,
+            "revoked": False,
+            "exp": now + timedelta(hours=1),
+            "created_at": now,
+        })
         imp_token = create_impersonation_token(
             user_id=self.user_a_id,
             company_id="comp_a",
             read_only=True,
             reason="Investigation ticket #1234",
+            jti=sess_jti,
+            tv=1,
         )
+        _AUTH_CACHE.clear()
         # GET is permitted
         res_get = await self.client.get(
             "/api/v1/auth/me",

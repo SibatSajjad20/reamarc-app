@@ -19,7 +19,6 @@ import type { UserRole } from '../../types/auth';
 import type { AdminMember, EmploymentType, UpdateMemberPayload } from '../../types/admin';
 import type { Workspace } from '../../types';
 import { workspaceService } from '../../services/workspaceService';
-import { adminService } from '../../services/adminService';
 import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave, phoneForInput } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
@@ -84,8 +83,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [activeClients, setActiveClients] = useState<Workspace[]>([]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [resetLinkSent, setResetLinkSent] = useState(false);
-  const [resetLinkBusy, setResetLinkBusy] = useState(false);
+
   const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
   const formRef = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -105,8 +103,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
       setPassword('');
-      setResetLinkSent(false);
-      setResetLinkBusy(false);
       setShowPassword(false);
       setIsActive(member.is_active !== undefined ? member.is_active : true);
       setSelectedWorkspaceId(member.workspace_ids?.[0] || '');
@@ -201,25 +197,54 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
     try {
       setIsSubmitting(true);
-      const payload: UpdateMemberPayload = {
-        role,
-        department: deptValue,
-        departments: deptsList,
-        primary_department: role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
-        joining_date: role === 'client' ? null : joiningDate.trim() || null,
-        employment_type: role === 'client' ? 'contract' : employmentType,
-        is_active: isActive,
-        workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
-      };
-      if (!loginManagedElsewhere) {
-        payload.full_name = fullName.trim();
-        payload.email = normalizedEmail;
-        payload.phone = normalizedPhone;
+      if (loginManagedElsewhere) {
+        const payload: UpdateMemberPayload = {};
+        if (role !== member.role) {
+          payload.role = role;
+        }
+        const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));
+        if (newPrimary !== member.primary_department && (newPrimary !== undefined || member.primary_department !== undefined)) {
+          payload.primary_department = newPrimary;
+        }
+        const initialDepts = (member.departments && member.departments.length > 0) ? member.departments : (member.department ? [member.department] : []);
+        if (JSON.stringify(deptsList) !== JSON.stringify(initialDepts)) {
+          payload.department = deptValue;
+          payload.departments = deptsList;
+        }
+        const newJoining = role === 'client' ? null : joiningDate.trim() || null;
+        if (newJoining !== (member.joining_date || null)) {
+          payload.joining_date = newJoining;
+        }
+        const newEmpType = role === 'client' ? 'contract' : employmentType;
+        if (newEmpType !== member.employment_type) {
+          payload.employment_type = newEmpType;
+        }
+        const newWorkspaces = role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [];
+        const oldWorkspaces = member.workspace_ids || [];
+        if (JSON.stringify(newWorkspaces) !== JSON.stringify(oldWorkspaces)) {
+          payload.workspace_ids = newWorkspaces;
+        }
+        // Never send is_active for login_managed_elsewhere
+        await onSubmit(member.id, payload);
+      } else {
+        const payload: UpdateMemberPayload = {
+          role,
+          department: deptValue,
+          departments: deptsList,
+          primary_department: role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
+          joining_date: role === 'client' ? null : joiningDate.trim() || null,
+          employment_type: role === 'client' ? 'contract' : employmentType,
+          is_active: isActive,
+          workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
+          full_name: fullName.trim(),
+          email: normalizedEmail,
+          phone: normalizedPhone,
+        };
         if (password.trim()) {
           payload.password = password.trim();
         }
+        await onSubmit(member.id, payload);
       }
-      await onSubmit(member.id, payload);
       onClose();
     } catch (err: any) {
       setServerError(err.message || 'Failed to update member profile');
@@ -242,31 +267,39 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Full name <span className="text-danger-fg">*</span>
+                Full name {!loginManagedElsewhere && <span className="text-danger-fg">*</span>}
               </label>
-              <input
-                type="text"
-                name="fullName"
-                required
-                value={fullName}
-                onChange={(e) => {
-                  setFullName(e.target.value);
-                  if (hasSubmitted) {
-                    if (e.target.value.trim()) {
-                      setFieldErrors((prev) => { const n = { ...prev }; delete n.fullName; return n; });
-                    }
-                  }
-                }}
-                aria-invalid={!!fieldErrors.fullName}
-                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.fullName ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
-                }`}
-              />
-              {fieldErrors.fullName && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{fieldErrors.fullName}</span>
-                </div>
+              {loginManagedElsewhere ? (
+                <p className="h-9 px-3 flex items-center text-ui text-fg-muted bg-subtle border border-border rounded-md">
+                  {fullName}
+                </p>
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    name="fullName"
+                    required
+                    value={fullName}
+                    onChange={(e) => {
+                      setFullName(e.target.value);
+                      if (hasSubmitted) {
+                        if (e.target.value.trim()) {
+                          setFieldErrors((prev) => { const n = { ...prev }; delete n.fullName; return n; });
+                        }
+                      }
+                    }}
+                    aria-invalid={!!fieldErrors.fullName}
+                    className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                      fieldErrors.fullName ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
+                    }`}
+                  />
+                  {fieldErrors.fullName && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>{fieldErrors.fullName}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -314,30 +347,38 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               <label className="block text-ui font-medium text-fg mb-1.5">
                 Phone / WhatsApp
               </label>
-              <input
-                type="tel"
-                name="phone"
-                placeholder="+92 300 1234567"
-                value={phone}
-                onChange={(e) => {
-                  setPhone(e.target.value);
-                  if (hasSubmitted) {
-                    const norm = e.target.value.trim() ? normalizePhoneForSave(e.target.value) : undefined;
-                    if (!e.target.value.trim() || norm) {
-                      setFieldErrors((prev) => { const n = { ...prev }; delete n.phone; return n; });
-                    }
-                  }
-                }}
-                aria-invalid={!!fieldErrors.phone}
-                className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
-                  fieldErrors.phone ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
-                }`}
-              />
-              {fieldErrors.phone && (
-                <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
-                  <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
-                  <span>{fieldErrors.phone}</span>
-                </div>
+              {loginManagedElsewhere ? (
+                <p className="h-9 px-3 flex items-center text-ui text-fg-muted bg-subtle border border-border rounded-md">
+                  {phone || '—'}
+                </p>
+              ) : (
+                <>
+                  <input
+                    type="tel"
+                    name="phone"
+                    placeholder="+92 300 1234567"
+                    value={phone}
+                    onChange={(e) => {
+                      setPhone(e.target.value);
+                      if (hasSubmitted) {
+                        const norm = e.target.value.trim() ? normalizePhoneForSave(e.target.value) : undefined;
+                        if (!e.target.value.trim() || norm) {
+                          setFieldErrors((prev) => { const n = { ...prev }; delete n.phone; return n; });
+                        }
+                      }
+                    }}
+                    aria-invalid={!!fieldErrors.phone}
+                    className={`w-full h-9 px-3 text-ui bg-surface border rounded-md text-fg placeholder:text-fg-faint focus:outline-none ${
+                      fieldErrors.phone ? 'border-danger-bd ring-1 ring-danger-bd' : 'border-border focus:border-accent'
+                    }`}
+                  />
+                  {fieldErrors.phone && (
+                    <div className="mt-1 flex items-center gap-1.5 text-xs text-danger-fg" role="alert">
+                      <AlertCircle className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
+                      <span>{fieldErrors.phone}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -539,48 +580,28 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
               </div>
             )}
 
-            <div className="flex flex-col justify-end">
-              <label className="block text-ui font-medium text-fg mb-1.5">
-                Account status
-              </label>
-              <div className="flex items-center gap-2.5 h-8">
-                <ToggleSwitch
-                  checked={isActive}
-                  onChange={setIsActive}
-                  label={isActive ? 'Active' : 'Deactivated'}
-                />
+            {!loginManagedElsewhere && (
+              <div className="flex flex-col justify-end">
+                <label className="block text-ui font-medium text-fg mb-1.5">
+                  Account status
+                </label>
+                <div className="flex items-center gap-2.5 h-8">
+                  <ToggleSwitch
+                    checked={isActive}
+                    onChange={setIsActive}
+                    label={isActive ? 'Active' : 'Deactivated'}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* Row 7: Reset password (optional) */}
           <div className="pt-2 border-t border-border">
             {loginManagedElsewhere ? (
-              <div className="space-y-2">
-                <p className="text-ui text-fg-muted">
-                  This person's login is managed by their home company.
-                </p>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={resetLinkBusy || resetLinkSent || !member}
-                  onClick={async () => {
-                    if (!member) return;
-                    setResetLinkBusy(true);
-                    setServerError(null);
-                    try {
-                      await adminService.sendMemberResetLink(member.id);
-                      setResetLinkSent(true);
-                    } catch (err: any) {
-                      setServerError(err.message || 'Could not send reset link.');
-                    } finally {
-                      setResetLinkBusy(false);
-                    }
-                  }}
-                >
-                  {resetLinkSent ? 'Reset link sent' : resetLinkBusy ? 'Sending…' : 'Send reset link'}
-                </Button>
-              </div>
+              <p className="text-ui text-fg-muted">
+                This person manages their own login.
+              </p>
             ) : (
               <>
             <label className="block text-ui font-medium text-fg mb-1">

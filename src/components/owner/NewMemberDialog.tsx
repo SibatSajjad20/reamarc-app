@@ -62,8 +62,8 @@ export const NewMemberDialog: React.FC<NewMemberDialogProps> = ({
     if (!companyId) errs.companyId = 'Company is required';
     if (!password) {
       errs.password = 'Starting password is required';
-    } else if (password.length < 10) {
-      errs.password = 'Starting password must be at least 10 characters';
+    } else if (password.length < 8) {
+      errs.password = 'Starting password must be at least 8 characters';
     }
     setClientErrors(errs);
     return Object.keys(errs).length === 0;

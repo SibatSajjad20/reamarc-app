@@ -367,7 +367,9 @@ def claims_with_session(
     if "mtv" not in out and ("token_version" in m or m.get("id")):
         out["mtv"] = int(m.get("token_version", 0) or 0)
     if "cid" not in out:
-        out["cid"] = m.get("company_id") or u.get("company_id") or (company_doc.get("id") if company_doc else None) or "company_reamarc"
+        multi_tenant_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
+        fallback_cid = None if multi_tenant_enabled else "company_reamarc"
+        out["cid"] = m.get("company_id") or u.get("company_id") or (company_doc.get("id") if company_doc else None) or fallback_cid
     if "tv" not in out:
         out["tv"] = int(u.get("token_version", 0) or 0)
     if "ctv" not in out and company_doc:
@@ -454,20 +456,29 @@ async def get_current_user(
                 headers={"WWW-Authenticate": "Bearer"},
             )
 
+        multi_tenant_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
         if token_mid:
             membership_doc = await gdb.company_memberships.find_one({"id": token_mid})
             cid_to_load = membership_doc.get("company_id") if membership_doc else token_cid
         else:
             membership_doc = None
-            cid_to_load = token_cid or user_doc.get("company_id") or "company_reamarc"
+            default_cid = None if multi_tenant_enabled else "company_reamarc"
+            cid_to_load = token_cid or user_doc.get("company_id") or default_cid
 
         company_doc = None
         if cid_to_load:
             company_doc = await gdb.companies.find_one({"id": cid_to_load})
             if not company_doc:
                 company_doc = await gdb.companies.find_one({"slug": cid_to_load})
-        if not company_doc:
+        if not company_doc and not multi_tenant_enabled:
             company_doc = await gdb.companies.find_one({"slug": "reamarc"})
+
+        if multi_tenant_enabled and not company_doc and not is_imp:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not linked to a company",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
         _AUTH_CACHE[cache_key] = {
             "user": user_doc,
@@ -488,34 +499,80 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Impersonation token invalid for non-super-admin user.",
             )
-        # Verify owner's token_version hasn't changed (e.g. password change)
-        if token_tv is not None and int(user_doc.get("token_version", 0)) != int(token_tv):
+        if token_tv is None:
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonation token missing token version.",
+            )
+        if int(user_doc.get("token_version", 0)) != int(token_tv):
             _AUTH_CACHE.pop(cache_key, None)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Owner session revoked. Please sign in again.",
             )
-        # Verify impersonation session in owner_sessions
         session_jti = payload.get("jti")
-        if session_jti:
-            from app.core.tenant import get_global_db
-            gdb_inst = get_global_db()
-            if gdb_inst is not None:
-                owner_sess = await gdb_inst.owner_sessions.find_one({"$or": [{"_id": session_jti}, {"jti": session_jti}]})
-                if owner_sess and owner_sess.get("revoked", False):
+        if not session_jti:
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonation token missing session identifier.",
+            )
+        from app.core.tenant import get_global_db
+        gdb_inst = get_global_db()
+        owner_sess = None
+        if gdb_inst is not None:
+            owner_sess = await gdb_inst.owner_sessions.find_one({"$or": [{"_id": session_jti}, {"jti": session_jti}]})
+        if not owner_sess:
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonation session not found.",
+            )
+        if owner_sess.get("revoked", False):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Impersonation session revoked.",
+            )
+        now_utc = datetime.now(timezone.utc)
+        sess_exp = owner_sess.get("exp")
+        if sess_exp:
+            sess_exp_dt = None
+            if isinstance(sess_exp, str):
+                try:
+                    sess_exp_dt = datetime.fromisoformat(sess_exp.replace("Z", "+00:00"))
+                except Exception:
+                    pass
+            elif isinstance(sess_exp, (int, float)):
+                sess_exp_dt = datetime.fromtimestamp(sess_exp, tz=timezone.utc)
+            elif isinstance(sess_exp, datetime):
+                sess_exp_dt = sess_exp
+            if sess_exp_dt:
+                if sess_exp_dt.tzinfo is None:
+                    sess_exp_dt = sess_exp_dt.replace(tzinfo=timezone.utc)
+                if now_utc > sess_exp_dt:
                     _AUTH_CACHE.pop(cache_key, None)
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Impersonation session revoked.",
+                        detail="Impersonation session expired.",
                     )
+        payload_exp = payload.get("exp")
+        if payload_exp is not None:
+            try:
+                if now_utc.timestamp() > float(payload_exp):
+                    _AUTH_CACHE.pop(cache_key, None)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Impersonation token expired.",
+                    )
+            except (ValueError, TypeError):
+                pass
         target_cid = token_cid or payload.get("imp_cid")
-        if target_cid:
-            from app.core.tenant import get_global_db
-            gdb_inst = get_global_db()
-            if gdb_inst is not None:
-                imp_comp = await gdb_inst.companies.find_one({"id": target_cid})
-                if imp_comp:
-                    company_doc = imp_comp
+        if target_cid and gdb_inst is not None:
+            imp_comp = await gdb_inst.companies.find_one({"id": target_cid})
+            if imp_comp:
+                company_doc = imp_comp
 
     # Multi-company validation
     multi_company_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
@@ -586,7 +643,8 @@ async def get_current_user(
     elif not is_imp:
         # Multi-tenancy legacy checks when not using membership validation
         if (getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid):
-            expected_cid = user_doc.get("company_id") or "company_reamarc"
+            multi_tenant_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
+            expected_cid = user_doc.get("company_id") or (None if multi_tenant_enabled else "company_reamarc")
             if token_cid and token_cid != expected_cid:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,

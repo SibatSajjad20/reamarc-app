@@ -398,9 +398,11 @@ def clean_tenancy_sync(uri: str, db_name: str) -> None:
         db[coll_name].delete_many({"_id": {"$in": ids}})
     db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
     db.owner_audit.delete_many({"target_company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    db.company_memberships.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
     db.owner_sessions.delete_many({})
     db.rate_limit_counters.delete_many({})
-    db.job_locks.delete_many({})
+    TEST_LOCK_NAMES = ["test_mutual_exclusion_lease", "test_expired_lease", "test_cm_lease"]
+    db.job_locks.delete_many({"$or": [{"_id": {"$in": TEST_LOCK_NAMES}}, {"_id": {"$regex": "^(test_|tnt_)"}}]})
     try:
         from app.core.limiter import limiter
         limiter._storage.reset()
@@ -416,9 +418,12 @@ async def clean_tenancy_async(db: Any) -> None:
         await db[coll_name].delete_many({"_id": {"$in": ids}})
     await db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
     await db.owner_audit.delete_many({"target_company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    await db.company_memberships.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    db.company_memberships.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
     await db.owner_sessions.delete_many({})
     await db.rate_limit_counters.delete_many({})
-    await db.job_locks.delete_many({})
+    TEST_LOCK_NAMES = ["test_mutual_exclusion_lease", "test_expired_lease", "test_cm_lease"]
+    await db.job_locks.delete_many({"$or": [{"_id": {"$in": TEST_LOCK_NAMES}}, {"_id": {"$regex": "^(test_|tnt_)"}}]})
     try:
         from app.core.limiter import limiter
         limiter._storage.reset()

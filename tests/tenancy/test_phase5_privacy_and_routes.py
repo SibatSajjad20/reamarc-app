@@ -443,3 +443,175 @@ class Phase5PrivacyAndRoutesGateTest(unittest.IsolatedAsyncioTestCase):
             headers={"Authorization": f"Bearer {bad_mtv_token}"},
         )
         self.assertEqual(resp3.status_code, 401)
+
+    async def test_nd_existence_oracle_delete_user(self):
+        """DELETE /admin/users/{id} for cross-company user gives identical 404 to random id and touches nothing."""
+        # W is admin of Company A. X is member of Company B only.
+        random_id = f"random_usr_{uuid.uuid4().hex[:8]}"
+
+        # 1. Delete cross-company user
+        res_cross = await self.client.delete(
+            f"/api/v1/admin/users/{self.uid_x}",
+            headers={"Authorization": f"Bearer {self.token_w_a}"},
+        )
+        self.assertEqual(res_cross.status_code, 404)
+        self.assertEqual(res_cross.json(), {"detail": "Member not found."})
+
+        # 2. Delete non-existent random user
+        res_random = await self.client.delete(
+            f"/api/v1/admin/users/{random_id}",
+            headers={"Authorization": f"Bearer {self.token_w_a}"},
+        )
+        self.assertEqual(res_random.status_code, 404)
+        self.assertEqual(res_random.json(), {"detail": "Member not found."})
+
+        # 3. Verify user X and user X's membership in Company B are completely untouched
+        user_x_doc = await self.gdb.users.find_one({"id": self.uid_x})
+        self.assertIsNotNone(user_x_doc)
+        mem_x_doc = await self.gdb.company_memberships.find_one({"id": self.mid_x_b})
+        self.assertIsNotNone(mem_x_doc)
+        self.assertEqual(mem_x_doc.get("status"), "active")
+
+    async def test_nf_reactivate_member_with_is_active(self):
+        """In update_member with MC on, is_active: True sets a removed/inactive membership back to active."""
+        uid_m = f"mc_p5_usr_m_{self.run_id}"
+        mid_m_a = f"mc_p5_mid_m_a_{self.run_id}"
+        await self.gdb.users.insert_one({
+            "_id": uid_m,
+            "id": uid_m,
+            "email": f"m_{self.run_id}@example.com",
+            "name": "Member M",
+            "role": "team_member",
+            "company_id": self.cid_a,
+            "is_active": False,
+            "token_version": 0,
+        })
+        await self.gdb.company_memberships.insert_one({
+            "_id": mid_m_a,
+            "id": mid_m_a,
+            "user_id": uid_m,
+            "company_id": self.cid_a,
+            "role": "team_member",
+            "status": "removed",
+            "is_active": False,
+            "token_version": 0,
+        })
+
+        # Membership is initially "removed"
+        mem_before = await self.gdb.company_memberships.find_one({"id": mid_m_a})
+        self.assertEqual(mem_before.get("status"), "removed")
+        initial_tv = mem_before.get("token_version", 0)
+
+        # Admin W calls PATCH /admin/users/{uid_m} with is_active: True
+        res_patch = await self.client.patch(
+            f"/api/v1/admin/users/{uid_m}",
+            json={"is_active": True},
+            headers={"Authorization": f"Bearer {self.token_w_a}"},
+        )
+        self.assertEqual(res_patch.status_code, 200)
+
+        # Verify membership is restored to active and tv is NOT bumped
+        mem_after = await self.gdb.company_memberships.find_one({"id": mid_m_a})
+        self.assertEqual(mem_after.get("status"), "active")
+        self.assertEqual(mem_after.get("token_version", 0), initial_tv)
+
+    async def test_l3_delete_leave_request_cross_company_404(self):
+        """DELETE /leaves/requests/{id} returns 404 when record does not belong to caller company."""
+        # 1. Insert leave request in Company A
+        leave_id = f"leave_{uuid.uuid4().hex[:8]}"
+        await self.gdb.leave_requests.insert_one({
+            "_id": leave_id,
+            "id": leave_id,
+            "user_id": self.uid_u,
+            "company_id": self.cid_a,
+            "leave_type": "annual",
+            "status": "pending",
+            "days": 1,
+        })
+
+        # 2. Admin X of Company B attempts to delete Company A leave request -> 404
+        res_x = await self.client.delete(
+            f"/api/v1/leaves/requests/{leave_id}",
+            headers={"Authorization": f"Bearer {self.token_x_b}"},
+        )
+        self.assertEqual(res_x.status_code, 404)
+        self.assertIn("not found", res_x.json()["detail"].lower())
+
+        # 3. Random leave id -> 404
+        res_random = await self.client.delete(
+            "/api/v1/leaves/requests/non_existent_leave_id_123",
+            headers={"Authorization": f"Bearer {self.token_x_b}"},
+        )
+        self.assertEqual(res_random.status_code, 404)
+
+        # 4. Admin W of Company A deletes the leave request -> 200
+        res_w = await self.client.delete(
+            f"/api/v1/leaves/requests/{leave_id}",
+            headers={"Authorization": f"Bearer {self.token_w_a}"},
+        )
+        self.assertEqual(res_w.status_code, 200)
+
+    async def test_r7_no_company_id_and_legacy_logout(self):
+        """A user with no company_id and MT on -> 401. After legacy logout, old token -> 401."""
+        # 1. User with no company_id with MT on -> 401
+        no_cid_uid = f"no_cid_usr_{uuid.uuid4().hex[:8]}"
+        await self.gdb.users.insert_one({
+            "id": no_cid_uid,
+            "email": f"{no_cid_uid}@example.com",
+            "name": "No Company User",
+            "role": "team_member",
+            "is_active": True,
+            "token_version": 0,
+        })
+
+        no_cid_token = create_access_token({
+            "sub": no_cid_uid,
+            "email": f"{no_cid_uid}@example.com",
+            "tv": 0,
+        })
+        _AUTH_CACHE.clear()
+        res_no_cid = await self.client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {no_cid_token}"},
+        )
+        self.assertEqual(res_no_cid.status_code, 401)
+        self.assertIn("Account not linked to a company", res_no_cid.json()["detail"])
+
+        # 2. Legacy logout bumps token_version and invalidates old token
+        # Create a fresh token for user W
+        token_to_logout = create_access_token({
+            "sub": self.uid_w,
+            "email": self.user_w["email"],
+            "cid": self.cid_a,
+            "mid": self.mid_w_a,
+            "mtv": 0,
+            "tv": 0,
+            "ctv": 0,
+        })
+        _AUTH_CACHE.clear()
+
+        # Token works before logout
+        me_before = await self.client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token_to_logout}"},
+        )
+        self.assertEqual(me_before.status_code, 200)
+
+        # Logout via /auth/logout
+        logout_res = await self.client.post(
+            "/api/v1/auth/logout",
+            headers={"Authorization": f"Bearer {token_to_logout}"},
+        )
+        self.assertEqual(logout_res.status_code, 200)
+
+        # Old token is now rejected with 401
+        _AUTH_CACHE.clear()
+        me_after = await self.client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {token_to_logout}"},
+        )
+        self.assertEqual(me_after.status_code, 401)
+
+
+if __name__ == "__main__":
+    unittest.main()
