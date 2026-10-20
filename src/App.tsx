@@ -195,6 +195,22 @@ function AppInner() {
 
   const [currentView, setCurrentView] = useState<ViewType>(() => {
     if (isClient) return 'portal';
+    try {
+      const path = window.location.pathname.toLowerCase().replace(/^\/+|\/+$/g, '');
+      const hash = window.location.hash.toLowerCase().replace(/^#\/*/, '');
+      const queryView = new URLSearchParams(window.location.search).get('view');
+      const first = (path.split('/')[0] || hash.split('/')[0] || queryView || '').trim();
+      const aliases: Record<string, ViewType> = {
+        'client-portal': 'portal',
+        client_portal: 'portal',
+        profile: 'settings',
+      };
+      const fromUrl = (aliases[first] || first) as ViewType;
+      if (fromUrl === 'profile') return 'settings';
+      if (fromUrl && v1Views.includes(fromUrl)) return fromUrl;
+    } catch {
+      // fall through to localStorage
+    }
     const saved = localStorage.getItem('reamarc_active_view') as ViewType;
     if (saved === 'profile') return 'settings';
     return saved && v1Views.includes(saved)
