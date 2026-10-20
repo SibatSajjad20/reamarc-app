@@ -47,19 +47,9 @@ import {
   getRoleLabel,
 } from '../../../utils/badgeStyles';
 import { formatPhoneDisplay } from '../../../utils/phone';
+import { CANONICAL_DEPARTMENTS, uniqueCanonicalDepts } from '../../../utils/departments';
 
-export const SYSTEM_DEPARTMENTS = [
-  'Website',
-  'Creative',
-  'Content',
-  'SEO',
-  'Performance Marketing',
-  'AI',
-  'Software Development',
-  'HR',
-  'Sales',
-  'Social Media',
-];
+export const SYSTEM_DEPARTMENTS = [...CANONICAL_DEPARTMENTS];
 
 export const SYSTEM_ROLES = [
   { id: 'admin', label: 'Admin' },
@@ -226,7 +216,11 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
       `"${(m.full_name || '').replace(/"/g, '""')}"`,
       `"${(m.email || '').replace(/"/g, '""')}"`,
       `"${getRoleLabel(m.role)}"`,
-      `"${(m.department || (m.departments || []).join(', ') || '').replace(/"/g, '""')}"`,
+      `"${(uniqueCanonicalDepts(
+        Array.isArray(m.departments) && m.departments.length > 0
+          ? m.departments
+          : (m.department || '').split(/[,;/]|\band\b|&/i).map((s) => s.trim()),
+      ).join(', ') || '').replace(/"/g, '""')}"`,
       `"${(m.phone || '').replace(/"/g, '""')}"`,
       `"${m.employment_type || 'contract'}"`,
       `"${m.joining_date || ''}"`,
@@ -559,12 +553,12 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             </span>
                           ) : (
                             <div className="flex flex-wrap items-center gap-1">
-                              {(Array.isArray(m.departments) && m.departments.length > 0
-                                ? m.departments
-                                : (m.department || '')
-                                    .split(/[,;/]|\band\b|&/i)
-                                    .map((s) => s.trim())
-                                    .filter(Boolean)
+                              {uniqueCanonicalDepts(
+                                Array.isArray(m.departments) && m.departments.length > 0
+                                  ? m.departments
+                                  : (m.department || '')
+                                      .split(/[,;/]|\band\b|&/i)
+                                      .map((s) => s.trim()),
                               ).map((d) => (
                                 <span
                                   key={d}

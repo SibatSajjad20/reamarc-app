@@ -4,10 +4,15 @@ import uuid
 from datetime import datetime, timezone
 
 from app.schemas.workspace import WorkspaceCreate, WorkspaceUpdate, WorkspaceResponse, GuidelinesUpdate
-from app.core.security import require_admin, require_member_or_admin, require_operations_or_admin
-from app.core.uploads import open_upload_response, authorize_stored_upload
+from app.core.security import (
+    require_operations_or_admin,
+    get_current_user,
+    _MANAGEMENT_ROLES,
+)
+from app.core.uploads import open_upload_response, authorize_stored_upload, normalize_upload_key
 from app.core.limiter import limiter
 from app.database import get_database
+from app.models.user import UserRole
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
@@ -45,15 +50,22 @@ def normalize_workspace(doc: dict) -> dict:
     }
 
 
-def listing_workspace(doc: dict, *, include_pii: bool) -> dict:
-    """Team members need workspace names for daily logs; hide billing/proposal PII."""
+def listing_workspace(doc: dict, *, include_pii: bool, current_user: Optional[dict] = None) -> dict:
+    """Team members need workspace names for daily logs; hide billing/POC PII.
+
+    Proposal files are visible to every internal staff role. Clients only receive
+    proposal fields for workspaces in their workspace_ids.
+    """
     normalized = normalize_workspace(doc)
+    role = (current_user or {}).get("role")
+    if role in (UserRole.CLIENT.value, "client"):
+        allowed = {str(x) for x in ((current_user or {}).get("workspace_ids") or [])}
+        if str(normalized.get("id") or "") not in allowed:
+            for key in ("proposal_url", "proposal_name", "proposal_size"):
+                normalized[key] = None
     if include_pii:
         return normalized
     for key in (
-        "proposal_url",
-        "proposal_name",
-        "proposal_size",
         "poc_name",
         "poc_email",
         "poc_phone",
@@ -67,7 +79,7 @@ def listing_workspace(doc: dict, *, include_pii: bool) -> dict:
 
 
 @router.get("", response_model=List[WorkspaceResponse])
-async def list_workspaces(current_user: dict = Depends(require_member_or_admin)):
+async def list_workspaces(current_user: dict = Depends(get_current_user)):
     db = get_database()
     if db is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
@@ -77,9 +89,11 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
     # Non-management users only see active workspaces
     if user_role not in ("admin", "operations"):
         query["status"] = {"$ne": "inactive"}
+    if user_role in (UserRole.CLIENT.value, "client"):
+        query["id"] = {"$in": [str(x) for x in (current_user.get("workspace_ids") or [])]}
 
     cursor = db.workspaces.find(query, {"_id": 0})
-    workspaces = await cursor.to_list(length=None)
+    workspaces = await cursor.to_list(length=500)
 
     seen = set()
     unique_workspaces = []
@@ -91,6 +105,7 @@ async def list_workspaces(current_user: dict = Depends(require_member_or_admin))
                 listing_workspace(
                     ws,
                     include_pii=user_role in ("admin", "operations", "hr"),
+                    current_user=current_user,
                 )
             )
 
@@ -216,13 +231,50 @@ async def delete_workspace(
     )
 
 
+def _proposal_url_candidates(file_path: str) -> list:
+    raw = (file_path or "").strip()
+    normalized = normalize_upload_key(file_path)
+    return [raw, normalized, f"/uploads/{normalized}"]
+
+
+def _forbid_proposal() -> None:
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Not authorized to access this file.",
+    )
+
+
 @router.get("/download-proposal")
 async def download_proposal(
     file_path: str = Query(..., description="File path under /uploads"),
-    current_user: dict = Depends(require_member_or_admin),
+    current_user: dict = Depends(get_current_user),
 ):
-    """Download a workspace proposal file. Requires an authenticated internal member/lead/ops/admin."""
+    """Download a workspace proposal file for staff (active clients) and assigned clients."""
     db = get_database()
+    candidates = _proposal_url_candidates(file_path)
+    lookup = {"proposal_url": {"$in": candidates}}
+    company_id = str((current_user or {}).get("company_id") or "").strip()
+    if company_id:
+        lookup["company_id"] = company_id
+
+    ws = None
+    if db is not None:
+        ws = await db.workspaces.find_one(lookup)
+
+    if ws:
+        role = current_user.get("role")
+        ws_id = str(ws.get("id") or "")
+        if role in _MANAGEMENT_ROLES:
+            return await open_upload_response(db, file_path)
+        if role in (UserRole.CLIENT.value, "client"):
+            allowed = {str(x) for x in (current_user.get("workspace_ids") or [])}
+            if ws_id not in allowed:
+                _forbid_proposal()
+            return await open_upload_response(db, file_path)
+        if str(ws.get("status") or "").lower() == "inactive":
+            _forbid_proposal()
+        return await open_upload_response(db, file_path)
+
     await authorize_stored_upload(db, current_user, file_path)
     return await open_upload_response(db, file_path)
 

@@ -256,6 +256,25 @@ def is_social_actor(user: Optional[Dict[str, Any]]) -> bool:
     return _team(user) and ("social_media" in eff["content_stages"] or "social" in eff["content_stages"])
 
 
+def stage_scope_clause(viewer: Optional[Dict[str, Any]], stage: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Mongo clause for the viewer's stage scope. None means no extra clause."""
+    if viewer is None:
+        if stage:
+            return {"stage": {"$in": stored_stage_aliases([normalize_stage(stage)])}}
+        return None
+    allowed = visible_stages(viewer)
+    if allowed is not None and len(allowed) == 0:
+        return {"stage": "__none__"}
+    if stage:
+        wanted = normalize_stage(stage)
+        if allowed is not None and wanted not in allowed:
+            return {"stage": "__none__"}
+        return {"stage": {"$in": stored_stage_aliases([wanted])}}
+    if allowed is None:
+        return None
+    return {"stage": {"$in": stored_stage_aliases(allowed)}}
+
+
 def visible_stages(user: Optional[Dict[str, Any]]) -> Optional[List[str]]:
     """Stages this user may receive. None means every stage."""
     if not is_active(user):

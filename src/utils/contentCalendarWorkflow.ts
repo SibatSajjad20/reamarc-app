@@ -272,14 +272,12 @@ export function canCreateCampaign(user?: CalendarActor | null): boolean {
 
 export function visiblePipelineStages(user?: CalendarActor | null): PipelineStage[] {
   if (!user || user.is_active === false) return [];
-  if (
-    isAdmin(user) ||
-    isPerformance(user) ||
-    roleOf(user) === 'client' ||
-    roleOf(user) === 'operations' ||
-    user.permissions?.view_only ||
-    user.permissions?.summary?.content_calendar === 'view'
-  ) {
+  const role = roleOf(user);
+  const backendGrantsAllStages =
+    isAdmin(user) || role === 'client' || role === 'operations' || !!user.permissions?.view_only;
+  // summary.content_calendar === 'view' is all-stages only when the backend
+  // actually grants every stage (admin / operations / client).
+  if (backendGrantsAllStages) {
     return [...PIPELINE_STAGES];
   }
 
@@ -316,13 +314,8 @@ export function visiblePipelineStages(user?: CalendarActor | null): PipelineStag
     }
   }
 
-  // 3. Fallback to actor departments
-  const depts = getActorDepartments(user);
-  const stages: PipelineStage[] = [];
-  if (depts.includes('content')) stages.push(...CONTENT_STAGES);
-  if (depts.includes('creative')) stages.push(...CREATIVE_STAGES);
-  if (depts.includes('social media')) stages.push(...SOCIAL_STAGES);
-  return PIPELINE_STAGES.filter((s) => stages.includes(s));
+  // Secondary departments never grant stages on their own.
+  return [];
 }
 
 export function actionsFor(user: CalendarActor | null | undefined, item: ContentCalendarItem): StageActionSpec[] {

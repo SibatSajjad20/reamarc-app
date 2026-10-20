@@ -12,6 +12,14 @@ copy .env.example .env         # then fill SECRET_KEY and MONGODB_URL
 uvicorn app.main:app --reload --port 8000
 ```
 
+On Render, use `backend/render-start.sh` or:
+
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-1}
+```
+
+Set `RUN_SCHEDULERS=0` on extra workers so schedulers run once.
+
 Docs are at `/docs` in development only. They are disabled when `ENVIRONMENT=production`.
 
 ## Production env (minimum)

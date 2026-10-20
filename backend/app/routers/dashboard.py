@@ -100,18 +100,25 @@ async def _build_crm_section(db, user: Dict[str, Any], now_iso: str) -> Optional
 
 async def _build_content_section(db, user: Dict[str, Any]) -> Optional[ContentSummarySection]:
     from app.services.permissions import load_ctx, resolve, level_gte
+    from app.services.content_calendar_workflow import is_admin as cc_is_admin, is_operations, stage_scope_clause
     ctx = load_ctx(user)
     if not level_gte("content_calendar", resolve(ctx, "content_calendar"), "view"):
         return None
 
     role = (user.get("role") or "").lower().strip()
     is_lead = role in ("team_lead", "lead", UserRole.TEAM_LEAD.value)
-    is_admin = role in ("admin", UserRole.ADMIN.value)
+    is_admin_user = cc_is_admin(user) or role in ("admin", UserRole.ADMIN.value)
+    is_ops = is_operations(user) or role in ("operations", "ops", UserRole.OPERATIONS.value)
 
-    match_q: Dict[str, Any] = {"stage": {"$nin": ["Posted", "Rejected"]}}
-    if not is_admin and not is_lead:
-        uid = user.get("id")
-        match_q["$or"] = [{"assignee_id": uid}, {"design_owner": uid}]
+    clauses: List[Dict[str, Any]] = [{"stage": {"$nin": ["Posted", "Rejected"]}}]
+    if not is_admin_user and not is_ops:
+        scope = stage_scope_clause(user)
+        if scope:
+            clauses.append(scope)
+        if not is_lead:
+            uid = user.get("id")
+            clauses.append({"$or": [{"assignee_id": uid}, {"design_owner": uid}]})
+    match_q: Dict[str, Any] = {"$and": clauses} if len(clauses) > 1 else clauses[0]
 
     pipeline = [
         {"$match": match_q},

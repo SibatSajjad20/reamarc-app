@@ -23,19 +23,14 @@ import { useAuth } from '../../context/AuthContext';
 import { looksLikeEmail, normalizePhoneForSave, phoneForInput } from '../../utils/phone';
 import { focusFirstError } from '../../utils/formFocus';
 import { cn } from '../../lib/utils';
+import {
+  CANONICAL_DEPARTMENTS,
+  mapDeptToOption,
+  memberDepartmentLists,
+  sameDept,
+} from '../../utils/departments';
 
-export const DEPARTMENTS = [
-  'Website',
-  'Creative',
-  'Content',
-  'SEO',
-  'Performance marketing',
-  'Social media',
-  'Sales',
-  'AI',
-  'Software development',
-  'HR',
-] as const;
+export const DEPARTMENTS = CANONICAL_DEPARTMENTS;
 
 export const ROLES: { id: UserRole; label: string; description: string }[] = [
   { id: 'team_member', label: 'Team member', description: 'Records own tasks and daily logs' },
@@ -74,7 +69,10 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [role, setRole] = useState<UserRole>('team_member');
   const [primaryDepartment, setPrimaryDepartment] = useState<string>('Website');
   const [secondaryDepartments, setSecondaryDepartments] = useState<string[]>([]);
-  const selectedDepartments = [primaryDepartment, ...secondaryDepartments.filter((d) => d !== primaryDepartment)];
+  const selectedDepartments = [
+    primaryDepartment,
+    ...secondaryDepartments.filter((d) => !sameDept(d, primaryDepartment)),
+  ];
   const [joiningDate, setJoiningDate] = useState('');
   const [employmentType, setEmploymentType] = useState<EmploymentType>('contract');
   const [password, setPassword] = useState('');
@@ -96,24 +94,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       setEmail(member.email || '');
       setPhone(phoneForInput(member.phone));
       setRole((member.role as any) === 'member' ? 'team_member' : member.role || 'team_member');
-      const initialPrimary: string =
-        (member as any).primary_department ||
-        (Array.isArray(member.departments) && member.departments[0]) ||
-        (member.department && member.department !== 'All' && member.department !== 'HR'
-          ? member.department.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean)[0]
-          : '') ||
-        'Website';
-      setPrimaryDepartment(initialPrimary);
-
-      const allMemberDepts = Array.isArray(member.departments)
-        ? member.departments
-        : (member.department && member.department !== 'All' && member.department !== 'HR'
-            ? member.department.split(/[,;/]|\band\b|&/i).map((s) => s.trim()).filter(Boolean)
-            : []);
-      const initialSecondaries = allMemberDepts.filter(
-        (d) => d.toLowerCase().trim() !== initialPrimary.toLowerCase().trim()
-      );
-      setSecondaryDepartments(initialSecondaries);
+      const mapped = memberDepartmentLists(member);
+      setPrimaryDepartment(mapped.primary || 'Website');
+      setSecondaryDepartments(mapped.secondaries);
 
       setJoiningDate(member.joining_date || '');
       setEmploymentType(member.employment_type === 'probation' ? 'probation' : 'contract');
@@ -442,13 +425,18 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   value={primaryDepartment}
                   onChange={(val) => {
                     setPrimaryDepartment(val);
-                    setSecondaryDepartments((prev) => prev.filter((d) => d !== val));
+                    setSecondaryDepartments((prev) => prev.filter((d) => !sameDept(d, val)));
                     if (hasSubmitted && val) {
                       setFieldErrors((prev) => { const n = { ...prev }; delete n.departments; return n; });
                     }
                   }}
-                  options={DEPARTMENTS.filter((d) => d !== 'HR').map((dept) => ({
-                    value: dept,
+                  options={[
+                    ...DEPARTMENTS.filter((d) => d !== 'HR'),
+                    ...(primaryDepartment && !DEPARTMENTS.some((d) => sameDept(d, primaryDepartment))
+                      ? [primaryDepartment]
+                      : []),
+                  ].map((dept) => ({
+                    value: mapDeptToOption(dept, DEPARTMENTS) || dept,
                     label: dept,
                   }))}
                   placeholder="Select primary department..."
@@ -470,16 +458,16 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
                   Secondary departments <span className="text-caption text-fg-muted font-normal">(Optional)</span>
                 </label>
                 <div className="flex flex-wrap gap-1.5 p-2 rounded-lg border border-border bg-subtle/40">
-                  {DEPARTMENTS.filter((d) => d !== 'HR' && d !== primaryDepartment).map((dept) => {
-                    const isSelected = secondaryDepartments.includes(dept);
+                  {DEPARTMENTS.filter((d) => d !== 'HR' && !sameDept(d, primaryDepartment)).map((dept) => {
+                    const isSelected = secondaryDepartments.some((d) => sameDept(d, dept));
                     return (
                       <button
                         key={dept}
                         type="button"
                         onClick={() => {
                           setSecondaryDepartments((prev) =>
-                            prev.includes(dept)
-                              ? prev.filter((d) => d !== dept)
+                            prev.some((d) => sameDept(d, dept))
+                              ? prev.filter((d) => !sameDept(d, dept))
                               : [...prev, dept]
                           );
                         }}
