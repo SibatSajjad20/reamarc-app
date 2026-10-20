@@ -94,6 +94,13 @@ const getBaseUrl = (): string => {
     );
   }
 
+  // Same-origin experiment: VITE_API_URL=/api/v1 uses Vercel rewrites (no CORS preflight).
+  // Do not switch production until the preview p50 is within +30ms of the direct API.
+  if (envUrl.startsWith('/')) {
+    const relative = envUrl.replace(/\/$/, '') || '/api/v1';
+    return relative.includes('/api/v1') ? relative : `${relative}/api/v1`;
+  }
+
   let cleaned = (envUrl || 'http://localhost:8000/api/v1').replace(/\/$/, '');
   if (!cleaned.endsWith('/api/v1') && !cleaned.includes('/api/v1')) {
     cleaned = `${cleaned}/api/v1`;
