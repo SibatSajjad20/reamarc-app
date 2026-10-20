@@ -53,6 +53,7 @@ export interface ContentCalendarItem {
   id: string;
   serial: string;
   client_name?: string | null;
+  client_logo_url?: string | null;
   campaign_type: string;
   creative_type: string;
   content_type: ContentTypeOption | string;

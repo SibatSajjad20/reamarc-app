@@ -82,6 +82,18 @@ export const extractUploadsPath = (url: string): string | null => {
   return null;
 };
 
+const isHtmlContentType = (contentType: string | null | undefined) =>
+  (contentType || '').toLowerCase().startsWith('text/html');
+
+const attachmentCandidateUrls = (uploadsPath: string): string[] => {
+  const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
+  return [
+    `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`,
+    `${API_BASE_URL}/uploads/${cleanKey}`,
+    `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`,
+  ];
+};
+
 /**
  * Opens an attachment in a new browser tab for viewing.
  * For viewable formats (PDFs, images), fetches via authenticated session and creates an object URL
@@ -134,16 +146,11 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     }
   }
 
-  const cleanKey = uploadsPath.replace(/^\/?uploads\//, '');
-
-  const candidateUrls: string[] = [
-    `${API_BASE_URL}/uploads/${cleanKey}`,
-    `/uploads/${cleanKey}`,
-    `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`,
-    `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`,
-  ];
+  const candidateUrls = attachmentCandidateUrls(uploadsPath);
 
   let is404 = false;
+  let attemptCount = 0;
+  let forbiddenCount = 0;
 
   for (const targetUrl of candidateUrls) {
     try {
@@ -152,6 +159,12 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
+      attemptCount += 1;
+
+      if (response.status === 403) {
+        forbiddenCount += 1;
+        continue;
+      }
 
       if (response.status === 404) {
         is404 = true;
@@ -160,6 +173,9 @@ export const openFileAttachment = async (url: string, filename?: string) => {
 
       if (response.ok) {
         const contentType = response.headers.get('content-type') || '';
+        if (isHtmlContentType(contentType)) {
+          continue;
+        }
         const blob = await response.blob();
 
         const lowerName = (filename || url).toLowerCase();
@@ -340,7 +356,9 @@ export const openFileAttachment = async (url: string, filename?: string) => {
     newTab.close();
   }
 
-  if (is404) {
+  if (attemptCount > 0 && forbiddenCount === attemptCount) {
+    notifyFileUrl("You don't have access to this file", undefined, 'error');
+  } else if (is404) {
     console.error(`Requested attachment not found on server: ${url}`);
     notifyFileUrl(
       'Document not found',
@@ -386,25 +404,16 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
     finalName = `${finalName}.${sourceExt}`;
   }
 
-  const candidateUrls: string[] = [];
   const uploadsPath = extractUploadsPath(url);
-  const cleanKey = uploadsPath ? uploadsPath.replace(/^\/?uploads\//, '') : url.replace(/^\/?uploads\//, '');
-
-  if (uploadsPath) {
-    candidateUrls.push(`${API_BASE_URL}/uploads/${cleanKey}?download=true`);
-    candidateUrls.push(`/uploads/${cleanKey}?download=true`);
-    candidateUrls.push(
-      `${API_BASE_URL}/workspaces/download-proposal?file_path=${encodeURIComponent(uploadsPath)}`
-    );
-    candidateUrls.push(
-      `${API_BASE_URL}/daily-log/download-file?file_path=${encodeURIComponent(uploadsPath)}`
-    );
-  } else {
+  if (!uploadsPath) {
     return;
   }
+  const candidateUrls = attachmentCandidateUrls(uploadsPath);
 
   let downloaded = false;
   let is404 = false;
+  let attemptCount = 0;
+  let forbiddenCount = 0;
 
   for (const targetUrl of candidateUrls) {
     try {
@@ -413,6 +422,12 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
         credentials: 'include',
         headers: { 'X-Requested-With': 'XMLHttpRequest' },
       });
+      attemptCount += 1;
+
+      if (response.status === 403) {
+        forbiddenCount += 1;
+        continue;
+      }
 
       if (response.status === 404) {
         is404 = true;
@@ -420,6 +435,9 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
       }
 
       if (response.ok) {
+        if (isHtmlContentType(response.headers.get('content-type'))) {
+          continue;
+        }
         const blob = await response.blob();
         const blobUrl = window.URL.createObjectURL(blob);
         const link = document.createElement('a');
@@ -442,6 +460,10 @@ export const downloadFileAttachment = async (url: string, filename?: string) => 
   }
 
   if (!downloaded) {
+    if (attemptCount > 0 && forbiddenCount === attemptCount) {
+      notifyFileUrl("You don't have access to this file", undefined, 'error');
+      return;
+    }
     if (is404) {
       console.error(`Requested attachment not found on server: ${url}`);
       notifyFileUrl(

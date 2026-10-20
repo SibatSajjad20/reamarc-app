@@ -1,6 +1,7 @@
 import { apiClient } from './apiClient';
 import { BoundedCache, type CacheEntry } from '../utils/cache';
 import { emitInvalidation, registerCacheClearer } from '../utils/cacheBus';
+import { contentCalendarService } from './contentCalendarService';
 import type { Workspace } from '../types';
 
 const workspacesCache = new BoundedCache<Workspace[]>(2);
@@ -88,6 +89,34 @@ export const workspaceService = {
     const res = await apiClient.delete<{ message: string }>(`/workspaces/${workspaceId}`);
     workspacesCache.clear();
     emitInvalidation(['workspaces', 'dashboard']);
+    return res;
+  },
+
+  patchCachedWorkspace(updated: Workspace): void {
+    const cached = workspacesCache.get('workspaces');
+    if (cached?.data) {
+      workspacesCache.set(
+        'workspaces',
+        cached.data.map((w) => (w.id === updated.id ? { ...w, ...updated } : w))
+      );
+    }
+  },
+
+  async uploadLogo(workspaceId: string, file: File): Promise<Workspace> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.upload<Workspace>(`/workspaces/${workspaceId}/logo`, formData);
+    workspaceService.patchCachedWorkspace(res);
+    contentCalendarService.clearAllCaches();
+    emitInvalidation(['workspaces', 'content-calendar', 'dashboard']);
+    return res;
+  },
+
+  async removeLogo(workspaceId: string): Promise<Workspace> {
+    const res = await apiClient.delete<Workspace>(`/workspaces/${workspaceId}/logo`);
+    workspaceService.patchCachedWorkspace(res);
+    contentCalendarService.clearAllCaches();
+    emitInvalidation(['workspaces', 'content-calendar', 'dashboard']);
     return res;
   },
 

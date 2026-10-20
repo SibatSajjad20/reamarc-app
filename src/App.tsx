@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
 import { DashboardView } from './components/views/DashboardView';
@@ -7,9 +7,10 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { DailyLogView } from './components/views/DailyLogView';
 import { ExceptionInboxView } from './components/views/ExceptionInboxView';
 import { AttendanceView } from './components/views/AttendanceView';
-import { WorkspaceModal } from './components/modals/WorkspaceModal';
 import { SettingsView } from './components/settings/SettingsView';
 import { ActiveClientsView } from './components/views/ActiveClientsView';
+import { ClientPage, type ClientPageState } from './components/views/ClientPage';
+import type { WorkspaceFormSeed } from './hooks/useClientForm';
 import { CrmView } from './components/views/CrmView';
 import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
@@ -182,6 +183,9 @@ function AppInner() {
   const [activePortalTab, setActivePortalTab] = useState<'content' | 'website'>('content');
   const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionSlug>('profile');
   const [lastNonSettingsView, setLastNonSettingsView] = useState<ViewType>(() => getDefaultViewForUser());
+  const [clientPage, setClientPage] = useState<ClientPageState | null>(null);
+  const [clientFormSeed, setClientFormSeed] = useState<WorkspaceFormSeed | null>(null);
+  const unsavedGuardRef = useRef<(() => Promise<boolean>) | null>(null);
 
   // Route guard effect to enforce V1.0 module boundaries & URL path redirects
   useEffect(() => {
@@ -263,7 +267,20 @@ function AppInner() {
           setCurrentView('daily-log');
           localStorage.setItem('reamarc_active_view', 'daily-log');
         }
+      } else if (currentPath === 'clients/new' || /^clients\/[^/]+\/edit$/.test(currentPath)) {
+        const params = new URLSearchParams(window.location.search);
+        const returnRaw = params.get('return');
+        const returnTo = returnRaw === 'admin-workspaces' ? 'admin-workspaces' : params.get('from_lead') ? 'crm' : 'active-clients';
+        if (currentPath === 'clients/new') {
+          setClientPage({ mode: 'new', fromLead: params.get('from_lead'), returnTo });
+        } else {
+          setClientPage({ mode: 'edit', id: currentPath.split('/')[1], returnTo: returnRaw === 'admin-workspaces' ? 'admin-workspaces' : 'active-clients' });
+        }
+        setCurrentView('active-clients');
+        localStorage.setItem('reamarc_active_view', 'active-clients');
       } else if (currentPath === 'active-clients' || currentPath === 'active_clients' || currentPath === 'clients') {
+        setClientPage(null);
+        setClientFormSeed(null);
         setCurrentView('active-clients');
         localStorage.setItem('reamarc_active_view', 'active-clients');
       } else if (currentPath === 'won-deal-approvals' || currentPath === 'won_deal_approvals') {
@@ -404,6 +421,13 @@ function AppInner() {
   }, [user, canSeeAdmin, canSeeMarketing, canSeeExceptions, canSeeActiveClients, canSeeCrm, canSeeWonDealApprovals, canSeeContentCalendar, canSeeAttendance, canSeeDailyLog, isClient, isAdmin, getDefaultViewForUser]);
 
   const handleSelectView = (view: ViewType, subSection?: string) => {
+    void (async () => {
+      if (unsavedGuardRef.current) {
+        const ok = await unsavedGuardRef.current();
+        if (!ok) return;
+      }
+      setClientPage(null);
+      setClientFormSeed(null);
     let allowedViews: ViewType[] = [];
     if (!isClient) {
       allowedViews.push('dashboard');
@@ -460,6 +484,7 @@ function AppInner() {
 
     setCurrentView(targetView);
     localStorage.setItem('reamarc_active_view', targetView);
+    })();
   };
 
   const handleSelectSettingsSection = (slug: SettingsSectionSlug) => {
@@ -499,7 +524,6 @@ function AppInner() {
 
   const {
     workspaces,
-    saveWorkspace,
   } = useWorkspaces(Boolean(user));
 
   const {
@@ -508,9 +532,24 @@ function AppInner() {
     setSelectedAdAccount,
   } = useAdAccounts(Boolean(isAdmin || perms.can('ads', 'view')));
 
-  // Modal State for Workspaces
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
+  const navigateToClientPage = useCallback((next: ClientPageState, seed?: WorkspaceFormSeed | null) => {
+    void (async () => {
+      if (unsavedGuardRef.current) {
+        const ok = await unsavedGuardRef.current();
+        if (!ok) return;
+      }
+      setClientFormSeed(seed ?? null);
+      setClientPage(next);
+      setCurrentView('active-clients');
+      localStorage.setItem('reamarc_active_view', 'active-clients');
+      const path = next.mode === 'new' ? '/clients/new' : `/clients/${next.id}/edit`;
+      const qs = new URLSearchParams();
+      if (next.returnTo === 'admin-workspaces') qs.set('return', 'admin-workspaces');
+      if (next.fromLead) qs.set('from_lead', next.fromLead);
+      const q = qs.toString();
+      window.history.pushState(null, '', q ? `${path}?${q}` : path);
+    })();
+  }, []);
 
   // Theme Mode State ('dark' | 'light' | 'system')
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
@@ -563,29 +602,13 @@ function AppInner() {
     });
   };
 
-  // Workspace CRUD Handlers
   const handleOpenCreateWorkspace = useCallback(() => {
-    setWorkspaceToEdit(null);
-    setIsWorkspaceModalOpen(true);
-  }, []);
+    navigateToClientPage({ mode: 'new', returnTo: 'active-clients' });
+  }, [navigateToClientPage]);
 
   const handleEditWorkspace = useCallback((ws: Workspace) => {
-    setWorkspaceToEdit(ws);
-    setIsWorkspaceModalOpen(true);
-  }, []);
-
-  const handleSaveWorkspace = async (data: any) => {
-    try {
-      const res = await saveWorkspace(workspaceToEdit, data);
-      if (res.isNew) {
-        addToast('Workspace created', `Switched to new workspace "${res.workspace.name}".`, 'success');
-      } else {
-        addToast('Workspace updated', `"${res.workspace.name}" updated successfully.`, 'success');
-      }
-    } catch (err: any) {
-      addToast('Workspace Save Failed', err.message || 'Could not save workspace.', 'error');
-    }
-  };
+    navigateToClientPage({ mode: 'edit', id: ws.id, returnTo: 'active-clients' });
+  }, [navigateToClientPage]);
 
   const handleSelectAdAccount = useCallback((account: any) => {
     setSelectedAdAccount(account);
@@ -812,11 +835,35 @@ function AppInner() {
           {currentView === 'active-clients' && (
             canSeeActiveClients ? (
             <div className="flex-1 flex flex-col h-full min-h-0 min-w-0 overflow-hidden view-enter">
+              {clientPage ? (
+                <ClientPage
+                  page={clientPage}
+                  seed={clientFormSeed}
+                  registerGuard={(fn) => { unsavedGuardRef.current = fn; }}
+                  onNavigate={(path, options) => {
+                    if (options?.replace) window.history.replaceState(null, '', path);
+                    else window.history.pushState(null, '', path);
+                    const normalised = path.split('?')[0].replace(/^\/+|\/+$/g, '');
+                    if (normalised.startsWith('clients/') && normalised.endsWith('/edit')) {
+                      setClientPage((prev) => ({ mode: 'edit', id: normalised.split('/')[1], returnTo: prev?.returnTo || 'active-clients', fromLead: null }));
+                    } else if (normalised.startsWith('admin')) {
+                      setClientPage(null); setClientFormSeed(null); setCurrentView('admin'); setActiveAdminSection('workspaces');
+                    } else if (normalised.startsWith('crm')) {
+                      setClientPage(null); setClientFormSeed(null); setCurrentView('crm');
+                    } else if (normalised.startsWith('marketing')) {
+                      setClientPage(null); setClientFormSeed(null); setCurrentView('marketing');
+                    } else {
+                      setClientPage(null); setClientFormSeed(null); setCurrentView('active-clients');
+                    }
+                  }}
+                />
+              ) : (
               <ActiveClientsView
                 workspaces={workspaces}
                 onAddWorkspace={handleOpenCreateWorkspace}
                 onEditWorkspace={handleEditWorkspace}
               />
+              )}
             </div>
             ) : (
               <AccessDenied module="Active clients" />
@@ -839,6 +886,9 @@ function AppInner() {
               <CrmView
                 activeSection={activeCrmSection}
                 onSectionChange={setActiveCrmSection}
+                onRegisterClient={(lead, seed) => {
+                  navigateToClientPage({ mode: 'new', fromLead: lead.id, returnTo: 'crm', crmSection: activeCrmSection }, seed);
+                }}
               />
             </div>
             ) : (
@@ -934,6 +984,8 @@ function AppInner() {
               <AdminPanel
                 activeSection={activeAdminSection}
                 onSectionChange={setActiveAdminSection}
+                onAddWorkspace={() => navigateToClientPage({ mode: 'new', returnTo: 'admin-workspaces' })}
+                onEditWorkspace={(ws) => navigateToClientPage({ mode: 'edit', id: ws.id, returnTo: 'admin-workspaces' })}
               />
             </div>
             ) : (
@@ -1011,13 +1063,6 @@ function AppInner() {
         onOpenChange={setIsShortcutsOpen}
       />
 
-      {/* Workspace Create/Edit Modal */}
-      <WorkspaceModal
-        isOpen={isWorkspaceModalOpen}
-        onClose={() => setIsWorkspaceModalOpen(false)}
-        onSave={handleSaveWorkspace}
-        workspaceToEdit={workspaceToEdit}
-      />
     </>
   );
 }

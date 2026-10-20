@@ -2367,10 +2367,20 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
                 att_copy["thumbnail_url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1"
         public_attachments.append(att_copy)
 
+    client_logo_url = None
+    workspace_id = presented.get("workspace_id")
+    if workspace_id:
+        ws_doc = await db.workspaces.find_one({"id": workspace_id}, {"logo_url": 1})
+        if ws_doc:
+            from app.services.client_logo import sanitize_client_logo_url
+
+            client_logo_url = sanitize_client_logo_url(ws_doc.get("logo_url"))
+
     return {
         "id": presented["id"],
         "serial": presented.get("serial"),
         "client_name": presented.get("client_name"),
+        "client_logo_url": client_logo_url,
         "content_concept": presented.get("content_concept"),
         "campaign_type": presented.get("campaign_type"),
         "content_pillar": presented.get("content_pillar"),

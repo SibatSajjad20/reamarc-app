@@ -3,6 +3,8 @@ import { Calendar, ArrowRight, Plus } from 'lucide-react';
 import type { ContentCalendarItem } from '../../../types/contentCalendar';
 import { getUpcomingItemsByDay } from '../../../utils/contentCalendarOverview';
 import { NEUTRAL_METADATA_BADGE_COMPACT_CLASS } from '../../../utils/badgeStyles';
+import { ClientAvatar } from '../../ui/ClientAvatar';
+import { useResolvedClient } from '../../../hooks/useClientLookup';
 
 interface Props {
   items: ContentCalendarItem[];
@@ -19,6 +21,7 @@ export const UpcomingListCard: React.FC<Props> = ({
   onOpenCalendar,
   onAddContent,
 }) => {
+  const resolveClient = useResolvedClient();
   const { groups, totalPosts } = useMemo(() => getUpcomingItemsByDay(items, 7), [items]);
 
   const { displayRows, renderedCount } = useMemo(() => {
@@ -117,7 +120,8 @@ export const UpcomingListCard: React.FC<Props> = ({
         <div className="flex-1 flex flex-col justify-between pt-2">
           <div className="space-y-1">
             {displayRows.map(({ groupLabel, isGroupHeader, item }) => {
-              const client = (item.client_name || '').trim() || 'No client';
+              const clientWs = resolveClient(item);
+              const client = (clientWs?.name || item.client_name || '').trim() || 'No client';
               const channel =
                 item.channels && item.channels.length > 0
                   ? item.channels.join(', ')
@@ -134,12 +138,15 @@ export const UpcomingListCard: React.FC<Props> = ({
                     onClick={() => onSelectItem?.(item)}
                     className="flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg hover:bg-hover transition cursor-pointer group border border-transparent hover:border-border"
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 flex items-center gap-2">
+                      <ClientAvatar name={client} logoUrl={clientWs?.logo_url} clientId={clientWs?.id || item.workspace_id} brandColor={clientWs?.brandColor} initials={clientWs?.initials} size={18} decorative />
+                      <div className="min-w-0 flex-1">
                       <div className="text-xs font-semibold text-fg truncate group-hover:text-accent transition-colors">
                         {item.content_concept || item.primary_text || 'Untitled campaign'}
                       </div>
                       <div className="text-caption text-fg-muted truncate font-numeric mt-0.5">
                         {client} · {channel}
+                      </div>
                       </div>
                     </div>
                     <div className="shrink-0">

@@ -17,6 +17,7 @@ import type { Workspace } from '../../types';
 import { downloadFileAttachment, openFileAttachment } from '../../utils/fileUrl';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
 import { HealthBadge, PriorityBadge } from '../ui/WorkspaceBadges';
+import { ClientAvatar } from '../ui/ClientAvatar';
 import { PageHeader } from '../ui/PageHeader';
 import { Input } from '../ui/input';
 import { SegmentedControl, type SegmentedOption } from '../ui/SegmentedControl';
@@ -64,23 +65,16 @@ function formatContractDate(iso?: string | null): string {
 }
 
 export function ClientMark({ ws, size = 28 }: { ws: Workspace; size?: 28 | 40 }) {
-  const fontSize = Math.round(size * 0.42);
-  const initials = ws.initials || ws.name.substring(0, 2).toUpperCase();
-  const bg = ws.brandColor?.startsWith('#') ? ws.brandColor : '#4f46e5';
-
   return (
-    <div
-      style={{
-        width: `${size}px`,
-        height: `${size}px`,
-        fontSize: `${fontSize}px`,
-        backgroundColor: bg,
-      }}
-      className="rounded-mark text-white font-semibold flex items-center justify-center shrink-0 select-none shadow-xs"
-      aria-hidden="true"
-    >
-      <span>{initials}</span>
-    </div>
+    <ClientAvatar
+      name={ws.name}
+      logoUrl={ws.logo_url}
+      clientId={ws.id}
+      brandColor={ws.brandColor}
+      initials={ws.initials}
+      size={size === 28 ? 32 : 40}
+      decorative
+    />
   );
 }
 

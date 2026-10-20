@@ -78,6 +78,10 @@ async def _create_indexes_background():
         await db_instance.db.knowledge_chunks.create_index([("workspaceId", 1), ("user_id", 1)])
         await db_instance.db.knowledge_chunks.create_index([("source_id", 1)])
         await db_instance.db.workspaces.create_index([("user_id", 1)])
+        await db_instance.db.workspace_audit.create_index(
+            [("workspace_id", 1), ("at", 1)],
+            name="idx_workspace_audit_ws_at",
+        )
 
         # Performance Marketing Module indexes
         await db_instance.db.marketing_campaigns.create_index([("workspace_id", 1)])
