@@ -252,6 +252,14 @@ async def download_proposal(
     candidates = _proposal_url_candidates(file_path)
     lookup = {"proposal_url": {"$in": candidates}}
     company_id = str((current_user or {}).get("company_id") or "").strip()
+    try:
+        from app.core.tenant import get_tenant_context
+
+        ctx = get_tenant_context()
+        if ctx and ctx.company_id:
+            company_id = str(ctx.company_id).strip()
+    except Exception:
+        pass
     if company_id:
         lookup["company_id"] = company_id
 
