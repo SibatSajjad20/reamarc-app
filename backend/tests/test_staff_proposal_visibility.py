@@ -69,6 +69,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
             self.files[key] = path
             self.files[f"{key}_url"] = f"/uploads/proposals/{name}"
 
+        self.company_id = "company_reamarc"
         self.member = {
             "id": f"{PREFIX}-member",
             "email": "spropvis-member@example.test",
@@ -76,6 +77,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
             "role": "team_member",
             "is_active": True,
             "workspace_ids": [],
+            "company_id": self.company_id,
         }
         self.lead = {
             "id": f"{PREFIX}-lead",
@@ -84,6 +86,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
             "role": "team_lead",
             "is_active": True,
             "workspace_ids": [],
+            "company_id": self.company_id,
         }
         self.admin = {
             "id": f"{PREFIX}-admin",
@@ -92,6 +95,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
             "role": "admin",
             "is_active": True,
             "workspace_ids": [],
+            "company_id": self.company_id,
         }
         self.client_user = {
             "id": f"{PREFIX}-client",
@@ -100,6 +104,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
             "role": "client",
             "is_active": True,
             "workspace_ids": [WS_A],
+            "company_id": self.company_id,
         }
         await self.db.users.insert_many([self.member, self.lead, self.admin, self.client_user])
 
@@ -108,6 +113,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": WS_A,
                     "name": "Workspace A Active",
+                    "company_id": self.company_id,
                     "status": "active",
                     "proposal_url": self.files["a_url"],
                     "proposal_name": "Proposal A.pdf",
@@ -123,6 +129,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": WS_B,
                     "name": "Workspace B Inactive",
+                    "company_id": self.company_id,
                     "status": "inactive",
                     "proposal_url": self.files["b_url"],
                     "proposal_name": "Proposal B.pdf",
@@ -134,6 +141,7 @@ class TestStaffProposalVisibility(unittest.IsolatedAsyncioTestCase):
                 {
                     "id": WS_C,
                     "name": "Workspace C Other",
+                    "company_id": self.company_id,
                     "status": "active",
                     "proposal_url": self.files["c_url"],
                     "proposal_name": "Proposal C.pdf",
