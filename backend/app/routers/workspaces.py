@@ -93,7 +93,7 @@ async def list_workspaces(current_user: dict = Depends(get_current_user)):
         query["id"] = {"$in": [str(x) for x in (current_user.get("workspace_ids") or [])]}
 
     cursor = db.workspaces.find(query, {"_id": 0})
-    workspaces = await cursor.to_list(length=None)
+    workspaces = await cursor.to_list(length=500)
 
     seen = set()
     unique_workspaces = []

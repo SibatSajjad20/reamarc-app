@@ -91,56 +91,66 @@ async def lifespan(app: FastAPI):
 
     cleanup_task = asyncio.create_task(_run_startup_cleanup())
 
-    # Start 6-hour background sync task for performance marketing
-    async def periodic_marketing_sync():
-        while True:
-            try:
-                # Sleep 6 hours (21600 seconds) between runs
-                await asyncio.sleep(21600)
-                from app.services.marketing_sync import run_daily_ad_metrics_sync
-                await run_daily_ad_metrics_sync()
-            except asyncio.CancelledError:
-                break
-            except Exception as err:
-                logging.getLogger(__name__).error(f"Error in periodic marketing sync loop: {err}")
+    run_schedulers = os.getenv("RUN_SCHEDULERS", "1") != "0"
+    reminder_task = sla_task = lead_queue_task = meta_poll_task = None
+    meeting_reminder_task = website_scheduler_task = sync_task = None
 
-    from app.services.attendance_scheduler import (
-        start_attendance_scheduler,
-        shutdown_attendance_scheduler,
-    )
-    start_attendance_scheduler()
+    if run_schedulers:
+        # Start 6-hour background sync task for performance marketing
+        async def periodic_marketing_sync():
+            while True:
+                try:
+                    # Sleep 6 hours (21600 seconds) between runs
+                    await asyncio.sleep(21600)
+                    from app.services.marketing_sync import run_daily_ad_metrics_sync
+                    await run_daily_ad_metrics_sync()
+                except asyncio.CancelledError:
+                    break
+                except Exception as err:
+                    logging.getLogger(__name__).error(f"Error in periodic marketing sync loop: {err}")
 
-    from app.services.log_reminder_scheduler import start_automated_log_reminder_scheduler
-    reminder_task = asyncio.create_task(start_automated_log_reminder_scheduler())
+        from app.services.attendance_scheduler import (
+            start_attendance_scheduler,
+        )
+        start_attendance_scheduler()
 
-    from app.services.crm_sla_scheduler import start_crm_sla_scheduler
-    sla_task = asyncio.create_task(start_crm_sla_scheduler())
+        from app.services.log_reminder_scheduler import start_automated_log_reminder_scheduler
+        reminder_task = asyncio.create_task(start_automated_log_reminder_scheduler())
 
-    from app.services.crm_lead_processor import start_crm_lead_queue_scheduler
-    lead_queue_task = asyncio.create_task(start_crm_lead_queue_scheduler())
+        from app.services.crm_sla_scheduler import start_crm_sla_scheduler
+        sla_task = asyncio.create_task(start_crm_sla_scheduler())
 
-    from app.services.crm_ingest import start_meta_form_poll_scheduler
-    meta_poll_task = asyncio.create_task(start_meta_form_poll_scheduler())
+        from app.services.crm_lead_processor import start_crm_lead_queue_scheduler
+        lead_queue_task = asyncio.create_task(start_crm_lead_queue_scheduler())
 
-    from app.services.crm_meeting_reminder_scheduler import start_crm_meeting_reminder_scheduler
-    meeting_reminder_task = asyncio.create_task(start_crm_meeting_reminder_scheduler())
+        from app.services.crm_ingest import start_meta_form_poll_scheduler
+        meta_poll_task = asyncio.create_task(start_meta_form_poll_scheduler())
 
-    from app.services.website_due_scheduler import start_website_due_scheduler
-    website_scheduler_task = asyncio.create_task(start_website_due_scheduler())
+        from app.services.crm_meeting_reminder_scheduler import start_crm_meeting_reminder_scheduler
+        meeting_reminder_task = asyncio.create_task(start_crm_meeting_reminder_scheduler())
 
-    sync_task = asyncio.create_task(periodic_marketing_sync())
+        from app.services.website_due_scheduler import start_website_due_scheduler
+        website_scheduler_task = asyncio.create_task(start_website_due_scheduler())
+
+        sync_task = asyncio.create_task(periodic_marketing_sync())
 
     yield
 
     cleanup_task.cancel()
-    reminder_task.cancel()
-    sla_task.cancel()
-    lead_queue_task.cancel()
-    meta_poll_task.cancel()
-    meeting_reminder_task.cancel()
-    website_scheduler_task.cancel()
-    sync_task.cancel()
-    shutdown_attendance_scheduler()
+    for task in (
+        reminder_task,
+        sla_task,
+        lead_queue_task,
+        meta_poll_task,
+        meeting_reminder_task,
+        website_scheduler_task,
+        sync_task,
+    ):
+        if task is not None:
+            task.cancel()
+    if run_schedulers:
+        from app.services.attendance_scheduler import shutdown_attendance_scheduler
+        shutdown_attendance_scheduler()
     await close_mongo_connection()
 
 _docs = None if settings.IS_PRODUCTION else "/docs"

@@ -187,6 +187,21 @@ async def seed_from_excel(
     return {"message": f"Seeding completed. {seeded} items processed.", "count": seeded}
 
 
+@router.post("/admin/hydrate-video-thumbs", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def hydrate_video_thumbs(
+    request: Request,
+    item_id: Optional[str] = Query(None, description="Optional content item id or serial"),
+    limit: int = Query(1, ge=1, le=20),
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Admin-only still capture for videos missing a thumbnail. One item at a time by default."""
+    if not is_admin(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can hydrate video thumbnails.")
+    db = get_database()
+    return await content_calendar_service.hydrate_missing_video_thumbs_job(db, item_id=item_id, limit=limit)
+
+
 @router.patch("/batch", status_code=status.HTTP_200_OK)
 @limiter.limit("180/minute")
 async def batch_update_content_items(
