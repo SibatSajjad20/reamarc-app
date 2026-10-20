@@ -135,6 +135,11 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
   const detailReqIdRef = useRef(0);
   const pollAbortRef = useRef<AbortController | null>(null);
   const hasLoadedOnceRef = useRef(hasCache);
+  const serverTimeRef = useRef<string | null>(null);
+  const nextCursorRef = useRef<string | null>(null);
+  const lastFullRefreshRef = useRef<number>(0);
+  const [hasMoreLeads, setHasMoreLeads] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const selectedIdRef = useRef<string | null>(null);
 
   const [search, setSearch] = useState('');
@@ -211,6 +216,10 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       ]);
       if (reqId !== loadReqIdRef.current) return;
       setLeads(list.items);
+      serverTimeRef.current = list.server_time || null;
+      nextCursorRef.current = list.next_cursor || null;
+      setHasMoreLeads(Boolean(list.next_cursor) || list.items.length < list.total);
+      lastFullRefreshRef.current = Date.now();
       setCounts(countDoc);
       setStages(pipe.stages || []);
       setAssignees(people);
@@ -281,19 +290,32 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
         const controller = new AbortController();
         pollAbortRef.current = controller;
         try {
-          const list = await crmService.listLeads(
-            {
-              search: search.trim() || undefined,
-              stage: stage || undefined,
-              assigned_to: assignedTo || undefined,
-              include_junk: true,
-            },
-            { signal: controller.signal }
-          );
-          if (!cancelled) {
-            setLeads(list.items);
-            setRateLimited(false);
-            pollInterval = 10000;
+          const stale = Date.now() - lastFullRefreshRef.current > 5 * 60 * 1000;
+          if (stale) {
+            await load();
+          } else {
+            const list = await crmService.listLeads(
+              {
+                search: search.trim() || undefined,
+                stage: stage || undefined,
+                assigned_to: assignedTo || undefined,
+                include_junk: true,
+                updated_since: serverTimeRef.current || undefined,
+              },
+              { signal: controller.signal }
+            );
+            if (!cancelled) {
+              if (list.server_time) serverTimeRef.current = list.server_time;
+              if (list.items.length) {
+                setLeads((prev) => {
+                  const map = new Map(prev.map((lead) => [lead.id, lead]));
+                  for (const item of list.items) map.set(item.id, item);
+                  return Array.from(map.values());
+                });
+              }
+              setRateLimited(false);
+              pollInterval = 10000;
+            }
           }
         } catch (err: any) {
           if (err?.name === 'AbortError' || err?.status === 499) {
@@ -317,7 +339,44 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       pollAbortRef.current?.abort();
       if (timerId) window.clearTimeout(timerId);
     };
-  }, [assignedTo, search, stage]);
+  }, [assignedTo, search, stage, load]);
+
+  const loadMoreLeads = useCallback(async () => {
+    if (!nextCursorRef.current || isLoadingMore) return;
+    setIsLoadingMore(true);
+    try {
+      const page = await crmService.listLeads({
+        search: search.trim() || undefined,
+        stage: stage || undefined,
+        assigned_to: assignedTo || undefined,
+        include_junk: true,
+        after: nextCursorRef.current,
+        limit: 200,
+      });
+      nextCursorRef.current = page.next_cursor || null;
+      setHasMoreLeads(Boolean(page.next_cursor));
+      if (page.server_time) serverTimeRef.current = page.server_time;
+      setLeads((prev) => {
+        const seen = new Set(prev.map((lead) => lead.id));
+        const extra = page.items.filter((item) => !seen.has(item.id));
+        return extra.length ? [...prev, ...extra] : prev;
+      });
+    } finally {
+      setIsLoadingMore(false);
+    }
+  }, [assignedTo, isLoadingMore, search, stage]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      if (document.visibilityState === 'visible') void load();
+    };
+    document.addEventListener('visibilitychange', onFocus);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      document.removeEventListener('visibilitychange', onFocus);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, [load]);
 
   const handleDeleteLead = async (leadId: string) => {
     try {
@@ -737,6 +796,18 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
             )}
           </div>
 
+          <div className="flex items-center gap-2">
+            {hasMoreLeads && viewMode !== 'deals' && (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={isLoadingMore}
+                onClick={() => void loadMoreLeads()}
+              >
+                {isLoadingMore ? 'Loading…' : 'Load more'}
+              </Button>
+            )}
           <SegmentedControl
             value={viewMode}
             onValueChange={(val) => handleToggleViewMode(val as any)}
@@ -753,6 +824,7 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
               },
             ]}
           />
+          </div>
         </div>
 
         {/* View Mode Content */}

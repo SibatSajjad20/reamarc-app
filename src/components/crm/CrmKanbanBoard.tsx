@@ -1,4 +1,5 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   CheckCircle2,
   ChevronRight,
@@ -16,6 +17,76 @@ import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
 
 type DropTarget = { kind: 'stage'; stage: string } | { kind: 'outcome'; outcome: 'won' | 'lost' };
+
+function KanbanColumnCards({
+  cards,
+  stageIndex,
+  isDrop,
+  dropKey,
+  setOverKey,
+  onDropStage,
+  renderCard,
+}: {
+  cards: CrmLead[];
+  stageIndex?: number;
+  isDrop: boolean;
+  dropKey: string;
+  setOverKey: React.Dispatch<React.SetStateAction<string | null>>;
+  onDropStage: () => void;
+  renderCard: (lead: CrmLead, stageIndex?: number) => React.ReactNode;
+}) {
+  const parentRef = useRef<HTMLDivElement>(null);
+  const virtualizer = useVirtualizer({
+    count: cards.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 148,
+    overscan: 6,
+  });
+  const useVirtual = cards.length >= 40;
+
+  return (
+    <div
+      ref={parentRef}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOverKey(dropKey);
+      }}
+      onDragLeave={() => setOverKey((cur) => (cur === dropKey ? null : cur))}
+      onDrop={(e) => {
+        e.preventDefault();
+        onDropStage();
+      }}
+      className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
+        isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
+      }`}
+    >
+      {cards.length === 0 ? (
+        <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
+          No leads
+        </div>
+      ) : useVirtual ? (
+        <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+          {virtualizer.getVirtualItems().map((row) => {
+            const lead = cards[row.index];
+            return (
+              <div
+                key={lead.id}
+                data-index={row.index}
+                ref={virtualizer.measureElement}
+                className="absolute top-0 left-0 w-full pb-2.5"
+                style={{ transform: `translateY(${row.start}px)` }}
+              >
+                {renderCard(lead, stageIndex)}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        cards.map((lead) => renderCard(lead, stageIndex))
+      )}
+    </div>
+  );
+}
 
 interface CrmKanbanBoardProps {
   leads: CrmLead[];
@@ -430,27 +501,15 @@ export const CrmKanbanBoard: React.FC<CrmKanbanBoardProps> = ({
               </div>
 
               {/* Column Body */}
-              <div
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (overKey !== key) setOverKey(key);
-                }}
-                onDragLeave={() => setOverKey((cur) => (cur === key ? null : cur))}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  void drop({ kind: 'stage', stage: stage.id });
-                }}
-                className={`bg-subtle rounded-lg p-2.5 flex flex-col gap-2.5 flex-1 min-h-0 overflow-y-auto custom-scrollbar transition-colors ${
-                  isDrop ? 'bg-accent-soft outline-1 outline-dashed outline-accent' : ''
-                }`}
-              >
-                {cards.map((lead) => renderCard(lead, idx))}
-                {cards.length === 0 && (
-                  <div className="h-28 border border-dashed border-border-strong rounded-lg flex items-center justify-center text-xs font-medium text-fg-muted select-none">
-                    No leads
-                  </div>
-                )}
-              </div>
+              <KanbanColumnCards
+                cards={cards}
+                stageIndex={idx}
+                isDrop={isDrop}
+                dropKey={key}
+                setOverKey={setOverKey}
+                onDropStage={() => void drop({ kind: 'stage', stage: stage.id })}
+                renderCard={renderCard}
+              />
             </div>
           );
         })}

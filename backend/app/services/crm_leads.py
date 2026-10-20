@@ -353,7 +353,9 @@ async def list_leads(
     outcome: Optional[str] = None,
     limit: int = 200,
     skip: int = 0,
-) -> Tuple[List[Dict[str, Any]], int]:
+    after: Optional[str] = None,
+    updated_since: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], int, Optional[str], str]:
     outcome_filter: Optional[str] = None
     if outcome and str(outcome).strip():
         outcome_filter = str(outcome).strip().lower()
@@ -397,21 +399,39 @@ async def list_leads(
                 ]
             }
         )
+    if updated_since and str(updated_since).strip():
+        clauses.append({"updated_at": {"$gt": str(updated_since).strip()}})
+    if after and str(after).strip() and "|" in after:
+        after_ts, after_id = after.split("|", 1)
+        clauses.append(
+            {
+                "$or": [
+                    {"created_at": {"$lt": after_ts}},
+                    {"created_at": after_ts, "id": {"$lt": after_id}},
+                ]
+            }
+        )
     query: Dict[str, Any] = {"$and": clauses} if clauses else {}
-
-    cursor = (
-        db.crm_leads.find(query, {"_id": 0})
-        .sort("created_at", -1)
-        .skip(max(skip, 0))
-        .limit(min(max(limit, 1), 500))
-    )
-    total, docs = await asyncio.gather(
-        db.crm_leads.count_documents(query),
-        cursor.to_list(500),
-    )
+    page_size = min(max(limit, 1), 500)
+    sort_spec = [("updated_at", -1), ("id", -1)] if updated_since else [("created_at", -1), ("id", -1)]
+    find_skip = 0 if (after or updated_since) else max(skip, 0)
+    cursor = db.crm_leads.find(query, {"_id": 0}).sort(sort_spec).skip(find_skip).limit(page_size)
+    server_time = datetime.now(timezone.utc).isoformat()
+    if after or updated_since:
+        docs = await cursor.to_list(page_size)
+        total = len(docs)
+    else:
+        total, docs = await asyncio.gather(
+            db.crm_leads.count_documents(query),
+            cursor.to_list(page_size),
+        )
     serialized = [serialize_lead(d) for d in docs]
     await attach_deals_to_leads(serialized)
-    return serialized, total
+    next_cursor = None
+    if serialized and not updated_since and len(serialized) >= page_size:
+        last = serialized[-1]
+        next_cursor = f"{last.get('created_at') or ''}|{last.get('id') or ''}"
+    return serialized, total, next_cursor, server_time
 
 
 async def lead_counts(user: Dict[str, Any]) -> Dict[str, Any]:

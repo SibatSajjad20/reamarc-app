@@ -36,6 +36,9 @@ export interface CrmLeadQuery {
   uncontacted?: boolean;
   outcome?: string;
   limit?: number;
+  skip?: number;
+  after?: string;
+  updated_since?: string;
 }
 
 function toQuery(params?: CrmLeadQuery): string {
@@ -48,6 +51,9 @@ function toQuery(params?: CrmLeadQuery): string {
   if (params.uncontacted) sp.set('uncontacted', 'true');
   if (params.outcome) sp.set('outcome', params.outcome);
   if (params.limit) sp.set('limit', String(params.limit));
+  if (params.skip) sp.set('skip', String(params.skip));
+  if (params.after) sp.set('after', params.after);
+  if (params.updated_since) sp.set('updated_since', params.updated_since);
   const q = sp.toString();
   return q ? `?${q}` : '';
 }
@@ -172,13 +178,14 @@ export const crmService = {
   },
 
   async listLeads(params?: CrmLeadQuery, options?: { signal?: AbortSignal }): Promise<CrmLeadList> {
+    const skipCache = Boolean(params?.after || params?.updated_since || options?.signal);
     const key = toQuery(params) || 'default';
-    const cached = crmLeadsCache.get(key);
-    if (cached && !options?.signal && Date.now() - cached.fetchedAt < 30_000) {
+    const cached = skipCache ? undefined : crmLeadsCache.get(key);
+    if (cached && Date.now() - cached.fetchedAt < 30_000) {
       return cached.data;
     }
     const res = await apiClient.get<CrmLeadList>(`/crm/leads${toQuery(params)}`, { signal: options?.signal });
-    crmLeadsCache.set(key, res);
+    if (!skipCache) crmLeadsCache.set(key, res);
     return res;
   },
 

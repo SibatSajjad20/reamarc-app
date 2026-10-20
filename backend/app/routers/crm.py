@@ -113,8 +113,10 @@ async def list_leads(
     outcome: Optional[str] = Query(None),
     limit: int = Query(200, ge=1, le=500),
     skip: int = Query(0, ge=0),
+    after: Optional[str] = Query(None, description="Cursor created_at|id for the next older page"),
+    updated_since: Optional[str] = Query(None, description="ISO timestamp; return only changed leads"),
 ):
-    items, total = await crm.list_leads(
+    items, total, next_cursor, server_time = await crm.list_leads(
         current_user,
         search=search,
         stage=stage,
@@ -124,8 +126,15 @@ async def list_leads(
         outcome=outcome,
         limit=limit,
         skip=skip,
+        after=after,
+        updated_since=updated_since,
     )
-    return CrmLeadListResponse(items=[CrmLeadResponse(**i) for i in items], total=total)
+    return CrmLeadListResponse(
+        items=[CrmLeadResponse(**i) for i in items],
+        total=total,
+        next_cursor=next_cursor,
+        server_time=server_time,
+    )
 
 
 @router.post("/leads", response_model=CrmLeadResponse, status_code=status.HTTP_201_CREATED)

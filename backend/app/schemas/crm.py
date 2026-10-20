@@ -1022,6 +1022,8 @@ class CrmDealListResponse(BaseModel):
 class CrmLeadListResponse(BaseModel):
     items: List[CrmLeadResponse]
     total: int
+    next_cursor: Optional[str] = None
+    server_time: Optional[str] = None
 
 
 class CrmCountsResponse(BaseModel):

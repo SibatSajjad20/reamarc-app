@@ -394,6 +394,11 @@ async def _create_indexes_background():
             )
             await db_instance.db.system_config.create_index("key", name="idx_system_config_key")
             await db_instance.db.crm_templates.create_index([("name", 1)], name="idx_crm_tpl_name")
+            await db_instance.db.crm_leads.create_index([("updated_at", -1)], name="idx_crm_updated_at")
+            await db_instance.db.crm_leads.create_index(
+                [("company_id", 1), ("updated_at", -1)],
+                name="idx_company_crm_updated_at",
+            )
         except Exception as e:
             logger.warning(f"Could not create hot-query indexes: {e}")
 

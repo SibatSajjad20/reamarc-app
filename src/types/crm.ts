@@ -152,6 +152,8 @@ export interface CrmLeadDetail extends CrmLead {
 export interface CrmLeadList {
   items: CrmLead[];
   total: number;
+  next_cursor?: string | null;
+  server_time?: string | null;
 }
 
 export interface CrmCounts {
