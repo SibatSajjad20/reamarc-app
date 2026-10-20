@@ -13,6 +13,8 @@ type NavigatorLike = Pick<Navigator, 'userAgent' | 'platform' | 'maxTouchPoints'
   share?: (data: ShareData) => Promise<void>;
 };
 
+type WinLike = Pick<Window, 'open'> & { location?: { href: string } };
+
 export function isIOSDevice(nav: NavigatorLike = navigator): boolean {
   const ua = nav.userAgent || '';
   if (/iP(hone|ad|od)/.test(ua)) return true;
@@ -55,10 +57,18 @@ function isImageAsset(asset: PublicDownloadAsset): boolean {
   return kind === 'image' || type.startsWith('image/');
 }
 
+function openInSameTab(url: string, win: WinLike): void {
+  if (win.location) {
+    win.location.href = url;
+    return;
+  }
+  win.open(url, '_self');
+}
+
 export async function downloadPublicAsset(
   asset: PublicDownloadAsset,
   nav: NavigatorLike = navigator,
-  win: Pick<Window, 'open'> = window,
+  win: WinLike = window,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   if (!isIOSDevice(nav)) {
@@ -87,8 +97,12 @@ export async function downloadPublicAsset(
         return;
       }
     } catch {
-      // Fall through to open-in-tab.
+      // Safari blocks window.open after await; stay in this tab.
+      openInSameTab(asset.downloadUrl, win);
+      return;
     }
+    openInSameTab(asset.downloadUrl, win);
+    return;
   }
 
   win.open(asset.downloadUrl, '_blank');

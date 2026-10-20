@@ -83,6 +83,68 @@ describe('publicDownload', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it('opens the same tab when iOS share fails after fetch', async () => {
+    const share = vi.fn(async () => {
+      throw new Error('share failed');
+    });
+    const canShare = vi.fn(() => true);
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    }));
+    const open = vi.fn();
+    const location = { href: '' };
+
+    await downloadPublicAsset(
+      {
+        downloadUrl: '/dl.png?download=1',
+        filename: 'hero.png',
+        contentType: 'image/png',
+        sizeBytes: 1200,
+        kind: 'image',
+      },
+      iosNav({ canShare, share } as unknown as Navigator),
+      { open, location },
+      fetchImpl as unknown as typeof fetch,
+    );
+
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(share).toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(location.href).toBe('/dl.png?download=1');
+  });
+
+  it('opens the same tab when iOS share fails after fetch', async () => {
+    const share = vi.fn(async () => {
+      throw new Error('share failed');
+    });
+    const canShare = vi.fn(() => true);
+    const fetchImpl = vi.fn(async () => new Response(new Uint8Array([1, 2, 3]), {
+      status: 200,
+      headers: { 'content-type': 'image/png' },
+    }));
+    const open = vi.fn();
+    const location = { href: '' };
+
+    await downloadPublicAsset(
+      {
+        downloadUrl: '/dl.png?download=1',
+        filename: 'hero.png',
+        contentType: 'image/png',
+        sizeBytes: 1200,
+        kind: 'image',
+      },
+      iosNav({ canShare, share } as unknown as Navigator),
+      { open, location },
+      fetchImpl as unknown as typeof fetch,
+    );
+
+    expect(fetchImpl).toHaveBeenCalled();
+    expect(share).toHaveBeenCalled();
+    expect(open).not.toHaveBeenCalled();
+    expect(location.href).toBe('/dl.png?download=1');
+  });
+
   it('opens an iOS video in a new tab and never fetches it', async () => {
     const fetchImpl = vi.fn();
     const open = vi.fn();

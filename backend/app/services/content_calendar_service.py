@@ -40,6 +40,7 @@ from app.schemas.content_calendar import (
 )
 from app.services.content_calendar_workflow import (
     WorkflowError,
+    CLIENT_REVIEW_STAGES,
     CONTENT_STAGES,
     CREATIVE_STAGES,
     can_edit_item,
@@ -2326,13 +2327,39 @@ def check_review_link_expiration(doc: Dict[str, Any]) -> Tuple[bool, Optional[st
     return False, None
 
 
+_REVIEW_DOWNLOAD_BLOCK_STAGES = {
+    "Content Revision",
+    "Creative Revision",
+    "Creative Production",
+    "Content",
+    "Content Internal Review",
+    "Creative Internal Review",
+}
+_REVIEW_DOWNLOAD_APPROVED_STATUSES = {
+    "Approved",
+    "Approved for Campaign",
+    "Creative Approved",
+    "Content Approved",
+}
+
+
 def check_review_link_download_allowed(doc: Dict[str, Any]) -> bool:
-    """Approved (and post-approval) items stay downloadable from the review link."""
+    """Downloads are allowed only during client review, or after approval if not sent back."""
     stage = normalize_stage(doc.get("stage"))
     approval_status = str(doc.get("approval_status") or "").strip()
-    if approval_status in ("Approved", "Approved for Campaign", "Creative Approved", "Content Approved"):
+    # Block revision / in-progress production before any allow rule (including leftover Approved).
+    if (
+        stage in ("Content Revision", "Creative Revision")
+        or approval_status == "Changes Requested"
+        or stage == "Creative Production"
+        or stage in _REVIEW_DOWNLOAD_BLOCK_STAGES
+    ):
+        return False
+    if stage in CLIENT_REVIEW_STAGES:
         return True
-    return stage in ("Creative Production", "Ready to Post", "Posted")
+    if approval_status in _REVIEW_DOWNLOAD_APPROVED_STATUSES:
+        return True
+    return stage in ("Ready to Post", "Posted")
 
 
 async def get_public_review_item(db, token: str) -> Dict[str, Any]:
