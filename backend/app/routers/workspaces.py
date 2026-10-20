@@ -52,6 +52,7 @@ def normalize_workspace(doc: dict) -> dict:
         "billing_phone": doc.get("billing_phone"),
         "brandGuidelines": str(doc.get("brandGuidelines") or doc.get("brand_guidelines") or ""),
         "isDefault": bool(doc.get("isDefault", False)),
+        "updated_at": doc.get("updated_at") or doc.get("created_at"),
     }
 
 

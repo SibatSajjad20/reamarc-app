@@ -45,11 +45,20 @@ export const ClientForm: React.FC<Props> = ({ form, workspace, canManage, onWork
             <input maxLength={4} value={values.initials} onChange={(e) => patch({ initials: e.target.value.toUpperCase() })} className={cn(inputClass, 'uppercase font-mono text-center')} />
           </div>
         </div>
-        <SegmentedControl value={values.status} onValueChange={(v) => patch({ status: v as 'active' | 'inactive' })} options={[{ value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }]} aria-label="Workspace status" />
+        <SegmentedControl
+          block
+          value={values.status}
+          onValueChange={(v) => patch({ status: v as 'active' | 'inactive' })}
+          options={[
+            { value: 'active', label: 'Active · visible to team' },
+            { value: 'inactive', label: 'Inactive · operations only' },
+          ]}
+          aria-label="Workspace status"
+        />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <CustomSelect value={values.projectCycle} onChange={(v) => patch({ projectCycle: v as any })} options={PROJECT_CYCLES} />
-          <CustomSelect value={values.priority} onChange={(v) => patch({ priority: v as any })} options={PRIORITIES} />
-          <CustomSelect value={values.health} onChange={(v) => patch({ health: v as any })} options={HEALTH_OPTIONS} />
+          <CustomSelect label="Project cycle" value={values.projectCycle} onChange={(v) => patch({ projectCycle: v as any })} options={PROJECT_CYCLES} />
+          <CustomSelect label="Priority" value={values.priority} onChange={(v) => patch({ priority: v as any })} options={PRIORITIES} />
+          <CustomSelect label="Account health" value={values.health} onChange={(v) => patch({ health: v as any })} options={HEALTH_OPTIONS} />
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>

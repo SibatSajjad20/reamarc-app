@@ -72,6 +72,7 @@ class WorkspaceResponse(BaseModel):
     brandGuidelines: Optional[str] = ""
     isDefault: bool = False
     logo_url: Optional[str] = None
+    updated_at: Optional[str] = None
 
     class Config:
         populate_by_name = True

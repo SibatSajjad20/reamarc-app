@@ -14,6 +14,7 @@ import { ErrorState } from '../ui/ErrorState';
 import { workspaceService } from '../../services/workspaceService';
 import { crmService } from '../../services/crmService';
 import { useConfirm } from '../ui/ConfirmProvider';
+import { formatPktDateTime } from '../../utils/datetime';
 
 export type ClientPageReturn = 'active-clients' | 'admin-workspaces' | 'crm' | 'marketing';
 export interface ClientPageState {
@@ -53,6 +54,7 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
   const [liveWorkspace, setLiveWorkspace] = useState<Workspace | null>(workspace);
   const [logoUploadError, setLogoUploadError] = useState<string | null>(null);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
+  const scrollRootRef = useRef<HTMLDivElement | null>(null);
   const [activeSection, setActiveSection] = useState('basics');
 
   useEffect(() => {
@@ -139,6 +141,35 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
     }
   };
 
+  const sections = useMemo(() => [
+    { id: 'basics', label: 'Basics', errorKeys: ['name', 'contractStartDate', 'contractEndDate', 'services'] },
+    { id: 'logo', label: 'Logo & colour', errorKeys: [] as string[] },
+    { id: 'contacts', label: 'Contacts', errorKeys: [] as string[] },
+    { id: 'proposal', label: 'Proposal', errorKeys: [] as string[] },
+    ...(page.mode === 'edit' ? [{ id: 'danger', label: 'Danger zone', errorKeys: [] as string[] }] : []),
+  ], [page.mode]);
+
+  useEffect(() => {
+    const root = scrollRootRef.current;
+    const nodes = sections
+      .map((s) => sectionRefs.current[s.id])
+      .filter((el): el is HTMLElement => Boolean(el));
+    if (!root || nodes.length === 0) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
+        const match = visible[0]?.target.id.replace(/^section-/, '');
+        if (match) setActiveSection(match);
+      },
+      { root, rootMargin: '-15% 0px -55% 0px', threshold: [0.15, 0.4, 0.7] },
+    );
+    nodes.forEach((node) => observer.observe(node));
+    return () => observer.disconnect();
+  }, [page.mode, liveWorkspace?.id, sections]);
+
   if (!canManage) {
     return <div className="flex-1 flex items-center justify-center p-8"><ErrorState title="You don't have access to edit clients" message="Only operations and admin can add or edit client workspaces." onRetry={() => onNavigate('/clients')} retryLabel="Back to Active clients" /></div>;
   }
@@ -153,13 +184,11 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
   }
 
   const title = page.mode === 'new' && !liveWorkspace ? 'New client' : liveWorkspace?.name || form.values.name || 'Client';
-  const sections = [
-    { id: 'basics', label: 'Basics', errorKeys: ['name', 'contractStartDate', 'contractEndDate', 'services'] },
-    { id: 'logo', label: 'Logo & colour', errorKeys: [] as string[] },
-    { id: 'contacts', label: 'Contacts', errorKeys: [] as string[] },
-    { id: 'proposal', label: 'Proposal', errorKeys: [] as string[] },
-    ...(page.mode === 'edit' ? [{ id: 'danger', label: 'Danger zone', errorKeys: [] as string[] }] : []),
-  ];
+  const subtitle = page.mode === 'new' && !liveWorkspace
+    ? 'Add a client workspace'
+    : liveWorkspace?.updated_at
+      ? `Last updated ${formatPktDateTime(liveWorkspace.updated_at)} PKT`
+      : '';
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-canvas">
@@ -167,14 +196,14 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
         <div className="flex items-center gap-3 min-w-0">
           <Button variant="secondary" size="icon" className="h-8 w-8" onClick={() => void leave(RETURN_PATH[page.returnTo](page))} aria-label="Back"><ArrowLeft className="w-4 h-4" /></Button>
           <ClientAvatar name={form.values.name || 'Client'} logoUrl={form.pendingLogoPreview || liveWorkspace?.logo_url} clientId={liveWorkspace?.id} brandColor={form.values.brandColor} initials={form.values.initials} size={40} />
-          <div className="min-w-0"><h1 className="text-base font-semibold text-fg truncate">{title}</h1><p className="text-xs text-fg-muted">{page.mode === 'new' && !liveWorkspace ? 'Add a client workspace' : ''}</p></div>
+          <div className="min-w-0"><h1 className="text-base font-semibold text-fg truncate">{title}</h1><p className="text-xs text-fg-muted">{subtitle}</p></div>
         </div>
         <div className="hidden md:flex items-center gap-2">
           <Button variant="secondary" size="sm" onClick={() => void leave(RETURN_PATH[page.returnTo](page))}>Cancel</Button>
           <Button variant="primary" size="sm" icon={CheckCircle2} loading={form.isSubmitting} disabled={form.isSubmitting || form.isUploadingProposal} onClick={() => void handleSave()}>{page.mode === 'new' && !liveWorkspace ? 'Create client' : 'Save changes'}</Button>
         </div>
       </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div ref={scrollRootRef} className="flex-1 min-h-0 overflow-y-auto">
         <div className="flex gap-6 max-w-[1100px] mx-auto w-full px-4 md:px-6 py-5 pb-24">
           <nav className="hidden lg:block w-[180px] shrink-0 sticky top-4 self-start space-y-1">
             {sections.map((s) => (
@@ -191,7 +220,15 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
                 <p className="text-xs text-fg-muted">Hides this client from team members. Clients can&apos;t be deleted.</p>
                 <Button variant="danger-secondary" size="sm" onClick={async () => {
                   const nextStatus = liveWorkspace.status === 'inactive' ? 'active' : 'inactive';
-                  const ok = await confirm({ title: nextStatus === 'inactive' ? `Hides ${liveWorkspace.name} from team members. Clients can't be deleted.` : `Mark ${liveWorkspace.name} as active?`, confirmLabel: nextStatus === 'inactive' ? 'Mark as inactive' : 'Mark as active', tone: nextStatus === 'inactive' ? 'danger' : 'default' });
+                  const name = liveWorkspace.name;
+                  const ok = await confirm({
+                    title: nextStatus === 'inactive' ? `Mark ${name} as inactive?` : `Mark ${name} as active?`,
+                    description: nextStatus === 'inactive'
+                      ? `Hides ${name} from team members. Clients can't be deleted.`
+                      : `${name} shows for the team again.`,
+                    confirmLabel: nextStatus === 'inactive' ? 'Mark as inactive' : 'Mark as active',
+                    tone: nextStatus === 'inactive' ? 'danger' : 'default',
+                  });
                   if (!ok) return;
                   const updated = await saveWorkspace(liveWorkspace, { status: nextStatus });
                   setLiveWorkspace(updated.workspace);
@@ -204,7 +241,7 @@ export const ClientPage: React.FC<Props> = ({ page, seed, onNavigate, registerGu
           </div>
         </div>
       </div>
-      <div className="sticky bottom-0 z-[var(--z-sticky)] bg-surface border-t border-border px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+      <div className="sticky bottom-0 z-[var(--z-sticky)] bg-surface border-t border-border px-4 md:px-6 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3 flex items-center justify-between gap-3">
         <p className="text-xs text-danger-fg truncate">{form.serverError || logoUploadError || (form.errorCount ? `${form.errorCount} fields need attention` : form.isDirty ? 'Unsaved changes' : '')}</p>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => void leave(RETURN_PATH[page.returnTo](page))}>Cancel</Button>
