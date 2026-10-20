@@ -44,6 +44,7 @@ class Phase2MultiCompanyGateTest(unittest.IsolatedAsyncioTestCase):
 
         self.uid_dual = f"mc_usr_dual_{self.run_id}"
         self.email_dual = f"dual_{self.run_id}@example.com"
+        await self.gdb.rate_limit_counters.delete_many({"key": {"$regex": self.email_dual}})
         self.password = "SecretPassword123!"
         self.hashed_pwd = get_password_hash(self.password)
 
@@ -311,6 +312,6 @@ class Phase2MultiCompanyGateTest(unittest.IsolatedAsyncioTestCase):
             await self.gdb.companies.delete_many({"id": {"$in": [self.cid_a, self.cid_b, self.cid_c]}})
             await self.gdb.users.delete_many({"id": self.uid_dual})
             await self.gdb.company_memberships.delete_many({"user_id": self.uid_dual})
-            await self.gdb.rate_limit_counters.delete_many({})
+            await self.gdb.rate_limit_counters.delete_many({"key": {"$regex": self.email_dual}})
         await self.client.aclose()
         await close_mongo_connection()

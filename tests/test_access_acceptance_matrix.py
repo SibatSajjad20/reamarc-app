@@ -173,7 +173,7 @@ class TestAccessAcceptanceMatrix(unittest.IsolatedAsyncioTestCase):
             "is_active": True,
             "workspace_ids": ["ws-1"],
         }
-        self.assertEqual(await self._probe(client_user, "GET", "/api/v1/website-projects"), 403)
+        self.assertEqual(await self._probe(client_user, "GET", "/api/v1/website-projects/team-members"), 403)
         self.assertEqual(await self._probe(client_user, "GET", "/api/v1/crm/leads"), 403)
         self.assertEqual(await self._probe(client_user, "GET", "/api/v1/marketing/daily"), 403)
         self.assertEqual(await self._probe(client_user, "GET", "/api/v1/log-exceptions/inbox"), 403)
@@ -284,6 +284,7 @@ class TestAccessAcceptanceMatrix(unittest.IsolatedAsyncioTestCase):
             "role": "team_lead",
             "primary_department": "Content",
             "departments": ["Content", "Creative", "Social Media"],
+            "content_stages": ["Content", "Creative", "Social Media"],
             "is_active": True,
             "workspace_ids": ["ws-1"],
         }

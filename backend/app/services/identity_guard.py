@@ -46,7 +46,7 @@ def _uid(user: Optional[Dict[str, Any]]) -> str:
 def is_owner_actor(caller: Optional[Dict[str, Any]]) -> bool:
     if not caller:
         return False
-    return bool(caller.get("is_super_admin") or caller.get("role") == "owner")
+    return bool(caller.get("is_super_admin"))
 
 
 def is_self(caller: Optional[Dict[str, Any]], target: Optional[Dict[str, Any]]) -> bool:

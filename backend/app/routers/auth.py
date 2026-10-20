@@ -21,7 +21,7 @@ from app.core.security import (
     bump_session_epoch, claims_with_session,
     remember_refresh_jti, rotate_refresh_jti,
     decide_refresh_action, retired_jti_is_recent, accept_retired_refresh,
-    revoke_refresh_jtis, _AUTH_CACHE,
+    revoke_refresh_jtis, _AUTH_CACHE, invalidate_auth_cache,
 )
 from app.core.limiter import limiter, get_client_ip
 from app.core.rate_limit_store import enforce_shared_rate_limit
@@ -197,40 +197,51 @@ async def login(request: Request, user_in: UserLogin, response: Response):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="No active company memberships found for this user.",
             )
-        # Select target membership: last_company_id or the first
+        # Build company map to filter to active companies
+        comp_ids = [m["company_id"] for m in memberships]
+        comp_docs = await gdb.companies.find({"id": {"$in": comp_ids}}).to_list(100)
+        comp_map = {c["id"]: c for c in comp_docs}
+
+        # Filter memberships to only those whose company exists and is active (not suspended)
+        active_memberships = [
+            m for m in memberships
+            if m["company_id"] in comp_map and comp_map[m["company_id"]].get("status") != "suspended"
+        ]
+
+        if not active_memberships:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="None of your companies are active.",
+            )
+
+        # Select target membership: last_company_id if active, else first active
         last_cid = user_doc.get("last_company_id")
+        target_membership = None
         if last_cid:
-            for m in memberships:
+            for m in active_memberships:
                 if m.get("company_id") == last_cid:
                     target_membership = m
                     break
         if not target_membership:
-            target_membership = memberships[0]
+            target_membership = active_memberships[0]
 
         cid = target_membership["company_id"]
-        company_doc = await gdb.companies.find_one({"id": cid})
-        if not company_doc:
-            company_doc = await gdb.companies.find_one({"slug": "reamarc"})
+        company_doc = comp_map[cid]
 
-        if company_doc and company_doc.get("status") == "suspended":
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="This company's access is paused.",
-            )
-
-        # Build companies: [{id, name, logo_url, role}]
-        comp_ids = [m["company_id"] for m in memberships]
-        comp_docs = await gdb.companies.find({"id": {"$in": comp_ids}}).to_list(100)
-        comp_map = {c["id"]: c for c in comp_docs}
-        for m in memberships:
-            c = comp_map.get(m["company_id"])
-            if c and c.get("status") != "suspended":
-                user_companies.append({
-                    "id": c["id"],
-                    "name": c["name"],
-                    "logo_url": c.get("logo_url"),
-                    "role": m.get("role", "team_member"),
-                })
+        for m in active_memberships:
+            c = comp_map[m["company_id"]]
+            c_brand = c.get("display_name") or c.get("brand_name") or c.get("name")
+            c_logo = c.get("logo_url")
+            if c_logo and c_logo.startswith("/assets/"):
+                c_logo = None
+            user_companies.append({
+                "id": c["id"],
+                "name": c["name"],
+                "display_name": c_brand,
+                "brand_name": c_brand,
+                "logo_url": c_logo,
+                "role": m.get("role", "team_member"),
+            })
 
         await gdb.users.update_one({"id": user_id}, {"$set": {"last_company_id": cid}})
 
@@ -264,11 +275,17 @@ async def login(request: Request, user_in: UserLogin, response: Response):
             )
 
     if company_doc:
+        c_brand = company_doc.get("display_name") or company_doc.get("brand_name") or company_doc.get("name")
+        c_logo = company_doc.get("logo_url")
+        if c_logo and c_logo.startswith("/assets/"):
+            c_logo = None
         user_doc["company"] = {
             "id": company_doc.get("id"),
             "name": company_doc.get("name"),
+            "display_name": c_brand,
+            "brand_name": c_brand,
             "slug": company_doc.get("slug"),
-            "logo_url": company_doc.get("logo_url"),
+            "logo_url": c_logo,
             "accent_color": company_doc.get("accent_color", "#6847E0"),
             "timezone": company_doc.get("timezone", "Asia/Karachi"),
         }
@@ -489,6 +506,10 @@ async def get_me(current_user: dict = Depends(get_current_user)):
     resp["permissions"] = eff_map
     resp["content_stages"] = eff_map.get("content_stages") or []
 
+    from app.services.access import effective_access
+    eff_acc = effective_access(current_user)
+    resp["effective_access"] = eff_acc["modules"]
+
     gdb = get_global_db()
     if gdb is not None:
         active_mems = await gdb.company_memberships.find({"user_id": current_user["id"], "status": "active"}).to_list(100)
@@ -499,13 +520,37 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         for m in active_mems:
             c = cmap.get(m["company_id"])
             if c and c.get("status") != "suspended":
+                c_brand = c.get("display_name") or c.get("brand_name") or c.get("name")
+                c_logo = c.get("logo_url")
+                if c_logo and c_logo.startswith("/assets/"):
+                    c_logo = None
                 user_companies.append({
                     "id": c["id"],
                     "name": c["name"],
-                    "logo_url": c.get("logo_url"),
+                    "display_name": c_brand,
+                    "brand_name": c_brand,
+                    "logo_url": c_logo,
                     "role": m.get("role", "team_member"),
                 })
         resp["companies"] = user_companies
+
+    # Format current company if present
+    curr_comp = current_user.get("company")
+    if curr_comp:
+        c_brand = curr_comp.get("display_name") or curr_comp.get("brand_name") or curr_comp.get("name")
+        c_logo = curr_comp.get("logo_url")
+        if c_logo and c_logo.startswith("/assets/"):
+            c_logo = None
+        resp["company"] = {
+            "id": curr_comp.get("id"),
+            "name": curr_comp.get("name"),
+            "display_name": c_brand,
+            "brand_name": c_brand,
+            "slug": curr_comp.get("slug"),
+            "logo_url": c_logo,
+            "accent_color": curr_comp.get("accent_color", "#6847E0"),
+            "timezone": curr_comp.get("timezone", "Asia/Karachi"),
+        }
 
     return resp
 
@@ -516,12 +561,13 @@ async def update_my_profile(
     profile_in: UserProfileUpdate,
     current_user: dict = Depends(get_current_user)
 ):
-    db = get_database()
+    gdb = get_global_db()
+    db = gdb if gdb is not None else get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
     user_id = current_user["id"]
-    user_doc = await db.users.find_one({"id": user_id})
+    user_doc = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     if not user_doc:
         raise HTTPException(status_code=404, detail="User not found.")
 
@@ -541,7 +587,7 @@ async def update_my_profile(
                     status_code=400,
                     detail="Email changes must be requested through HR.",
                 )
-            conflict = await db.users.find_one({"email": new_email, "id": {"$ne": user_id}})
+            conflict = await db.users.find_one({"email": new_email, "$or": [{"id": {"$ne": user_id}}, {"_id": {"$ne": user_id}}]})
             if conflict:
                 raise HTTPException(
                     status_code=400,
@@ -562,20 +608,27 @@ async def update_my_profile(
             raise HTTPException(status_code=400, detail="Current password is incorrect.")
 
         update_fields["hashed_password"] = get_password_hash(profile_in.new_password)
-        from app.services.identity_guard import invalidate_global_login
-        await invalidate_global_login(user_id)
-        user_doc["session_epoch"] = user_session_epoch(user_doc) + 1
-        user_doc["token_version"] = int(user_doc.get("token_version") or 0) + 1
+        update_fields["token_version"] = int(user_doc.get("token_version") or 0) + 1
+        update_fields["session_epoch"] = user_session_epoch(user_doc) + 1
+        update_fields["refresh_jtis"] = []
+
+        if gdb is not None:
+            await gdb.company_memberships.update_many(
+                {"user_id": user_id},
+                {"$inc": {"token_version": 1}, "$set": {"updated_at": datetime.now(timezone.utc).isoformat()}}
+            )
+        invalidate_auth_cache(user_id=user_id)
 
     if not update_fields:
         return _build_user_response(user_doc)
 
     update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
     updated_doc = await db.users.find_one_and_update(
-        {"id": user_id},
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
         {"$set": update_fields},
         return_document=True
     )
+    invalidate_auth_cache(user_id=user_id)
 
     return _build_user_response(updated_doc or user_doc)
 
@@ -665,9 +718,15 @@ async def switch_company(
     })
     if not membership:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You do not have active access to this company.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Company not found.",
         )
+
+    _, prev_session_ids = _logout_target(request)
+    if current_user.get("session_id") and current_user["session_id"] not in prev_session_ids:
+        prev_session_ids.append(current_user["session_id"])
+    if prev_session_ids:
+        await revoke_refresh_jtis(gdb, user_id, prev_session_ids)
 
     await gdb.users.update_one({"id": user_id}, {"$set": {"last_company_id": target_cid}})
 
@@ -712,12 +771,23 @@ async def switch_company(
     for m in active_mems:
         c = cmap.get(m["company_id"])
         if c and c.get("status") != "suspended":
+            c_brand = c.get("display_name") or c.get("brand_name") or c.get("name")
+            c_logo = c.get("logo_url")
+            if c_logo and c_logo.startswith("/assets/"):
+                c_logo = None
             companies_list.append({
                 "id": c["id"],
                 "name": c["name"],
-                "logo_url": c.get("logo_url"),
+                "display_name": c_brand,
+                "brand_name": c_brand,
+                "logo_url": c_logo,
                 "role": m.get("role", "team_member"),
             })
+
+    c_brand = company_doc.get("display_name") or company_doc.get("brand_name") or company_doc.get("name")
+    c_logo = company_doc.get("logo_url")
+    if c_logo and c_logo.startswith("/assets/"):
+        c_logo = None
 
     actor_doc = dict(user_doc)
     actor_doc["role"] = role_str
@@ -732,8 +802,10 @@ async def switch_company(
     actor_doc["company"] = {
         "id": company_doc.get("id"),
         "name": company_doc.get("name"),
+        "display_name": c_brand,
+        "brand_name": c_brand,
         "slug": company_doc.get("slug"),
-        "logo_url": company_doc.get("logo_url"),
+        "logo_url": c_logo,
         "accent_color": company_doc.get("accent_color", "#6847E0"),
         "timezone": company_doc.get("timezone", "Asia/Karachi"),
     }
@@ -770,11 +842,17 @@ async def get_my_companies(current_user: dict = Depends(get_current_user)):
     for m in active_mems:
         c = cmap.get(m["company_id"])
         if c and c.get("status") != "suspended":
+            c_brand = c.get("display_name") or c.get("brand_name") or c.get("name")
+            c_logo = c.get("logo_url")
+            if c_logo and c_logo.startswith("/assets/"):
+                c_logo = None
             result.append({
                 "id": c["id"],
                 "name": c["name"],
+                "display_name": c_brand,
+                "brand_name": c_brand,
                 "slug": c.get("slug"),
-                "logo_url": c.get("logo_url"),
+                "logo_url": c_logo,
                 "accent_color": c.get("accent_color", "#6847E0"),
                 "role": m.get("role", "team_member"),
                 "is_current": (c["id"] == current_cid),
@@ -917,181 +995,6 @@ async def verify_reset_code(request: Request, payload: VerifyResetCodeRequest):
 
     return {"message": "Verification code is valid.", "valid": True}
 
-
-@router.post("/reset-password", response_model=ResetPasswordResponse)
-@limiter.limit("10/minute")
-async def reset_password(request: Request, payload: ResetPasswordRequest):
-    """
-    Step 3: Verifies the code one final time, hashes the new password with bcrypt,
-    updates the user document in MongoDB, and marks the reset record as used.
-    """
-    gdb = get_global_db()
-    if gdb is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database connection is currently unavailable.",
-        )
-
-    if len(payload.new_password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="New password must be at least 8 characters long.",
-        )
-
-    email_clean = str(payload.email).lower().strip()
-    code_clean = payload.code.strip()
-
-    user_doc = await gdb.users.find_one({"email": email_clean})
-    if not user_doc:
-        user_doc = await gdb.users.find_one({"email": {"$regex": f"^{re.escape(email_clean)}$", "$options": "i"}})
-
-    if not user_doc or not user_doc.get("is_active", True):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired verification code. Please request a new code.",
-        )
-
-    reset_doc = await gdb.password_resets.find_one(
-        {"email": email_clean, "used": False},
-        sort=[("created_at", -1)]
-    )
-
-    if not reset_doc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid or expired verification code. Please request a new code.",
-        )
-
-    current_attempts = reset_doc.get("attempts", 0)
-    if current_attempts >= 5:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Too many failed attempts. This verification code has been locked. Please request a new code.",
-        )
-
-    now = datetime.now(timezone.utc)
-    expires_at = reset_doc.get("expires_at")
-    if isinstance(expires_at, str):
-        try:
-            expires_at = datetime.fromisoformat(expires_at)
-        except Exception:
-            expires_at = None
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-
-    if not expires_at or now > expires_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code has expired. Please request a new code.",
-        )
-
-    if not verify_password(code_clean, reset_doc.get("code_hash", "")):
-        updated = await gdb.password_resets.find_one_and_update(
-            {"_id": reset_doc["_id"]},
-            {"$inc": {"attempts": 1}},
-            return_document=ReturnDocument.AFTER
-        )
-        new_attempts = updated.get("attempts", current_attempts + 1) if updated else current_attempts + 1
-        remaining = max(0, 5 - new_attempts)
-        if remaining == 0:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Too many failed attempts. This verification code has been locked. Please request a new code.",
-            )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid verification code. {remaining} attempt(s) remaining.",
-        )
-
-    # Invalidate the reset record atomically to prevent race-condition re-use
-    updated_reset = await gdb.password_resets.find_one_and_update(
-        {"_id": reset_doc["_id"], "used": False},
-        {"$set": {"used": True, "used_at": now}}
-    )
-    if not updated_reset:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Verification code has already been used. Please request a new code.",
-        )
-
-    # Hash new password and update user record
-    new_hashed_password = get_password_hash(payload.new_password)
-    cid = user_doc.get("company_id") or "company_reamarc"
-    db = get_database()
-    with tenant_scope(cid):
-        await db.users.update_one(
-            {"_id": user_doc["_id"]},
-            {
-                "$set": {
-                    "hashed_password": new_hashed_password,
-                    "updated_at": now.isoformat(),
-                    "refresh_jtis": [],
-                },
-                "$inc": {"session_epoch": 1, "token_version": 1},
-            }
-        )
-
-    from app.core.security import _AUTH_CACHE
-    _AUTH_CACHE.pop(str(user_doc.get("id")), None)
-
-    # Invalidate / mark used all other pending reset tokens for this user
-    await gdb.password_resets.update_many(
-        {"email": email_clean, "used": False},
-        {"$set": {"used": True, "used_at": now}}
-    )
-
-    return {"message": "Password has been successfully reset. You can now log in with your new password."}
-
-
-class ResetWithTokenRequest(BaseModel):
-    token: str
-    new_password: str
-
-
-@router.post("/reset-password-token")
-@limiter.limit("10/minute")
-async def reset_password_with_token(request: Request, payload: ResetWithTokenRequest):
-    import hashlib
-    gdb = get_global_db()
-    if gdb is None:
-        raise HTTPException(status_code=500, detail="Database unavailable.")
-    if len(payload.new_password) < 8:
-        raise HTTPException(status_code=400, detail="New password must be at least 8 characters long.")
-    raw = (payload.token or "").strip()
-    if not raw:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    token_hash = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    now = datetime.now(timezone.utc)
-    reset_doc = await gdb.password_resets.find_one({"token_hash": token_hash, "used": False, "purpose": "link"})
-    if not reset_doc:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    expires_at = reset_doc.get("expires_at")
-    if isinstance(expires_at, str):
-        try:
-            expires_at = datetime.fromisoformat(expires_at)
-        except Exception:
-            expires_at = None
-    if expires_at and expires_at.tzinfo is None:
-        expires_at = expires_at.replace(tzinfo=timezone.utc)
-    if not expires_at or now > expires_at:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    claimed = await gdb.password_resets.find_one_and_update(
-        {"_id": reset_doc["_id"], "used": False},
-        {"$set": {"used": True, "used_at": now}},
-    )
-    if not claimed:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    email_clean = reset_doc.get("email")
-    user_doc = await gdb.users.find_one({"email": email_clean})
-    if not user_doc:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset link.")
-    from app.services.identity_guard import invalidate_global_login
-    await gdb.users.update_one(
-        {"_id": user_doc["_id"]},
-        {"$set": {"hashed_password": get_password_hash(payload.new_password), "updated_at": now.isoformat()}},
-    )
-    await invalidate_global_login(str(user_doc.get("id") or user_doc.get("_id")))
-    return {"message": "Password has been successfully reset. You can now log in with your new password."}
 
 
 from pydantic import BaseModel

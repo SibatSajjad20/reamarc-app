@@ -247,10 +247,10 @@ async def list_members(
         gdb = get_global_db()
         current_cid = current_user.get("company_id")
         mem_query: Dict[str, Any] = {"company_id": current_cid}
-        if is_active is True:
+        if is_active is None or is_active is True:
             mem_query["status"] = "active"
         elif is_active is False:
-            mem_query["status"] = "inactive"
+            mem_query["status"] = {"$in": ["inactive", "removed"]}
         if role:
             mem_query["role"] = role.lower()
         if department:
@@ -287,6 +287,7 @@ async def list_members(
             merged["primary_department"] = m.get("primary_department")
             merged["needs_setup"] = bool(m.get("needs_setup", False))
             merged["company_id"] = current_cid
+            merged["is_active"] = (m.get("status") == "active")
             home = u.get("company_id")
             merged["login_managed_elsewhere"] = bool(
                 u.get("is_super_admin") or home != current_cid or m["user_id"] in extra_ids
@@ -630,7 +631,7 @@ async def create_member(
     if existing:
         if getattr(settings, "MULTI_COMPANY_ENABLED", False):
             return JSONResponse(
-                status_code=200,
+                status_code=status.HTTP_201_CREATED,
                 content={"message": "If this person can be added, they'll get an email"},
             )
         raise HTTPException(
@@ -714,9 +715,13 @@ async def create_member(
             "created_at": now_iso,
             "updated_at": now_iso,
         })
+        return JSONResponse(
+            status_code=status.HTTP_201_CREATED,
+            content={"message": "If this person can be added, they'll get an email"},
+        )
     else:
         await db.users.insert_one(user_doc)
-    return _format_member_resp(user_doc)
+        return _format_member_resp(user_doc)
 
 
 @router.patch("/members/{user_id}", response_model=MemberResponse)
@@ -934,14 +939,38 @@ async def update_member(
             update_fields["content_stages"] = cleaned_extras
             update_fields["access_version"] = int(existing_user.get("access_version") or 1) + 1
 
+    # For dual users / non-home companies, drop identical identity fields before check
+    for k in list(update_fields.keys()):
+        if k in ("name", "full_name") and update_fields[k] in (existing_user.get("full_name"), existing_user.get("name")):
+            del update_fields[k]
+        elif k in ("phone", "phone_number") and update_fields[k] in (existing_user.get("phone"), existing_user.get("phone_number")):
+            del update_fields[k]
+        elif k == "email" and update_fields[k] == (existing_user.get("email") or "").lower():
+            del update_fields[k]
+        elif k == "is_active" and update_fields[k] == existing_user.get("is_active"):
+            del update_fields[k]
+
     pending_identity = identity_keys_in_update(update_fields)
-    deactivate_only = pending_identity == {"is_active"} and update_fields.get("is_active") is False
+    # If caller is non-home company, is_active only toggles membership in this company
+    if not may_edit_identity and "is_active" in pending_identity:
+        target_active = update_fields.pop("is_active")
+        update_fields.pop("deactivated_at", None)
+        update_fields.pop("deactivation_date", None)
+        pending_identity.discard("is_active")
+        if multi_enabled and target_mem:
+            if target_active is False:
+                await remove_company_membership(user_id, current_user.get("company_id"))
+                target_mem["status"] = "removed"
+            else:
+                now_iso = datetime.now(timezone.utc).isoformat()
+                await gdb.company_memberships.update_one(
+                    {"id": target_mem["id"]},
+                    {"$set": {"status": "active", "updated_at": now_iso}}
+                )
+                target_mem["status"] = "active"
+            invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
+
     if pending_identity and not may_edit_identity:
-        if deactivate_only and multi_enabled and target_mem:
-            await remove_company_membership(user_id, current_user.get("company_id"))
-            existing_user["is_active"] = True
-            existing_user["login_managed_elsewhere"] = True
-            return _format_member_resp(existing_user)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=HOME_LOGIN_MSG)
 
     if multi_enabled and target_mem:
@@ -956,7 +985,7 @@ async def update_member(
             mem_set["departments"] = update_fields["departments"]
         if "primary_department" in update_fields:
             mem_set["primary_department"] = update_fields["primary_department"]
-        if "is_active" in update_fields:
+        if "is_active" in update_fields and may_edit_identity:
             if update_fields["is_active"] is False:
                 mem_set["status"] = "inactive"
                 mem_set["deactivated_at"] = update_fields.get("deactivated_at")
@@ -969,15 +998,18 @@ async def update_member(
         await gdb.company_memberships.update_one({"id": target_mem["id"]}, {"$set": mem_set})
         invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
 
-        update_fields["updated_at"] = now_iso
-        updated_user = await gdb.users.find_one_and_update(
-            {"$or": [{"id": user_id}, {"_id": user_id}]},
-            {"$set": update_fields},
-            return_document=True,
-        )
-        if not updated_user:
+        if may_edit_identity:
+            update_fields["updated_at"] = now_iso
+            updated_user = await gdb.users.find_one_and_update(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$set": update_fields},
+                return_document=True,
+            )
+            if not updated_user:
+                updated_user = dict(existing_user)
+                updated_user.update(update_fields)
+        else:
             updated_user = dict(existing_user)
-            updated_user.update(update_fields)
 
         updated_user["role"] = mem_set.get("role", target_mem.get("role", "team_member"))
         updated_user["department"] = mem_set.get("department", target_mem.get("department"))
@@ -985,6 +1017,8 @@ async def update_member(
         updated_user["primary_department"] = mem_set.get("primary_department", target_mem.get("primary_department"))
         updated_user["needs_setup"] = bool(mem_set.get("needs_setup", target_mem.get("needs_setup", False)))
         updated_user["company_id"] = current_user.get("company_id")
+        if not may_edit_identity:
+            updated_user["login_managed_elsewhere"] = True
     else:
         update_fields["updated_at"] = datetime.now(timezone.utc).isoformat()
         updated_user = await db.users.find_one_and_update(
@@ -993,7 +1027,7 @@ async def update_member(
             return_document=True,
         )
 
-    if "hashed_password" in update_fields or "email" in update_fields or update_fields.get("is_active") is False:
+    if ("hashed_password" in update_fields or "email" in update_fields or update_fields.get("is_active") is False) and may_edit_identity:
         await invalidate_global_login(user_id)
 
     new_joining = update_fields.get("joining_date")
@@ -1001,47 +1035,6 @@ async def update_member(
         await purge_pre_joining_attendance(user_id, new_joining)
 
     return _format_member_resp(updated_user)
-
-
-@router.post("/members/{user_id}/send-reset-link")
-@router.post("/users/{user_id}/send-reset-link")
-async def send_member_reset_link(
-    user_id: str,
-    current_user: dict = Depends(require_hr_or_admin),
-):
-    """Email a one-time password reset link. Never shows or sets a password."""
-    db = get_database()
-    if db is None:
-        raise HTTPException(status_code=500, detail="Database unavailable.")
-
-    from app.core.tenant import get_global_db
-    from app.services.identity_guard import (
-        assert_super_admin_protected,
-        create_password_reset_link,
-        send_password_reset_link_email,
-    )
-
-    gdb = get_global_db()
-    target = await (gdb.users if gdb is not None else db.users).find_one(
-        {"$or": [{"id": user_id}, {"_id": user_id}]}
-    )
-    if not target:
-        raise HTTPException(status_code=404, detail="Member not found.")
-    assert_super_admin_protected(current_user, target)
-    if getattr(settings, "MULTI_COMPANY_ENABLED", False) and gdb is not None:
-        mem = await gdb.company_memberships.find_one({
-            "user_id": user_id,
-            "company_id": current_user.get("company_id"),
-            "status": "active",
-        })
-        if not mem:
-            raise HTTPException(status_code=404, detail="Member not found.")
-
-    email = str(target.get("email") or "")
-    name = target.get("full_name") or target.get("name") or "there"
-    link = await create_password_reset_link(email)
-    await send_password_reset_link_email(email, name, link)
-    return {"message": "If this person can be reached, they'll get a reset link."}
 
 
 @router.delete("/members/{user_id}")
@@ -1055,17 +1048,40 @@ async def delete_member(
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable.")
 
-    existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    multi_enabled = getattr(settings, "MULTI_COMPANY_ENABLED", False)
+    gdb = None
+    if multi_enabled:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+
+    target_coll = gdb.users if multi_enabled and gdb is not None else db.users
+    existing_user = await target_coll.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     if not existing_user:
         raise HTTPException(status_code=404, detail="Member not found.")
 
-    if existing_user.get("role") in (UserRole.ADMIN.value, "admin"):
+    if existing_user.get("is_super_admin") or existing_user.get("role") in (UserRole.ADMIN.value, "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The Super Admin account cannot be deleted.",
         )
 
-    await db.users.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    caller_cid = current_user.get("company_id")
+    target_home = existing_user.get("company_id")
+    has_other_membership = False
+    if multi_enabled and gdb is not None:
+        other_count = await gdb.company_memberships.count_documents({
+            "user_id": user_id,
+            "company_id": {"$ne": caller_cid},
+            "status": "active",
+        })
+        has_other_membership = (other_count > 0)
+
+    if multi_enabled and (has_other_membership or target_home != caller_cid):
+        from app.services.identity_guard import remove_company_membership
+        await remove_company_membership(user_id, caller_cid)
+        return {"message": "Removed from this company."}
+
+    await target_coll.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     from app.services.member_cleanup import purge_user_related_records, purge_orphaned_member_records
     await purge_user_related_records(db, existing_user, user_id)
     await purge_orphaned_member_records(db)

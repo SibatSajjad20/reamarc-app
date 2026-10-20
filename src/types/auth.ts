@@ -37,6 +37,8 @@ export interface AuthUser {
   company?: {
     id?: string;
     name?: string;
+    display_name?: string | null;
+    brand_name?: string | null;
     slug?: string;
     status?: 'active' | 'suspended';
     logo_url?: string | null;

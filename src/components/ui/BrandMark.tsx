@@ -6,6 +6,7 @@ interface BrandMarkProps {
   className?: string;
   initial?: string;
   logoUrl?: string | null;
+  accentColor?: string;
 }
 
 export const BrandMark: React.FC<BrandMarkProps> = ({
@@ -13,6 +14,7 @@ export const BrandMark: React.FC<BrandMarkProps> = ({
   className = '',
   initial,
   logoUrl,
+  accentColor,
 }) => {
   const branding = useBranding();
   const fontSize = Math.round(size * 0.5);
@@ -40,6 +42,7 @@ export const BrandMark: React.FC<BrandMarkProps> = ({
         width: `${size}px`,
         height: `${size}px`,
         fontSize: `${fontSize}px`,
+        ...(accentColor ? { backgroundColor: accentColor } : {}),
       }}
       className={`rounded-mark bg-accent text-accent-fg font-semibold flex items-center justify-center shrink-0 select-none ${className}`}
       aria-hidden="true"

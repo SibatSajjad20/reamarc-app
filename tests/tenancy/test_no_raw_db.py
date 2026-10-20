@@ -46,6 +46,7 @@ ALLOW_LIST_GET_GLOBAL_DB = {
     "integrations.py",
     "access_migration.py",
     "push_service.py",
+    "company_branding.py",
 }
 
 ALLOW_LIST_RAW_DB = {

@@ -97,29 +97,38 @@ async def ensure_indexes(db) -> None:
             ]
             await coll.create_indexes(models)
 
-            # Backfill persistent share_tokens for existing documents missing them
-            try:
-                missing_cursor = coll.find(
-                    {"$or": [{"share_token": None}, {"share_token": {"$exists": False}}, {"share_token": ""}]},
-                    {"_id": 1, "id": 1}
-                )
-                backfill_ops = []
-                async for mdoc in missing_cursor:
-                    backfill_ops.append(
-                        UpdateOne(
-                            {"_id": mdoc["_id"]},
-                            {"$set": {"share_token": f"cc_tok_{uuid.uuid4().hex}"}}
-                        )
-                    )
-                if backfill_ops:
-                    await coll.bulk_write(backfill_ops, ordered=False)
-                    logger.info("Backfilled persistent share_tokens for %d items", len(backfill_ops))
-            except Exception as backfill_exc:
-                logger.warning("Could not backfill share_tokens: %s", backfill_exc)
-
+            if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+                await backfill_share_tokens(db)
             _indexes_ready = True
         except Exception as exc:
             logger.warning("Content calendar index setup skipped: %s", exc)
+
+
+async def backfill_share_tokens(db) -> int:
+    """Backfill persistent share_tokens for existing calendar items missing them."""
+    if db is None:
+        return 0
+    try:
+        coll = db[COLLECTION_NAME]
+        missing_cursor = coll.find(
+            {"$or": [{"share_token": None}, {"share_token": {"$exists": False}}, {"share_token": ""}]},
+            {"_id": 1, "id": 1}
+        )
+        backfill_ops = []
+        async for mdoc in missing_cursor:
+            backfill_ops.append(
+                UpdateOne(
+                    {"_id": mdoc["_id"]},
+                    {"$set": {"share_token": f"cc_tok_{uuid.uuid4().hex}"}}
+                )
+            )
+        if backfill_ops:
+            await coll.bulk_write(backfill_ops, ordered=False)
+            logger.info("Backfilled persistent share_tokens for %d items", len(backfill_ops))
+            return len(backfill_ops)
+    except Exception as backfill_exc:
+        logger.warning("Could not backfill share_tokens: %s", backfill_exc)
+    return 0
 
 
 def _now_iso() -> str:

@@ -364,7 +364,7 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "access_version": int,
     }
     """
-    if not user:
+    if not user or user.get("needs_setup"):
         return {
             "modules": {m: False for m in MODULES},
             "levels": {m: "none" for m in MODULES},

@@ -397,7 +397,15 @@ def clean_tenancy_sync(uri: str, db_name: str) -> None:
         ids = [doc["_id"] for doc in docs]
         db[coll_name].delete_many({"_id": {"$in": ids}})
     db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    db.owner_audit.delete_many({"target_company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    db.owner_sessions.delete_many({})
+    db.rate_limit_counters.delete_many({})
     db.job_locks.delete_many({})
+    try:
+        from app.core.limiter import limiter
+        limiter._storage.reset()
+    except Exception:
+        pass
     client.close()
 
 
@@ -407,4 +415,12 @@ async def clean_tenancy_async(db: Any) -> None:
         ids = [doc["_id"] for doc in docs]
         await db[coll_name].delete_many({"_id": {"$in": ids}})
     await db.company_integrations.delete_many({"company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    await db.owner_audit.delete_many({"target_company_id": {"$in": ["tnt_comp_a", "tnt_comp_b", "tnt_comp_c"]}})
+    await db.owner_sessions.delete_many({})
+    await db.rate_limit_counters.delete_many({})
     await db.job_locks.delete_many({})
+    try:
+        from app.core.limiter import limiter
+        limiter._storage.reset()
+    except Exception:
+        pass

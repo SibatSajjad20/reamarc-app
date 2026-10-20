@@ -37,7 +37,9 @@ class Phase4PerCompanyTrackingGateTest(unittest.IsolatedAsyncioTestCase):
         self.gdb = db_instance.db
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
         self.original_flag = settings.MULTI_COMPANY_ENABLED
+        self.original_mt = settings.MULTI_TENANT_ENABLED
         settings.MULTI_COMPANY_ENABLED = True
+        settings.MULTI_TENANT_ENABLED = True
         _AUTH_CACHE.clear()
 
         self.run_id = uuid.uuid4().hex[:8]
@@ -236,11 +238,13 @@ class Phase4PerCompanyTrackingGateTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         settings.MULTI_COMPANY_ENABLED = self.original_flag
+        settings.MULTI_TENANT_ENABLED = self.original_mt
         await self.client.aclose()
         # Clean fixtures
         await self.gdb.companies.delete_many({"id": {"$in": [self.cid_a, self.cid_b]}})
         await self.gdb.users.delete_many({"id": {"$in": [self.uid_u, self.uid_admin_a, self.uid_admin_b]}})
-        await self.gdb.company_memberships.delete_many({"user_id": {"$in": [self.uid_u, self.uid_admin_a, self.uid_admin_b]}})
+        await self.gdb.users.delete_many({"email": f"new_probe_{self.run_id}@example.com"})
+        await self.gdb.company_memberships.delete_many({"company_id": {"$in": [self.cid_a, self.cid_b]}})
         await self.gdb.attendance_records.delete_many({"user_id": self.uid_u})
         await self.gdb.mobile_notifications.delete_many({"user_id": self.uid_u})
 
@@ -358,19 +362,28 @@ class Phase4PerCompanyTrackingGateTest(unittest.IsolatedAsyncioTestCase):
         access_b = access_resp_b.json()
         self.assertNotIn(self.cid_a, str(access_b))
 
-        # Admin cannot call POST /admin/members (probed email prevention)
+        # Admin adds member -> 201 and membership created in this company
+        probe_email = f"new_probe_{self.run_id}@example.com"
         create_resp = await self.client.post(
             "/api/v1/admin/members",
             json={
-                "email": f"new_probe_{self.run_id}@example.com",
+                "email": probe_email,
                 "full_name": "Probing Member",
                 "phone": "+92 300 1234567",
                 "joining_date": "2026-10-17",
-                "role": "team_member",
             },
             headers={"Authorization": f"Bearer {self.token_admin_a}"},
         )
-        self.assertEqual(create_resp.status_code, 403, "Company admins must be blocked from creating members")
+        self.assertEqual(create_resp.status_code, 201)
+        user_new = await self.gdb.users.find_one({"email": probe_email})
+        self.assertIsNotNone(user_new)
+        new_uid = user_new["id"]
+        mem_new = await self.gdb.company_memberships.find_one({
+            "user_id": new_uid,
+            "company_id": self.cid_a,
+        })
+        self.assertIsNotNone(mem_new)
+        self.assertEqual(mem_new.get("status"), "active")
 
         # 4. Notifications carry company_id and company_name
         with tenant_scope(company_id=self.cid_a):

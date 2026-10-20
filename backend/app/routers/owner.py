@@ -12,8 +12,12 @@ from __future__ import annotations
 
 import re
 import uuid
+import hashlib
+import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, EmailStr, Field
@@ -58,7 +62,7 @@ class CompanyCreateRequest(BaseModel):
     accent_color: str = Field("#6847E0", pattern=r"^#(?:[0-9a-fA-F]{3}){1,2}$")
     admin_name: str = Field(..., min_length=2, max_length=100)
     admin_email: EmailStr
-    admin_password: Optional[str] = Field(None, min_length=8)
+    admin_password: str = Field(..., min_length=8)
     max_users: int = Field(50, ge=1, le=10000)
 
 
@@ -69,7 +73,7 @@ class CompanyUpdateRequest(BaseModel):
     status: Optional[str] = Field(None, pattern=r"^(active|suspended)$")
     timezone: Optional[str] = Field(None, min_length=2, max_length=50)
     accent_color: Optional[str] = Field(None, pattern=r"^#(?:[0-9a-fA-F]{3}){1,2}$")
-    logo_url: Optional[str] = None
+    logo_url: Optional[str] = Field(None, pattern=r"^https://res\.cloudinary\.com/.*$")
     max_users: Optional[int] = Field(None, ge=1, le=10000)
 
 
@@ -80,6 +84,7 @@ class OwnerEnterRequest(BaseModel):
 
 class GrantCompanyAccessRequest(BaseModel):
     company_id: str = Field(..., min_length=2, max_length=100)
+    allow_client: bool = False
 
 
 class ProvisionMemberRequest(BaseModel):
@@ -87,8 +92,13 @@ class ProvisionMemberRequest(BaseModel):
     email: EmailStr
     phone: Optional[str] = None
     company_id: str = Field(..., min_length=2, max_length=100)
-    role: str = Field("team_member", min_length=2, max_length=50)
-    temporary_password: Optional[str] = Field(None, min_length=8)
+    allow_client: bool = False
+    role: str = Field("team_member", pattern=r"^(admin|hr|operations|team_lead|team_member)$")
+    temporary_password: str = Field(..., min_length=8)
+
+
+class StartingPasswordRequest(BaseModel):
+    starting_password: str = Field(..., min_length=8)
 
 
 
@@ -206,7 +216,7 @@ async def create_company(
             "role": "admin",
             "company_id": company_id,
             "is_active": True,
-            "hashed_password": get_password_hash(uuid.uuid4().hex),
+            "hashed_password": get_password_hash(body.admin_password),
             "token_version": 0,
             "creation_id": creation_id,
             "created_at": now_iso,
@@ -244,14 +254,6 @@ async def create_company(
             "updated_at": now_iso,
         })
 
-        from app.services.identity_guard import create_password_reset_link, send_password_reset_link_email
-        setup_link = await create_password_reset_link(email_clean, hours=72)
-        await gdb.password_resets.update_many(
-            {"email": email_clean, "purpose": "link", "used": False},
-            {"$set": {"creation_id": creation_id}},
-        )
-        await send_password_reset_link_email(email_clean, body.admin_name.strip(), setup_link)
-
         await record_owner_audit_event(
             global_db=gdb,
             action="create_company",
@@ -264,13 +266,19 @@ async def create_company(
                 "admin_email": email_clean,
             },
         )
-    except Exception:
+    except HTTPException:
         await _rollback()
         raise
+    except Exception as exc:
+        await _rollback()
+        logger.exception("create_company failed; rollback executed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create company.",
+        )
 
     clean_comp = {k: v for k, v in comp_doc.items() if k != "_id"}
     clean_comp["user_count"] = 1
-    clean_comp["setup_link"] = setup_link
     return clean_comp
 
 
@@ -360,26 +368,6 @@ async def update_company(
     return updated
 
 
-@router.post("/companies/{company_id}/resend-invite")
-async def resend_company_invite(
-    company_id: str,
-    current_user: dict = Depends(require_owner),
-) -> Dict[str, Any]:
-    gdb = get_global_db()
-    company = await gdb.companies.find_one({"id": company_id})
-    if not company:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
-    admin = await gdb.users.find_one({"company_id": company_id, "role": "admin"})
-    if not admin:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company admin not found.")
-    from app.services.identity_guard import create_password_reset_link, send_password_reset_link_email
-    email = str(admin.get("email") or "")
-    name = admin.get("full_name") or admin.get("name") or "there"
-    link = await create_password_reset_link(email, hours=72)
-    await send_password_reset_link_email(email, name, link)
-    return {"message": "Invite sent.", "setup_link": link}
-
-
 @router.post("/companies/{company_id}/enter")
 async def enter_company_console(
     company_id: str,
@@ -395,12 +383,36 @@ async def enter_company_console(
     if not company:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
 
+    jti = uuid.uuid4().hex
+    now = datetime.now(timezone.utc)
+    from datetime import timedelta
+    duration_minutes = 60 if body.read_only else 30
+    exp = now + timedelta(minutes=duration_minutes)
+
+    owner_tv = current_user.get("token_version", 0)
+
     token = create_impersonation_token(
         user_id=current_user["id"],
         company_id=company_id,
         read_only=body.read_only,
         reason=body.reason,
+        tv=owner_tv,
+        jti=jti,
     )
+    token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+    session_doc = {
+        "_id": jti,
+        "jti": jti,
+        "token_hash": token_hash,
+        "owner_id": current_user["id"],
+        "company_id": company_id,
+        "ro": body.read_only,
+        "exp": exp.isoformat(),
+        "revoked": False,
+        "created_at": now.isoformat(),
+    }
+    await gdb.owner_sessions.insert_one(session_doc)
 
     await record_owner_audit_event(
         global_db=gdb,
@@ -410,6 +422,7 @@ async def enter_company_console(
         details={
             "reason": body.reason,
             "read_only": body.read_only,
+            "jti": jti,
         },
     )
 
@@ -417,8 +430,65 @@ async def enter_company_console(
         "impersonation_token": token,
         "company": company,
         "read_only": body.read_only,
-        "expires_in_minutes": 60 if body.read_only else 30,
+        "expires_in_minutes": duration_minutes,
     }
+
+
+@router.post("/exit")
+async def exit_owner_session(
+    request: Request,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Revoke current impersonation session in owner_sessions."""
+    gdb = get_global_db()
+    token = request.headers.get("Authorization", "").replace("Bearer ", "").strip()
+    if not token:
+        token = request.cookies.get("access_token", "")
+    from app.core.security import decode_access_token
+    payload = decode_access_token(token) if token else None
+    jti = payload.get("jti") if payload else None
+    if jti:
+        await gdb.owner_sessions.update_one(
+            {"$or": [{"_id": jti}, {"jti": jti}]},
+            {"$set": {"revoked": True, "revoked_at": datetime.now(timezone.utc).isoformat()}},
+        )
+    invalidate_auth_cache(user_id=current_user["id"])
+    return {"ok": True, "message": "Impersonation session exited."}
+
+
+@router.get("/companies/{company_id}/branding")
+async def get_owner_company_branding(
+    company_id: str,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    from app.services import company_branding as cb
+    res = await cb.get_branding(company_id)
+    res["writes_enabled"] = bool(getattr(settings, "MULTI_TENANT_ENABLED", False))
+    return res
+
+
+@router.patch("/companies/{company_id}/branding")
+async def patch_owner_company_branding(
+    company_id: str,
+    body: Dict[str, Any],
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    if not getattr(settings, "MULTI_TENANT_ENABLED", False):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Multi-tenancy disabled.")
+    from app.services import company_branding as cb
+    kwargs: Dict[str, Any] = {
+        "company_id": company_id,
+        "actor_user_id": current_user["id"],
+        "via": "owner_console",
+        "require_existing": True,
+    }
+    if "display_name" in body:
+        kwargs["display_name"] = body["display_name"]
+    if "accent_color" in body:
+        kwargs["accent_color"] = body["accent_color"]
+    res = await cb.update_branding(**kwargs)
+    res["writes_enabled"] = True
+    return res
 
 
 @router.post("/companies/{company_id}/reset-token-version")
@@ -541,6 +611,11 @@ async def provision_member(
     target_comp = await gdb.companies.find_one({"id": body.company_id})
     if not target_comp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+    if target_comp.get("status") == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This company is paused.",
+        )
 
     email_clean = body.email.lower().strip()
     existing_user = await gdb.users.find_one({"email": email_clean})
@@ -616,7 +691,7 @@ async def provision_member(
         }
 
     user_id = f"usr_{uuid.uuid4().hex[:10]}"
-    raw_pwd = (body.temporary_password or "").strip() or "Reamarc123!"
+    raw_pwd = body.temporary_password.strip()
     hashed_pwd = get_password_hash(raw_pwd)
 
     new_user_doc = {
@@ -692,6 +767,54 @@ async def provision_member(
     }
 
 
+@router.post("/members/{user_id}/starting-password")
+async def set_member_starting_password(
+    user_id: str,
+    body: StartingPasswordRequest,
+    current_user: dict = Depends(require_owner),
+) -> Dict[str, Any]:
+    """Owner sets a starting password for a user."""
+    gdb = get_global_db()
+    target_user = await gdb.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    hashed = get_password_hash(body.starting_password)
+
+    await gdb.users.update_one(
+        {"$or": [{"id": user_id}, {"_id": user_id}]},
+        {
+            "$set": {
+                "hashed_password": hashed,
+                "refresh_jtis": [],
+                "updated_at": now_iso,
+            },
+            "$inc": {
+                "token_version": 1,
+                "session_epoch": 1,
+            },
+        },
+    )
+
+    await gdb.company_memberships.update_many(
+        {"user_id": user_id},
+        {"$inc": {"token_version": 1}, "$set": {"updated_at": now_iso}},
+    )
+
+    invalidate_auth_cache(user_id=user_id)
+
+    await record_owner_audit_event(
+        global_db=gdb,
+        action="set_starting_password",
+        actor_user_id=current_user["id"],
+        target_company_id=target_user.get("company_id"),
+        details={"target_user_id": user_id, "email": target_user.get("email")},
+    )
+
+    return {"ok": True, "message": "Starting password set successfully."}
+
+
 @router.post("/members/{user_id}/companies")
 async def grant_company_access(
     user_id: str,
@@ -710,10 +833,28 @@ async def grant_company_access(
     target_comp = await gdb.companies.find_one({"id": body.company_id})
     if not target_comp:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found.")
+    if target_comp.get("status") == "suspended":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This company is paused.",
+        )
+
+    if target_user.get("role") == "client" and not getattr(body, "allow_client", False):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Client users cannot be added to companies unless allow_client is true.",
+        )
+
+    existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
+    if existing_mem and existing_mem.get("status") == "active":
+        return {
+            "ok": True,
+            "note": "already has access",
+            "membership_id": existing_mem["id"],
+        }
 
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
-    existing_mem = await gdb.company_memberships.find_one({"user_id": user_id, "company_id": body.company_id})
 
     if existing_mem:
         mem_id = existing_mem["id"]

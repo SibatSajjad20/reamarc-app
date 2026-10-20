@@ -165,8 +165,9 @@ def content_disposition_header(display: str, *, inline: bool) -> str:
 
 
 def _gridfs_bucket(db) -> AsyncIOMotorGridFSBucket:
-    raw_fn = getattr(db, "raw", None)
-    raw_db = raw_fn() if callable(raw_fn) else db
+    raw_db = db
+    if hasattr(type(db), "raw") and callable(getattr(db, "raw", None)):
+        raw_db = db.raw()
     return AsyncIOMotorGridFSBucket(raw_db, bucket_name=_GRIDFS_BUCKET)
 
 

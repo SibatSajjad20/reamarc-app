@@ -12,6 +12,7 @@ Multi-tenant isolation layer:
 from __future__ import annotations
 
 import asyncio
+import re
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -467,7 +468,22 @@ class TenantCollection:
             if "$lookup" in s_copy:
                 lk = dict(s_copy["$lookup"])
                 clause = {"company_id": _company_id_clause(cid)}
-                if "pipeline" in lk and isinstance(lk["pipeline"], list):
+                if "localField" in lk and "foreignField" in lk:
+                    from_coll = lk.get("from")
+                    lf = lk.get("localField")
+                    ff = lk.get("foreignField")
+                    as_field = lk.get("as", "joined")
+                    var_name = f"lookup_{re.sub(r'[^a-zA-Z0-9_]', '_', str(lf))}"
+                    s_copy["$lookup"] = {
+                        "from": from_coll,
+                        "let": {var_name: f"${lf}"},
+                        "pipeline": [
+                            {"$match": clause},
+                            {"$match": {"$expr": {"$eq": [f"${ff}", f"$${var_name}"]}}},
+                        ],
+                        "as": as_field,
+                    }
+                elif "pipeline" in lk and isinstance(lk["pipeline"], list):
                     sub_pipe = list(lk["pipeline"])
                     sub_pipe.insert(0, {"$match": clause})
                     lk["pipeline"] = sub_pipe
@@ -575,14 +591,3 @@ def company_tz(company: Optional[Dict[str, Any]] = None) -> str:
 def resolve_company_from_host(request: Request) -> Optional[str]:
     """Resolves company from request host header (stub, returns None for now)."""
     return None
-
-
-class TenantPayloadStrippingMiddleware(BaseHTTPMiddleware):
-    """Strips company_id, is_super_admin, and token_version from client requests."""
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Strip client-injected query params
-        mutable_query = dict(request.query_params)
-        for forbidden in ("company_id", "is_super_admin", "token_version"):
-            mutable_query.pop(forbidden, None)
-
-        return await call_next(request)

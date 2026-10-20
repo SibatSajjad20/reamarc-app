@@ -41,6 +41,7 @@ class UserResponse(BaseModel):
     needs_setup: Optional[bool] = False
     membership_id: Optional[str] = None
     companies: Optional[List[dict]] = None
+    effective_access: Optional[dict] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None

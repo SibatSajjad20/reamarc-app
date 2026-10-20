@@ -96,21 +96,31 @@ def create_owner_token(user_id: str, company_id: Optional[str] = None) -> str:
     }
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
-def create_impersonation_token(user_id: str, company_id: str, read_only: bool = True, reason: str = "") -> str:
+def create_impersonation_token(
+    user_id: str,
+    company_id: str,
+    read_only: bool = True,
+    reason: str = "",
+    tv: Optional[int] = None,
+    jti: Optional[str] = None,
+) -> str:
     """Owner impersonation token. Read-only lasts 60m, edit lasts 30m."""
     duration_minutes = 60 if read_only else 30
     expire = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+    token_jti = jti or uuid.uuid4().hex
     to_encode = {
         "sub": user_id,
         "cid": company_id,
         "imp_cid": company_id,
         "ro": read_only,
         "reason_id": reason,
-        "jti": uuid.uuid4().hex,
+        "jti": token_jti,
         "exp": expire,
         "type": "access",
         "typ": "imp",
     }
+    if tv is not None:
+        to_encode["tv"] = int(tv)
     return jwt.encode(to_encode, settings.SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 def decode_access_token(token: str) -> Optional[dict]:
@@ -478,6 +488,26 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Impersonation token invalid for non-super-admin user.",
             )
+        # Verify owner's token_version hasn't changed (e.g. password change)
+        if token_tv is not None and int(user_doc.get("token_version", 0)) != int(token_tv):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Owner session revoked. Please sign in again.",
+            )
+        # Verify impersonation session in owner_sessions
+        session_jti = payload.get("jti")
+        if session_jti:
+            from app.core.tenant import get_global_db
+            gdb_inst = get_global_db()
+            if gdb_inst is not None:
+                owner_sess = await gdb_inst.owner_sessions.find_one({"$or": [{"_id": session_jti}, {"jti": session_jti}]})
+                if owner_sess and owner_sess.get("revoked", False):
+                    _AUTH_CACHE.pop(cache_key, None)
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Impersonation session revoked.",
+                    )
         target_cid = token_cid or payload.get("imp_cid")
         if target_cid:
             from app.core.tenant import get_global_db
@@ -546,6 +576,13 @@ async def get_current_user(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Company session revoked.",
             )
+        if token_session_epoch(payload) != user_session_epoch(user_doc):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
     elif not is_imp:
         # Multi-tenancy legacy checks when not using membership validation
         if (getattr(settings, "MULTI_TENANT_ENABLED", False) or token_cid):
@@ -576,13 +613,13 @@ async def get_current_user(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Company session revoked.",
                     )
-        else:
-            if token_session_epoch(payload) != user_session_epoch(user_doc):
-                raise HTTPException(
-                    status_code=status.HTTP_401_UNAUTHORIZED,
-                    detail="Session expired. Please sign in again.",
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+        if token_session_epoch(payload) != user_session_epoch(user_doc):
+            _AUTH_CACHE.pop(cache_key, None)
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Session expired. Please sign in again.",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     # Legacy sid check
     session_id = str(payload.get("sid") or "").strip()
@@ -639,19 +676,26 @@ async def get_current_user(
 
     # Read-only impersonation restrictions
     if is_imp:
-        if is_ro and request.method not in ("GET", "HEAD", "OPTIONS"):
+        req_path = request.url.path.rstrip("/")
+        is_exit_call = req_path.endswith("/owner/exit")
+        if is_ro and not is_exit_call and request.method not in ("GET", "HEAD", "OPTIONS"):
             raise HTTPException(status_code=403, detail="Writes are disabled during read-only owner session")
-        req_path = request.url.path
-        if "/owner" in req_path or "/change-password" in req_path:
+        if ("/owner" in req_path and not is_exit_call) or "/change-password" in req_path:
             raise HTTPException(status_code=403, detail="Owner actions blocked during impersonation")
 
     company_payload = None
     if company_doc:
+        c_brand = company_doc.get("display_name") or company_doc.get("brand_name") or company_doc.get("name")
+        c_logo = company_doc.get("logo_url")
+        if c_logo and c_logo.startswith("/assets/"):
+            c_logo = None
         company_payload = {
             "id": company_doc.get("id"),
             "name": company_doc.get("name"),
+            "display_name": c_brand,
+            "brand_name": c_brand,
             "slug": company_doc.get("slug"),
-            "logo_url": company_doc.get("logo_url"),
+            "logo_url": c_logo,
             "accent_color": company_doc.get("accent_color", "#6847E0"),
             "timezone": company_doc.get("timezone", "Asia/Karachi"),
         }
@@ -680,6 +724,7 @@ async def get_current_user(
         "read_only": is_ro,
         "needs_setup": needs_setup,
         "membership_id": membership_id,
+        "session_id": session_id or None,
     }
 
 
@@ -749,10 +794,10 @@ def require_roles(allowed_roles: List[str]):
     return _check_role
 
 
-async def require_owner(current_user: dict = Depends(get_current_user)) -> dict:
+async def require_owner(request: Request, current_user: dict = Depends(get_current_user)) -> dict:
     """Dependency guard requiring super-admin owner privileges.
     Fails closed with 404 (Not Found) for non-owners to prevent route enumeration.
-    Blocks owner actions while in an active impersonation session.
+    Blocks owner actions while in an active impersonation session (except /owner/exit).
     """
     if not current_user.get("is_super_admin"):
         raise HTTPException(
@@ -761,7 +806,8 @@ async def require_owner(current_user: dict = Depends(get_current_user)) -> dict:
         )
     from app.core.tenant import get_tenant_context
     ctx = get_tenant_context()
-    if ctx and ctx.impersonating:
+    path = request.url.path.rstrip("/")
+    if ctx and ctx.impersonating and not path.endswith("/owner/exit"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Owner actions blocked during impersonation",

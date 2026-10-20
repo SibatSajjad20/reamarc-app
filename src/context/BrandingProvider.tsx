@@ -46,6 +46,31 @@ function adjustHex(hex: string, percent: number): string {
   return `#${r}${g}${b}`;
 }
 
+export function applyAccent(accentColor: string): void {
+  const root = document.documentElement;
+  const rgb = hexToRgb(accentColor);
+
+  if (rgb) {
+    const hoverHex = adjustHex(accentColor, -12);
+    const activeHex = adjustHex(accentColor, -24);
+
+    root.style.setProperty('--accent', accentColor);
+    root.style.setProperty('--accent-hover', hoverHex);
+    root.style.setProperty('--accent-active', activeHex);
+    root.style.setProperty('--accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`);
+    root.style.setProperty('--accent-soft-2', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.14)`);
+    root.style.setProperty('--accent-200', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24)`);
+    root.style.setProperty('--accent-text', accentColor);
+    root.style.setProperty('--accent-pill-bd', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.28)`);
+    root.style.setProperty('--accent-pill-bg', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`);
+    root.style.setProperty('--accent-pill-fg', accentColor);
+    root.style.setProperty('--accent-dot', accentColor);
+    root.style.setProperty('--ring', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24)`);
+    root.style.setProperty('--ring-border', accentColor);
+    root.style.setProperty('--chart-1', accentColor);
+  }
+}
+
 export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
 
@@ -56,28 +81,7 @@ export const BrandingProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const timezone = company?.timezone || 'Asia/Karachi';
 
   useEffect(() => {
-    const root = document.documentElement;
-    const rgb = hexToRgb(accentColor);
-
-    if (rgb) {
-      const hoverHex = adjustHex(accentColor, -12);
-      const activeHex = adjustHex(accentColor, -24);
-
-      root.style.setProperty('--accent', accentColor);
-      root.style.setProperty('--accent-hover', hoverHex);
-      root.style.setProperty('--accent-active', activeHex);
-      root.style.setProperty('--accent-soft', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`);
-      root.style.setProperty('--accent-soft-2', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.14)`);
-      root.style.setProperty('--accent-200', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24)`);
-      root.style.setProperty('--accent-text', accentColor);
-      root.style.setProperty('--accent-pill-bd', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.28)`);
-      root.style.setProperty('--accent-pill-bg', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)`);
-      root.style.setProperty('--accent-pill-fg', accentColor);
-      root.style.setProperty('--accent-dot', accentColor);
-      root.style.setProperty('--ring', `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.24)`);
-      root.style.setProperty('--ring-border', accentColor);
-      root.style.setProperty('--chart-1', accentColor);
-    }
+    applyAccent(accentColor);
 
     // Dynamic Document Title
     if (user && companyName) {

@@ -43,7 +43,9 @@ class Phase5PrivacyAndRoutesGateTest(unittest.IsolatedAsyncioTestCase):
         self.gdb = db_instance.db
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://testserver")
         self.original_flag = settings.MULTI_COMPANY_ENABLED
+        self.original_mt = settings.MULTI_TENANT_ENABLED
         settings.MULTI_COMPANY_ENABLED = True
+        settings.MULTI_TENANT_ENABLED = True
         _AUTH_CACHE.clear()
 
         self.run_id = uuid.uuid4().hex[:8]
@@ -259,6 +261,7 @@ class Phase5PrivacyAndRoutesGateTest(unittest.IsolatedAsyncioTestCase):
 
     async def asyncTearDown(self):
         settings.MULTI_COMPANY_ENABLED = self.original_flag
+        settings.MULTI_TENANT_ENABLED = self.original_mt
         await self.client.aclose()
         _AUTH_CACHE.clear()
 
