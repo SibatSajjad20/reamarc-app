@@ -30,6 +30,8 @@ import { getDeptBadgeClass } from '../../utils/badgeStyles';
 import { matchesAttendanceStatus } from '../../utils/attendanceFilters';
 import { Avatar } from '../ui/Avatar';
 import { useMemberAvatars } from '../../hooks/useMemberAvatars';
+import { useAuth } from '../../context/AuthContext';
+import { OWN_ATTENDANCE_TOOLTIP, canChangeAttendance } from '../../utils/attendancePermissions';
 
 interface DailyAttendanceMatrixProps {
   matrixData: DailyMatrixResponse | null;
@@ -71,6 +73,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
   minDate,
 }) => {
   const { addToast } = useToast();
+  const { user } = useAuth();
   const { getAvatarUrl } = useMemberAvatars();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -132,6 +135,7 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
 
   // Open Override Modal
   const handleOpenOverride = (row: DailyMatrixEmployeeRow) => {
+    if (!canChangeAttendance(user?.id, user?.role, row.user_id)) return;
     setEditingRow(row);
     setOverrideErrors({});
     const currentStatus = row.status || 'present';
@@ -623,14 +627,23 @@ export const DailyAttendanceMatrix: React.FC<DailyAttendanceMatrixProps> = ({
                         {/* HR Override Button */}
                         {canEditOverride && (
                           <td className="py-3 px-4 text-right whitespace-nowrap w-16">
-                            <button
-                              type="button"
-                              onClick={() => handleOpenOverride(row)}
-                              className="p-1.5 rounded-lg text-fg-muted hover:text-accent-text hover:bg-hover transition-colors cursor-pointer"
-                              title="HR Manual Override"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
+                            {canChangeAttendance(user?.id, user?.role, row.user_id) ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenOverride(row)}
+                                className="p-1.5 rounded-lg text-fg-muted hover:text-accent-text hover:bg-hover transition-colors cursor-pointer"
+                                title="HR Manual Override"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            ) : (
+                              <span
+                                className="inline-flex p-1.5 rounded-lg text-fg-faint cursor-not-allowed"
+                                title={OWN_ATTENDANCE_TOOLTIP}
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </span>
+                            )}
                           </td>
                         )}
                       </tr>

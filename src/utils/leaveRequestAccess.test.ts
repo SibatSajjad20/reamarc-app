@@ -23,4 +23,14 @@ assert(
   'Operations must NOT review an HR request',
 );
 
+const hrId = 'hr-1';
+assert(
+  canReviewLeaveRequest(hrId, 'hr', { user_id: 'ops-1', user_role: 'operations' }),
+  'HR must be able to review an Operations request',
+);
+assert(
+  !canReviewLeaveRequest(hrId, 'hr', { user_id: hrId, user_role: 'hr' }),
+  'HR must NOT review their own request',
+);
+
 console.log('All leaveRequestAccess tests passed successfully!');

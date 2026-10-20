@@ -2,11 +2,12 @@ import type { UserRole } from '../types/auth';
 import type { AttendanceRequest } from '../types/attendance';
 
 const STAFF_ROLES = new Set(['team_member', 'member', 'team_lead']);
+const MANAGEMENT_PLUS = new Set([...STAFF_ROLES, 'hr', 'operations', 'admin', 'client']);
 
 const REVIEWABLE_BY_ROLE: Record<string, Set<string>> = {
-  hr: new Set(STAFF_ROLES),
+  hr: MANAGEMENT_PLUS,
   operations: new Set(STAFF_ROLES),
-  admin: new Set([...STAFF_ROLES, 'hr', 'operations', 'admin', 'client']),
+  admin: MANAGEMENT_PLUS,
 };
 
 function normalizeRole(role?: string | null): string {
@@ -57,9 +58,6 @@ export function reviewScopeHint(
   }
   const role = normalizeRole(reviewerRole);
   const applicant = normalizeRole(request.user_role);
-  if (role === 'hr' && (applicant === 'hr' || applicant === 'operations' || applicant === 'admin')) {
-    return 'Needs Admin review';
-  }
   if (role === 'operations' && (applicant === 'hr' || applicant === 'operations' || applicant === 'admin')) {
     return 'Needs Admin review';
   }

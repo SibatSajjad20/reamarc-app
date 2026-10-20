@@ -1264,11 +1264,14 @@ async def is_auto_wfh_for_date(user_id: str, date_str: str) -> bool:
     return bool(resolve_shift_assignment_for_date(assignment, date_str).get("auto_wfh"))
 
 
-async def assign_user_shift(assignment: ShiftAssignmentRequest) -> dict:
+async def assign_user_shift(assignment: ShiftAssignmentRequest, current_user: dict) -> dict:
     """Assigns or updates a user's default shift and optional weekday / date pattern."""
     db = get_database()
     if db is None:
         raise HTTPException(status_code=500, detail="Database unavailable")
+
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(current_user, assignment.user_id)
 
     shift_ids = {assignment.shift_id}
     if assignment.weekday_rules:
@@ -5880,6 +5883,9 @@ async def admin_manual_attendance_entry(
     if not target_user:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
 
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(admin_user, target_user)
+
     user_name = target_user.get("full_name") or target_user.get("name", "User")
     department = target_user.get("department")
     shift = await get_shift_for_user(user_id, department, date_str)
@@ -6264,6 +6270,9 @@ async def create_missed_punch_inquiry(
     user_doc = await db.users.find_one({"id": user_id}, {"_id": 0})
     if not user_doc:
         raise HTTPException(status_code=404, detail=f"User '{user_id}' not found")
+
+    from app.services.attendance_permissions import can_change_attendance
+    can_change_attendance(actor, user_doc)
 
     employee_name = user_doc.get("full_name") or user_doc.get("name", "Employee")
     department = user_doc.get("department", "")
