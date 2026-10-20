@@ -83,7 +83,13 @@ async def get_content_constants(
 ):
     """Returns all allowed dropdown options and pipeline stages matching the Excel workbook or custom settings."""
     db = get_database()
-    return await content_calendar_service.get_constants_from_db(db)
+    constants = await content_calendar_service.get_constants_from_db(db)
+    from app.services.content_calendar_workflow import visible_stages
+    allowed = visible_stages(current_user)
+    if allowed is not None:
+        constants = dict(constants)
+        constants["pipeline_stages"] = allowed
+    return constants
 
 
 @router.patch("/constants", response_model=ContentCalendarConstantsResponse)
@@ -179,6 +185,21 @@ async def seed_from_excel(
     db = get_database()
     seeded = await content_calendar_service.seed_from_excel_if_needed(db, force=force)
     return {"message": f"Seeding completed. {seeded} items processed.", "count": seeded}
+
+
+@router.post("/admin/hydrate-video-thumbs", status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def hydrate_video_thumbs(
+    request: Request,
+    item_id: Optional[str] = Query(None, description="Optional content item id or serial"),
+    limit: int = Query(1, ge=1, le=20),
+    current_user: dict = Depends(require_content_calendar_user),
+):
+    """Admin-only still capture for videos missing a thumbnail. One item at a time by default."""
+    if not is_admin(current_user):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an admin can hydrate video thumbnails.")
+    db = get_database()
+    return await content_calendar_service.hydrate_missing_video_thumbs_job(db, item_id=item_id, limit=limit)
 
 
 @router.patch("/batch", status_code=status.HTTP_200_OK)

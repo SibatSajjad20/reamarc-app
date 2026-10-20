@@ -10,6 +10,7 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
 from pathlib import Path
 from typing import AsyncIterator, Optional, Tuple
 from dataclasses import dataclass
@@ -253,6 +254,71 @@ async def save_upload_bytes(
     return stored_path
 
 
+async def save_upload_from_path(
+    db,
+    *,
+    relative_key: str,
+    path: str,
+    original_name: str,
+    content_type: Optional[str] = None,
+    extra_metadata: Optional[dict] = None,
+) -> str:
+    """Persist an on-disk file to GridFS by streaming; never slurp the whole file."""
+    key = normalize_upload_key(
+        relative_key
+        if relative_key.startswith("uploads/") or relative_key.startswith("/uploads/")
+        else f"/uploads/{relative_key.lstrip('/')}"
+    )
+    stored_path = f"/uploads/{key}"
+
+    if db is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database unavailable — cannot store upload durably. Try again shortly.",
+        )
+
+    try:
+        bucket = _gridfs_bucket(db)
+        await _delete_gridfs_by_name(bucket, key)
+        with open(path, "rb") as fh:
+            await bucket.upload_from_stream(
+                key,
+                fh,
+                metadata={
+                    "original_name": original_name,
+                    "content_type": content_type or "application/octet-stream",
+                    "stored_path": stored_path,
+                    **{k: v for k, v in (extra_metadata or {}).items() if v},
+                },
+            )
+        probe = await bucket.open_download_stream_by_name(key)
+        try:
+            await probe.read(1)
+        finally:
+            try:
+                probe.close()
+            except Exception:
+                pass
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("GridFS upload failed for %s: %s", key, exc)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Failed to store file in durable storage. Please try uploading again.",
+        ) from exc
+
+    try:
+        base = uploads_root()
+        full = base / key
+        full.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, full)
+    except Exception as exc:
+        logger.warning("Disk cache write failed for %s (GridFS OK): %s", key, exc)
+
+    return stored_path
+
+
 async def delete_upload(db, file_path: str) -> bool:
     """Delete an upload from MongoDB GridFS and local disk cache if present."""
     if not file_path:
@@ -399,12 +465,10 @@ def authorize_upload_key(
 async def authorize_stored_upload(db, current_user: dict, file_path: str) -> None:
     relative = normalize_upload_key(file_path)
     if relative.startswith("gdrive/"):
-        from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_workflow import can_view_item
+        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
         from app.services.google_drive_service import file_id_from_path
 
-        role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES:
+        if is_admin(current_user) or is_operations(current_user):
             return
 
         file_id = file_id_from_path(relative)
@@ -426,11 +490,9 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
         )
 
     if relative.startswith("content_calendar/"):
-        from app.core.security import _MANAGEMENT_ROLES
-        from app.services.content_calendar_workflow import can_view_item
+        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
 
-        role = current_user.get("role")
-        if role in _MANAGEMENT_ROLES:
+        if is_admin(current_user) or is_operations(current_user):
             return
 
         parts = relative.split("/")

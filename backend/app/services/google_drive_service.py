@@ -11,7 +11,9 @@ import asyncio
 import io
 import json
 import logging
+import os
 import re
+import tempfile
 import threading
 from typing import Any, Dict, Optional, List
 
@@ -528,6 +530,42 @@ async def upload_bytes(parent_id: Optional[str], filename: str, content: bytes, 
         raise _drive_http_error(exc, "upload this file") from exc
 
 
+def _upload_path(parent_id: Optional[str], filename: str, path: str, content_type: str) -> Dict[str, Any]:
+    from googleapiclient.http import MediaFileUpload
+
+    media = MediaFileUpload(
+        path,
+        mimetype=content_type or "application/octet-stream",
+        resumable=True,
+        chunksize=5 * 1024 * 1024,
+    )
+    body: Dict[str, Any] = {"name": filename}
+    if parent_id:
+        body["parents"] = [parent_id]
+    return (
+        _service()
+        .files()
+        .create(
+            body=body,
+            media_body=media,
+            fields="id,webViewLink,size",
+            supportsAllDrives=True,
+        )
+        .execute()
+    )
+
+
+async def upload_path(parent_id: Optional[str], filename: str, path: str, content_type: str) -> Dict[str, Any]:
+    try:
+        return await asyncio.to_thread(
+            _upload_path, parent_id, filename, path, content_type or "application/octet-stream"
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise _drive_http_error(exc, "upload this file") from exc
+
+
 async def delete_file(file_id: str) -> None:
     if not file_id or not configured():
         return
@@ -743,10 +781,11 @@ async def fetch_file_metadata(file_id: str) -> Dict[str, Any]:
     return meta
 
 
-async def download_file_prefix(file_id: str, max_bytes: int = 16 * 1024 * 1024) -> bytes:
-    """Downloads the start of a Drive file so a first-frame still can be extracted."""
+async def download_file_prefix(file_id: str, max_bytes: int = 8 * 1024 * 1024) -> bytes:
+    """Streams at most max_bytes of a Drive file to a temp file, then returns those bytes."""
     if not file_id or not configured():
         return b""
+    cap = max(0, int(max_bytes))
     creds = _credentials()
     from google.auth.transport.requests import Request as GoogleAuthRequest
 
@@ -755,12 +794,40 @@ async def download_file_prefix(file_id: str, max_bytes: int = 16 * 1024 * 1024) 
             creds.refresh(GoogleAuthRequest())
     headers = {
         "Authorization": f"Bearer {creds.token}",
-        "Range": f"bytes=0-{max(0, int(max_bytes) - 1)}",
+        "Range": f"bytes=0-{max(0, cap - 1)}",
     }
     url = f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
-    async with httpx.AsyncClient(timeout=httpx.Timeout(45.0)) as client:
-        response = await client.get(url, headers=headers)
-    if response.status_code not in (200, 206):
-        logger.warning("Drive prefix download returned %s for %s", response.status_code, file_id)
+    tmp_path = None
+    try:
+        fd, tmp_path = tempfile.mkstemp(suffix=".bin")
+        os.close(fd)
+        async with httpx.AsyncClient(timeout=httpx.Timeout(45.0)) as client:
+            async with client.stream("GET", url, headers=headers) as response:
+                if response.status_code not in (200, 206):
+                    logger.warning("Drive prefix download returned %s for %s", response.status_code, file_id)
+                    return b""
+                total = 0
+                with open(tmp_path, "wb") as out:
+                    async for chunk in response.aiter_bytes(1024 * 1024):
+                        if not chunk:
+                            continue
+                        remain = cap - total
+                        if remain <= 0:
+                            break
+                        if len(chunk) > remain:
+                            chunk = chunk[:remain]
+                        out.write(chunk)
+                        total += len(chunk)
+        if total <= 0:
+            return b""
+        with open(tmp_path, "rb") as fh:
+            return fh.read(cap)
+    except Exception as exc:
+        logger.warning("Drive prefix download failed for %s: %s", file_id, exc)
         return b""
-    return response.content or b""
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass

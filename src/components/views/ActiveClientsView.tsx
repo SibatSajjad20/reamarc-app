@@ -523,12 +523,12 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                     </div>
                   </div>
                 ) : (
-                  canManage && onEditWorkspace && (
-                    <div className="w-full flex items-center justify-between p-3.5 rounded-lg bg-subtle/60 border border-dashed border-border text-xs">
-                      <div className="flex items-center gap-2 min-w-0 text-fg-muted">
-                        <Paperclip className="w-3.5 h-3.5 shrink-0" />
-                        <span>No proposal document attached</span>
-                      </div>
+                  <div className="w-full flex items-center justify-between p-3.5 rounded-lg bg-subtle/60 border border-dashed border-border text-xs">
+                    <div className="flex items-center gap-2 min-w-0 text-fg-muted">
+                      <Paperclip className="w-3.5 h-3.5 shrink-0" />
+                      <span>No proposal attached</span>
+                    </div>
+                    {canManage && onEditWorkspace && (
                       <Button
                         variant="secondary"
                         size="sm"
@@ -537,8 +537,8 @@ export const ActiveClientsView: React.FC<ActiveClientsViewProps> = ({
                       >
                         Attach proposal
                       </Button>
-                    </div>
-                  )
+                    )}
+                  </div>
                 )}
 
                 {selectedClient.description && (

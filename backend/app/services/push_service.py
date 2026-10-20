@@ -40,7 +40,7 @@ def _is_blocked_crm_kind(kind: str) -> bool:
     return _is_crm_kind(k) and k != "crm_sla"
 
 
-async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]:
+async def filter_allowed_recipients(user_ids: List[str], kind: str, item: Optional[dict] = None) -> List[str]:
     """Filters recipient user IDs based on effective access and tracking switches for notification kind."""
     if not user_ids:
         return []
@@ -53,6 +53,7 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
         return user_ids
 
     from app.services.access import is_tracked, effective_access
+    from app.services.content_calendar_workflow import can_view_item
 
     employee_att_kinds = {
         "late_checkin", "pre_shift", "checkout", "missed_yesterday",
@@ -123,6 +124,9 @@ async def filter_allowed_recipients(user_ids: List[str], kind: str) -> List[str]
                 pass
             elif not effective_access(u)["modules"].get(req_module):
                 continue
+        if item is not None and (k in content_kinds or k.startswith("content_calendar")):
+            if not can_view_item(u, item):
+                continue
         allowed.append(uid)
     return allowed
 
@@ -136,11 +140,12 @@ async def store_notification(
     sender_name: Optional[str] = None,
     sender_role: Optional[str] = None,
     data: Optional[dict] = None,
+    item: Optional[dict] = None,
 ) -> None:
     db = get_database()
     if db is None:
         return
-    allowed = await filter_allowed_recipients([user_id], kind)
+    allowed = await filter_allowed_recipients([user_id], kind, item=item)
     if not allowed:
         return
     await db.mobile_notifications.insert_one(
@@ -287,9 +292,10 @@ async def dispatch_to_users(
     sender_name: Optional[str] = None,
     sender_role: Optional[str] = None,
     data: Optional[dict] = None,
+    item: Optional[dict] = None,
 ) -> dict:
     if user_ids is not None:
-        user_ids = await filter_allowed_recipients(user_ids, kind)
+        user_ids = await filter_allowed_recipients(user_ids, kind, item=item)
 
     # Empty list must not fall through to "broadcast all devices" (falsy [] in active_devices).
     if user_ids is not None and len(user_ids) == 0:
@@ -343,12 +349,13 @@ async def dispatch_to_users(
             sender_name=sender_name,
             sender_role=sender_role,
             data=data,
+            item=item,
         )
 
     sent = await send_expo_push(tokens, title, body, data=data)
     web_targets = inbox_ids if user_ids is not None else browser_user_ids
     try:
-        web_sent = await send_web_push(web_targets, title, body, kind=kind, data=data)
+        web_sent = await send_web_push(web_targets, title, body, kind=kind, data=data, item=item)
     except Exception as err:
         logger.warning("Web push dispatch failed: %s", err)
         web_sent = 0

@@ -63,7 +63,7 @@ async def _fetch_daily_matrix_rows_for_response(
     campaign_filter.update(workspace_mongo_filter(current_user, workspace_id))
 
     campaigns_cursor = db.marketing_campaigns.find(campaign_filter, {"_id": 0})
-    campaigns = await campaigns_cursor.to_list(length=None)
+    campaigns = await campaigns_cursor.to_list(length=5000)
     if not campaigns:
         return [], 0
 
@@ -74,7 +74,7 @@ async def _fetch_daily_matrix_rows_for_response(
         {"campaign_id": {"$in": campaign_ids}, "date": target_date},
         {"_id": 0}
     )
-    metrics = await metrics_cursor.to_list(length=None)
+    metrics = await metrics_cursor.to_list(length=5000)
     metric_map = {m["campaign_id"]: m for m in metrics}
 
     missing_ids = [cid for cid in campaign_ids if cid not in metric_map]
@@ -84,7 +84,7 @@ async def _fetch_daily_matrix_rows_for_response(
             {"$sort": {"date": -1}},
             {"$group": {"_id": "$campaign_id", "doc": {"$first": "$$ROOT"}}}
         ]
-        latest_res = await db.daily_campaign_metrics.aggregate(latest_pipeline).to_list(length=None)
+        latest_res = await db.daily_campaign_metrics.aggregate(latest_pipeline).to_list(length=5000)
         for entry in latest_res:
             metric_map[entry["_id"]] = entry["doc"]
 
@@ -92,11 +92,11 @@ async def _fetch_daily_matrix_rows_for_response(
     ws_name_map = {}
     if ws_ids:
         ad_cursor = db.ad_accounts.find({"id": {"$in": ws_ids}}, {"_id": 0, "id": 1, "name": 1})
-        ad_docs = await ad_cursor.to_list(length=None)
+        ad_docs = await ad_cursor.to_list(length=500)
         ws_name_map = {a["id"]: a.get("name", "") for a in ad_docs}
 
         ws_cursor = db.workspaces.find({"id": {"$in": ws_ids}}, {"_id": 0, "id": 1, "name": 1})
-        ws_docs = await ws_cursor.to_list(length=None)
+        ws_docs = await ws_cursor.to_list(length=500)
         for w in ws_docs:
             if w["id"] not in ws_name_map:
                 ws_name_map[w["id"]] = w.get("name", "")
@@ -751,10 +751,10 @@ async def list_ad_account_credentials(
     target_ws = workspace_id or request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id")
     query = dict(workspace_mongo_filter(current_user, target_ws))
 
-    creds = await db.ad_account_credentials.find(query, {"_id": 0}).to_list(length=None)
+    creds = await db.ad_account_credentials.find(query, {"_id": 0}).to_list(length=500)
 
     # Resolve workspace names map
-    ws_docs = await db.workspaces.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(length=None)
+    ws_docs = await db.workspaces.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(length=500)
     ws_name_map = {w["id"]: w.get("name", "") for w in ws_docs}
 
     res_list = []
