@@ -202,6 +202,33 @@ class TestVisibleStagesAndAccess(unittest.TestCase):
         self.assertEqual(eff["content_stages"], ["social_media"])
         self.assertEqual(visible_stages(user), list(SOCIAL_STAGES))
 
+    def test_team_lead_unset_content_stages_inherits_secondary_departments(self):
+        user = {
+            "id": "u-creative-lead",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative", "Content", "Social media"],
+            "is_active": True,
+            "access": {"content_calendar": True},
+        }
+        self.assertNotIn("content_stages", user)
+        self.assertEqual(
+            effective_access(user)["content_stages"],
+            ["creative", "content", "social_media"],
+        )
+
+    def test_team_lead_empty_content_stages_keeps_primary_only(self):
+        user = {
+            "id": "u-creative-lead",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative", "Content", "Social media"],
+            "content_stages": [],
+            "is_active": True,
+            "access": {"content_calendar": True},
+        }
+        self.assertEqual(effective_access(user)["content_stages"], ["creative"])
+
     def test_extra_creative_then_removed(self):
         user = _social_member(content_stages=["creative"], access_version=2)
         self.assertIn("Creative Production", visible_stages(user))
@@ -327,6 +354,31 @@ class TestNotificationsAndAssets(unittest.IsolatedAsyncioTestCase):
         db = FakeDB(FakeItems([CONTENT_ITEM]), FakeUsers([]))
         with self.assertRaises(HTTPException):
             await authorize_stored_upload(db, _social_member(), "content_calendar/cc-content/file.png")
+
+
+class TestNormalizeDepartmentsLeavesUnsetStages(unittest.TestCase):
+    def test_lead_without_content_stages_has_no_key_in_after(self):
+        import importlib.util
+        from pathlib import Path
+
+        script = Path(__file__).resolve().parents[1] / "backend" / "scripts" / "normalize_departments.py"
+        spec = importlib.util.spec_from_file_location("normalize_departments_script", script)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        doc = {
+            "id": "u-creative-lead",
+            "role": "team_lead",
+            "primary_department": "Creative",
+            "departments": ["Creative", "Content", "Social Media"],
+            "department": "Creative, Content, Social Media",
+        }
+        self.assertNotIn("content_stages", doc)
+        plan = mod._plan_user(doc)
+        self.assertIsNotNone(plan)
+        before, after = plan
+        self.assertNotIn("content_stages", before)
+        self.assertNotIn("content_stages", after)
 
 
 class TestAdminPrimaryDropsRedundantExtra(unittest.IsolatedAsyncioTestCase):
