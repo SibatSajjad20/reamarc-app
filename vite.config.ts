@@ -42,4 +42,25 @@ export default defineConfig({
   preview: {
     headers: securityHeaders,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (id.includes('node_modules/react-dom') || id.includes('node_modules/react/')) {
+            return 'react';
+          }
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3')) {
+            return 'charts';
+          }
+          if (id.includes('node_modules/docx-preview')) {
+            return 'docx';
+          }
+          if (id.includes('node_modules/@radix-ui') || id.includes('node_modules/lucide-react')) {
+            return 'ui';
+          }
+          return undefined;
+        },
+      },
+    },
+  },
 })

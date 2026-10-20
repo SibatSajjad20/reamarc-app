@@ -21,6 +21,19 @@ if (!envApiUrl && !(import.meta as any).env?.DEV) {
   );
 }
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('vite:preloadError', () => {
+    const key = 'reamarc_vite_preload_reload';
+    try {
+      if (sessionStorage.getItem(key) === '1') return;
+      sessionStorage.setItem(key, '1');
+    } catch {
+      return;
+    }
+    window.location.reload();
+  });
+}
+
 const isGallery =
   Boolean((import.meta as any).env?.DEV) &&
   typeof window !== 'undefined' &&

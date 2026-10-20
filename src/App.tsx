@@ -1,21 +1,26 @@
-import { useState, useEffect, useCallback } from 'react';
+import { Suspense, useState, useEffect, useCallback } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
-import { DashboardView } from './components/views/DashboardView';
-import { PerformanceMarketing } from './components/views/PerformanceMarketing';
-import { AdminPanel } from './components/admin/AdminPanel';
-import { DailyLogView } from './components/views/DailyLogView';
-import { ExceptionInboxView } from './components/views/ExceptionInboxView';
-import { AttendanceView } from './components/views/AttendanceView';
+import {
+  DashboardView,
+  PerformanceMarketing,
+  AdminPanel,
+  DailyLogView,
+  ExceptionInboxView,
+  AttendanceView,
+  SettingsView,
+  ActiveClientsView,
+  CrmView,
+  WonDealApprovalsView,
+  ContentCalendarView,
+  WebsitePipelineView,
+  OwnerView,
+  ClientPortalContainer,
+  PublicSchedulerView,
+  PublicClientReviewView,
+  prefetchView,
+} from './viewLoaders';
 import { WorkspaceModal } from './components/modals/WorkspaceModal';
-import { SettingsView } from './components/settings/SettingsView';
-import { ActiveClientsView } from './components/views/ActiveClientsView';
-import { CrmView } from './components/views/CrmView';
-import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
-import { ContentCalendarView } from './components/views/ContentCalendarView';
-import { WebsitePipelineView } from './components/views/WebsitePipelineView';
-import { OwnerView } from './components/views/OwnerView';
-import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
 import type { AdminSectionType } from './types/admin';
@@ -32,8 +37,6 @@ import { viewFromNotificationPath } from './utils/notificationRoute';
 import { showDesktopPopup } from './services/webPushService';
 import { useAdAccounts } from './hooks/useAdAccounts';
 import { LoadingScreen } from './components/ui/LoadingScreen';
-import { PublicSchedulerView } from './components/views/PublicSchedulerView';
-import { PublicClientReviewView } from './components/views/PublicClientReviewView';
 import { NotificationPromptBanner } from './components/NotificationPromptBanner';
 import { AppShell } from './components/layout/AppShell';
 import { TopBar } from './components/layout/TopBar';
@@ -145,6 +148,28 @@ function AppInner() {
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
+
+  useEffect(() => {
+    if (!user) return;
+    const run = () => {
+      prefetchView(isClient ? 'portal' : 'dashboard');
+      const extras: ViewType[] = [];
+      if (canSeeCrm) extras.push('crm');
+      if (canSeeContentCalendar) extras.push('content-calendar');
+      if (canSeeDailyLog) extras.push('daily-log');
+      extras.slice(0, 2).forEach((view) => prefetchView(view));
+    };
+    const w = window as Window & {
+      requestIdleCallback?: (cb: () => void) => number;
+      cancelIdleCallback?: (id: number) => void;
+    };
+    if (w.requestIdleCallback) {
+      const id = w.requestIdleCallback(run);
+      return () => w.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 1);
+    return () => window.clearTimeout(id);
+  }, [user, isClient, canSeeCrm, canSeeContentCalendar, canSeeDailyLog]);
 
   const v1Views: ViewType[] = [
     'dashboard',
@@ -624,7 +649,11 @@ function AppInner() {
     currentPathLower.startsWith('/schedule');
 
   if (isPublicBooking) {
-    return <PublicSchedulerView theme={theme} />;
+    return (
+      <Suspense fallback={<LoadingScreen fullScreen message="Loading…" title="Reamarc" />}>
+        <PublicSchedulerView theme={theme} />
+      </Suspense>
+    );
   }
 
   const isPublicReview =
@@ -632,7 +661,11 @@ function AppInner() {
     currentPathLower.startsWith('/client-review');
 
   if (isPublicReview) {
-    return <PublicClientReviewView theme={theme} />;
+    return (
+      <Suspense fallback={<LoadingScreen fullScreen message="Loading…" title="Reamarc" />}>
+        <PublicClientReviewView theme={theme} />
+      </Suspense>
+    );
   }
 
   if (isAuthLoading) {
@@ -663,6 +696,7 @@ function AppInner() {
             isMobile={false}
             currentView={currentView}
             onSelectView={handleSelectView}
+            onPrefetchView={prefetchView}
             onSignOut={handleSignOut}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -718,6 +752,7 @@ function AppInner() {
               handleSelectView(v);
               setIsMobileNavOpen(false);
             }}
+            onPrefetchView={prefetchView}
             onSignOut={handleSignOut}
             theme={theme}
             onToggleTheme={handleToggleTheme}
@@ -823,6 +858,7 @@ function AppInner() {
         }
       >
         <ErrorBoundary onGoHome={() => handleSelectView(getDefaultViewForUser())}>
+          <Suspense fallback={<LoadingScreen message="Loading…" title="Reamarc" />}>
           {currentView === 'dashboard' && !isClient && (
             <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
               <DashboardView onNavigateView={handleSelectView} />
@@ -981,6 +1017,7 @@ function AppInner() {
               <AccessDenied module="Owner Console" />
             )
           )}
+          </Suspense>
         </ErrorBoundary>
       </AppShell>
 

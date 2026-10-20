@@ -86,6 +86,7 @@ const SETTINGS_ICONS: Record<SettingsSectionSlug, React.ComponentType<{ classNam
 export interface SidebarProps {
   currentView: ViewType;
   onSelectView: (view: ViewType) => void;
+  onPrefetchView?: (view: ViewType) => void;
   onSignOut: () => void;
   theme: ThemeMode;
   onToggleTheme: () => void;
@@ -113,6 +114,7 @@ export interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   currentView,
   onSelectView,
+  onPrefetchView,
   onSignOut,
   theme,
   themePreference = 'system',
@@ -782,6 +784,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   const buttonElement = (
                     <button
                       type="button"
+                      onMouseEnter={() => onPrefetchView?.(item.id)}
                       onClick={() => onSelectView(item.id)}
                       className={cn(
                         'w-10 h-[34px] mx-auto rounded-md flex items-center justify-center transition-colors cursor-pointer relative focus-visible:focus-ring',
@@ -862,6 +865,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                           ? 'text-fg font-medium hover:bg-hover'
                           : 'text-fg-2 hover:bg-hover hover:text-fg'
                       )}
+                      onMouseEnter={() => onPrefetchView?.(item.id)}
                       onClick={() => {
                         onSelectView(item.id);
                         if (item.hasSubItems && currentView === item.id) {
