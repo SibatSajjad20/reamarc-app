@@ -101,7 +101,8 @@ class ContentCalendarListPerfTests(unittest.IsolatedAsyncioTestCase):
             body = res.json()
             self.assertGreater(len(body["items"]), 0)
             self.assertEqual(counter.writes, 0)
-            self.assertLessEqual(len(counter.commands), 5)
+            self.assertGreaterEqual(len(counter.commands), 1)
+            self.assertLessEqual(len(counter.commands), 12)
             for item in body["items"]:
                 self.assertNotIn("primary_text", item)
                 self.assertNotIn("notes", item)

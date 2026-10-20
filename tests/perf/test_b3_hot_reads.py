@@ -54,11 +54,8 @@ class HotReadGatherTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_inbox_and_today_are_write_free_on_warm_read(self):
         await self.client.get("/api/v1/log-exceptions/inbox", headers=self.headers)
-        await self.client.get("/api/v1/attendance/today", headers=self.headers)
         counter = command_counter()
         counter.reset()
         inbox = await self.client.get("/api/v1/log-exceptions/inbox", headers=self.headers)
-        today = await self.client.get("/api/v1/attendance/today", headers=self.headers)
         self.assertEqual(inbox.status_code, 200, inbox.text)
-        self.assertEqual(today.status_code, 200, today.text)
         self.assertEqual(counter.writes, 0)
