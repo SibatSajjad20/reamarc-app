@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils';
 
 export function getCompanyInitials(name?: string | null, singleLetter = false): string {
   if (!name) return 'C';
-  const words = name.trim().split(/\s+/).filter(Boolean);
+  const tokens = name.trim().split(/\s+/).filter(Boolean);
+  const words = tokens.filter((t) => /^[A-Za-z]/.test(t));
   if (words.length === 0) return 'C';
   if (singleLetter) {
     const last = words[words.length - 1];

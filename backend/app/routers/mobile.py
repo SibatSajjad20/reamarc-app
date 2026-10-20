@@ -69,6 +69,12 @@ async def mark_single_notification_read(
     notification_id: str,
     current_user: dict = Depends(get_current_user),
 ):
+    from app.database import get_database
+    db = get_database()
+    if db is not None:
+        notif = await db.mobile_notifications.find_one({"id": notification_id})
+        if not notif:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
     updated = await push_service.mark_one_read(current_user.get("id"), notification_id)
     return {"updated": updated}
 

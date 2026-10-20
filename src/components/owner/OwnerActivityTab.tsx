@@ -37,7 +37,7 @@ export function formatAuditSentence(
   membersMap: Map<string, OwnerMember>
 ): { sentence: string; companyName?: string; companyDoc?: Company; secondary?: string } {
   const companyDoc = event.target_company_id ? companiesMap.get(event.target_company_id) : undefined;
-  const companyName = companyDoc ? companyDoc.name : event.details?.company_name || 'a company';
+  const companyName = companyDoc ? companyDoc.name : event.details?.company_name || 'a deleted company';
 
   const targetUserId = event.details?.target_user_id || event.details?.user_id;
   const targetMember = targetUserId ? membersMap.get(targetUserId) : undefined;

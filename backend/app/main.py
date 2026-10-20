@@ -1,75 +1,106 @@
-import asyncio
-import os
-import sys
 import logging
-from contextlib import asynccontextmanager
-
-from fastapi import FastAPI, Depends, Request
+import json
+import os
+from datetime import datetime, timezone
+from fastapi import FastAPI, Request, Query, Depends
+from fastapi.responses import JSONResponse
+import re
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
-from starlette.middleware.sessions import SessionMiddleware
-from starlette.responses import JSONResponse
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-
+from contextlib import asynccontextmanager
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
 from app.config import settings
-from app.database import connect_to_mongo, close_mongo_connection, get_database
-from app.routers import (
-    auth,
-    attendance,
-    companies,
-    content_calendar,
-    users,
-    admin,
-    owner_console,
-    workspaces,
-    marketing,
-    daily_log,
-    exceptions,
-    notifications,
-    public_review,
-    crm,
-    google_drive,
-    company_branding,
-)
 from app.core.limiter import limiter
-from app.core.tenant_middleware import TenantMiddleware
-from app.core.tenant import get_tenant_context
+from app.core.uploads import open_upload_response, authorize_stored_upload
+from app.core.security import require_internal_user, get_current_user
+from app.database import connect_to_mongo, close_mongo_connection, get_database
+from app.routers import auth, admin, workspaces, marketing, daily_log, shifts, attendance, leaves, company_calendar, log_exceptions, mobile, crm, crm_approvals, crm_public, web_push, content_calendar, website_projects, users, dashboard, access, owner, company
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+class JSONFormatter(logging.Formatter):
+    """Format log entries as structured JSON lines for production log aggregators."""
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+        }
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_entry)
 
+def setup_logging():
+    handler = logging.StreamHandler()
+    handler.setFormatter(JSONFormatter())
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.handlers = [handler]
 
-async def _run_startup_cleanup():
-    """Run non-critical startup cleanups after yielding to avoid delaying cold-start."""
-    await asyncio.sleep(2)
-    try:
-        from app.services.attendance_service import cleanup_expired_otps
-        db = get_database()
-        cleaned = await cleanup_expired_otps(db)
-        if cleaned > 0:
-            logging.getLogger(__name__).info(f"Cleaned up {cleaned} expired OTP records")
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Error in startup OTP cleanup: {e}")
+setup_logging()
 
+import asyncio
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Enforce strict startup assertions
-    settings.validate_production_keys()
-
     await connect_to_mongo()
 
-    # Pre-warm Google Drive auth in background (non-blocking)
-    async def prewarm_drive():
-        try:
-            from app.services.google_drive_service import get_drive_service
-            await asyncio.to_thread(get_drive_service)
-            logger.info("Google Drive service pre-warmed successfully")
-        except Exception as e:
-            logger.warning(f"Google Drive pre-warm skipped/failed: {e}")
+    # Run data initializations and migrations in background so uvicorn binds to $PORT immediately
+    async def _run_startup_cleanup():
+        db = get_database()
+        if db is None:
+            return
 
-    asyncio.create_task(prewarm_drive())
+        # Optional guarded epoch cleanup (only if explicitly enabled via environment)
+        import os
+        if os.getenv("RUN_EPOCH_CLEANUP", "").lower() in ("true", "1"):
+            try:
+                await db.daily_log_entries.delete_many({"date": {"$lt": "2026-08-19"}})
+                await db.daily_logs.delete_many({"date": {"$lt": "2026-08-19"}})
+                from app.services.attendance_golive import purge_pre_go_live_attendance
+                await purge_pre_go_live_attendance()
+                logging.getLogger(__name__).info("Explicit epoch log purge completed.")
+            except Exception as epoch_err:
+                logging.getLogger(__name__).warning(f"Epoch log purge warning: {epoch_err}")
+
+        # Persist any leftover on-disk uploads into Mongo GridFS (survives Render redeploys)
+        try:
+            from app.core.uploads import migrate_disk_uploads_to_gridfs
+            await migrate_disk_uploads_to_gridfs(db)
+        except Exception as upload_err:
+            logging.getLogger(__name__).warning(f"Uploads migration warning: {upload_err}")
+
+        # Ensure content calendar indexes
+        try:
+            from app.services.content_calendar_service import ensure_indexes
+            await ensure_indexes(db)
+        except Exception as idx_err:
+            logging.getLogger(__name__).warning(f"Content calendar indexes warning: {idx_err}")
+
+        # Backfill primary_department only. Role rules are fixed in code.
+        try:
+            from app.services.permissions_migration import (
+                backfill_primary_departments,
+                normalize_operations_role_labels,
+            )
+            from app.services.access_migration import run_access_settings_migration
+            from app.services.content_calendar_service import backfill_share_tokens
+            from app.core.tenant import for_each_active_company
+
+            if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                async def _startup_for_company(company):
+                    await backfill_primary_departments(db)
+                    await normalize_operations_role_labels(db)
+                    await run_access_settings_migration(db)
+                    await backfill_share_tokens(db)
+
+                await for_each_active_company(_startup_for_company)
+            else:
+                await backfill_primary_departments(db)
+                await normalize_operations_role_labels(db)
+                await run_access_settings_migration(db)
+                await backfill_share_tokens(db)
+        except Exception as perm_err:
+            logging.getLogger(__name__).exception(f"Primary department / access migration failed: {perm_err}")
 
     cleanup_task = asyncio.create_task(_run_startup_cleanup())
 
@@ -158,137 +189,171 @@ app = FastAPI(
 )
 
 app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# Trust Reverse Proxy Headers (e.g. Render, Railway, Nginx) so client IP and scheme are detected correctly
-from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
-app.add_middleware(ProxyHeadersMiddleware, trusted_hosts=["*"])
 
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logging.getLogger(__name__).exception(f"Unhandled error on {request.method} {request.url.path}: {exc}")
+    origin = request.headers.get("origin") or ""
+    headers = {}
+    if origin and (origin in settings.CORS_ORIGINS or not settings.IS_PRODUCTION):
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An unexpected error occurred. Please try again later."},
+        headers=headers,
+    )
 
-# Tenant scoping runs BEFORE CORS so 401/403/409 errors still get CORS headers.
-# In Starlette, middleware added later wraps earlier middleware (runs first).
-# So: add TenantMiddleware first, then CORSMiddleware after it.
-app.add_middleware(TenantMiddleware)
 
-app.add_middleware(
-    CORSMiddleware,
+# CORS — production uses explicit allowlist only (no *.vercel.app regex)
+_DEV_ORIGIN_REGEX = r"https?://(localhost|127\.0\.0\.1|testserver|192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3})(:\d+)?"
+
+_cors_kwargs = dict(
     allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Workspace-ID", "X-Account-ID", "X-Client", "X-Requested-With", "Range"],
+    expose_headers=["X-Hidden-Count", "X-Total-Count", "Content-Range", "Accept-Ranges", "Content-Length"],
 )
+if not settings.IS_PRODUCTION:
+    _cors_kwargs["allow_origin_regex"] = _DEV_ORIGIN_REGEX
 
+from app.services.permissions import operations_view_only_middleware
 
-class NoCacheStaticFiles(StaticFiles):
-    """Serve static files with no-cache headers in development so changes are picked up immediately."""
-    def file_response(self, *args, **kwargs):
-        resp = super().file_response(*args, **kwargs)
-        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-        resp.headers["Pragma"] = "no-cache"
-        resp.headers["Expires"] = "0"
-        return resp
+app.middleware("http")(operations_view_only_middleware)
+app.add_middleware(CORSMiddleware, **_cors_kwargs)
 
-
-_UPLOADS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
-os.makedirs(_UPLOADS_DIR, exist_ok=True)
-app.mount("/uploads", NoCacheStaticFiles(directory=_UPLOADS_DIR), name="uploads")
+def should_enforce_csrf(*, method: str, has_auth_cookie: bool, has_bearer: bool) -> bool:
+    """Cookie sessions need CSRF; Bearer tokens do not. JSON is not an exemption."""
+    return method in ("POST", "PUT", "PATCH", "DELETE") and has_auth_cookie and not has_bearer
 
 
 @app.middleware("http")
-async def company_branding_header(request: Request, call_next):
-    """Stamp each API response with the resolved tenant company's branding."""
-    response = await call_next(request)
-    try:
-        from app.core.tenant import get_tenant_context, get_global_db
-        ctx = get_tenant_context()
-        if ctx and ctx.company_id:
-            gdb = get_global_db()
-            if gdb is not None:
-                comp = await gdb.companies.find_one({"id": ctx.company_id}, {"brand_name": 1, "name": 1})
-                if comp:
-                    bname = comp.get("brand_name") or comp.get("name")
-                    if bname:
-                        response.headers["X-Company-Brand-Name"] = bname
-    except Exception:
-        pass
-    return response
+async def csrf_protection_middleware(request: Request, call_next):
+    has_auth_cookie = bool(request.cookies.get("access_token") or request.cookies.get("refresh_token"))
+    has_bearer = bool(request.headers.get("authorization", "").strip().lower().startswith("bearer "))
+    if should_enforce_csrf(method=request.method, has_auth_cookie=has_auth_cookie, has_bearer=has_bearer):
+        origin = (request.headers.get("origin") or "").strip()
+        custom_header = (
+            (request.headers.get("x-requested-with") or "").strip().lower() == "xmlhttprequest"
+            or bool(request.headers.get("x-workspace-id"))
+        )
 
+        # 1. Validate Origin when present
+        if origin:
+            allowed = set(settings.CORS_ORIGINS)
+            is_valid_origin = origin in allowed
+            if not is_valid_origin and not settings.IS_PRODUCTION:
+                is_valid_origin = bool(re.fullmatch(_DEV_ORIGIN_REGEX, origin))
+            if not is_valid_origin:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "CSRF verification failed: Origin not authorized."},
+                )
+
+        # 2. Block cross-site HTML forms in production (must supply custom header that forms cannot send)
+        if not custom_header and settings.IS_PRODUCTION:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "CSRF verification failed: Missing required request header."},
+            )
+
+    return await call_next(request)
 
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
-    # Bypass auth and custom processing completely for CORS preflight OPTIONS requests
-    if request.method == "OPTIONS":
-        return await call_next(request)
-
-    path = request.url.path
-    if (
-        settings.MULTI_COMPANY_ENABLED
-        and path.startswith("/api/v1")
-        and not path.startswith("/api/v1/owner")
-        and not path.startswith("/api/v1/auth/login")
-        and not path.startswith("/api/v1/auth/refresh")
-        and not path.startswith("/api/v1/companies/active")
-        and not path.startswith("/api/v1/public")
-    ):
-        ctx = get_tenant_context()
-        if ctx and ctx.is_owner_session:
-            allowed_get_prefixes = (
-                "/api/v1/workspaces",
-                "/api/v1/content-calendar",
-                "/api/v1/marketing",
-                "/api/v1/admin/members",
-                "/api/v1/company-branding",
-            )
-            is_allowed_get = request.method == "GET" and any(path.startswith(p) for p in allowed_get_prefixes)
-            if not is_allowed_get:
-                return JSONResponse(
-                    status_code=403,
-                    content={
-                        "detail": "Owner session is read-only for tenant data.",
-                        "error_code": "OWNER_SESSION_READ_ONLY",
-                    },
-                )
-
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
     response.headers["X-XSS-Protection"] = "1; mode=block"
-    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "img-src 'self' data: https:; "
-        "script-src 'self' 'unsafe-inline'; "
-        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "connect-src 'self' https:;"
-    )
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+    is_upload = request.url.path.startswith("/uploads/") or request.url.path.startswith(f"{settings.API_V1_STR}/uploads/")
+    if not is_upload:
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+        response.headers["Cache-Control"] = "private, no-store"
+    else:
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        response.headers["Content-Security-Policy"] = "default-src 'self' blob: data:; media-src 'self' blob: data:; img-src 'self' blob: data:;"
+        response.headers["Cache-Control"] = "private, max-age=3600"
+
+    response.headers["Permissions-Policy"] = "geolocation=(), camera=(), microphone=(), payment=()"
+    if settings.IS_PRODUCTION:
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
     return response
 
 
-api_v1_prefix = "/api/v1"
-app.include_router(auth.router, prefix=f"{api_v1_prefix}/auth", tags=["auth"])
-app.include_router(attendance.router, prefix=f"{api_v1_prefix}/attendance", tags=["attendance"])
-app.include_router(daily_log.router, prefix=f"{api_v1_prefix}/daily-log", tags=["daily-log"])
-app.include_router(exceptions.router, prefix=f"{api_v1_prefix}/exceptions", tags=["exceptions"])
-app.include_router(content_calendar.router, prefix=f"{api_v1_prefix}/content-calendar", tags=["content-calendar"])
-app.include_router(workspaces.router, prefix=f"{api_v1_prefix}/workspaces", tags=["workspaces"])
-app.include_router(users.router, prefix=f"{api_v1_prefix}/users", tags=["users"])
-app.include_router(admin.router, prefix=f"{api_v1_prefix}/admin", tags=["admin"])
-app.include_router(owner_console.router, prefix=f"{api_v1_prefix}/owner", tags=["owner-console"])
-app.include_router(marketing.router, prefix=f"{api_v1_prefix}/marketing", tags=["marketing"])
-app.include_router(notifications.router, prefix=f"{api_v1_prefix}/notifications", tags=["notifications"])
-app.include_router(crm.router, prefix=f"{api_v1_prefix}/crm", tags=["crm"])
-app.include_router(google_drive.router, prefix=f"{api_v1_prefix}/drive", tags=["drive"])
-app.include_router(public_review.router, prefix="/api/v1", tags=["public-review"])
-app.include_router(companies.router, prefix=f"{api_v1_prefix}/companies", tags=["companies"])
-app.include_router(company_branding.router, prefix=f"{api_v1_prefix}/company-branding", tags=["company-branding"])
+# Uploads are served only via authenticated routes (not public StaticFiles / directory listings).
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+os.makedirs(os.path.join(UPLOAD_DIR, "deliverables"), exist_ok=True)
 
 
-@app.get("/")
-def read_root():
-    return {"message": "Welcome to Reamarc AI Copywriter API"}
+@app.get("/uploads/{file_path:path}")
+@app.get(f"{settings.API_V1_STR}/uploads/{{file_path:path}}")
+async def serve_upload(
+    file_path: str,
+    request: Request,
+    download: bool = Query(False, description="Force download attachment"),
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Authenticated upload server for proposals and deliverables.
+    Streams directly from MongoDB GridFS with local disk fallback.
+    Supports inline browser viewing for PDFs/images/videos, or attachment download.
+    """
+    db = get_database()
+    await authorize_stored_upload(db, current_user, file_path)
+    range_header = request.headers.get("range")
+    return await open_upload_response(db, file_path, download=download, range_header=range_header)
 
 
-@app.get("/health")
-def health_check():
-    return {"status": "ok"}
+# Include Active V1.0 Routers
+app.include_router(auth.router, prefix=settings.API_V1_STR)
+app.include_router(admin.router, prefix=settings.API_V1_STR)
+app.include_router(workspaces.router, prefix=settings.API_V1_STR)
+app.include_router(marketing.router, prefix=settings.API_V1_STR)
+app.include_router(daily_log.router, prefix=settings.API_V1_STR)
+app.include_router(log_exceptions.router, prefix=settings.API_V1_STR)
+app.include_router(shifts.router, prefix=settings.API_V1_STR)
+app.include_router(attendance.router, prefix=settings.API_V1_STR)
+app.include_router(leaves.router, prefix=settings.API_V1_STR)
+app.include_router(company_calendar.router, prefix=settings.API_V1_STR)
+app.include_router(mobile.router, prefix=settings.API_V1_STR)
+app.include_router(web_push.router, prefix=settings.API_V1_STR)
+app.include_router(crm_approvals.router, prefix=settings.API_V1_STR)
+app.include_router(crm.router, prefix=settings.API_V1_STR)
+app.include_router(crm_public.router, prefix=settings.API_V1_STR)
+app.include_router(crm_public.router)
+app.include_router(content_calendar.router, prefix=settings.API_V1_STR)
+app.include_router(website_projects.router, prefix=settings.API_V1_STR)
+app.include_router(users.router, prefix=settings.API_V1_STR)
+app.include_router(dashboard.router, prefix=settings.API_V1_STR)
+app.include_router(access.router, prefix=settings.API_V1_STR)
+app.include_router(owner.router, prefix=settings.API_V1_STR)
+app.include_router(company.router, prefix=settings.API_V1_STR)
+
+
+
+@app.api_route("/", methods=["GET", "HEAD"])
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health_check():
+    db = get_database()
+    mongo_ok = False
+    if db is not None:
+        try:
+            await db.command("ping")
+            mongo_ok = True
+        except Exception:
+            mongo_ok = False
+    status_label = "healthy" if mongo_ok else "degraded"
+    payload = {
+        "status": status_label,
+        "message": "Backend is online",
+    }
+    if not settings.IS_PRODUCTION:
+        payload["mongo"] = mongo_ok
+    return payload
+

@@ -63,6 +63,7 @@ export interface OwnerMember {
   full_name: string;
   is_active: boolean;
   is_super_admin: boolean;
+  company_id?: string;
   created_at?: string;
   memberships: OwnerMemberMembership[];
 }

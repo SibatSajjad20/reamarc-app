@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState';
 import { useAuth } from '@/context/AuthContext';
@@ -212,23 +212,45 @@ export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
   // Header primary action button based on current tab
   const headerAction =
     activeTab === 'companies' ? (
-      <Button
-        variant="primary"
-        size="md"
-        icon={Plus}
-        onClick={() => setIsCreateCompanyOpen(true)}
-      >
-        New company
-      </Button>
+      <>
+        <Button
+          variant="primary"
+          size="md"
+          icon={Plus}
+          onClick={() => setIsCreateCompanyOpen(true)}
+          className="hidden sm:inline-flex"
+        >
+          New company
+        </Button>
+        <IconButton
+          variant="primary"
+          size="md"
+          icon={Plus}
+          label="New company"
+          onClick={() => setIsCreateCompanyOpen(true)}
+          className="sm:hidden"
+        />
+      </>
     ) : activeTab === 'members' && hasMembersSupport ? (
-      <Button
-        variant="primary"
-        size="md"
-        icon={UserPlus}
-        onClick={() => setIsNewMemberOpen(true)}
-      >
-        New member
-      </Button>
+      <>
+        <Button
+          variant="primary"
+          size="md"
+          icon={UserPlus}
+          onClick={() => setIsNewMemberOpen(true)}
+          className="hidden sm:inline-flex"
+        >
+          New member
+        </Button>
+        <IconButton
+          variant="primary"
+          size="md"
+          icon={UserPlus}
+          label="New member"
+          onClick={() => setIsNewMemberOpen(true)}
+          className="sm:hidden"
+        />
+      </>
     ) : null;
 
   return (

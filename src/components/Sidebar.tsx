@@ -590,7 +590,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       </span>
                       <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
                     </div>
-                    <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
+                    <span className="block text-xs text-fg-muted leading-4 truncate">
                       {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                     </span>
                   </div>
@@ -602,7 +602,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 {(user?.companies || [
                   {
-                    id: user?.company_id || user?.company?.id || 'company_reamarc',
+                    id: user?.company_id || user?.company?.id || '',
                     name: brandNameOf(user?.company),
                     role: user?.role,
                     logo_url: user?.company?.logo_url,
@@ -677,7 +677,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
                   {brandNameOf(user?.company)}
                 </span>
-                <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
+                <span className="block text-xs text-fg-muted leading-4 truncate">
                   {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
                 </span>
               </div>

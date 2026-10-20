@@ -84,7 +84,7 @@ export function exportDailyLogWorkbook(
   columns: DailyLogColumn[],
   meta: DailyLogExportMeta,
 ): string {
-  const companyName = meta.companyName || 'Reamarc';
+  const companyName = meta.companyName || '';
   const exportCols = columns.length > 0 ? columns : [];
   const sorted = [...entries].sort(compareEntries);
 
@@ -107,7 +107,7 @@ export function exportDailyLogWorkbook(
 
   const sheetData: (string | number)[][] = [];
 
-  sheetData.push([`${companyName.toUpperCase()} — DAILY LOG EXPORT`]);
+  sheetData.push([companyName ? `${companyName.toUpperCase()} — DAILY LOG EXPORT` : 'DAILY LOG EXPORT']);
   sheetData.push([
     `Period: ${meta.periodLabel}`,
     `Dates: ${periodRange}`,

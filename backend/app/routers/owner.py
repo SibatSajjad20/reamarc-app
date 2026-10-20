@@ -611,6 +611,7 @@ async def list_owner_members(
             "is_active": u.get("is_active", True),
             "is_super_admin": u.get("is_super_admin", False),
             "created_at": u.get("created_at"),
+            "company_id": u.get("company_id"),
             "memberships": formatted_mems,
         })
 

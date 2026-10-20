@@ -19,6 +19,7 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { brandNameOf } from '@/utils/branding';
 import { cn } from '@/lib/utils';
 import type { SettingsSectionSlug } from '@/types/settings';
 import { getSettingsSection } from '@/utils/settingsAccess';
@@ -239,7 +240,7 @@ export const TopBar: React.FC<TopBarProps> = ({
           { label: 'Owner Console', onClick: () => onSelectView('owner') },
         ];
       default:
-        return [{ label: 'Reamarc' }];
+        return [{ label: brandNameOf(user?.company) }];
     }
   };
 

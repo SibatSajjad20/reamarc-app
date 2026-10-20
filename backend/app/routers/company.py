@@ -1,7 +1,5 @@
 """Company-admin branding endpoints."""
 
-from __future__ import annotations
-
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status

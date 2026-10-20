@@ -27,6 +27,7 @@ import { Input } from '@/components/ui/input';
 import { CompanyMark } from './CompanyMark';
 import { formatCreatedDate } from './CompanyDetailSheet';
 import { useConfirm } from '@/components/ui/ConfirmProvider';
+import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
 import { getRoleDisplayName } from '@/lib/roleLabel';
 import { ownerService, type Company, type OwnerMember, type OwnerMemberMembership } from '@/services/ownerService';
@@ -58,6 +59,8 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
 }) => {
   const confirm = useConfirm();
   const { addToast } = useToast();
+  const { user } = useAuth();
+  const ownerHomeCompanyId = user?.company_id || user?.company?.id;
 
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCompanyId, setSelectedCompanyId] = useState<string>(presetCompanyFilter || 'all');
@@ -345,7 +348,7 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                             const isRemoved = mem.status === 'removed';
                             const compDoc = companies.find((c) => c.id === mem.company_id);
                             const accentColor = compDoc?.accent_color;
-                            const isHomeMem = isOwner && mem.company_id === 'company_reamarc';
+                            const isHomeMem = isOwner && (mem.company_id === (m.company_id || ownerHomeCompanyId));
 
                             return (
                               <span
@@ -460,7 +463,7 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                               {m.memberships?.some((mem) => mem.status === 'active') && !isOwner && (
                                 <>
                                   <DropdownMenuSeparator />
-                                  <div className="px-2 py-1.5 text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                                  <div className="px-2 py-1.5 text-caption font-semibold text-fg-muted">
                                     Remove access
                                   </div>
                                   {m.memberships
@@ -546,7 +549,7 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                         {activeMems.length > 0 && !isOwner && (
                           <>
                             <DropdownMenuSeparator />
-                            <div className="px-2 py-1 text-caption font-semibold text-fg-muted uppercase tracking-wider">
+                            <div className="px-2 py-1 text-caption font-semibold text-fg-muted">
                               Remove access
                             </div>
                             {activeMems.map((mem) => (
