@@ -71,6 +71,7 @@ class WorkspaceResponse(BaseModel):
     billing_phone: Optional[str] = None
     brandGuidelines: Optional[str] = ""
     isDefault: bool = False
+    logo_url: Optional[str] = None
 
     class Config:
         populate_by_name = True

@@ -91,6 +91,32 @@ export const workspaceService = {
     return res;
   },
 
+  patchCachedWorkspace(updated: Workspace): void {
+    const cached = workspacesCache.get('workspaces');
+    if (cached?.data) {
+      workspacesCache.set(
+        'workspaces',
+        cached.data.map((w) => (w.id === updated.id ? { ...w, ...updated } : w))
+      );
+    }
+  },
+
+  async uploadLogo(workspaceId: string, file: File): Promise<Workspace> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiClient.upload<Workspace>(`/workspaces/${workspaceId}/logo`, formData);
+    workspaceService.patchCachedWorkspace(res);
+    emitInvalidation(['workspaces']);
+    return res;
+  },
+
+  async removeLogo(workspaceId: string): Promise<Workspace> {
+    const res = await apiClient.delete<Workspace>(`/workspaces/${workspaceId}/logo`);
+    workspaceService.patchCachedWorkspace(res);
+    emitInvalidation(['workspaces']);
+    return res;
+  },
+
   async uploadProposal(
     file: File,
     storeAs?: string | null

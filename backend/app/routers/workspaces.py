@@ -8,6 +8,14 @@ from app.core.security import require_admin, require_member_or_admin, require_op
 from app.core.uploads import open_upload_response, authorize_stored_upload
 from app.core.limiter import limiter
 from app.database import get_database
+from app.services import cloudinary_service, image_pipeline
+from app.services.client_logo import (
+    can_destroy_client_logo,
+    client_logo_folder,
+    default_workspace_initials,
+    record_workspace_audit,
+    sanitize_client_logo_url,
+)
 
 router = APIRouter(prefix="/workspaces", tags=["Workspaces"])
 
@@ -19,11 +27,13 @@ async def update_brand_guidelines(user_id: str, workspace_id: str, workspace_nam
 
 def normalize_workspace(doc: dict) -> dict:
     name = str(doc.get("name") or doc.get("client_name") or "Workspace")
+    stored_initials = str(doc.get("initials") or "").strip()
     return {
         "id": str(doc.get("id", f"ws-{uuid.uuid4().hex[:8]}")),
         "name": name,
-        "initials": str(doc.get("initials") or name[:2].upper()),
+        "initials": stored_initials or default_workspace_initials(name),
         "brandColor": str(doc.get("brandColor") or doc.get("brand_color") or "bg-indigo-600"),
+        "logo_url": sanitize_client_logo_url(doc.get("logo_url")),
         "status": str(doc.get("status", "active")),
         "proposal_url": doc.get("proposal_url"),
         "proposal_name": doc.get("proposal_name"),
@@ -109,7 +119,7 @@ async def create_workspace(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
     new_id = f"ws-{uuid.uuid4().hex[:8]}"
-    initials = ws_in.initials or ws_in.name[:2].upper()
+    initials = (ws_in.initials or "").strip() or default_workspace_initials(ws_in.name)
     now_iso = datetime.now(timezone.utc).isoformat()
 
     workspace_doc = {
@@ -169,6 +179,8 @@ async def update_workspace(
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
 
     dumped = ws_update.model_dump(exclude_unset=True)
+    dumped.pop("logo_url", None)
+    dumped.pop("logo_public_id", None)
     if not dumped:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No fields provided for update.")
 
@@ -203,6 +215,106 @@ async def update_workspace(
         )
 
     return normalize_workspace(res)
+
+
+@router.post("/{workspace_id}/logo", response_model=WorkspaceResponse)
+@limiter.limit("10/minute")
+async def upload_workspace_logo(
+    request: Request,
+    workspace_id: str,
+    file: UploadFile = File(...),
+    current_user: dict = Depends(require_operations_or_admin),
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    folder = client_logo_folder(workspace_id)
+    ws = await db.workspaces.find_one({"id": workspace_id})
+    if not ws:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{workspace_id}' not found.")
+
+    data = await image_pipeline.read_validate_square_logo(file)
+    old_pid = ws.get("logo_public_id")
+    public_id = f"logo-{uuid.uuid4().hex[:12]}"
+    secure_url, new_pid = await cloudinary_service.upload_image(
+        data,
+        folder=folder,
+        public_id=public_id,
+        tags=["client-logo", f"ws-{workspace_id}"],
+        overwrite=False,
+        not_configured_detail="Client logos aren't set up yet.",
+    )
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        res = await db.workspaces.find_one_and_update(
+            {"id": workspace_id},
+            {
+                "$set": {
+                    "logo_url": secure_url,
+                    "logo_public_id": new_pid,
+                    "updated_at": now_iso,
+                }
+            },
+            return_document=True,
+        )
+        if not res:
+            await cloudinary_service.destroy(new_pid)
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{workspace_id}' not found.")
+    except HTTPException:
+        raise
+    except Exception:
+        await cloudinary_service.destroy(new_pid)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Couldn't save the logo. Try again.")
+
+    if can_destroy_client_logo(old_pid, workspace_id):
+        await cloudinary_service.destroy(old_pid)
+
+    await record_workspace_audit(
+        db,
+        action="client_logo.updated",
+        workspace_id=workspace_id,
+        workspace_name=res.get("name") or ws.get("name") or "",
+        actor=current_user,
+    )
+    return normalize_workspace(res)
+
+
+@router.delete("/{workspace_id}/logo", response_model=WorkspaceResponse)
+@limiter.limit("10/minute")
+async def delete_workspace_logo(
+    request: Request,
+    workspace_id: str,
+    current_user: dict = Depends(require_operations_or_admin),
+):
+    db = get_database()
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database connection unavailable.")
+
+    client_logo_folder(workspace_id)
+    ws = await db.workspaces.find_one({"id": workspace_id})
+    if not ws:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Workspace '{workspace_id}' not found.")
+
+    old_pid = ws.get("logo_public_id")
+    now_iso = datetime.now(timezone.utc).isoformat()
+    res = await db.workspaces.find_one_and_update(
+        {"id": workspace_id},
+        {"$unset": {"logo_url": "", "logo_public_id": ""}, "$set": {"updated_at": now_iso}},
+        return_document=True,
+    )
+    if can_destroy_client_logo(old_pid, workspace_id):
+        await cloudinary_service.destroy(old_pid)
+
+    if old_pid or ws.get("logo_url"):
+        await record_workspace_audit(
+            db,
+            action="client_logo.removed",
+            workspace_id=workspace_id,
+            workspace_name=(res or ws).get("name") or "",
+            actor=current_user,
+        )
+    return normalize_workspace(res or ws)
 
 
 @router.delete("/{workspace_id}")

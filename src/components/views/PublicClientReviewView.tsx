@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import { BrandMark } from '../ui/BrandMark';
+import { ClientAvatar } from '../ui/ClientAvatar';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Textarea } from '../ui/textarea';
@@ -367,6 +368,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
             <span className="text-sm font-semibold text-fg tracking-tight shrink-0">Reamarc</span>
             <span className="text-fg-faint shrink-0">•</span>
+            <ClientAvatar
+              name={item.client_name || 'Client'}
+              logoUrl={item.client_logo_url}
+              size={32}
+              decorative
+            />
             <span className="text-xs text-fg-muted truncate">
               {item.client_name || 'Client review'}
             </span>

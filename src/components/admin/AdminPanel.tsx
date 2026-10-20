@@ -9,7 +9,6 @@ import { ComplianceRemindersSection } from './sections/ComplianceRemindersSectio
 import { WorkspacesSection } from './sections/WorkspacesSection';
 import { AddMemberModal } from './AddMemberModal';
 import { EditMemberModal } from './EditMemberModal';
-import { WorkspaceModal } from '../modals/WorkspaceModal';
 import { Button } from '../ui/button';
 import type { UserRole } from '../../types/auth';
 import type {
@@ -24,11 +23,15 @@ import type { Workspace } from '../../types';
 export interface AdminPanelProps {
   activeSection?: AdminSectionType;
   onSectionChange?: (section: AdminSectionType) => void;
+  onAddWorkspace?: () => void;
+  onEditWorkspace?: (ws: Workspace) => void;
 }
 
 export const AdminPanel: React.FC<AdminPanelProps> = ({
   activeSection: propActiveSection,
   onSectionChange,
+  onAddWorkspace,
+  onEditWorkspace,
 }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
@@ -84,9 +87,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   const [memberToEdit, setMemberToEdit] = useState<AdminMember | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<AdminMember | null>(null);
 
-  // Modals for Workspaces
-  const [isWorkspaceModalOpen, setIsWorkspaceModalOpen] = useState(false);
-  const [workspaceToEdit, setWorkspaceToEdit] = useState<Workspace | null>(null);
 
   const { addToast } = useToast();
 
@@ -211,14 +211,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
   };
 
   // --- Workspace Handlers ---
-  const handleSaveWorkspace = async (data: any) => {
-    await saveWorkspace(workspaceToEdit, data);
-    addToast('Workspace Saved', 'Client workspace profile successfully saved.', 'success');
-    setIsWorkspaceModalOpen(false);
-    setWorkspaceToEdit(null);
-    await refetchWorkspaces();
-  };
-
   const handleToggleWorkspaceStatus = async (workspace: Workspace) => {
     const newStatus = workspace.status === 'inactive' ? 'active' : 'inactive';
     try {
@@ -266,14 +258,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
         {activeSection === 'workspaces' && (isAdmin || isOperations) && (
           <WorkspacesSection
             workspaces={workspaces}
-            onAddWorkspace={() => {
-              setWorkspaceToEdit(null);
-              setIsWorkspaceModalOpen(true);
-            }}
-            onEditWorkspace={(ws) => {
-              setWorkspaceToEdit(ws);
-              setIsWorkspaceModalOpen(true);
-            }}
+            onAddWorkspace={() => onAddWorkspace?.()}
+            onEditWorkspace={(ws) => onEditWorkspace?.(ws)}
             onToggleStatus={handleToggleWorkspaceStatus}
             canManageWorkspaces={canManageWorkspaces}
             members={members}
@@ -302,19 +288,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
             setMemberToEdit(null);
           }}
           onSubmit={handleUpdateMember}
-        />
-      )}
-
-      {/* Workspace Modal */}
-      {isWorkspaceModalOpen && (
-        <WorkspaceModal
-          isOpen={isWorkspaceModalOpen}
-          workspaceToEdit={workspaceToEdit}
-          onClose={() => {
-            setIsWorkspaceModalOpen(false);
-            setWorkspaceToEdit(null);
-          }}
-          onSave={handleSaveWorkspace}
         />
       )}
 

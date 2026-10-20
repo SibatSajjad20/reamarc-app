@@ -100,7 +100,6 @@ export function useWorkspaces(enabled: boolean = true) {
       setWorkspaces((prev) =>
         [...prev, created].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
       );
-      setSelectedWorkspace(created);
       if (typeof window !== 'undefined') {
         window.dispatchEvent(new Event('reamarc_workspaces_updated'));
       }

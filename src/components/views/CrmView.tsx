@@ -36,8 +36,7 @@ import { CrmDealKanbanBoard } from '../crm/CrmDealKanbanBoard';
 import { CrmFollowUpView } from '../crm/CrmFollowUpView';
 import { CrmProposalModal, dealFormConfigToPayload } from '../crm/CrmProposalModal';
 import { CrmWonLeadMenu } from '../crm/CrmWonLeadMenu';
-import { WorkspaceModal, type WorkspaceFormSeed } from '../modals/WorkspaceModal';
-import type { WorkspaceCreatePayload } from '../../services/workspaceService';
+import type { WorkspaceFormSeed } from '../../hooks/useClientForm';
 import { CrmLeadDrawer, CrmLeadDrawerSkeleton } from '../crm/CrmLeadDrawer';
 import { CrmDeleteConfirmModal } from '../crm/CrmDeleteConfirmModal';
 import {
@@ -96,12 +95,20 @@ const EMPTY_COUNTS: CrmCounts = {
 
 type QuickFilter = 'all' | 'overdue' | 'today' | 'scheduled' | 'idle';
 
+function clientFormSeedFromLead(lead: CrmLead): WorkspaceFormSeed {
+  const phone = lead.phone_e164 ? `+${lead.phone_e164}` : lead.phone_raw || '';
+  const knownServices = ['Branding', 'Website Dev', 'Web Maintenance', 'SEO', 'Performance Marketing', 'Video Shoot', 'Software Dev', 'Mobile App Dev', 'UI/UX Designing', 'Social Media Management'];
+  const service = lead.service && knownServices.includes(lead.service) ? [lead.service] : [];
+  return { name: lead.company || lead.name, poc_name: lead.name, poc_email: lead.email || '', poc_phone: phone, billing_name: lead.name, billing_email: lead.email || '', billing_phone: phone, services: service };
+}
+
 export interface CrmViewProps {
   activeSection?: CrmSubSection;
   onSectionChange?: (section: CrmSubSection) => void;
+  onRegisterClient?: (lead: CrmLead, seed: WorkspaceFormSeed) => void;
 }
 
-export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSectionChange }) => {
+export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSectionChange, onRegisterClient }) => {
   const { user } = useAuth();
   const { addToast } = useToast();
   const perms = usePermissions();
@@ -508,8 +515,6 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
     ).length;
   }, [leads]);
 
-  const [clientFormLead, setClientFormLead] = useState<CrmLead | null>(null);
-
   const pendingClientFormCount = useMemo(
     () => leads.filter((l) => l.outcome === 'won' && !l.converted_workspace_id).length,
     [leads]
@@ -553,40 +558,8 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
       addToast('Lead is closed', 'Reopen this lead before registering it as a client.', 'warning');
       return;
     }
-    setClientFormLead(lead);
+    onRegisterClient?.(lead, clientFormSeedFromLead(lead));
   };
-
-  const clientFormSeed = useMemo((): WorkspaceFormSeed | null => {
-    if (!clientFormLead) return null;
-    const phone = clientFormLead.phone_e164
-      ? `+${clientFormLead.phone_e164}`
-      : clientFormLead.phone_raw || '';
-    const knownServices = [
-      'Branding',
-      'Website Dev',
-      'Web Maintenance',
-      'SEO',
-      'Performance Marketing',
-      'Video Shoot',
-      'Software Dev',
-      'Mobile App Dev',
-      'UI/UX Designing',
-      'Social Media Management',
-    ];
-    const service = clientFormLead.service && knownServices.includes(clientFormLead.service)
-      ? [clientFormLead.service]
-      : [];
-    return {
-      name: clientFormLead.company || clientFormLead.name,
-      poc_name: clientFormLead.name,
-      poc_email: clientFormLead.email || '',
-      poc_phone: phone,
-      billing_name: clientFormLead.name,
-      billing_email: clientFormLead.email || '',
-      billing_phone: phone,
-      services: service,
-    };
-  }, [clientFormLead]);
 
   const openDealForWonLead = (lead: CrmLead) => {
     if (lead.outcome !== 'won') {
@@ -1166,20 +1139,6 @@ export const CrmView: React.FC<CrmViewProps> = ({ activeSection = 'board', onSec
           await crmService.createLead(payload);
           addToast('Lead created', payload.name, 'success');
           await load();
-        }}
-      />
-
-      <WorkspaceModal
-        isOpen={Boolean(clientFormLead)}
-        seed={clientFormSeed}
-        onClose={() => setClientFormLead(null)}
-        onSave={async (payload) => {
-          if (!clientFormLead) return;
-          const saved = await crmService.registerClient(clientFormLead.id, payload as WorkspaceCreatePayload);
-          addToast('Active client created', saved.company || saved.name, 'success');
-          setClientFormLead(null);
-          await load();
-          if (selectedId === clientFormLead.id) await refreshOpen(clientFormLead.id);
         }}
       />
 

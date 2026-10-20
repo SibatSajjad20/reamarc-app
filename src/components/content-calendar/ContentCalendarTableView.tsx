@@ -38,6 +38,8 @@ import { Button } from '../ui/button';
 import { getStatusMapping } from '../../lib/statusMap';
 import { FacebookIcon, InstagramIcon, TikTokIcon, LinkedInIcon, MetaIcon } from '../ui/brand-icons';
 import { getAssetCounts, getApprovalStatusesForStage } from '../../utils/contentCalendarWorkflow';
+import { ClientAvatar } from '../ui/ClientAvatar';
+import { useResolvedClient } from '../../hooks/useClientLookup';
 
 export const renderPlatformIcon = (item: ContentCalendarItem) => {
   const combined = `${item.channels?.join(' ') || ''} ${item.campaign_type || ''} ${item.captions_hashtags || ''}`.toLowerCase();
@@ -168,6 +170,7 @@ export const ContentCalendarTableView: React.FC<Props> = ({
   activeClients = [],
 }) => {
   const { addToast } = useToast();
+  const resolveClient = useResolvedClient();
 
   // Column Widths State with localStorage Persistence
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() => {
@@ -1112,12 +1115,16 @@ export const ContentCalendarTableView: React.FC<Props> = ({
                               /* Read-Only Cell Display with Quick Action Hooks */
                               <div className="flex items-center justify-between gap-1 w-full group/cell overflow-hidden">
                                 {col.key === 'client_name' ? (
-                                  <span
-                                    className="font-medium text-fg truncate block flex-1"
-                                    title={item.client_name || 'Apex Transfers LLC'}
-                                  >
-                                    {item.client_name || 'Apex Transfers LLC'}
-                                  </span>
+                                  (() => {
+                                    const client = resolveClient(item);
+                                    const clientName = client?.name || item.client_name || '—';
+                                    return (
+                                      <span className="font-medium text-fg truncate flex items-center gap-1.5 flex-1 min-w-0" title={clientName}>
+                                        <ClientAvatar name={clientName} logoUrl={client?.logo_url} clientId={client?.id || item.workspace_id} brandColor={client?.brandColor} initials={client?.initials} size={18} decorative />
+                                        <span className="truncate">{clientName}</span>
+                                      </span>
+                                    );
+                                  })()
                                 ) : col.key === 'creative_type' ? (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded-sm text-[10px] font-medium bg-subtle border border-border text-fg-muted">
                                     {item.creative_type}

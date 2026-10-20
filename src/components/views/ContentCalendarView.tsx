@@ -33,6 +33,7 @@ import { ContentCalendarImportModal } from '../content-calendar/ContentCalendarI
 import { ContentCalendarOverviewTab } from '../content-calendar/overview/ContentCalendarOverviewTab';
 import { ContentCalendarDisplayPopover } from '../content-calendar/ContentCalendarDisplayPopover';
 import { useWorkspaces } from '../../hooks/useWorkspaces';
+import { ClientLookupContext, useClientLookup } from '../../hooks/useClientLookup';
 import { CustomSelect } from '../ui/CustomSelect';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { Button } from '../ui/button';
@@ -64,6 +65,7 @@ export const ContentCalendarView: React.FC = () => {
   const { addToast } = useToast();
   const { user } = useAuth();
   const { workspaces } = useWorkspaces();
+  const resolveClient = useClientLookup();
   const stageColumns = React.useMemo(() => visiblePipelineStages(user), [user]);
   const allowCreate = canCreateCampaign(user);
 
@@ -450,6 +452,7 @@ export const ContentCalendarView: React.FC = () => {
 
 
   return (
+    <ClientLookupContext.Provider value={resolveClient}>
     <div className="flex-1 flex flex-col h-full min-w-0 bg-surface overflow-hidden select-none">
       {/* Module Header & Universal Toolbar */}
       <div className="relative z-40 bg-surface border-b border-border shadow-2xs shrink-0 select-none overflow-visible">
@@ -772,5 +775,6 @@ export const ContentCalendarView: React.FC = () => {
       />
 
     </div>
+    </ClientLookupContext.Provider>
   );
 };

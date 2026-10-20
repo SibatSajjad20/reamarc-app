@@ -36,6 +36,8 @@ import { CreativeAssetGallery } from './CreativeAssetGallery';
 import { ContentCalendarShareModal } from './ContentCalendarShareModal';
 import { Sheet, SheetContent, SheetTitle, SheetDescription } from '../ui/sheet';
 import { Button } from '../ui/button';
+import { ClientAvatar } from '../ui/ClientAvatar';
+import { useResolvedClient } from '../../hooks/useClientLookup';
 
 interface Props {
   item: ContentCalendarItem | null;
@@ -63,6 +65,7 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
   onItemUpdated,
 }) => {
   const confirm = useConfirm();
+  const resolveClient = useResolvedClient();
   const [localItem, setLocalItem] = useState<ContentCalendarItem | null>(item);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -425,9 +428,16 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
           <div className="grid grid-cols-2 gap-3 p-4 rounded-md bg-subtle border border-border text-xs">
             <div>
               <span className="text-caption text-fg-muted font-medium block">Client</span>
-              <span className="font-medium text-fg block truncate mt-0.5">
-                {currentItem.client_name || 'Apex Transfers LLC'}
-              </span>
+              {(() => {
+                const client = resolveClient(currentItem);
+                const clientName = client?.name || currentItem.client_name || '—';
+                return (
+                  <span className="font-medium text-fg flex items-center gap-2 truncate mt-0.5">
+                    <ClientAvatar name={clientName} logoUrl={client?.logo_url} clientId={client?.id || currentItem.workspace_id} brandColor={client?.brandColor} initials={client?.initials} size={32} decorative />
+                    <span className="truncate">{clientName}</span>
+                  </span>
+                );
+              })()}
             </div>
             <div>
               <span className="text-caption text-fg-muted font-medium block">Content type</span>
