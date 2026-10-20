@@ -87,6 +87,20 @@ export const ContentCalendarDrawer: React.FC<Props> = ({
     setLocalItem(item);
   }, [item]);
 
+  useEffect(() => {
+    if (!isOpen || !item?.id) return;
+    let cancelled = false;
+    contentCalendarService
+      .getItem(item.id)
+      .then((full) => {
+        if (!cancelled) setLocalItem(full);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, item?.id]);
+
   const currentItem = localItem || item;
 
   const isClient = actor?.role === 'client';

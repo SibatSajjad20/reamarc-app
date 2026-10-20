@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -16,6 +16,7 @@ interface Props {
   isLoading?: boolean;
   onSelectItem: (item: ContentCalendarItem) => void;
   onUpdateItem: (id: string, payload: Partial<ContentCalendarItem>) => Promise<void>;
+  onVisibleRangeChange?: (range: { start_date: string; end_date: string }) => void;
 }
 
 export const ContentCalendarMonthWeekView: React.FC<Props> = ({
@@ -23,6 +24,7 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   isLoading = false,
   onSelectItem,
   onUpdateItem,
+  onVisibleRangeChange,
 }) => {
   const { user } = useAuth();
   const canReschedule =
@@ -43,6 +45,28 @@ export const ContentCalendarMonthWeekView: React.FC<Props> = ({
   };
 
   const todayIso = useMemo(() => toLocalIso(new Date()), []);
+
+  useEffect(() => {
+    if (!onVisibleRangeChange) return;
+    const year = currentDate.getFullYear();
+    const month = currentDate.getMonth();
+    const monthStart = toLocalIso(new Date(year, month, 1));
+    const monthEnd = toLocalIso(new Date(year, month + 1, 0));
+    const padStart = viewMode === 'week' && weekDays[0] ? weekDays[0].iso : monthStart;
+    const padEnd = viewMode === 'week' && weekDays[6] ? weekDays[6].iso : monthEnd;
+    onVisibleRangeChange({
+      start_date: toLocalIso(new Date(
+        Number(padStart.slice(0, 4)),
+        Number(padStart.slice(5, 7)) - 1,
+        Number(padStart.slice(8, 10)) - 7,
+      )),
+      end_date: toLocalIso(new Date(
+        Number(padEnd.slice(0, 4)),
+        Number(padEnd.slice(5, 7)) - 1,
+        Number(padEnd.slice(8, 10)) + 7,
+      )),
+    });
+  }, [currentDate, viewMode, weekDays, onVisibleRangeChange]);
 
   // Compute Week Days (Monday to Sunday)
   const weekDays = useMemo(() => {

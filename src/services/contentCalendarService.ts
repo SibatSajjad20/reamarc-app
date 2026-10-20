@@ -37,7 +37,10 @@ export const contentCalendarService = {
     return apiClient.get('/content-calendar/overdue-summary');
   },
 
-  async getItems(filter?: ContentCalendarFilter): Promise<ContentCalendarListResponse> {
+  async getItems(
+    filter?: ContentCalendarFilter,
+    opts?: { onPartial?: (page: ContentCalendarListResponse) => void },
+  ): Promise<ContentCalendarListResponse> {
     const filterKey = JSON.stringify(filter || {});
     const cached = ccItemsCache.get(filterKey);
     if (cached && Date.now() - cached.fetchedAt < 60_000) {
@@ -46,12 +49,7 @@ export const contentCalendarService = {
 
     const pageSize = 1000;
     const maxRows = 20000;
-    const items: ContentCalendarListResponse['items'] = [];
-    let skip = 0;
-    let total = 0;
-    let stagesCount = {} as ContentCalendarListResponse['stages_count'];
-
-    while (skip < maxRows) {
+    const buildParams = (skip: number) => {
       const params = new URLSearchParams();
       if (filter?.search?.trim()) params.set('search', filter.search.trim());
       if (filter?.client_name && filter.client_name !== 'all') params.set('client_name', filter.client_name);
@@ -60,20 +58,37 @@ export const contentCalendarService = {
       if (filter?.approval_status && filter.approval_status !== 'all') params.set('approval_status', filter.approval_status);
       if (filter?.start_date) params.set('start_date', filter.start_date);
       if (filter?.end_date) params.set('end_date', filter.end_date);
+      params.set('fields', filter?.fields || 'list');
       params.set('limit', String(pageSize));
       params.set('skip', String(skip));
+      return params;
+    };
 
-      const page = await apiClient.get<ContentCalendarListResponse>(`/content-calendar?${params.toString()}`);
-      if (skip === 0) {
-        total = page.total;
-        stagesCount = page.stages_count;
+    const first = await apiClient.get<ContentCalendarListResponse>(
+      `/content-calendar?${buildParams(0).toString()}`,
+    );
+    const total = first.total;
+    const stagesCount = first.stages_count;
+    const items = [...first.items];
+    opts?.onPartial?.({ items: [...items], total, stages_count: stagesCount });
+
+    const remainingSkips: number[] = [];
+    for (let skip = items.length; skip < Math.min(total, maxRows); skip += pageSize) {
+      remainingSkips.push(skip);
+    }
+    if (remainingSkips.length > 0) {
+      const pages = await Promise.all(
+        remainingSkips.map((skip) =>
+          apiClient.get<ContentCalendarListResponse>(`/content-calendar?${buildParams(skip).toString()}`),
+        ),
+      );
+      for (const page of pages) {
+        items.push(...page.items);
       }
-      items.push(...page.items);
-      if (page.items.length === 0 || items.length >= total) break;
-      skip += page.items.length;
     }
 
     const result = { items, total, stages_count: stagesCount };
+    opts?.onPartial?.(result);
     ccItemsCache.set(filterKey, result);
     return result;
   },

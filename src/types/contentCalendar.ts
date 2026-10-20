@@ -123,6 +123,7 @@ export interface ContentCalendarFilter {
   campaign_type?: string | 'all';
   start_date?: string;
   end_date?: string;
+  fields?: 'list' | 'full';
 }
 
 export interface BatchUpdateItem {

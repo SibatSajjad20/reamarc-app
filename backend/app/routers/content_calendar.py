@@ -40,7 +40,7 @@ from app.services.content_calendar_workflow import (
 router = APIRouter(prefix="/content-calendar", tags=["Content Calendar"])
 
 
-@router.get("", response_model=ContentCalendarListResponse)
+@router.get("", response_model=ContentCalendarListResponse, response_model_exclude_none=True)
 @limiter.limit("120/minute")
 async def list_content_items(
     request: Request,
@@ -54,6 +54,7 @@ async def list_content_items(
     end_date: Optional[str] = Query(None, description="End date for calendar range YYYY-MM-DD"),
     skip: int = Query(0, ge=0),
     limit: int = Query(500, ge=1, le=1000),
+    fields: Optional[str] = Query("list", description="list (lean) or full"),
     current_user: dict = Depends(require_content_calendar_reader),
 ):
     """Lists content calendar items with filtering, search, pagination, and stage breakdown."""
@@ -71,6 +72,7 @@ async def list_content_items(
         skip=skip,
         limit=limit,
         viewer=current_user,
+        fields=fields,
     )
     return res
 

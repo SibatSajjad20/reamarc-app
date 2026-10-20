@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Calendar,
   Table,
@@ -59,6 +59,20 @@ import {
 
 const DEFAULT_ROW_HEIGHT = 40;
 const DEFAULT_ZOOM = 100;
+const TABLE_LOOKBACK_DAYS = 60;
+
+function toLocalIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const next = new Date(y, (m || 1) - 1, (d || 1) + days);
+  return toLocalIso(next);
+}
 
 export const ContentCalendarView: React.FC = () => {
   const { addToast } = useToast();
@@ -108,6 +122,9 @@ export const ContentCalendarView: React.FC = () => {
     approval_status: 'all',
   });
   const [searchInput, setSearchInput] = useState('');
+  const [lookbackDays, setLookbackDays] = useState(TABLE_LOOKBACK_DAYS);
+  const [calendarRange, setCalendarRange] = useState<{ start_date: string; end_date: string } | null>(null);
+  const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Debounce search input to avoid spamming the backend
   useEffect(() => {
@@ -116,6 +133,18 @@ export const ContentCalendarView: React.FC = () => {
     }, 300);
     return () => clearTimeout(timer);
   }, [searchInput]);
+
+  const windowedFilter = React.useMemo((): ContentCalendarFilter => {
+    const today = toLocalIso(new Date());
+    if (viewMode === 'calendar' && calendarRange) {
+      return { ...filter, ...calendarRange, fields: 'list' };
+    }
+    return {
+      ...filter,
+      start_date: addDaysIso(today, -lookbackDays),
+      fields: 'list',
+    };
+  }, [filter, viewMode, calendarRange, lookbackDays]);
 
   // Quick Filter (Matching Lead CRM: all | overdue | today | scheduled | idle)
   const [quickFilter, setQuickFilter] = useState<ContentCalendarQuickFilter>('all');
@@ -302,7 +331,7 @@ export const ContentCalendarView: React.FC = () => {
   // Fetch Items (supports silent background sync without showing skeleton)
   const loadData = useCallback(
     async (opts?: { silent?: boolean }) => {
-      const filterKey = JSON.stringify(filter);
+      const filterKey = JSON.stringify(windowedFilter);
       const cached = contentCalendarService.getCachedItems(filterKey);
       const isSilent = opts?.silent ?? false;
       const shouldSilent = isSilent || Boolean(cached);
@@ -317,7 +346,13 @@ export const ContentCalendarView: React.FC = () => {
 
       try {
         setError(null);
-        const res = await contentCalendarService.getItems(filter);
+        const res = await contentCalendarService.getItems(windowedFilter, {
+          onPartial: (page) => {
+            setItems(page.items);
+            setStagesCount(page.stages_count);
+            setIsLoading(false);
+          },
+        });
         contentCalendarService.setCachedItems(filterKey, res);
         setItems(res.items);
         setStagesCount(res.stages_count);
@@ -329,15 +364,28 @@ export const ContentCalendarView: React.FC = () => {
         setIsLoading(false);
       }
     },
-    [filter],
+    [windowedFilter],
   );
+
+  const scheduleWindowRefresh = useCallback(() => {
+    if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(() => {
+      void loadData({ silent: true });
+    }, 1000);
+  }, [loadData]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimer.current) clearTimeout(refreshTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
 
   useCacheInvalidation(['content-calendar'], () => {
-    void loadData({ silent: true });
+    scheduleWindowRefresh();
   });
 
   // Move stage with instant optimistic update
@@ -376,7 +424,7 @@ export const ContentCalendarView: React.FC = () => {
       addToast('Stage updated', `Moved to ${updated.stage}`, 'info');
 
       // 3. Silent background refresh (NEVER flashes skeleton screens)
-      await loadData({ silent: true });
+      scheduleWindowRefresh();
     } catch (err: any) {
       addToast('Could not move item', err?.message || 'That action is not allowed', 'error');
     }
@@ -395,7 +443,7 @@ export const ContentCalendarView: React.FC = () => {
         setItems((prev) => [created, ...prev]);
         addToast('Created', `Created ${created.serial}`, 'success');
       }
-      void loadData({ silent: true });
+      scheduleWindowRefresh();
     } catch (err: any) {
       addToast('Save failed', err?.message || 'Could not save item', 'error');
     }
@@ -411,7 +459,7 @@ export const ContentCalendarView: React.FC = () => {
         setIsDrawerOpen(false);
       }
       addToast('Deleted', 'Item deleted successfully', 'info');
-      void loadData({ silent: true });
+      scheduleWindowRefresh();
     } catch (err: any) {
       addToast('Delete failed', err?.message || 'Could not delete item', 'error');
     }
@@ -575,6 +623,16 @@ export const ContentCalendarView: React.FC = () => {
                   { value: 'idle', label: 'Idle' },
                 ]}
               />
+              {viewMode !== 'calendar' && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setLookbackDays((d) => d + TABLE_LOOKBACK_DAYS)}
+                >
+                  Load older
+                </Button>
+              )}
             </div>
 
             {/* Right: Export, Import, Settings */}
@@ -722,6 +780,7 @@ export const ContentCalendarView: React.FC = () => {
               setSelectedItem(it);
               setIsDrawerOpen(true);
             }}
+            onVisibleRangeChange={setCalendarRange}
             onUpdateItem={async (id, payload) => {
               await handleSaveItem({ id, ...payload });
             }}

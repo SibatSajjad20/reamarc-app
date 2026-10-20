@@ -94,8 +94,15 @@ async def ensure_indexes(db) -> None:
                 IndexModel([("workspace_id", ASCENDING)], name="idx_cc_workspace"),
                 IndexModel([("publish_date", ASCENDING)], name="idx_cc_publish"),
                 IndexModel([("client_name", ASCENDING), ("stage", ASCENDING)], name="idx_cc_client_stage"),
+                IndexModel([("publish_date", ASCENDING), ("serial", ASCENDING)], name="idx_cc_publish_serial"),
+                IndexModel([("stage", ASCENDING), ("publish_date", ASCENDING)], name="idx_cc_stage_publish"),
+                IndexModel([("workspace_id", ASCENDING), ("publish_date", ASCENDING)], name="idx_cc_ws_publish"),
+                IndexModel([("company_id", ASCENDING), ("publish_date", ASCENDING), ("serial", ASCENDING)], name="idx_cc_co_publish_serial"),
+                IndexModel([("company_id", ASCENDING), ("stage", ASCENDING), ("publish_date", ASCENDING)], name="idx_cc_co_stage_publish"),
+                IndexModel([("company_id", ASCENDING), ("workspace_id", ASCENDING), ("publish_date", ASCENDING)], name="idx_cc_co_ws_publish"),
             ]
             await coll.create_indexes(models)
+            await _backfill_workspace_ids(db, coll)
 
             # Backfill persistent share_tokens for existing documents missing them
             try:
@@ -120,6 +127,65 @@ async def ensure_indexes(db) -> None:
             _indexes_ready = True
         except Exception as exc:
             logger.warning("Content calendar index setup skipped: %s", exc)
+
+
+LIST_FIELDS = {
+    "_id": 0,
+    "id": 1,
+    "serial": 1,
+    "client_name": 1,
+    "workspace_id": 1,
+    "stage": 1,
+    "submitted_from": 1,
+    "campaign_type": 1,
+    "creative_type": 1,
+    "content_type": 1,
+    "creative_category": 1,
+    "posting_type": 1,
+    "content_pillar": 1,
+    "content_concept": 1,
+    "offer": 1,
+    "cta": 1,
+    "design_owner": 1,
+    "design_due": 1,
+    "publish_date": 1,
+    "approval_status": 1,
+    "setup_status": 1,
+    "assignee_id": 1,
+    "assignee_name": 1,
+    "created_by": 1,
+    "created_by_name": 1,
+    "created_at": 1,
+    "updated_at": 1,
+    "attachments": 1,
+    "share_token": 1,
+    "revision_note": 1,
+    "channels": 1,
+}
+
+
+async def _backfill_workspace_ids(db, coll) -> None:
+    """One-off, idempotent workspace_id fill. Not run on the list path."""
+    try:
+        workspaces = await _load_active_workspaces(db)
+        if not workspaces:
+            return
+        missing = coll.find(
+            {"$or": [{"workspace_id": None}, {"workspace_id": ""}, {"workspace_id": {"$exists": False}}]},
+            {"_id": 1, "id": 1, "client_name": 1},
+        )
+        ops = []
+        async for doc in missing:
+            cname = doc.get("client_name")
+            resolved = _match_workspace_id_for_client(cname, workspaces) if cname else None
+            if not resolved:
+                continue
+            ops.append(UpdateOne({"_id": doc["_id"]}, {"$set": {"workspace_id": resolved}}))
+        if ops:
+            await coll.bulk_write(ops, ordered=False)
+            logger.info("Backfilled workspace_id on %d content calendar items", len(ops))
+    except Exception as exc:
+        logger.warning("Content calendar workspace_id backfill skipped: %s", exc)
 
 
 def _now_iso() -> str:
@@ -187,6 +253,30 @@ def _viewer_stage_clause(viewer: Optional[Dict[str, Any]], stage: Optional[str])
     return {"stage": {"$in": stored_stage_aliases(allowed)}}
 
 
+def _date_window_clause(start_date: Optional[str], end_date: Optional[str]) -> Optional[Dict[str, Any]]:
+    if start_date and end_date:
+        return {
+            "$or": [
+                {"publish_date": {"$gte": start_date, "$lte": end_date}},
+                {
+                    "publish_date": {"$in": [None, ""]},
+                    "design_due": {"$gte": start_date, "$lte": end_date},
+                },
+            ]
+        }
+    if start_date:
+        return {
+            "$or": [
+                {"publish_date": {"$gte": start_date}},
+                {"publish_date": {"$in": [None, ""]}},
+                {"publish_date": {"$exists": False}},
+            ]
+        }
+    if end_date:
+        return {"publish_date": {"$lte": end_date}}
+    return None
+
+
 async def get_items(
     db,
     workspace_id: Optional[str] = None,
@@ -200,16 +290,11 @@ async def get_items(
     skip: int = 0,
     limit: int = 500,
     viewer: Optional[Dict[str, Any]] = None,
+    fields: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Retrieves items with search, stage breakdown counts, and pagination."""
     if db is None:
         return {"items": [], "total": 0, "stages_count": {s: 0 for s in PIPELINE_STAGES}}
-
-    if not _indexes_ready and db is not None:
-        try:
-            asyncio.create_task(ensure_indexes(db))
-        except Exception as exc:
-            logger.warning("Content calendar index setup skipped: %s", exc)
 
     query: Dict[str, Any] = {}
     if workspace_id:
@@ -267,12 +352,7 @@ async def get_items(
                     ownership_ors.append({"client_name": {"$regex": f"^{clean_esc}", "$options": "i"}})
             client_match_clauses = ownership_ors
 
-    if start_date and end_date:
-        query["publish_date"] = {"$gte": start_date, "$lte": end_date}
-    elif start_date:
-        query["publish_date"] = {"$gte": start_date}
-    elif end_date:
-        query["publish_date"] = {"$lte": end_date}
+    date_clause = _date_window_clause(start_date, end_date)
 
     if search and search.strip():
         q = re.escape(search.strip())
@@ -293,12 +373,20 @@ async def get_items(
     elif client_match_clauses:
         query["$or"] = client_match_clauses
 
+    if date_clause:
+        if not query:
+            query = date_clause
+        elif "$and" in query:
+            query["$and"].append(date_clause)
+        else:
+            query = {"$and": [query, date_clause]}
+
     coll = db[COLLECTION_NAME]
+    lean = (fields or "list").strip().lower() != "full"
+    projection = LIST_FIELDS if lean else None
 
-    cursor = coll.find(query).sort("serial", 1).skip(skip).limit(limit)
-
-    # Calculate stages counts (scoped to workspace/search if provided)
-    base_count_query = {}
+    # Stage counts stay window-independent (historical behaviour).
+    base_count_query: Dict[str, Any] = {}
     if workspace_id:
         base_count_query["workspace_id"] = workspace_id
     if client_name:
@@ -325,23 +413,19 @@ async def get_items(
     elif client_match_clauses:
         base_count_query["$or"] = client_match_clauses
 
-    pipeline = [
-        {"$match": base_count_query},
-        {"$group": {"_id": "$stage", "count": {"$sum": 1}}},
-    ]
+    empty_stages = {s: 0 for s in PIPELINE_STAGES}
 
-    async def _fetch_items():
-        raw = await cursor.to_list(length=limit)
+    async def _present_rows(raw: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         missing_uids = [
             doc["created_by"]
             for doc in raw
             if doc.get("created_by") and not doc.get("created_by_name")
         ]
-        if missing_uids and db is not None:
+        if missing_uids:
             try:
                 user_docs = await db["users"].find(
                     {"$or": [{"id": {"$in": missing_uids}}, {"_id": {"$in": missing_uids}}]},
-                    {"id": 1, "_id": 1, "full_name": 1, "name": 1}
+                    {"id": 1, "_id": 1, "full_name": 1, "name": 1},
                 ).to_list(len(missing_uids))
                 u_map = {}
                 for u in user_docs:
@@ -354,66 +438,53 @@ async def get_items(
                         doc["created_by_name"] = u_map[doc["created_by"]]
             except Exception:
                 pass
+        presented = [_present_doc(doc) for doc in raw]
+        for item in presented:
+            if not item.get("content_concept"):
+                item["content_concept"] = "-"
+            if not item.get("created_at"):
+                item["created_at"] = item.get("updated_at") or ""
+            if not item.get("updated_at"):
+                item["updated_at"] = item.get("created_at") or ""
+        return presented
 
-        if db is not None and raw:
-            workspaces = await _load_active_workspaces(db)
-            if workspaces:
-                backfill_ops = []
-                for doc in raw:
-                    cname = doc.get("client_name")
-                    if not cname:
-                        continue
-                    resolved = _match_workspace_id_for_client(cname, workspaces)
-                    if resolved and doc.get("workspace_id") != resolved:
-                        doc["workspace_id"] = resolved
-                        doc_id = doc.get("id") or str(doc.get("_id", ""))
-                        if doc_id:
-                            backfill_ops.append(
-                                UpdateOne(
-                                    {"id": doc_id},
-                                    {"$set": {"workspace_id": resolved}},
-                                )
-                            )
-                if backfill_ops:
-                    asyncio.create_task(coll.bulk_write(backfill_ops, ordered=False))
-        presented_items = [_present_doc(doc) for doc in raw]
-        need_thumbs = [
-            item
-            for item in presented_items
-            if any(
-                isinstance(a, dict) and a.get("kind") == "video" and not a.get("thumbnail_url")
-                for a in (item.get("attachments") or [])
-            )
+    if skip == 0:
+        item_branch: List[Dict[str, Any]] = [
+            {"$match": query or {}},
+            {"$sort": {"serial": 1}},
+            {"$skip": skip},
+            {"$limit": limit},
         ]
-        if need_thumbs:
-            async def _fill_thumbs() -> None:
-                for item in need_thumbs[:6]:
-                    try:
-                        await _hydrate_missing_video_thumbs(db, item)
-                    except Exception:
-                        pass
-
-            asyncio.create_task(_fill_thumbs())
-        return presented_items
-
-    async def _fetch_counts():
-        res = {s: 0 for s in PIPELINE_STAGES}
-        async for agg in coll.aggregate(pipeline):
+        if projection:
+            item_branch.append({"$project": projection})
+        facet_pipeline = [
+            {
+                "$facet": {
+                    "items": item_branch,
+                    "total": [{"$match": query or {}}, {"$count": "n"}],
+                    "stages": [
+                        {"$match": base_count_query or {}},
+                        {"$group": {"_id": "$stage", "count": {"$sum": 1}}},
+                    ],
+                }
+            }
+        ]
+        rows = await coll.aggregate(facet_pipeline).to_list(1)
+        facet = rows[0] if rows else {}
+        raw_items = facet.get("items") or []
+        total = facet["total"][0]["n"] if facet.get("total") else 0
+        stages_count = dict(empty_stages)
+        for agg in facet.get("stages") or []:
             st = normalize_stage(agg.get("_id"))
-            if st in res:
-                res[st] += agg.get("count", 0)
-        return res
+            if st in stages_count:
+                stages_count[st] += agg.get("count", 0)
+        items = await _present_rows(raw_items)
+        return {"items": items, "total": total, "stages_count": stages_count}
 
-    async def _fetch_total():
-        return await coll.count_documents(query)
-
-    items, stages_count, total = await asyncio.gather(
-        _fetch_items(),
-        _fetch_counts(),
-        _fetch_total(),
-    )
-
-    return {"items": items, "total": total, "stages_count": stages_count}
+    cursor = coll.find(query or {}, projection).sort("serial", 1).skip(skip).limit(limit)
+    raw = await cursor.to_list(length=limit)
+    items = await _present_rows(raw)
+    return {"items": items, "total": 0, "stages_count": empty_stages}
 
 
 def _pkt_today_iso() -> str:
