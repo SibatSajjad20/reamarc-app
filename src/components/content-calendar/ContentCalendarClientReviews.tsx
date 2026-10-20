@@ -32,7 +32,7 @@ import {
   DialogDescription,
 } from '../ui/dialog';
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs';
-import { InstagramIcon, FacebookIcon, GoogleIcon } from '../ui/brand-icons';
+import { InstagramIcon, FacebookIcon, GoogleIcon, TikTokIcon, LinkedInIcon, MetaIcon } from '../ui/brand-icons';
 import { ContentCalendarPipelineView } from './ContentCalendarPipelineView';
 import { ContentCalendarDrawer } from './ContentCalendarDrawer';
 import { CreativeAssetGallery } from './CreativeAssetGallery';
@@ -42,17 +42,24 @@ import { cn } from '../../lib/utils';
 type ViewMode = 'approvals' | 'pipeline';
 type ReviewFilter = 'pending' | 'approved' | 'revision';
 
-function renderChannelIcons(channels?: string[]) {
+export function renderChannelIcons(channels?: string[]) {
   if (!channels || channels.length === 0) {
-    return <InstagramIcon size={14} variant="brand" />;
+    return null;
+  }
+  const activeChannels = channels.filter((ch) => typeof ch === 'string' && ch.trim().length > 0);
+  if (activeChannels.length === 0) {
+    return null;
   }
   return (
     <div className="flex items-center gap-1.5">
-      {channels.map((ch) => {
-        const lower = ch.toLowerCase();
-        if (lower.includes('insta')) return <InstagramIcon key={ch} size={14} variant="brand" />;
-        if (lower.includes('fb') || lower.includes('face')) return <FacebookIcon key={ch} size={14} variant="brand" />;
-        if (lower.includes('google')) return <GoogleIcon key={ch} size={14} variant="brand" />;
+      {activeChannels.map((ch) => {
+        const lower = ch.trim().toLowerCase();
+        if (lower === 'instagram') return <InstagramIcon key={ch} size={14} variant="brand" />;
+        if (lower === 'facebook') return <FacebookIcon key={ch} size={14} variant="brand" />;
+        if (lower === 'tiktok') return <TikTokIcon key={ch} size={14} variant="brand" />;
+        if (lower === 'linkedin') return <LinkedInIcon key={ch} size={14} variant="brand" />;
+        if (lower === 'meta') return <MetaIcon key={ch} size={14} variant="brand" />;
+        if (lower === 'google') return <GoogleIcon key={ch} size={14} variant="brand" />;
         return <span key={ch} className="text-micro text-fg-muted uppercase font-mono">{ch}</span>;
       })}
     </div>
