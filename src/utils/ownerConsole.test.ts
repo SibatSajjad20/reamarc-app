@@ -1,3 +1,4 @@
+import { describe, it } from 'vitest';
 import { getCompanyInitials } from '../components/owner/CompanyMark';
 import { deriveSlug } from '../components/owner/CreateCompanyDialog';
 import {
@@ -9,6 +10,9 @@ import {
   formatAuditWhen,
 } from '../components/owner/OwnerActivityTab';
 import type { Company, OwnerAuditEvent, OwnerMember } from '../services/ownerService';
+
+describe('ownerConsole', () => {
+  it('runs ownerConsole test suite', () => {
 
 function assert(condition: unknown, message: string) {
   if (!condition) {
@@ -237,3 +241,5 @@ const formattedTime = formatAuditWhen(nowStr);
 assert(formattedTime.startsWith('Today, '), 'Today timestamps start with Today, ');
 
 console.log('✓ All Owner Console unit tests passed successfully!');
+  });
+});

@@ -1,4 +1,8 @@
+import { describe, it } from 'vitest';
 import { canReviewLeaveRequest } from './leaveRequestAccess';
+
+describe('leaveRequestAccess', () => {
+  it('runs leaveRequestAccess test suite', () => {
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -24,3 +28,5 @@ assert(
 );
 
 console.log('All leaveRequestAccess tests passed successfully!');
+  });
+});

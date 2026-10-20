@@ -1,3 +1,4 @@
+import { describe, it } from 'vitest';
 import {
   formatPhoneDisplay,
   looksLikeEmail,
@@ -5,6 +6,9 @@ import {
   phoneForInput,
   pickPhoneValue,
 } from './phone';
+
+describe('phone', () => {
+  it('runs phone test suite', () => {
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -27,3 +31,5 @@ assert(phoneForInput('a@b.com') === '', 'email should not populate phone input')
 assert(normalizePhoneForSave('03001234567') === '+92 300 1234567', 'save path should normalize');
 
 console.log('All phone tests passed successfully!');
+  });
+});

@@ -388,6 +388,7 @@ export function exportMonthlyAttendanceWorkbook({
   });
 
   // Write and trigger download in browser
-  const filename = `Reamarc_Attendance_Summary_${year}_${String(month).padStart(2, '0')}.xlsx`;
+  const prefix = companyName.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const filename = `${prefix}_Attendance_Summary_${year}_${String(month).padStart(2, '0')}.xlsx`;
   XLSX.writeFile(wb, filename);
 }

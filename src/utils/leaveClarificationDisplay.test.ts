@@ -1,9 +1,13 @@
+import { describe, it } from 'vitest';
 import {
   isClarifiedPending,
   requestActivityAt,
   requestReasonPreview,
 } from './leaveClarificationDisplay';
 import type { AttendanceRequest } from '../types/attendance';
+
+describe('leaveClarificationDisplay', () => {
+  it('runs leaveClarificationDisplay test suite', () => {
 
 const base = {
   id: 'leave_1',
@@ -74,3 +78,5 @@ const sorted = [olderPending, replied, waiting].sort((a, b) =>
 assert(sorted[0].id === 'leave_1', 'clarified request is first after activity sort');
 
 console.log('leaveClarificationDisplay tests passed');
+  });
+});

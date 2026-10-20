@@ -1,3 +1,4 @@
+import { describe, it } from 'vitest';
 import { cn } from './utils';
 
 // Tiny assertion check for tailwind-merge font-size configuration
@@ -7,3 +8,9 @@ export function testFontTokensPreserved(): void {
     throw new Error(`Expected text-accent-fg and text-body to both be preserved, got: "${result}"`);
   }
 }
+
+describe('utils', () => {
+  it('preserves font tokens in cn', () => {
+    testFontTokensPreserved();
+  });
+});

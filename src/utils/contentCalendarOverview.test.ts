@@ -1,3 +1,4 @@
+import { describe, it } from 'vitest';
 import {
   calculateOverviewMetrics,
   calculateClientHealthMatrix,
@@ -8,6 +9,9 @@ import {
   filterItemsByTimeRange,
 } from './contentCalendarOverview';
 import type { ContentCalendarItem } from '../types/contentCalendar';
+
+describe('contentCalendarOverview', () => {
+  it('runs contentCalendarOverview test suite', () => {
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -201,3 +205,5 @@ const thisMonth = filterItemsByTimeRange(sampleItems, 'this_month', mockNow);
 assert(thisMonth.length >= 3, 'This month should include items created or scheduled in October');
 
 console.log('All contentCalendarOverview unit tests passed successfully!');
+  });
+});

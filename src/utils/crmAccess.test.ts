@@ -1,4 +1,8 @@
+import { describe, it } from 'vitest';
 import { canAccessCrm, canAssignCrmLeads } from './crmAccess';
+
+describe('crmAccess', () => {
+  it('runs crmAccess test suite', () => {
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -94,3 +98,5 @@ assert(!canAccessCrm(undefined), 'Undefined user must NOT have CRM access');
 assert(!canAccessCrm({}), 'Empty user must NOT have CRM access');
 
 console.log('All crmAccess tests passed successfully!');
+  });
+});

@@ -63,6 +63,7 @@ function safeFilenamePart(value: string): string {
 }
 
 function buildFilename(meta: DailyLogExportMeta): string {
+  const prefix = safeFilenamePart(meta.companyName || 'Company');
   const range =
     meta.startDate && meta.endDate
       ? meta.startDate === meta.endDate
@@ -71,7 +72,7 @@ function buildFilename(meta: DailyLogExportMeta): string {
       : safeFilenamePart(meta.periodLabel);
   const dept =
     meta.department && meta.department !== 'All' ? `_${safeFilenamePart(meta.department)}` : '';
-  return `Reamarc_Daily_Log_${range}${dept}.xlsx`;
+  return `${prefix}_Daily_Log_${range}${dept}.xlsx`;
 }
 
 /**
