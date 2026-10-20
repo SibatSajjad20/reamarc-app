@@ -15,6 +15,8 @@ export interface Company {
   };
   created_at?: string;
   created_by?: string;
+  users?: any[];
+  workspaces?: any[];
 }
 
 export interface CreateCompanyPayload {
@@ -74,6 +76,10 @@ export const ownerService = {
     return apiClient.get<Company[]>('/owner/companies');
   },
 
+  async getCompany(id: string) {
+    return apiClient.get<Company & { users?: any[]; workspaces?: any[] }>(`/owner/companies/${id}`);
+  },
+
   async createCompany(payload: CreateCompanyPayload) {
     return apiClient.post<Company>('/owner/companies', payload);
   },
@@ -91,6 +97,10 @@ export const ownerService = {
     }>(`/owner/companies/${id}/enter`, { reason, read_only: readOnly });
   },
 
+  async exitCompany() {
+    return apiClient.post<{ ok: boolean; message: string }>('/owner/exit');
+  },
+
   async resetTokenVersion(id: string) {
     return apiClient.post<{ ok: boolean; company_id: string; token_version: number }>(
       `/owner/companies/${id}/reset-token-version`
@@ -99,6 +109,10 @@ export const ownerService = {
 
   async getAuditLog(limit = 50) {
     return apiClient.get<OwnerAuditEvent[]>(`/owner/audit?limit=${limit}`);
+  },
+
+  async verifyAuditChain() {
+    return apiClient.get<{ ok: boolean; checked: number }>('/owner/audit/verify');
   },
 
   async getMembers(search?: string) {
@@ -115,6 +129,7 @@ export const ownerService = {
       status: string;
       needs_setup: boolean;
       role: string;
+      note?: string;
     }>(`/owner/members/${userId}/companies`, { company_id: companyId });
   },
 
@@ -125,6 +140,13 @@ export const ownerService = {
       company_id: string;
       status: string;
     }>(`/owner/members/${userId}/companies/${companyId}/remove`);
+  },
+
+  async setStartingPassword(userId: string, startingPassword: string) {
+    return apiClient.post<{ ok: boolean; message: string }>(
+      `/owner/members/${userId}/starting-password`,
+      { starting_password: startingPassword }
+    );
   },
 
   async provisionMember(payload: {

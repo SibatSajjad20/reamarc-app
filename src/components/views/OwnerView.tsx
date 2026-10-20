@@ -1,31 +1,29 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import {
-  Shield,
-  Building2,
-  Users,
-  ExternalLink,
-  Plus,
-  RefreshCw,
-  Search,
-  CheckCircle2,
-  History,
-  Lock,
-  PauseCircle,
-  PlayCircle,
-  X,
-  Hash,
-  UserPlus,
-} from 'lucide-react';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/EmptyState';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import {
   ownerService,
   type Company,
   type OwnerAuditEvent,
   type OwnerMember,
-  type OwnerMemberMembership,
 } from '@/services/ownerService';
-import { useToast } from '@/context/ToastContext';
-import { useAuth } from '@/context/AuthContext';
-import { Skeleton } from '@/components/ui/skeleton';
+import { OwnerCompaniesTab } from '@/components/owner/OwnerCompaniesTab';
+import { OwnerMembersTab } from '@/components/owner/OwnerMembersTab';
+import { OwnerActivityTab } from '@/components/owner/OwnerActivityTab';
+import { CreateCompanyDialog } from '@/components/owner/CreateCompanyDialog';
+import { NewMemberDialog } from '@/components/owner/NewMemberDialog';
+import { GiveAccessDialog } from '@/components/owner/GiveAccessDialog';
+import { SetStartingPasswordDialog } from '@/components/owner/SetStartingPasswordDialog';
+import { CompanyDetailSheet } from '@/components/owner/CompanyDetailSheet';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
+import { CompanyBrandingForm } from '@/components/settings/sections/CompanyBrandingForm';
+import { ownerBrandingAdapter } from '@/services/companyBrandingService';
+import { Plus, UserPlus, LogOut } from 'lucide-react';
 import type { ViewType } from '@/types';
 
 interface OwnerViewProps {
@@ -33,1182 +31,401 @@ interface OwnerViewProps {
 }
 
 export const OwnerView: React.FC<OwnerViewProps> = ({ onNavigateView }) => {
-  const { addToast } = useToast();
   const { user } = useAuth();
+  const { addToast } = useToast();
+
+  // Tab state synced with URL sub-path
+  const getInitialTab = (): 'companies' | 'members' | 'activity' => {
+    if (typeof window !== 'undefined') {
+      const pathname = window.location.pathname.toLowerCase();
+      if (pathname === '/owner/members' || pathname.endsWith('/members')) return 'members';
+      if (pathname === '/owner/activity' || pathname.endsWith('/activity')) return 'activity';
+    }
+    return 'companies';
+  };
+
+  const [activeTab, setActiveTab] = useState<'companies' | 'members' | 'activity'>(getInitialTab);
+
+  // Data state
   const [companies, setCompanies] = useState<Company[]>([]);
   const [auditLogs, setAuditLogs] = useState<OwnerAuditEvent[]>([]);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'companies' | 'members' | 'audit'>('companies');
   const [members, setMembers] = useState<OwnerMember[]>([]);
   const [hasMembersSupport, setHasMembersSupport] = useState<boolean>(true);
-  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [auditLimit, setAuditLimit] = useState<number>(50);
+  const [isLoadingMoreAudit, setIsLoadingMoreAudit] = useState<boolean>(false);
 
-  // Give Access Modal State
+  // Modals & Sheets
+  const [isCreateCompanyOpen, setIsCreateCompanyOpen] = useState(false);
+  const [isNewMemberOpen, setIsNewMemberOpen] = useState(false);
   const [giveAccessUser, setGiveAccessUser] = useState<OwnerMember | null>(null);
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string>('');
-  const [isGrantingAccess, setIsGrantingAccess] = useState<boolean>(false);
+  const [setPasswordUser, setSetPasswordUser] = useState<OwnerMember | null>(null);
+  const [detailCompanyId, setDetailCompanyId] = useState<string | null>(null);
+  const [brandingSheetCompany, setBrandingSheetCompany] = useState<Company | null>(null);
 
-  // Provision Modal State
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
-  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
-  const [formName, setFormName] = useState<string>('');
-  const [formSlug, setFormSlug] = useState<string>('');
-  const [formPlan, setFormPlan] = useState<'starter' | 'pro' | 'enterprise'>('starter');
-  const [formTimezone, setFormTimezone] = useState<string>('Asia/Karachi');
-  const [formAccent, setFormAccent] = useState<string>('#6847E0');
-  const [formAdminName, setFormAdminName] = useState<string>('');
-  const [formAdminEmail, setFormAdminEmail] = useState<string>('');
-  const [formAdminPassword, setFormAdminPassword] = useState<string>('');
-  const [formMaxUsers, setFormMaxUsers] = useState<number>(50);
+  // Member filter preset / highlight state
+  const [presetMemberCompanyFilter, setPresetMemberCompanyFilter] = useState<string | null>(null);
+  const [highlightUserId, setHighlightUserId] = useState<string | null>(null);
 
-  // Provision Member Modal State
-  const [isProvisionMemberOpen, setIsProvisionMemberOpen] = useState<boolean>(false);
-  const [provisionName, setProvisionName] = useState<string>('');
-  const [provisionEmail, setProvisionEmail] = useState<string>('');
-  const [provisionPhone, setProvisionPhone] = useState<string>('');
-  const [provisionCompanyId, setProvisionCompanyId] = useState<string>('');
-  const [provisionRole, setProvisionRole] = useState<string>('team_member');
-  const [provisionPassword, setProvisionPassword] = useState<string>('');
-  const [isProvisioningMember, setIsProvisioningMember] = useState<boolean>(false);
+  // Sync tab change to URL
+  const handleTabChange = (val: string) => {
+    const nextTab = val as 'companies' | 'members' | 'activity';
+    setActiveTab(nextTab);
+    if (typeof window !== 'undefined') {
+      const targetPath =
+        nextTab === 'companies'
+          ? '/owner'
+          : nextTab === 'members'
+          ? '/owner/members'
+          : '/owner/activity';
+      window.history.replaceState(null, '', targetPath);
+    }
+  };
 
+  // Listen to popstate (browser back/forward)
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveTab(getInitialTab());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  // Main data loader
   const loadData = useCallback(async () => {
+    if (user?.impersonating) {
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
+    setLoadError(null);
+
     try {
-      const [comps, logs, mems] = await Promise.all([
+      const [comps, logs] = await Promise.all([
         ownerService.getCompanies(),
         ownerService.getAuditLog(50),
-        ownerService.getMembers().catch((err: any) => {
-          if (err?.status === 404 || err?.response?.status === 404) {
-            setHasMembersSupport(false);
-            return [];
-          }
-          return [];
-        }),
       ]);
       setCompanies(comps);
       setAuditLogs(logs);
-      if (mems) {
-        setMembers(mems);
+
+      // Fetch members with fail-closed support check
+      try {
+        const mems = await ownerService.getMembers();
+        setMembers(mems || []);
+        setHasMembersSupport(true);
+      } catch (err: any) {
+        if (err?.status === 404 || err?.response?.status === 404) {
+          setHasMembersSupport(false);
+          setMembers([]);
+        } else {
+          // Keep members support enabled but keep list empty
+          setMembers([]);
+        }
       }
     } catch (err: any) {
-      addToast({
-        title: 'Failed to load Owner Console',
-        description: err.message || 'You may lack owner super-admin privileges.',
-        type: 'error',
-      });
+      setLoadError(err.message || 'Check your connection and try again. Nothing was changed.');
     } finally {
       setIsLoading(false);
     }
-  }, [addToast]);
-
-  const handleGiveAccess = async () => {
-    if (!giveAccessUser || !selectedCompanyId) {
-      addToast({ title: 'Validation Error', description: 'Please select a company.', type: 'warning' });
-      return;
-    }
-    setIsGrantingAccess(true);
-    try {
-      await ownerService.grantCompanyAccess(giveAccessUser.id, selectedCompanyId);
-      addToast({
-        title: 'Company Access Granted',
-        description: `Access granted for ${giveAccessUser.name}. Initial role is team member (needs setup).`,
-        type: 'success',
-      });
-      setGiveAccessUser(null);
-      setSelectedCompanyId('');
-      const updated = await ownerService.getMembers(searchQuery);
-      setMembers(updated);
-    } catch (err: any) {
-      addToast({
-        title: 'Failed to grant access',
-        description: err.message || 'Error occurred while granting access.',
-        type: 'error',
-      });
-    } finally {
-      setIsGrantingAccess(false);
-    }
-  };
-
-  const handleRemoveAccess = async (user: OwnerMember, membership: OwnerMemberMembership) => {
-    if (!window.confirm(`Revoke ${user.name}'s access to ${membership.company_name}? Their data and past records are preserved.`)) {
-      return;
-    }
-    try {
-      await ownerService.removeCompanyAccess(user.id, membership.company_id);
-      addToast({
-        title: 'Access Revoked',
-        description: `Removed access to ${membership.company_name} for ${user.name}.`,
-        type: 'success',
-      });
-      const updated = await ownerService.getMembers(searchQuery);
-      setMembers(updated);
-    } catch (err: any) {
-      addToast({
-        title: 'Failed to revoke access',
-        description: err.message || 'Error occurred while revoking access.',
-        type: 'error',
-      });
-    }
-  };
-
-  const handleProvisionMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!provisionName || !provisionEmail || !provisionCompanyId) {
-      addToast({ title: 'Validation Error', description: 'Please fill in name, email, and target company.', type: 'warning' });
-      return;
-    }
-    setIsProvisioningMember(true);
-    try {
-      await ownerService.provisionMember({
-        full_name: provisionName.trim(),
-        email: provisionEmail.trim().toLowerCase(),
-        phone: provisionPhone.trim() || undefined,
-        company_id: provisionCompanyId,
-        role: provisionRole,
-        temporary_password: provisionPassword.trim() || undefined,
-      });
-      addToast({
-        title: 'Member Provisioned',
-        description: `Successfully provisioned ${provisionName} and granted access.`,
-        type: 'success',
-      });
-      setIsProvisionMemberOpen(false);
-      setProvisionName('');
-      setProvisionEmail('');
-      setProvisionPhone('');
-      setProvisionCompanyId('');
-      setProvisionRole('team_member');
-      setProvisionPassword('');
-      const updated = await ownerService.getMembers(searchQuery);
-      setMembers(updated);
-    } catch (err: any) {
-      addToast({
-        title: 'Provisioning Failed',
-        description: err.message || 'Error occurred while provisioning member.',
-        type: 'error',
-      });
-    } finally {
-      setIsProvisioningMember(false);
-    }
-  };
+  }, [user?.impersonating]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
-  const handleNameChange = (val: string) => {
-    setFormName(val);
-    if (!formSlug || formSlug === formName.toLowerCase().replace(/[^a-z0-9]/g, '-')) {
-      const derived = val.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-      setFormSlug(derived);
-    }
-  };
-
-  const handleCreateCompany = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!formName || !formSlug || !formAdminName || !formAdminEmail) {
-      addToast({ title: 'Validation Error', description: 'Please fill in all required fields.', type: 'warning' });
-      return;
-    }
-    setIsSubmitting(true);
+  // Load more audit events (up to 200)
+  const handleLoadMoreAudit = async () => {
+    const nextLimit = Math.min(200, auditLimit + 50);
+    setIsLoadingMoreAudit(true);
     try {
-      await ownerService.createCompany({
-        name: formName,
-        slug: formSlug,
-        plan: formPlan,
-        timezone: formTimezone,
-        accent_color: formAccent,
-        admin_name: formAdminName,
-        admin_email: formAdminEmail,
-        admin_password: formAdminPassword || undefined,
-        max_users: formMaxUsers,
-      });
-      addToast({ title: 'Tenant Provisioned', description: `Successfully created ${formName}.`, type: 'success' });
-      setIsModalOpen(false);
-      // Reset form
-      setFormName('');
-      setFormSlug('');
-      setFormAdminName('');
-      setFormAdminEmail('');
-      setFormAdminPassword('');
-      void loadData();
+      const moreLogs = await ownerService.getAuditLog(nextLimit);
+      setAuditLogs(moreLogs);
+      setAuditLimit(nextLimit);
     } catch (err: any) {
-      addToast({ title: 'Provisioning Failed', description: err.message || 'Error creating company', type: 'error' });
+      addToast("Couldn't load more activity", err.message, 'error');
     } finally {
-      setIsSubmitting(false);
+      setIsLoadingMoreAudit(false);
     }
   };
 
+  // Impersonate / Enter company
   const handleEnterCompany = async (comp: Company) => {
+    addToast(`Opening ${comp.name}…`, undefined, 'info');
     try {
-      const res = await ownerService.enterCompany(comp.id, 'Inspection via Owner Console', true);
+      const res = await ownerService.enterCompany(comp.id, 'Inspection / Support', true);
       localStorage.setItem('reamarc_impersonation_token', res.impersonation_token);
-      addToast({
-        title: `Entering ${comp.name}`,
-        description: 'Impersonation active in Read-Only mode.',
-        type: 'info',
-      });
-      // Redirect to main application dashboard
       window.location.href = '/dashboard';
     } catch (err: any) {
-      addToast({ title: 'Failed to enter company', description: err.message, type: 'error' });
+      addToast(`Couldn't open ${comp.name}`, err.message, 'error');
     }
   };
 
-  const handleToggleStatus = async (comp: Company) => {
-    const nextStatus = comp.status === 'active' ? 'suspended' : 'active';
-    const confirmMsg = nextStatus === 'suspended'
-      ? `Are you sure you want to suspend ${comp.name}? All active sessions will be terminated.`
-      : `Reactivate ${comp.name}?`;
-    if (!window.confirm(confirmMsg)) return;
-
+  // Exit from banner inside OwnerView (if reached while impersonating)
+  const handleExitImpersonation = async () => {
     try {
-      await ownerService.updateCompany(comp.id, { status: nextStatus });
-      addToast({
-        title: nextStatus === 'suspended' ? 'Company Suspended' : 'Company Activated',
-        description: `${comp.name} is now ${nextStatus}.`,
-        type: nextStatus === 'suspended' ? 'warning' : 'success',
-      });
-      void loadData();
-    } catch (err: any) {
-      addToast({ title: 'Status update failed', description: err.message, type: 'error' });
+      await ownerService.exitCompany();
+    } catch {
+      // Ignore exit error and clear locally
+    } finally {
+      localStorage.removeItem('reamarc_impersonation_token');
+      window.location.href = '/owner';
     }
   };
 
-  const handleResetSessions = async (comp: Company) => {
-    if (!window.confirm(`Revoke all current sessions for ${comp.name}? Users will have to sign in again.`)) return;
-    try {
-      await ownerService.resetTokenVersion(comp.id);
-      addToast({ title: 'Sessions Revoked', description: `All tokens for ${comp.name} invalidated.`, type: 'success' });
-      void loadData();
-    } catch (err: any) {
-      addToast({ title: 'Revocation failed', description: err.message, type: 'error' });
-    }
+  // Handle new member creation callback
+  const handleNewMemberCreated = ({ userId, companyId }: { userId: string; companyId: string }) => {
+    setPresetMemberCompanyFilter(companyId);
+    setActiveTab('members');
+    setHighlightUserId(userId);
+    setTimeout(() => setHighlightUserId(null), 2000);
+    void loadData();
   };
 
-  const filteredCompanies = companies.filter((c) => {
-    const q = searchQuery.toLowerCase();
-    return c.name.toLowerCase().includes(q) || c.slug.toLowerCase().includes(q) || c.id.toLowerCase().includes(q);
-  });
-
-  const filteredMembers = members.filter((m) => {
-    if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase().trim();
+  // If user is currently impersonating and opened OwnerView, guard with EmptyState
+  if (user?.impersonating) {
+    const compName = user.company?.name || user.company_id || 'the company';
     return (
-      (m.name || '').toLowerCase().includes(q) ||
-      (m.email || '').toLowerCase().includes(q) ||
-      m.memberships.some((mem) => (mem.company_name || '').toLowerCase().includes(q))
+      <div className="flex-1 flex items-center justify-center p-6 bg-canvas">
+        <EmptyState
+          title={`You're inside ${compName}`}
+          description="Exit to use the owner console."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={LogOut}
+              onClick={handleExitImpersonation}
+            >
+              Exit
+            </Button>
+          }
+        />
+      </div>
     );
-  });
+  }
 
-  const activeCount = companies.filter((c) => c.status === 'active').length;
-  const suspendedCount = companies.filter((c) => c.status === 'suspended').length;
-  const totalFleetUsers = companies.reduce((acc, c) => acc + (c.user_count || 0), 0);
+  // Header primary action button based on current tab
+  const headerAction =
+    activeTab === 'companies' ? (
+      <Button
+        variant="primary"
+        size="md"
+        icon={Plus}
+        onClick={() => setIsCreateCompanyOpen(true)}
+      >
+        New company
+      </Button>
+    ) : activeTab === 'members' && hasMembersSupport ? (
+      <Button
+        variant="primary"
+        size="md"
+        icon={UserPlus}
+        onClick={() => setIsNewMemberOpen(true)}
+      >
+        New member
+      </Button>
+    ) : null;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-canvas overflow-y-auto">
-      {/* Top Header */}
-      <div className="border-b border-border bg-surface px-6 py-6 sticky top-0 z-20 shadow-xs">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 max-w-7xl mx-auto">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="p-1.5 rounded-lg bg-indigo-500/10 text-indigo-600 dark:text-indigo-400">
-                <Shield className="w-5 h-5" />
-              </span>
-              <h1 className="text-xl font-bold tracking-tight">Owner Super-Admin Console</h1>
-              <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                Fleet Controller
-              </span>
-            </div>
-            <p className="text-xs text-muted-fg mt-1">
-              Multi-tenant data isolation, tenant management, and single-click console impersonation.
-            </p>
-          </div>
+    <div className="flex-1 flex flex-col h-full min-w-0 bg-canvas overflow-y-auto">
+      <div className="max-w-[1400px] w-full mx-auto p-4 sm:p-6 lg:p-8 space-y-6">
+        {/* PageHeader (A1) */}
+        <PageHeader
+          title="Owner console"
+          description="Companies on this platform and who can open them. Only you can see this page."
+          actions={headerAction}
+        />
 
-          <div className="flex items-center gap-2.5">
-            <button
-              onClick={() => void loadData()}
-              disabled={isLoading}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-surface hover:bg-surface-hover transition-colors"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-              Refresh
-            </button>
-            {activeTab === 'companies' && (
-              <button
-                onClick={() => setIsModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity shadow-xs"
-              >
-                <Plus className="w-4 h-4" />
-                Provision Tenant
-              </button>
-            )}
-            {activeTab === 'members' && (
-              <button
-                onClick={() => setIsProvisionMemberOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity shadow-xs"
-              >
-                <UserPlus className="w-4 h-4" />
-                Provision Member
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Fleet Metrics Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 max-w-7xl mx-auto mt-6">
-          <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
-            <div className="flex items-center gap-2 text-muted-fg text-xs">
-              <Building2 className="w-4 h-4" />
-              <span>Total Tenants</span>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
-            ) : (
-              <div className="text-xl font-bold mt-1">{companies.length}</div>
-            )}
-          </div>
-          <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
-            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 text-xs font-medium">
-              <PlayCircle className="w-4 h-4" />
-              <span>Active</span>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
-            ) : (
-              <div className="text-xl font-bold mt-1 text-emerald-600 dark:text-emerald-400">{activeCount}</div>
-            )}
-          </div>
-          <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
-            <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400 text-xs font-medium">
-              <PauseCircle className="w-4 h-4" />
-              <span>Suspended</span>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
-            ) : (
-              <div className="text-xl font-bold mt-1 text-amber-600 dark:text-amber-400">{suspendedCount}</div>
-            )}
-          </div>
-          <div className="p-3.5 rounded-xl border border-border bg-canvas/60">
-            <div className="flex items-center gap-2 text-muted-fg text-xs">
-              <Users className="w-4 h-4" />
-              <span>Fleet Users</span>
-            </div>
-            {isLoading ? (
-              <Skeleton className="h-6 w-12 mt-1.5 rounded" />
-            ) : (
-              <div className="text-xl font-bold mt-1">{totalFleetUsers}</div>
-            )}
-          </div>
-        </div>
-
-        {/* Tab Controls */}
-        <div className="flex items-center gap-4 max-w-7xl mx-auto mt-6 border-b border-border -mb-6">
-          <button
-            onClick={() => setActiveTab('companies')}
-            className={`pb-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-colors ${
-              activeTab === 'companies'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-muted-fg hover:text-fg'
-            }`}
-          >
-            <Building2 className="w-4 h-4" />
-            <span>Companies</span>
-            <span className="text-[11px] font-mono text-muted-fg">({isLoading ? '…' : companies.length})</span>
-          </button>
-          {hasMembersSupport && (
-            <button
-              onClick={() => setActiveTab('members')}
-              className={`pb-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-colors ${
-                activeTab === 'members'
-                  ? 'border-accent text-accent'
-                  : 'border-transparent text-muted-fg hover:text-fg'
-              }`}
-            >
-              <Users className="w-4 h-4" />
-              <span>Members</span>
-              <span className="text-[11px] font-mono text-muted-fg">({isLoading ? '…' : members.length})</span>
-            </button>
-          )}
-          <button
-            onClick={() => setActiveTab('audit')}
-            className={`pb-3 text-xs font-semibold flex items-center gap-1.5 border-b-2 transition-colors ${
-              activeTab === 'audit'
-                ? 'border-accent text-accent'
-                : 'border-transparent text-muted-fg hover:text-fg'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Cryptographic Audit Chain</span>
-            <span className="text-[11px] font-mono text-muted-fg">({isLoading ? '…' : auditLogs.length})</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Main Content Area */}
-      <div className="flex-1 max-w-7xl w-full mx-auto px-6 py-6">
-        {activeTab === 'companies' ? (
-          <div>
-            {/* Search Bar */}
-            <div className="mb-4 flex items-center gap-3">
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-fg" />
-                <input
-                  type="text"
-                  placeholder="Filter companies by name, slug, or ID..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-md border border-border bg-surface focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-            </div>
-
-            {/* Companies Grid */}
-            {isLoading ? (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" aria-label="Loading tenants">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface shadow-xs"
-                  >
-                    <div>
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex items-center gap-2.5">
-                          <Skeleton className="w-3.5 h-3.5 rounded-full shrink-0" />
-                          <div className="space-y-1.5">
-                            <Skeleton className="h-4 w-28 rounded" />
-                            <Skeleton className="h-3 w-16 rounded" />
-                          </div>
-                        </div>
-                        <Skeleton className="h-4 w-12 rounded-full" />
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-2 mt-4 border-t border-border/50 pt-3">
-                        <div className="space-y-1">
-                          <Skeleton className="h-2.5 w-10 rounded" />
-                          <Skeleton className="h-3.5 w-16 rounded" />
-                        </div>
-                        <div className="space-y-1">
-                          <Skeleton className="h-2.5 w-10 rounded" />
-                          <Skeleton className="h-3.5 w-14 rounded" />
-                        </div>
-                        <div className="col-span-2 space-y-1">
-                          <Skeleton className="h-2.5 w-14 rounded" />
-                          <Skeleton className="h-3.5 w-24 rounded" />
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 pt-3 border-t border-border flex items-center justify-between gap-2">
-                      <Skeleton className="h-7 flex-1 rounded-md" />
-                      <Skeleton className="h-7 w-7 rounded-md" />
-                      <Skeleton className="h-7 w-7 rounded-md" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : filteredCompanies.length === 0 ? (
-              <div className="text-center py-12 border border-dashed border-border rounded-xl bg-surface/50">
-                <Building2 className="w-8 h-8 text-muted-fg mx-auto mb-2 opacity-50" />
-                <p className="text-sm font-medium text-fg">No companies found</p>
-                <p className="text-xs text-muted-fg mt-0.5">Try adjusting your search query</p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {filteredCompanies.map((comp) => {
-                  const isActive = comp.status === 'active';
-                  const isCurrentCompany = comp.id === user?.company_id || comp.slug === 'reamarc';
-                  return (
-                    <div
-                      key={comp.id}
-                      className="flex flex-col justify-between p-4 rounded-xl border border-border bg-surface hover:border-border-hover transition-all shadow-xs"
-                    >
-                      <div>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              className="w-3.5 h-3.5 rounded-full shrink-0 shadow-xs border border-white/20"
-                              style={{ backgroundColor: comp.accent_color || '#6847E0' }}
-                              title={`Accent: ${comp.accent_color}`}
-                            />
-                            <div>
-                              <div className="flex items-center gap-1.5">
-                                <h2 className="font-semibold text-sm leading-tight text-fg">{comp.name}</h2>
-                                {isCurrentCompany && (
-                                  <span className="inline-flex items-center px-1.5 py-0.2 text-[9px] font-bold rounded bg-indigo-500/15 text-indigo-700 dark:text-indigo-300">
-                                    Current
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-[11px] text-muted-fg font-mono mt-0.5">/{comp.slug}</p>
-                            </div>
-                          </div>
-
-                          <span
-                            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold tracking-wide capitalize ${
-                              isActive
-                                ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
-                                : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
-                            }`}
-                          >
-                            {comp.status}
-                          </span>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-2 mt-4 text-xs text-muted-fg border-t border-border/50 pt-3">
-                          <div>
-                            <span className="text-[10px] uppercase font-bold tracking-wider block">Plan</span>
-                            <span className="capitalize font-medium text-fg">{comp.plan}</span>
-                          </div>
-                          <div>
-                            <span className="text-[10px] uppercase font-bold tracking-wider block">Users</span>
-                            <span className="font-medium text-fg">
-                              {comp.user_count ?? 0} / {comp.limits?.max_users ?? 50}
-                            </span>
-                          </div>
-                          <div className="col-span-2">
-                            <span className="text-[10px] uppercase font-bold tracking-wider block">Timezone</span>
-                            <span className="font-medium text-fg text-[11px] truncate block">
-                              {comp.timezone || 'Asia/Karachi'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className="mt-5 pt-3 border-t border-border flex items-center justify-between gap-2">
-                        {isCurrentCompany ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (onNavigateView) {
-                                onNavigateView('dashboard');
-                              } else {
-                                window.location.href = '/dashboard';
-                              }
-                            }}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md border border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-500/20 transition-colors"
-                            title="Currently active organization. Click to return to Dashboard."
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
-                            Current Company
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void handleEnterCompany(comp)}
-                            className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-md bg-accent text-accent-fg hover:opacity-90 transition-opacity"
-                          >
-                            <ExternalLink className="w-3.5 h-3.5" />
-                            Enter Console
-                          </button>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isCurrentCompany) return;
-                            void handleToggleStatus(comp);
-                          }}
-                          disabled={isCurrentCompany}
-                          title={
-                            isCurrentCompany
-                              ? 'Root platform organization cannot be suspended'
-                              : isActive
-                              ? 'Suspend Company'
-                              : 'Reactivate Company'
-                          }
-                          className={`p-1.5 rounded-md border text-xs transition-colors ${
-                            isCurrentCompany
-                              ? 'border-border/40 text-muted-fg/40 cursor-not-allowed opacity-50'
-                              : isActive
-                              ? 'border-border text-muted-fg hover:text-amber-600 hover:border-amber-300'
-                              : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20'
-                          }`}
-                        >
-                          {isActive ? <PauseCircle className="w-4 h-4" /> : <PlayCircle className="w-4 h-4" />}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => void handleResetSessions(comp)}
-                          title="Force Logout All Users"
-                          className="p-1.5 rounded-md border border-border text-muted-fg hover:text-rose-600 hover:border-rose-300 transition-colors"
-                        >
-                          <Lock className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        ) : activeTab === 'members' ? (
-          <div>
-            {/* Search Bar */}
-            <div className="mb-4 flex items-center gap-3">
-              <div className="relative flex-1 max-w-md">
-                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-fg" />
-                <input
-                  type="text"
-                  placeholder="Filter members by name or email..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 text-xs rounded-lg border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-              <button
-                onClick={() => void loadData()}
-                className="p-2 rounded-lg border border-border bg-surface hover:bg-surface-hover text-muted-fg hover:text-fg transition-colors"
-                title="Refresh members"
-              >
-                <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-              </button>
-            </div>
-
-            {/* Members List */}
-            {isLoading ? (
-              <div className="space-y-3">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className="p-4 rounded-xl border border-border bg-surface/50 space-y-2">
-                    <Skeleton className="h-5 w-48 rounded" />
-                    <Skeleton className="h-4 w-72 rounded" />
-                  </div>
-                ))}
-              </div>
-            ) : filteredMembers.length === 0 ? (
-              <div className="text-center py-12 rounded-xl border border-border bg-surface/50 text-muted-fg text-xs">
-                No members found matching your search.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredMembers.map((member) => (
-                  <div
-                    key={member.id}
-                    className="p-4 rounded-xl border border-border bg-surface hover:border-border/80 transition-all flex flex-col md:flex-row md:items-center justify-between gap-4"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-full bg-accent/10 text-accent font-semibold flex items-center justify-center shrink-0 text-sm">
-                        {member.name ? member.name.slice(0, 2).toUpperCase() : 'U'}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm truncate">{member.name}</span>
-                          {member.is_super_admin && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
-                              Owner
-                            </span>
-                          )}
-                          {!member.is_active && (
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
-                              Inactive
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-fg truncate">{member.email}</div>
-                      </div>
-                    </div>
-
-                    {/* Company chips / memberships */}
-                    <div className="flex flex-wrap items-center gap-2 flex-1 md:justify-center">
-                      {member.memberships.length === 0 ? (
-                        <span className="text-xs text-muted-fg italic">No company access</span>
-                      ) : (
-                        member.memberships.map((m) => {
-                          const isActive = m.status === 'active';
-                          return (
-                            <div
-                              key={m.id}
-                              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs border transition-all ${
-                                isActive
-                                  ? 'bg-canvas border-border text-fg'
-                                  : 'bg-muted/30 border-dashed border-border text-muted-fg opacity-60'
-                              }`}
-                            >
-                              <Building2 className="w-3.5 h-3.5 text-muted-fg" />
-                              <span className="font-medium">{m.company_name}</span>
-                              <span className="text-[10px] px-1 py-0.5 rounded bg-surface text-muted-fg border border-border/60">
-                                {m.role}
-                              </span>
-                              {m.needs_setup && isActive && (
-                                <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                                  Needs setup
-                                </span>
-                              )}
-                              {!isActive && (
-                                <span className="text-[10px] px-1 py-0.5 rounded bg-rose-500/10 text-rose-600 dark:text-rose-400">
-                                  Removed
-                                </span>
-                              )}
-                              {isActive && (
-                                <button
-                                  type="button"
-                                  onClick={() => void handleRemoveAccess(member, m)}
-                                  className="ml-1 p-0.5 text-muted-fg hover:text-rose-500 rounded hover:bg-rose-500/10 transition-colors"
-                                  title={`Remove access to ${m.company_name}`}
-                                >
-                                  <X className="w-3 h-3" />
-                                </button>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-2 shrink-0">
-                      <button
-                        onClick={() => {
-                          setGiveAccessUser(member);
-                          setSelectedCompanyId('');
-                        }}
-                        className="px-3 py-1.5 rounded-lg text-xs font-semibold border border-border bg-canvas hover:bg-surface-hover text-fg flex items-center gap-1.5 transition-colors"
-                      >
-                        <UserPlus className="w-3.5 h-3.5 text-accent" />
-                        <span>Give access</span>
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+        {/* Global load error state */}
+        {loadError ? (
+          <div className="py-12">
+            <ErrorState
+              title="Couldn't load the owner console"
+              message="Check your connection and try again. Nothing was changed."
+              onRetry={loadData}
+              retryLabel="Try again"
+            />
           </div>
         ) : (
-          /* Cryptographic Audit Log Tab */
-          <div className="p-4 rounded-xl border border-border bg-surface">
-            <div className="flex items-center justify-between pb-3 border-b border-border mb-4">
-              <div className="flex items-center gap-2 text-xs text-muted-fg">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                <span>SHA-256 Tamper-Evident Hash Chain Verified</span>
-              </div>
-              <span className="text-xs text-muted-fg font-mono">Showing last 50 owner actions</span>
-            </div>
+          /* Tabs (Radix Tabs from ui/tabs.tsx) */
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+            <TabsList>
+              <TabsTrigger
+                value="companies"
+                count={isLoading ? undefined : companies.length}
+              >
+                Companies
+              </TabsTrigger>
 
-            {isLoading ? (
-              <div className="space-y-2.5" aria-label="Loading audit logs">
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div
-                    key={i}
-                    className="p-3 rounded-lg border border-border/70 bg-canvas/60 flex flex-col md:flex-row md:items-center justify-between gap-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-16 rounded" />
-                      <Skeleton className="h-3.5 w-28 rounded" />
-                      <Skeleton className="h-3 w-20 rounded" />
-                    </div>
-                    <div className="flex items-center gap-4">
-                      <Skeleton className="h-3 w-24 rounded" />
-                      <Skeleton className="h-3 w-32 rounded" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : auditLogs.length === 0 ? (
-              <div className="text-center py-10 text-muted-fg text-xs">No audit events recorded yet.</div>
-            ) : (
-              <div className="space-y-2.5">
-                {auditLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className="p-3 rounded-lg border border-border/70 bg-canvas/60 text-xs font-mono flex flex-col md:flex-row md:items-center justify-between gap-2 hover:bg-canvas transition-colors"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 font-bold uppercase text-[10px]">
-                        {log.action}
-                      </span>
-                      <span className="text-fg font-medium">
-                        {log.target_company_id ? `Target: ${log.target_company_id}` : 'System'}
-                      </span>
-                      <span className="text-muted-fg text-[11px]">
-                        by {log.actor_user_id || 'System'}
-                      </span>
-                    </div>
+              {hasMembersSupport && (
+                <TabsTrigger
+                  value="members"
+                  count={isLoading ? undefined : members.length}
+                >
+                  Members
+                </TabsTrigger>
+              )}
 
-                    <div className="flex items-center gap-4 text-muted-fg text-[11px]">
-                      <span title={`Full Hash: ${log.hash}`} className="flex items-center gap-1">
-                        <Hash className="w-3 h-3 text-muted-fg/70" />
-                        {log.hash.slice(0, 12)}...
-                      </span>
-                      <span>{new Date(log.created_at).toLocaleString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <TabsTrigger value="activity">Activity log</TabsTrigger>
+            </TabsList>
+
+            {/* Companies Tab */}
+            <TabsContent value="companies" className="pt-2">
+              <OwnerCompaniesTab
+                companies={companies}
+                isLoading={isLoading}
+                currentUserCompanyId={user?.company_id}
+                onSelectCompany={(cid) => setDetailCompanyId(cid)}
+                onEnterCompany={handleEnterCompany}
+                onOpenCreateModal={() => setIsCreateCompanyOpen(true)}
+                onRefreshData={loadData}
+                onNavigateToDashboard={() => onNavigateView?.('dashboard')}
+              />
+            </TabsContent>
+
+            {/* Members Tab */}
+            {hasMembersSupport && (
+              <TabsContent value="members" className="pt-2">
+                <OwnerMembersTab
+                  members={members}
+                  companies={companies}
+                  isLoading={isLoading}
+                  onRefreshData={loadData}
+                  onOpenGiveAccess={(m) => setGiveAccessUser(m)}
+                  onOpenSetPassword={(m) => setSetPasswordUser(m)}
+                  onOpenNewMemberModal={() => setIsNewMemberOpen(true)}
+                  highlightUserId={highlightUserId}
+                  presetCompanyFilter={presetMemberCompanyFilter}
+                />
+              </TabsContent>
             )}
-          </div>
+
+            {/* Activity Log Tab */}
+            <TabsContent value="activity" className="pt-2">
+              <OwnerActivityTab
+                logs={auditLogs}
+                companies={companies}
+                members={members}
+                isLoading={isLoading}
+                onLoadMore={handleLoadMoreAudit}
+                canLoadMore={auditLogs.length >= auditLimit && auditLimit < 200}
+                isLoadingMore={isLoadingMoreAudit}
+              />
+            </TabsContent>
+          </Tabs>
         )}
       </div>
 
-      {/* Provision Tenant Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg rounded-xl border border-border bg-surface shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <Building2 className="w-4 h-4 text-accent" />
-                <h3 className="font-bold text-sm">Provision New Tenant</h3>
-              </div>
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="p-1 rounded-md text-muted-fg hover:text-fg hover:bg-surface-hover"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      {/* Dialogs & Sheets */}
 
-            <form onSubmit={handleCreateCompany} className="p-5 space-y-4 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="col-span-2">
-                  <label className="block font-semibold mb-1">Company Name *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. Acme Corporation"
-                    value={formName}
-                    onChange={(e) => handleNameChange(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                  />
-                </div>
+      {/* New Company Dialog */}
+      <CreateCompanyDialog
+        isOpen={isCreateCompanyOpen}
+        onClose={() => setIsCreateCompanyOpen(false)}
+        onSuccess={async (createdComp) => {
+          await loadData();
+          setDetailCompanyId(createdComp.id);
+        }}
+      />
 
-                <div>
-                  <label className="block font-semibold mb-1">Slug *</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="acme-corp"
-                    value={formSlug}
-                    onChange={(e) => setFormSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                    className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas font-mono focus:outline-none focus:ring-1 focus:ring-accent"
-                  />
-                </div>
+      {/* Company Detail Sheet */}
+      <CompanyDetailSheet
+        companyId={detailCompanyId}
+        isOpen={Boolean(detailCompanyId)}
+        onClose={() => setDetailCompanyId(null)}
+        currentUserId={user?.id}
+        currentUserCompanyId={user?.company_id}
+        members={members}
+        onEnterCompany={handleEnterCompany}
+        onOpenBranding={(comp) => {
+          setDetailCompanyId(null);
+          setBrandingSheetCompany(comp);
+        }}
+        onSignEveryoneOut={async (comp) => {
+          try {
+            await ownerService.resetTokenVersion(comp.id);
+            addToast(`Everyone in ${comp.name} was signed out`, undefined, 'success');
+          } catch (err: any) {
+            addToast(`Couldn't sign everyone out of ${comp.name}`, err.message, 'error');
+          }
+        }}
+        onTogglePause={async (comp) => {
+          const isPaused = comp.status === 'suspended';
+          try {
+            await ownerService.updateCompany(comp.id, {
+              status: isPaused ? 'active' : 'suspended',
+            });
+            addToast(isPaused ? `${comp.name} resumed` : `${comp.name} paused`, undefined, 'success');
+            await loadData();
+          } catch (err: any) {
+            addToast(`Couldn't update ${comp.name}`, err.message, 'error');
+          }
+        }}
+        onManageInMembers={(cid) => {
+          setPresetMemberCompanyFilter(cid);
+          setActiveTab('members');
+        }}
+        onCompanyUpdated={async () => {
+          await loadData();
+        }}
+      />
 
-                <div>
-                  <label className="block font-semibold mb-1">Plan</label>
-                  <select
-                    value={formPlan}
-                    onChange={(e) => setFormPlan(e.target.value as any)}
-                    className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    <option value="starter">Starter</option>
-                    <option value="pro">Pro</option>
-                    <option value="enterprise">Enterprise</option>
-                  </select>
-                </div>
+      {/* Give Access Dialog */}
+      <GiveAccessDialog
+        user={giveAccessUser}
+        companies={companies}
+        isOpen={Boolean(giveAccessUser)}
+        onClose={() => setGiveAccessUser(null)}
+        onSuccess={async () => {
+          await loadData();
+        }}
+      />
 
-                <div>
-                  <label className="block font-semibold mb-1">Timezone</label>
-                  <select
-                    value={formTimezone}
-                    onChange={(e) => setFormTimezone(e.target.value)}
-                    className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    <option value="Asia/Karachi">Asia/Karachi (PKT)</option>
-                    <option value="America/New_York">America/New_York (EST)</option>
-                    <option value="Europe/London">Europe/London (GMT/BST)</option>
-                    <option value="Europe/Berlin">Europe/Berlin (CET)</option>
-                    <option value="Asia/Dubai">Asia/Dubai (GST)</option>
-                  </select>
-                </div>
+      {/* Set Starting Password Dialog */}
+      <SetStartingPasswordDialog
+        user={setPasswordUser}
+        isOpen={Boolean(setPasswordUser)}
+        onClose={() => setSetPasswordUser(null)}
+        onSuccess={async () => {
+          await loadData();
+        }}
+      />
 
-                <div>
-                  <label className="block font-semibold mb-1">Accent Color</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={formAccent}
-                      onChange={(e) => setFormAccent(e.target.value)}
-                      className="w-8 h-8 rounded border border-border cursor-pointer p-0 bg-transparent"
-                    />
-                    <input
-                      type="text"
-                      value={formAccent}
-                      onChange={(e) => setFormAccent(e.target.value)}
-                      className="w-full px-2 py-1.5 rounded-md border border-border bg-canvas font-mono text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
+      {/* New Member Dialog */}
+      <NewMemberDialog
+        companies={companies}
+        isOpen={isNewMemberOpen}
+        onClose={() => setIsNewMemberOpen(false)}
+        onSuccess={handleNewMemberCreated}
+      />
 
-              <div className="border-t border-border pt-3">
-                <span className="font-bold text-muted-fg block mb-2 uppercase text-[10px] tracking-wider">
-                  Initial Tenant Administrator
-                </span>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="block font-semibold mb-1">Admin Full Name *</label>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Jane Doe"
-                      value={formAdminName}
-                      onChange={(e) => setFormAdminName(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="block font-semibold mb-1">Admin Work Email *</label>
-                    <input
-                      type="email"
-                      required
-                      placeholder="jane@acmecorp.com"
-                      value={formAdminEmail}
-                      onChange={(e) => setFormAdminEmail(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="block font-semibold mb-1">Initial Password (Optional)</label>
-                    <input
-                      type="password"
-                      placeholder="Leave blank to generate"
-                      value={formAdminPassword}
-                      onChange={(e) => setFormAdminPassword(e.target.value)}
-                      className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
-
-                  <div className="col-span-2 sm:col-span-1">
-                    <label className="block font-semibold mb-1">Max Users Limit</label>
-                    <input
-                      type="number"
-                      min={1}
-                      max={1000}
-                      value={formMaxUsers}
-                      onChange={(e) => setFormMaxUsers(Math.max(1, parseInt(e.target.value) || 1))}
-                      className="w-full px-3 py-1.5 rounded-md border border-border bg-canvas focus:outline-none focus:ring-1 focus:ring-accent"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-3 py-1.5 rounded-md border border-border text-muted-fg hover:bg-surface-hover transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-4 py-1.5 rounded-md bg-accent text-accent-fg font-semibold hover:opacity-90 transition-opacity"
-                >
-                  {isSubmitting ? 'Provisioning...' : 'Provision Tenant'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {giveAccessUser && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <h3 className="font-semibold text-lg text-fg">Grant Company Access</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setGiveAccessUser(null);
-                  setSelectedCompanyId('');
+      {/* Branding Sheet (triggered from Company Detail Sheet) */}
+      {brandingSheetCompany && (
+        <Sheet
+          open={Boolean(brandingSheetCompany)}
+          onOpenChange={(open) => !open && setBrandingSheetCompany(null)}
+        >
+          <SheetContent side="right" className="w-full sm:max-w-[480px] p-0 flex flex-col h-full bg-surface">
+            <SheetHeader className="p-5 border-b border-border">
+              <SheetTitle className="text-h2 font-semibold text-fg">
+                {brandingSheetCompany.name} branding
+              </SheetTitle>
+              <SheetDescription className="text-small text-fg-muted">
+                Logo, display name and accent colour for {brandingSheetCompany.name}.
+              </SheetDescription>
+            </SheetHeader>
+            <div className="p-6 overflow-y-auto flex-1">
+              <CompanyBrandingForm
+                adapter={ownerBrandingAdapter(brandingSheetCompany.id)}
+                onSaved={async () => {
+                  await loadData();
                 }}
-                className="text-muted-fg hover:text-fg p-1 rounded-md"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              />
             </div>
-
-            <div className="p-6 space-y-4">
-              <div>
-                <p className="text-sm text-muted-fg mb-1">User</p>
-                <p className="text-base font-medium text-fg">
-                  {giveAccessUser.name}{' '}
-                  <span className="text-xs text-muted-fg font-normal">({giveAccessUser.email})</span>
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold mb-1 text-fg">Select Company *</label>
-                <select
-                  value={selectedCompanyId}
-                  onChange={(e) => setSelectedCompanyId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                >
-                  <option value="">-- Choose a company --</option>
-                  {companies
-                    .filter((c) => !giveAccessUser.memberships.some((m) => m.company_id === c.id && m.status === 'active'))
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({c.slug})
-                      </option>
-                    ))}
-                </select>
-              </div>
-
-              <div className="p-3 rounded-lg bg-surface-hover/50 border border-border text-xs text-muted-fg space-y-1">
-                <p className="font-medium text-fg">Note on initial access:</p>
-                <p>
-                  Access starts with <span className="font-mono text-accent">needs_setup</span>, minimal role (Team Member), and all permission switches off. The company admin can configure departments and roles in Team &gt; Access.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setGiveAccessUser(null);
-                    setSelectedCompanyId('');
-                  }}
-                  className="px-3 py-1.5 rounded-md border border-border text-muted-fg hover:bg-surface-hover transition-colors font-medium text-sm"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGiveAccess}
-                  disabled={!selectedCompanyId || isGrantingAccess}
-                  className="px-4 py-1.5 rounded-md bg-accent text-accent-fg font-semibold hover:opacity-90 transition-opacity text-sm disabled:opacity-50"
-                >
-                  {isGrantingAccess ? 'Granting...' : 'Grant Access'}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isProvisionMemberOpen && (
-        <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-surface border border-border rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-              <div className="flex items-center gap-2">
-                <span className="p-1 rounded-md bg-accent/10 text-accent">
-                  <UserPlus className="w-5 h-5" />
-                </span>
-                <h3 className="font-semibold text-lg text-fg">Provision New Member</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsProvisionMemberOpen(false)}
-                className="text-muted-fg hover:text-fg p-1 rounded-md"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleProvisionMember} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold mb-1 text-fg">Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. John Doe"
-                  value={provisionName}
-                  onChange={(e) => setProvisionName(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 text-fg">Work Email *</label>
-                <input
-                  type="email"
-                  required
-                  placeholder="e.g. john@company.com"
-                  value={provisionEmail}
-                  onChange={(e) => setProvisionEmail(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 text-fg">Phone (Optional)</label>
-                <input
-                  type="text"
-                  placeholder="+92 300 1234567"
-                  value={provisionPhone}
-                  onChange={(e) => setProvisionPhone(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold mb-1 text-fg">Assign Company *</label>
-                  <select
-                    required
-                    value={provisionCompanyId}
-                    onChange={(e) => setProvisionCompanyId(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    <option value="">-- Choose Company --</option>
-                    {companies
-                      .filter((c) => c.status === 'active')
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-semibold mb-1 text-fg">Initial Role</label>
-                  <select
-                    value={provisionRole}
-                    onChange={(e) => setProvisionRole(e.target.value)}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                  >
-                    <option value="team_member">Team member</option>
-                    <option value="team_lead">Team lead</option>
-                    <option value="hr">HR</option>
-                    <option value="operations">Operations</option>
-                    <option value="admin">Admin</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold mb-1 text-fg">Temporary Password (Optional)</label>
-                <input
-                  type="password"
-                  placeholder="Leave blank to use default (Reamarc123!)"
-                  value={provisionPassword}
-                  onChange={(e) => setProvisionPassword(e.target.value)}
-                  className="w-full px-3 py-1.5 text-xs rounded-md border border-border bg-canvas text-fg focus:outline-none focus:ring-1 focus:ring-accent"
-                />
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-surface-hover/50 border border-border text-xs text-muted-fg">
-                <p>
-                  Provisioning creates the platform user account and assigns their initial active membership to the selected company.
-                </p>
-              </div>
-
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setIsProvisionMemberOpen(false)}
-                  className="px-3 py-1.5 rounded-md border border-border text-muted-fg hover:bg-surface-hover transition-colors font-medium text-xs"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={!provisionName || !provisionEmail || !provisionCompanyId || isProvisioningMember}
-                  className="px-4 py-1.5 rounded-md bg-accent text-accent-fg font-semibold hover:opacity-90 transition-opacity text-xs disabled:opacity-50"
-                >
-                  {isProvisioningMember ? 'Provisioning...' : 'Provision Member'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          </SheetContent>
+        </Sheet>
       )}
     </div>
   );

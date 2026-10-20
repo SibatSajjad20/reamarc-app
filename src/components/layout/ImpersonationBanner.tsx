@@ -1,67 +1,127 @@
-import React from 'react';
-import { Eye, LogOut, ShieldAlert } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Eye, LogOut, Lock, Edit3 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
+import { ownerService } from '@/services/ownerService';
 
 interface ImpersonationBannerProps {
   onExit?: () => void;
 }
 
+function getMinutesRemaining(token: string | null): number | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const parsed = JSON.parse(jsonPayload);
+    if (typeof parsed.exp === 'number') {
+      const remainingMs = parsed.exp * 1000 - Date.now();
+      return Math.max(0, Math.round(remainingMs / 60000));
+    }
+  } catch {
+    // Ignore decode error
+  }
+  return null;
+}
+
 export const ImpersonationBanner: React.FC<ImpersonationBannerProps> = ({ onExit }) => {
   const { user } = useAuth();
-  const [hasLocalToken, setHasLocalToken] = React.useState(false);
+  const { addToast } = useToast();
+  const [tokenStr, setTokenStr] = useState<string | null>(null);
+  const [minutesRemaining, setMinutesRemaining] = useState<number | null>(null);
+  const [isExiting, setIsExiting] = useState(false);
 
-  React.useEffect(() => {
+  useEffect(() => {
     try {
-      if (typeof window !== 'undefined' && localStorage.getItem('reamarc_impersonation_token')) {
-        setHasLocalToken(true);
-      } else {
-        setHasLocalToken(false);
+      if (typeof window !== 'undefined') {
+        const tok = localStorage.getItem('reamarc_impersonation_token');
+        setTokenStr(tok);
+        setMinutesRemaining(getMinutesRemaining(tok));
       }
     } catch {}
   }, [user]);
 
-  if (!user?.impersonating && !hasLocalToken) {
+  // Tick countdown every minute
+  useEffect(() => {
+    if (!tokenStr) return;
+    const interval = setInterval(() => {
+      setMinutesRemaining(getMinutesRemaining(tokenStr));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [tokenStr]);
+
+  if (!user?.impersonating && !tokenStr) {
     return null;
   }
 
-  const companyName = user?.company?.name || user?.company_id || 'Tenant';
+  const companyName = user?.company?.name || user?.company_id || 'Company';
   const isReadOnly = user?.read_only !== false;
 
-  const handleExit = () => {
+  const handleExit = async () => {
+    setIsExiting(true);
     try {
-      localStorage.removeItem('reamarc_impersonation_token');
-    } catch {}
-    if (onExit) {
-      onExit();
-      return;
+      await ownerService.exitCompany();
+    } catch {
+      addToast(
+        'Exited',
+        'If this was a shared computer, sign out too.',
+        'info'
+      );
+    } finally {
+      try {
+        localStorage.removeItem('reamarc_impersonation_token');
+      } catch {}
+      setIsExiting(false);
+      if (onExit) {
+        onExit();
+      } else {
+        window.location.href = '/owner';
+      }
     }
-    window.location.href = '/owner';
   };
 
   return (
     <div
-      role="alert"
-      className="sticky top-0 z-50 flex items-center justify-between px-4 py-2 text-xs md:text-sm font-medium bg-amber-500/15 border-b border-amber-500/30 text-amber-900 dark:text-amber-200 backdrop-blur-sm shadow-sm"
+      role="status"
+      aria-live="polite"
+      className="sticky top-0 z-[var(--z-dialog,51)] min-h-[40px] px-4 py-1.5 flex items-center justify-between gap-3 bg-fg text-canvas shadow-xs select-none"
     >
-      <div className="flex items-center gap-2">
-        <span className="flex h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
-        <Eye className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
-        <span>
-          Viewing as Owner:{' '}
-          <strong className="font-semibold underline decoration-amber-500/50">{companyName}</strong>
+      <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+        <Eye size={16} className="shrink-0 text-canvas/90" aria-hidden="true" />
+        <span className="text-small text-canvas leading-normal">
+          You're viewing <strong className="font-semibold text-canvas">{companyName}</strong> as the owner
         </span>
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-          <ShieldAlert className="w-3 h-3" />
-          {isReadOnly ? 'Read-Only' : 'Edit Mode'}
+
+        {/* Mode pill */}
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-caption font-medium bg-canvas/15 text-canvas shrink-0">
+          {isReadOnly ? <Lock size={12} /> : <Edit3 size={12} />}
+          <span>{isReadOnly ? 'Read-only' : 'Can edit'}</span>
         </span>
+
+        {/* Countdown */}
+        {minutesRemaining !== null && (
+          <span className="text-caption text-canvas/75 hidden sm:inline shrink-0 font-numeric">
+            Ends in {minutesRemaining} min
+          </span>
+        )}
       </div>
 
       <button
+        type="button"
         onClick={handleExit}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-md bg-amber-600 text-white hover:bg-amber-700 active:bg-amber-800 transition-colors shadow-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-1"
+        disabled={isExiting}
+        className="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-semibold rounded-md bg-canvas text-fg hover:bg-canvas/90 active:bg-canvas/80 transition-colors shrink-0 shadow-xs cursor-pointer disabled:opacity-50"
       >
-        <LogOut className="w-3.5 h-3.5" />
-        Exit to Owner Console
+        <LogOut size={13} aria-hidden="true" />
+        <span>{isExiting ? 'Exiting…' : 'Exit'}</span>
       </button>
     </div>
   );

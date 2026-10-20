@@ -508,7 +508,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               },
             ]
           : []),
-        ...(user?.is_super_admin
+        ...(user?.is_super_admin && !user?.impersonating
           ? [
               {
                 id: 'owner' as ViewType,
@@ -575,7 +575,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
                     </div>
                     <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
-                      {user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                      {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
                     </span>
                   </div>
                 </button>
@@ -633,6 +633,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 {user?.is_super_admin && (
                   <>
                     <DropdownMenuSeparator className="my-1" />
+                    {!user?.impersonating && (
                     <DropdownMenuItem
                       onClick={() => onSelectView('owner' as ViewType)}
                       className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs font-medium text-fg hover:text-accent rounded-md"
@@ -640,6 +641,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       <Shield size={14} className="text-accent shrink-0" />
                       <span>Owner console</span>
                     </DropdownMenuItem>
+                    )}
                   </>
                 )}
               </DropdownMenuContent>
@@ -660,7 +662,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   {user?.company?.name || 'Reamarc'}
                 </span>
                 <span className="block text-xs text-fg-muted leading-4 truncate capitalize">
-                  {user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
+                  {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : 'Operations hub'}
                 </span>
               </div>
             </>

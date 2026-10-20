@@ -332,7 +332,10 @@ function AppInner() {
         localStorage.setItem('reamarc_active_view', 'settings');
       } else if (currentPath === 'owner' || currentPath.startsWith('owner/')) {
         if (user?.is_super_admin) {
-          window.history.replaceState(null, '', '/owner');
+          const sub = currentPath.startsWith('owner/') ? currentPath.slice(6) : '';
+          if (!['members', 'activity'].includes(sub)) {
+            window.history.replaceState(null, '', '/owner');
+          }
           setCurrentView('owner');
           localStorage.setItem('reamarc_active_view', 'owner');
         } else {
