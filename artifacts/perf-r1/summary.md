@@ -71,11 +71,46 @@ These still use sync `get_password_hash` as required:
 - `backend/app/routers/admin.py` (~create member / password update)
 - `backend/app/routers/owner.py` (~create company admin / password)
 
-## Phase 2 not started
+## Phase 2 (this round)
 
-B1 content-calendar window/lean/fields, B2 route splitting, B3 sequential DB collapse, B4 CRM cursor+virtual, B5 URL view, B6 same-origin flag, B7 TanStack Query (explicitly later).
+| Commit | Item |
+|---|---|
+| `perf(B1)` | CC date window, `fields=list`, skip==0 `$facet`, no list-path writes, parallel remaining pages, Load older, drawer `GET /{id}` |
+| `perf(B2)` | lazy view chunks, Suspense, idle/hover prefetch, `manualChunks`, `vite:preloadError` reload-once |
+| `perf(B3)` | `asyncio.gather` on inbox/snapshot/activity/attendance/daily-log/notifications; 60s `system_config` + shift lookup cache |
+| `perf(B4)` | CRM `after` / `updated_since`, Load more, 10s delta poll, virtualised long board columns |
+| `perf(B5)` | `currentView` from pathname/query before localStorage |
+| `perf(B6)` | `VITE_API_URL=/api/v1` same-origin (prod not switched) |
 
-Main bundle is still ~2.1 MB because B2 did not run. Q9 already split `xlsx`.
+B7 TanStack Query was not started.
+
+### Gate 2 (this machine)
+
+- `py -3 -m pytest tests/perf` — 13 passed
+- `npx tsc -b` — pass
+- `npm run lint` — pass (existing warnings only)
+- `npm run build` — pass
+- mobile `npx tsc --noEmit` — **not green** in this worktree (missing `react-native` / `expo-router` types; no mobile files were changed)
+
+### After Phase 2 bundle (`npm run build`)
+
+| Chunk | raw | gzip |
+|---|---|---|
+| `index-CB30Le8F.js` (entry) | 314.75 kB | 79.94 kB |
+| `react-c3W9nyIg.js` | 189.57 kB | 59.62 kB |
+| `ui-BjQmnrrg.js` | 163.72 kB | 50.78 kB |
+| `xlsx-CIWsbm6w.js` | 492.49 kB | 160.52 kB |
+| `CrmView` | 128.29 kB | 29.63 kB |
+| `ContentCalendarView` | 105.93 kB | 24.57 kB |
+| `DashboardView` | 97.97 kB | 22.07 kB |
+
+PK / @100ms page timings were not recorded (`time_api.py` / `page_timing.py` toolkit still absent). Entry JS gzip is 80 kB (raw 315 kB; Brotli not measured here).
+
+### Tests added in Phase 2
+
+- `tests/perf/test_cc_list_perf.py`
+- `tests/perf/test_b3_hot_reads.py`
+- `tests/perf/test_b4_crm_cursor.py`
 
 ## [Faizan runs]
 
