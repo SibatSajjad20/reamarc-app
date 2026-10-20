@@ -89,6 +89,8 @@ async def list_workspaces(current_user: dict = Depends(get_current_user)):
     # Non-management users only see active workspaces
     if user_role not in ("admin", "operations"):
         query["status"] = {"$ne": "inactive"}
+    if user_role in (UserRole.CLIENT.value, "client"):
+        query["id"] = {"$in": [str(x) for x in (current_user.get("workspace_ids") or [])]}
 
     cursor = db.workspaces.find(query, {"_id": 0})
     workspaces = await cursor.to_list(length=None)
