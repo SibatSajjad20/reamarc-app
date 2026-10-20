@@ -502,6 +502,7 @@ async def get_public_campaign_asset(
     token: str,
     asset_id: str,
     thumb: bool = Query(False, description="Stream thumbnail if available"),
+    download: bool = Query(False, description="Force original-file download (attachment)"),
 ):
     """Streams media assets for unauthenticated clients viewing through a verified magic link."""
     db = get_database()
@@ -510,6 +511,7 @@ async def get_public_campaign_asset(
         token=token,
         asset_id=asset_id,
         thumb=thumb,
+        download=download,
         request=request,
     )
 

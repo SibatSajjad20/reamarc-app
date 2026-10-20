@@ -11,6 +11,7 @@ import {
   RotateCcw,
   Play,
   CheckCircle2,
+  Download,
 } from 'lucide-react';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import { BrandMark } from '../ui/BrandMark';
@@ -22,6 +23,13 @@ import { StatusPill } from '../ui/StatusPill';
 import { EmptyState } from '../ui/EmptyState';
 import { safeHttpUrl } from '../../utils/safeHttpUrl';
 import { cn } from '../../lib/utils';
+import {
+  downloadAllPublicAssets,
+  downloadPublicAsset,
+  formatDownloadSize,
+  isMobileDevice,
+  type PublicDownloadAsset,
+} from '../../utils/publicDownload';
 
 interface Props {
   theme?: 'dark' | 'light';
@@ -112,6 +120,8 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
   // Active asset preview
   const [activeAssetIndex, setActiveAssetIndex] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const approvalCardRef = useRef<HTMLDivElement>(null);
 
   const openRevisionForm = () => {
@@ -120,6 +130,10 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       approvalCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
   };
+
+  useEffect(() => {
+    setIsMobile(isMobileDevice());
+  }, []);
 
   // Uniform canvas styling
   useEffect(() => {
@@ -279,9 +293,8 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     item && (item.stage === 'Content Client Review' || item.stage === 'Creative Client Review'),
   );
 
-  const isApproved = Boolean(
-    item && ['Creative Production', 'Creative Internal Review', 'Ready to Post', 'Posted'].includes(item.stage),
-  );
+  const downloadOnly = Boolean(item?.read_only || item?.download_only);
+  const canDecide = isPendingReview && !downloadOnly;
 
   const activePreviewAsset = item?.attachments?.[activeAssetIndex];
   const activeIsVisual = isVisualAsset(activePreviewAsset);
@@ -356,8 +369,46 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   }
 
   const assets = item.attachments || [];
+  const downloadableAssets: PublicDownloadAsset[] = assets
+    .filter((asset) => asset.kind !== 'link' && (asset.download_url || asset.url))
+    .map((asset) => ({
+      downloadUrl: asset.download_url || `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
+      filename: asset.filename || 'download',
+      contentType: asset.content_type,
+      sizeBytes: asset.size_bytes,
+      kind: asset.kind,
+    }));
   const activeAsset = assets[activeAssetIndex];
+  const activeDownload = activeAsset
+    ? downloadableAssets.find((row) => row.downloadUrl.includes(`/assets/${activeAsset.id}`)) ||
+      (activeAsset.kind !== 'link'
+        ? {
+            downloadUrl:
+              activeAsset.download_url ||
+              `${activeAsset.url}${activeAsset.url.includes('?') ? '&' : '?'}download=1`,
+            filename: activeAsset.filename || 'download',
+            contentType: activeAsset.content_type,
+            sizeBytes: activeAsset.size_bytes,
+            kind: activeAsset.kind,
+          }
+        : null)
+    : null;
   const hookLines = parseHookLines(item.headlines_hooks);
+
+  const handleDownloadAsset = (asset: PublicDownloadAsset, event?: React.MouseEvent) => {
+    event?.stopPropagation();
+    void downloadPublicAsset(asset);
+  };
+
+  const handleDownloadAll = async () => {
+    if (downloadableAssets.length < 2 || isMobile) return;
+    setIsDownloadingAll(true);
+    try {
+      await downloadAllPublicAssets(downloadableAssets);
+    } finally {
+      setIsDownloadingAll(false);
+    }
+  };
 
   return (
     <div className="min-h-screen w-full max-w-[100vw] overflow-x-hidden bg-canvas text-fg font-sans antialiased">
@@ -392,7 +443,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       <main
         className={cn(
           'max-w-[960px] mx-auto w-full px-3 sm:px-6 py-5 sm:py-8 space-y-4 sm:space-y-6',
-          isPendingReview
+          canDecide
             ? 'pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-8'
             : 'pb-[max(1.5rem,env(safe-area-inset-bottom))] md:pb-8',
         )}
@@ -416,11 +467,24 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                     <Layers className="w-3.5 h-3.5 text-accent shrink-0" />
                     <span className="truncate">Creative deliverables ({assets.length})</span>
                   </span>
-                  {item.creative_type && (
-                    <span className="px-2 py-0.5 rounded text-xs font-medium bg-subtle text-fg-muted border border-border shrink-0">
-                      {item.creative_type}
-                    </span>
-                  )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {downloadableAssets.length >= 2 && !isMobile && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDownloadAll()}
+                        disabled={isDownloadingAll}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-50"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                        Download all ({downloadableAssets.length})
+                      </button>
+                    )}
+                    {item.creative_type && (
+                      <span className="px-2 py-0.5 rounded text-xs font-medium bg-subtle text-fg-muted border border-border shrink-0">
+                        {item.creative_type}
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Main Media Preview Frame */}
@@ -470,6 +534,21 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         )}
                       />
                     )}
+                    {activeDownload && (
+                      <button
+                        type="button"
+                        onClick={(e) => handleDownloadAsset(activeDownload, e)}
+                        aria-label={
+                          downloadableAssets.length > 1
+                            ? `Download slide ${activeAssetIndex + 1} of ${downloadableAssets.length}`
+                            : `Download ${activeDownload.filename}`
+                        }
+                        className="absolute top-2 right-2 z-20 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download
+                      </button>
+                    )}
                   </div>
                 ) : activeAsset ? (
                   <div className="rounded-lg border border-border bg-subtle p-5 sm:p-6 text-center text-fg-muted space-y-3">
@@ -477,52 +556,113 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                     <p className="text-xs font-medium text-fg break-all px-1">
                       {activeAsset.filename || 'Attached file'}
                     </p>
-                    <a
-                      href={activeAsset.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover transition-colors"
-                    >
-                      <span>Open file</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
-                    </a>
+                    <div className="flex flex-wrap items-center justify-center gap-2">
+                      <a
+                        href={activeAsset.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover transition-colors focus-visible:focus-ring"
+                      >
+                        <span>Open file</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                      {activeDownload && (
+                        <button
+                          type="button"
+                          onClick={(e) => handleDownloadAsset(activeDownload, e)}
+                          aria-label={`Download ${activeDownload.filename}`}
+                          className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ) : null}
+
+                {activeDownload && (
+                  <div className="space-y-1 px-0.5">
+                    <p className="text-xs font-medium text-fg break-all">{activeDownload.filename}</p>
+                    <p className="text-[13px] text-fg-muted">
+                      {[activeDownload.contentType, formatDownloadSize(activeDownload.sizeBytes)]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                    {isMobile && (
+                      <p className="text-[13px] text-fg-muted">
+                        If it opens instead of saving, tap Share → Save to Files (iPhone) or long-press → Download (Android).
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 {/* Thumbnail Strip */}
                 {assets.length > 1 && (
                   <div className="flex items-center gap-2 overflow-x-auto pb-1 pt-1">
                     {assets.map((asset, idx) => (
-                      <button
+                      <div
                         key={asset.id || idx}
-                        type="button"
-                        onClick={() => setActiveAssetIndex(idx)}
                         className={cn(
-                          'relative w-14 h-14 rounded-md overflow-hidden shrink-0 border transition-all cursor-pointer',
+                          'relative w-14 h-14 rounded-md overflow-hidden shrink-0 border',
                           activeAssetIndex === idx
                             ? 'border-accent shadow-[0_0_0_2px_var(--ring)]'
-                            : 'border-border opacity-70 hover:opacity-100'
+                            : 'border-border opacity-70 hover:opacity-100',
                         )}
                       >
-                        {asset.thumbnail_url || asset.kind === 'image' ? (
-                          <>
-                            <img
-                              src={asset.thumbnail_url || asset.url}
-                              alt={asset.filename || `Asset ${idx + 1}`}
-                              className="w-full h-full object-cover"
-                            />
-                            {asset.kind === 'video' && (
-                              <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
-                                <Play className="w-3.5 h-3.5 text-white fill-white/80" />
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
-                            <FileText className="w-4 h-4" />
-                          </div>
+                        <button
+                          type="button"
+                          onClick={() => setActiveAssetIndex(idx)}
+                          className="absolute inset-0 cursor-pointer"
+                          aria-label={asset.filename || `Asset ${idx + 1}`}
+                        >
+                          {asset.thumbnail_url || asset.kind === 'image' ? (
+                            <>
+                              <img
+                                src={asset.thumbnail_url || asset.url}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                              {asset.kind === 'video' && (
+                                <div className="absolute inset-0 bg-black/25 flex items-center justify-center">
+                                  <Play className="w-3.5 h-3.5 text-white fill-white/80" />
+                                </div>
+                              )}
+                            </>
+                          ) : (
+                            <div className="w-full h-full bg-subtle flex items-center justify-center text-fg-muted">
+                              <FileText className="w-4 h-4" />
+                            </div>
+                          )}
+                        </button>
+                        {asset.kind !== 'link' && (asset.download_url || asset.url) && (
+                          <button
+                            type="button"
+                            aria-label={
+                              downloadableAssets.length > 1
+                                ? `Download slide ${idx + 1} of ${downloadableAssets.length}`
+                                : `Download ${asset.filename || 'file'}`
+                            }
+                            onClick={(e) =>
+                              handleDownloadAsset(
+                                {
+                                  downloadUrl:
+                                    asset.download_url ||
+                                    `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
+                                  filename: asset.filename || 'download',
+                                  contentType: asset.content_type,
+                                  sizeBytes: asset.size_bytes,
+                                  kind: asset.kind,
+                                },
+                                e,
+                              )
+                            }
+                            className="absolute bottom-0.5 right-0.5 z-10 inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
+                          >
+                            <Download className="w-3 h-3" />
+                          </button>
                         )}
-                      </button>
+                      </div>
                     ))}
                   </div>
                 )}
@@ -660,10 +800,10 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                 <StatusPill status={item.stage} className="max-w-[60%] [&_span:last-child]:truncate" />
               </div>
 
-              {isApproved && (
+              {downloadOnly && (
                 <div className="p-3 rounded-md bg-success-bg border border-success-bd text-success-fg text-xs flex items-center gap-2 font-medium">
                   <Check className="w-4 h-4 shrink-0" />
-                  <span>Approved and advancing in production.</span>
+                  <span>Approved: you can still download the files</span>
                 </div>
               )}
 
@@ -675,7 +815,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
               )}
 
               {/* Review Decision Controls */}
-              {isPendingReview ? (
+              {canDecide ? (
                 <>
                   {/* Reviewer Name Input */}
                   <div className="pt-1">
@@ -816,7 +956,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       </main>
 
       {/* Mobile Sticky Action Bar at 375px (< 768px) per §13.17 */}
-      {isPendingReview && (
+      {canDecide && (
         <div className="md:hidden fixed bottom-0 left-0 right-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] bg-surface/95 backdrop-blur-sm border-t border-border flex items-stretch gap-2 z-40 shadow-lg">
           <Button
             variant="outline"

@@ -14,6 +14,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
     include: [
       'src/utils/fileUrl.test.ts',
+      'src/utils/publicDownload.test.ts',
       'src/utils/__tests__/**/*.test.ts',
       'src/components/ui/__tests__/**/*.test.tsx',
       'src/hooks/__tests__/**/*.test.ts',
