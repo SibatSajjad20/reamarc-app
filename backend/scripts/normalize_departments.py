@@ -52,7 +52,8 @@ def _plan_user(doc: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], Dict[str, 
         primary=doc.get("primary_department"),
         department=doc.get("department") if isinstance(doc.get("department"), str) else None,
     )
-    extras = doc.get("content_stages") if isinstance(doc.get("content_stages"), list) else []
+    has_extras = isinstance(doc.get("content_stages"), list)
+    extras = doc.get("content_stages") if has_extras else []
     primary_stage = get_primary_stage(packed["primary_department"])
     cleaned_extras = [s for s in extras if normalize_stage(s) and normalize_stage(s) != primary_stage]
 
@@ -60,14 +61,15 @@ def _plan_user(doc: Dict[str, Any]) -> Optional[Tuple[Dict[str, Any], Dict[str, 
         "primary_department": doc.get("primary_department"),
         "departments": doc.get("departments"),
         "department": doc.get("department"),
-        "content_stages": extras,
     }
     after = {
         "primary_department": packed["primary_department"],
         "departments": packed["departments"],
         "department": packed["department"],
-        "content_stages": cleaned_extras,
     }
+    if has_extras:
+        before["content_stages"] = extras
+        after["content_stages"] = cleaned_extras
     if before == after:
         return None
     return before, after

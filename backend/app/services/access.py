@@ -475,8 +475,14 @@ def effective_access(user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             if stored_stages is None:
                 stored_stages = (user.get("access") or {}).get("content_stages")
             if stored_stages is None:
-                # Secondary departments never grant stages. Only primary + Access extras.
+                # Never-customised user: team leads inherit stages from their secondary
+                # departments; members get only their primary stage (Salman's fix).
                 stored_stages = []
+                if role == "team_lead":
+                    for d in parse_user_departments(user):
+                        st = normalize_stage(d)
+                        if st and st in VALID_CONTENT_STAGES and st != primary_stage and st not in stored_stages:
+                            stored_stages.append(st)
             if isinstance(stored_stages, list):
                 for st in stored_stages:
                     norm_st = normalize_stage(st)
