@@ -50,8 +50,24 @@ export const ClientForm: React.FC<Props> = ({ form, workspace, canManage, onWork
           value={values.status}
           onValueChange={(v) => patch({ status: v as 'active' | 'inactive' })}
           options={[
-            { value: 'active', label: 'Active · visible to team' },
-            { value: 'inactive', label: 'Inactive · operations only' },
+            {
+              value: 'active',
+              label: (
+                <>
+                  <span className="max-[399px]:hidden">Active · visible to team</span>
+                  <span className="min-[400px]:hidden">Active</span>
+                </>
+              ),
+            },
+            {
+              value: 'inactive',
+              label: (
+                <>
+                  <span className="max-[399px]:hidden">Inactive · operations only</span>
+                  <span className="min-[400px]:hidden">Inactive</span>
+                </>
+              ),
+            },
           ]}
           aria-label="Workspace status"
         />
