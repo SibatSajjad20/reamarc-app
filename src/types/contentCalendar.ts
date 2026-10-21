@@ -38,6 +38,7 @@ export interface CreativeAsset {
   height?: number | null;
   duration_seconds?: number | null;
   thumbnail_url?: string | null;
+  download_url?: string | null;
   google_drive_file_id?: string | null;
   google_drive_url?: string | null;
   google_drive_thumb_file_id?: string | null;
@@ -89,6 +90,9 @@ export interface ContentCalendarItem {
   assignee_name?: string | null;
   revision_note?: string | null;
   share_token?: string | null;
+  read_only?: boolean;
+  download_only?: boolean;
+  download_allowed?: boolean;
   created_at: string;
   updated_at: string;
 }

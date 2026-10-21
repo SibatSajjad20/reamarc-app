@@ -40,6 +40,7 @@ from app.schemas.content_calendar import (
 )
 from app.services.content_calendar_workflow import (
     WorkflowError,
+    CLIENT_REVIEW_STAGES,
     CONTENT_STAGES,
     CREATIVE_STAGES,
     can_edit_item,
@@ -2326,6 +2327,42 @@ def check_review_link_expiration(doc: Dict[str, Any]) -> Tuple[bool, Optional[st
     return False, None
 
 
+_REVIEW_DOWNLOAD_BLOCK_STAGES = {
+    "Content Revision",
+    "Creative Revision",
+    "Creative Production",
+    "Content",
+    "Content Internal Review",
+    "Creative Internal Review",
+}
+_REVIEW_DOWNLOAD_APPROVED_STATUSES = {
+    "Approved",
+    "Approved for Campaign",
+    "Creative Approved",
+    "Content Approved",
+}
+
+
+def check_review_link_download_allowed(doc: Dict[str, Any]) -> bool:
+    """Downloads are allowed only during client review, or after approval if not sent back."""
+    stage = normalize_stage(doc.get("stage"))
+    approval_status = str(doc.get("approval_status") or "").strip()
+    # Client review wins first: an item re-sent after changes may still say Changes Requested.
+    if stage in CLIENT_REVIEW_STAGES:
+        return True
+    # Block revision / in-progress production before any later allow rule (including leftover Approved).
+    if (
+        stage in ("Content Revision", "Creative Revision")
+        or approval_status == "Changes Requested"
+        or stage == "Creative Production"
+        or stage in _REVIEW_DOWNLOAD_BLOCK_STAGES
+    ):
+        return False
+    if approval_status in _REVIEW_DOWNLOAD_APPROVED_STATUSES:
+        return True
+    return stage in ("Ready to Post", "Posted")
+
+
 async def get_public_review_item(db, token: str) -> Dict[str, Any]:
     """Public lookup for client review strictly via cryptographically secure share_token."""
     if db is None:
@@ -2349,10 +2386,16 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
 
     presented = _present_doc(dict(doc))
 
-    # Review links only expire once approved or changes requested
+    # Review links only expire once approved or changes requested.
+    # Approved items stay readable for downloads (read_only / download_only).
     is_expired, expire_msg = check_review_link_expiration(presented)
+    download_allowed = check_review_link_download_allowed(presented)
+    download_only = False
     if is_expired:
-        raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+        if download_allowed:
+            download_only = True
+        else:
+            raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
 
     # Rewrite attachment URLs to secure public review streaming endpoints so external guests can view media
     public_attachments = []
@@ -2363,6 +2406,9 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         att_id = att_copy.get("id")
         if att_copy.get("kind") != "link" and att_id:
             att_copy["url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}"
+            att_copy["download_url"] = (
+                f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?download=1"
+            )
             if att_copy.get("thumbnail_url"):
                 att_copy["thumbnail_url"] = f"/api/v1/content-calendar/public/review/{clean_tok}/assets/{att_id}?thumb=1"
         public_attachments.append(att_copy)
@@ -2398,6 +2444,9 @@ async def get_public_review_item(db, token: str) -> Dict[str, Any]:
         "share_token": presented.get("share_token") or clean_tok,
         "revision_note": presented.get("revision_note"),
         "updated_at": presented.get("updated_at"),
+        "read_only": download_only,
+        "download_only": download_only,
+        "download_allowed": download_allowed,
     }
 
 
@@ -2773,6 +2822,7 @@ async def stream_public_asset(
     token: str,
     asset_id: str,
     thumb: bool = False,
+    download: bool = False,
     request: Request = None,
 ):
     """Streams a deliverable asset for a client viewing a campaign via a valid magic link."""
@@ -2788,15 +2838,26 @@ async def stream_public_asset(
 
     presented = _present_doc(dict(doc))
     is_expired, expire_msg = check_review_link_expiration(presented)
-    if is_expired:
+    download_allowed = check_review_link_download_allowed(presented)
+    if is_expired and not download_allowed:
         raise HTTPException(status_code=status.HTTP_410_GONE, detail=expire_msg)
+    if download and not download_allowed:
+        raise HTTPException(
+            status_code=status.HTTP_410_GONE,
+            detail=expire_msg or "Downloads are not available until this campaign is sent for client review.",
+        )
 
     attachments = presented.get("attachments") or []
     target = next((a for a in attachments if isinstance(a, dict) and a.get("id") == clean_aid), None)
     if not target:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
 
-    target_url = target.get("thumbnail_url") if (thumb and target.get("thumbnail_url")) else target.get("url")
+    if download and str(target.get("kind") or "").lower() == "link":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found.")
+
+    # download=1 always serves the original file (ignore thumb).
+    use_thumb = bool(thumb and not download and target.get("thumbnail_url"))
+    target_url = target.get("thumbnail_url") if use_thumb else target.get("url")
     if not target_url:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset file not found.")
 
@@ -2809,7 +2870,6 @@ async def stream_public_asset(
     is_valid_internal = clean_url.startswith("content_calendar/") and (
         f"content_calendar/{doc_id}/" in clean_url
         or (doc_serial and f"content_calendar/{doc_serial}/" in clean_url)
-        or clean_url.startswith("content_calendar/")
     )
     is_valid_gdrive = clean_url.startswith("gdrive/") and (
         (gdrive_id and gdrive_id in clean_url)
@@ -2819,7 +2879,22 @@ async def stream_public_asset(
     if not (is_valid_internal or is_valid_gdrive):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied for this asset.")
 
-    from app.core.uploads import open_upload_response
+    from app.core.uploads import content_disposition_header, open_upload_response
     range_header = request.headers.get("range") if request else None
-    return await open_upload_response(db, target_url, download=False, range_header=range_header)
+    response = await open_upload_response(db, target_url, download=download, range_header=range_header)
+    if download:
+        filename = str(target.get("filename") or "").strip()
+        if not filename:
+            ext = Path(clean_url).suffix
+            try:
+                index = next(
+                    i for i, att in enumerate(attachments)
+                    if isinstance(att, dict) and att.get("id") == clean_aid
+                )
+            except StopIteration:
+                index = 0
+            filename = f"{doc_serial or doc_id or 'file'}-{index + 1}{ext}"
+        response.headers["Content-Disposition"] = content_disposition_header(filename, inline=False)
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
