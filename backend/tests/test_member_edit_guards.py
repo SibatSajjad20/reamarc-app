@@ -108,6 +108,13 @@ class FakeCollection:
         self._apply(found[0], update)
         return dict(found[0])
 
+    async def delete_one(self, query=None):
+        found = self._find(query or {})
+        if not found:
+            return SimpleNamespace(deleted_count=0)
+        self.rows.remove(found[0])
+        return SimpleNamespace(deleted_count=1)
+
     def _apply(self, doc, update):
         if "$set" in update:
             doc.update(update["$set"])
@@ -457,3 +464,65 @@ class TestMemberEditGuards(IsolatedAsyncioTestCase):
             self.assertEqual(ctx.exception.detail, LAST_ADMIN_MSG)
             still = await last_db.company_memberships.find_one({"user_id": "admin1"})
             self.assertEqual(still["status"], status_before)
+
+    async def test_owner_delete_admin_keeps_user_and_does_not_purge(self):
+        gdb = FakeDB()
+        gdb.users.rows = [
+            _user("owner1", "admin", super_admin=True, email="owner@test.local"),
+            _user("admin1", "admin", email="admin1@test.local"),
+            _user("admin2", "admin", email="admin2@test.local"),
+        ]
+        gdb.company_memberships.rows = [
+            _mem("admin1", CO_A, "admin"),
+            _mem("admin2", CO_A, "admin"),
+        ]
+        purge = AsyncMock()
+        orphan_purge = AsyncMock()
+        with self._stack(gdb, True), patch(
+            "app.services.member_cleanup.purge_user_related_records", new=purge
+        ), patch(
+            "app.services.member_cleanup.purge_orphaned_member_records", new=orphan_purge
+        ):
+            result = await admin_router.delete_member(
+                "admin1",
+                current_user=_actor("owner1", "admin", super_admin=True),
+            )
+            self.assertEqual(result["message"], "Removed from this company.")
+            user_doc = await gdb.users.find_one({"id": "admin1"})
+            self.assertIsNotNone(user_doc)
+            self.assertIs(user_doc.get("is_active"), False)
+            mem = await gdb.company_memberships.find_one(
+                {"user_id": "admin1", "company_id": CO_A}
+            )
+            self.assertIsNotNone(mem)
+            self.assertNotEqual(mem.get("status"), "active")
+            purge.assert_not_called()
+            orphan_purge.assert_not_called()
+
+            with self.assertRaises(HTTPException) as ctx:
+                await admin_router.update_member(
+                    "admin2",
+                    MemberUpdate(role=UserRole.TEAM_LEAD),
+                    current_user=_actor("owner1", "admin", super_admin=True),
+                )
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertEqual(ctx.exception.detail, LAST_ADMIN_MSG)
+
+    async def test_orphan_admin_membership_does_not_count(self):
+        last_db = _seed()
+        last_db.company_memberships.rows = [
+            m
+            for m in last_db.company_memberships.rows
+            if m["user_id"] == "admin1" and m["role"] == "admin"
+        ]
+        last_db.company_memberships.rows.append(_mem("ghost_admin", CO_A, "admin"))
+        last_db.users.rows = [u for u in last_db.users.rows if u["id"] in ("admin1", "owner1")]
+        with self._stack(last_db, True):
+            with self.assertRaises(HTTPException) as ctx:
+                await admin_router.update_member(
+                    "admin1",
+                    MemberUpdate(role=UserRole.TEAM_LEAD),
+                    current_user=_actor("owner1", "admin", super_admin=True),
+                )
+            self.assertEqual(ctx.exception.status_code, 400)
+            self.assertEqual(ctx.exception.detail, LAST_ADMIN_MSG)

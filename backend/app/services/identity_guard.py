@@ -239,7 +239,16 @@ async def assert_company_keeps_an_admin(
         }
         if excluding_user_id:
             query["user_id"] = {"$ne": excluding_user_id}
-        remaining = await gdb.company_memberships.count_documents(query)
+        members = await gdb.company_memberships.find(query).to_list(500)
+        remaining = 0
+        for mem in members:
+            uid = str(mem.get("user_id") or "").strip()
+            if not uid:
+                continue
+            user = await gdb.users.find_one({"$or": [{"id": uid}, {"_id": uid}]})
+            if not user or user.get("is_active") is False:
+                continue
+            remaining += 1
         if remaining < 1:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=LAST_ADMIN_MSG)
         return

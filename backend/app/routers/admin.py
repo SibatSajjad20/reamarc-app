@@ -1192,6 +1192,8 @@ async def delete_member(
             excluding_user_id=user_id,
         )
 
+    from app.services.identity_guard import remove_company_membership
+
     caller_cid = current_user.get("company_id")
     target_home = existing_user.get("company_id")
     has_other_membership = False
@@ -1203,10 +1205,25 @@ async def delete_member(
         })
         has_other_membership = (other_count > 0)
 
+    if target_is_admin and multi_enabled:
+        await remove_company_membership(user_id, caller_cid)
+        still_active = await gdb.company_memberships.count_documents({
+            "user_id": user_id,
+            "status": "active",
+        })
+        if still_active < 1:
+            await target_coll.update_one(
+                {"$or": [{"id": user_id}, {"_id": user_id}]},
+                {"$set": {"is_active": False}},
+            )
+        return {"message": "Removed from this company."}
+
     if multi_enabled and (has_other_membership or target_home != caller_cid):
-        from app.services.identity_guard import remove_company_membership
         await remove_company_membership(user_id, caller_cid)
         return {"message": "Removed from this company."}
+
+    if multi_enabled and gdb is not None:
+        await remove_company_membership(user_id, caller_cid)
 
     await target_coll.delete_one({"$or": [{"id": user_id}, {"_id": user_id}]})
     from app.services.member_cleanup import purge_user_related_records, purge_orphaned_member_records
