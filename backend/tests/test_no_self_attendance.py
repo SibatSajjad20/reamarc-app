@@ -82,7 +82,7 @@ class TestNoSelfAttendance(unittest.IsolatedAsyncioTestCase):
         assert "test" in settings.MONGODB_DB_NAME.lower()
         assert settings.MONGODB_DB_NAME != "reamarc_db"
         await connect_to_mongo()
-        self.db = get_database()
+        from app.database import db_instance; self.db = db_instance.db
         self.assertIsNotNone(self.db)
         self.assertEqual(self.db.name, TEST_DB)
 

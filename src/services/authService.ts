@@ -95,5 +95,36 @@ export const authService = {
   async resetPassword(payload: { email: string; code: string; new_password: string }): Promise<{ message: string }> {
     return apiClient.post<{ message: string }>('/auth/reset-password', payload);
   },
+
+  async switchCompany(companyId: string): Promise<AuthResponse> {
+    try {
+      // Clear in-memory service caches
+      attendanceService.clearAllCaches();
+      crmService.clearAllCaches();
+      contentCalendarService.clearAllCaches();
+      websiteProjectService.clearAllCaches();
+      dailyLogService.clearAllCaches();
+      adminService.clearAllCaches();
+      logExceptionService.clearAllCaches();
+      workspaceService.clearAllCaches();
+      marketingService.clearAllCaches();
+    } catch {
+      // ignore
+    }
+    return apiClient.post<AuthResponse>('/auth/switch-company', { company_id: companyId });
+  },
+
+  async getMyCompanies(): Promise<
+    Array<{
+      id: string;
+      name: string;
+      slug?: string;
+      logo_url?: string | null;
+      role?: string;
+      accent_color?: string;
+    }>
+  > {
+    return apiClient.get('/auth/my-companies');
+  },
 };
 

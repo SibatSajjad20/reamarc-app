@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
@@ -19,17 +19,30 @@ type Device = {
 };
 
 export default function ProfileScreen() {
-  const { user, logout, deviceUuid } = useAuth();
+  const { user, logout, deviceUuid, switchCompany } = useAuth();
   const router = useRouter();
   const showWonDeals = canSeeWonDealApprovals(user);
   const [device, setDevice] = useState<Device | null>(null);
   const [diagOpen, setDiagOpen] = useState(false);
+  const [switchingId, setSwitchingId] = useState<string | null>(null);
 
   useEffect(() => {
     api<Device | null>('/mobile/device')
       .then(setDevice)
       .catch(() => setDevice(null));
   }, []);
+
+  const handleSwitch = async (companyId: string) => {
+    if (companyId === user?.company_id || switchingId) return;
+    try {
+      setSwitchingId(companyId);
+      await switchCompany(companyId);
+    } catch (e: any) {
+      Alert.alert('Switch failed', e?.message || 'Could not switch company');
+    } finally {
+      setSwitchingId(null);
+    }
+  };
 
   const confirmLogout = () => {
     Alert.alert('Log out', 'Are you sure you want to log out?', [
@@ -55,6 +68,46 @@ export default function ProfileScreen() {
             </View>
           </View>
         </View>
+
+        {user?.companies && user.companies.length > 1 ? (
+          <View style={styles.card}>
+            <Text style={styles.label}>Switch Company</Text>
+            <Text style={styles.muted}>You belong to multiple companies. Tap to switch workspace.</Text>
+            <View style={{ marginTop: 12, gap: 8 }}>
+              {user.companies.map((c) => {
+                const isActive = c.id === user.company_id;
+                const isSwitching = switchingId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    disabled={isActive || switchingId !== null}
+                    onPress={() => handleSwitch(c.id)}
+                    style={[
+                      styles.companyItem,
+                      isActive && styles.companyItemActive,
+                    ]}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.companyName, isActive && styles.companyNameActive]}>
+                        {c.name}
+                      </Text>
+                      {c.role ? (
+                        <Text style={styles.companyRole}>{prettyRole(c.role)}</Text>
+                      ) : null}
+                    </View>
+                    {isSwitching ? (
+                      <ActivityIndicator size="small" color={colors.indigo} />
+                    ) : isActive ? (
+                      <Ionicons name="checkmark-circle" size={20} color={colors.indigo} />
+                    ) : (
+                      <Ionicons name="chevron-forward" size={18} color={colors.muted} />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        ) : null}
 
         {showWonDeals ? (
           <Pressable style={styles.card} onPress={() => router.push('/won-deals')}>
@@ -151,4 +204,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card,
   },
   logoutText: { color: colors.rose, fontWeight: '800' },
+  companyItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: '#F8FAFC',
+  },
+  companyItemActive: {
+    borderColor: colors.indigo,
+    backgroundColor: '#EEF2FF',
+  },
+  companyName: {
+    fontWeight: '700',
+    fontSize: 14,
+    color: colors.text,
+  },
+  companyNameActive: {
+    color: colors.indigo,
+  },
+  companyRole: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 2,
+  },
 });
+

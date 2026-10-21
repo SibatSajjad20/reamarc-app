@@ -1,7 +1,11 @@
+import { describe, it } from 'vitest';
 import { canAccessContentCalendar } from './contentCalendarAccess';
 import { canCreateCampaign } from './contentCalendarWorkflow';
 import { getRoleLabel } from './badgeStyles';
 import { userCan } from '../hooks/usePermissions';
+
+describe('contentCalendarAccess', () => {
+  it('runs contentCalendarAccess test suite', () => {
 
 function assert(cond: unknown, msg: string) {
   if (!cond) throw new Error(msg);
@@ -51,3 +55,5 @@ assert(getRoleLabel('operations_lead') === 'Operations', 'Alias must display as 
 assert(getRoleLabel('admin') === 'Admin', 'Admin label is Admin');
 
 console.log('All contentCalendarAccess tests passed successfully!');
+  });
+});

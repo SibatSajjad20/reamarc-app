@@ -1,3 +1,4 @@
+import { brandNameOf } from './utils/branding';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { ViewType, Workspace, ThemeMode, ThemePreference } from './types';
 import { Sidebar } from './components/Sidebar';
@@ -15,6 +16,7 @@ import { CrmView } from './components/views/CrmView';
 import { WonDealApprovalsView } from './components/views/WonDealApprovalsView';
 import { ContentCalendarView } from './components/views/ContentCalendarView';
 import { WebsitePipelineView } from './components/views/WebsitePipelineView';
+import { OwnerView } from './components/views/OwnerView';
 import { ClientPortalContainer } from './components/portal/ClientPortalContainer';
 import type { CrmSubSection } from './types/crm';
 import type { AttendanceSubSection } from './types/attendance';
@@ -23,6 +25,7 @@ import type { SettingsSectionSlug } from './types/settings';
 import { isSettingsSectionAllowed } from './utils/settingsAccess';
 import { ToastProvider, useToast } from './context/ToastContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { BrandingProvider } from './context/BrandingProvider';
 import { ModuleLoadGateProvider, useModuleLoadBlocked } from './context/ModuleLoadGate';
 import { AuthScreen } from './components/auth/AuthScreen';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -41,6 +44,7 @@ import { ShortcutsDialog } from './components/layout/ShortcutsDialog';
 import { BreadcrumbProvider } from './components/layout/BreadcrumbContext';
 import { ErrorBoundary } from './components/ui/ErrorBoundary';
 import { AccessDenied } from './components/ui/AccessDenied';
+import { CompanySuspensionGate } from './components/ui/CompanySuspensionGate';
 
 function AppInner() {
   const { addToast } = useToast();
@@ -130,16 +134,17 @@ function AppInner() {
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
 
-  const canSeeMarketing = perms.can('ads', 'view');
+  const eff = user?.effective_access;
+  const canSeeMarketing = eff ? !!eff.ads : perms.can('ads', 'view');
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.can('sales', 'own');
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
+  const canSeeCrm = eff ? !!eff.sales : perms.can('sales', 'own');
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.can('content_calendar', 'view');
-  const canSeeWebsitePipeline = perms.can('website', 'view');
-  const canSeeAttendance = !isClient && perms.canAccessAttendance;
-  const canSeeDailyLog = !isClient && perms.canAccessDailyLog;
+  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.can('content_calendar', 'view');
+  const canSeeWebsitePipeline = eff ? !!eff.website : perms.can('website', 'view');
+  const canSeeAttendance = !isClient && (eff ? !!eff.attendance : perms.canAccessAttendance);
+  const canSeeDailyLog = !isClient && (eff ? !!eff.daily_log : perms.canAccessDailyLog);
   const canAssign = perms.can('sales', 'all') && !perms.isViewOnly;
   const isManagementRole = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -158,6 +163,7 @@ function AppInner() {
     'website-pipeline',
     'portal',
     'settings',
+    'owner',
   ];
 
   const getDefaultViewForUser = useCallback((): ViewType => {
@@ -207,6 +213,13 @@ function AppInner() {
       }
 
       const nonV1Routes = ['matrix', 'inbox', 'campaigns', 'knowledge', 'obsidian'];
+
+      if (user?.needs_setup && currentPath !== 'dashboard' && currentPath !== 'settings') {
+        window.history.replaceState(null, '', '/dashboard');
+        setCurrentView('dashboard');
+        localStorage.setItem('reamarc_active_view', 'dashboard');
+        return;
+      }
 
       if (nonV1Routes.includes(currentPath)) {
         const fallback = getDefaultViewForUser();
@@ -343,6 +356,20 @@ function AppInner() {
         setCurrentView('settings');
         setActiveSettingsSection('profile');
         localStorage.setItem('reamarc_active_view', 'settings');
+      } else if (currentPath === 'owner' || currentPath.startsWith('owner/')) {
+        if (user?.is_super_admin) {
+          const sub = currentPath.startsWith('owner/') ? currentPath.slice(6) : '';
+          if (!['members', 'activity'].includes(sub)) {
+            window.history.replaceState(null, '', '/owner');
+          }
+          setCurrentView('owner');
+          localStorage.setItem('reamarc_active_view', 'owner');
+        } else {
+          const fallback = getDefaultViewForUser();
+          window.history.replaceState(null, '', `/${fallback}`);
+          setCurrentView(fallback);
+          localStorage.setItem('reamarc_active_view', fallback);
+        }
       } else {
         // Root / or unknown path
         const currentSaved = localStorage.getItem('reamarc_active_view') as ViewType;
@@ -443,6 +470,7 @@ function AppInner() {
     if (canSeeExceptions) allowedViews.push('exceptions');
     if (canSeeMarketing) allowedViews.push('marketing');
     if (canSeeAdmin) allowedViews.push('admin');
+    if (user?.is_super_admin) allowedViews.push('owner');
     allowedViews.push('settings');
 
     const targetView = allowedViews.includes(view) ? view : getDefaultViewForUser();
@@ -622,7 +650,7 @@ function AppInner() {
 
   const handleSignOut = () => {
     logout();
-    addToast('Signed Out', 'You have been safely signed out of Reamarc.', 'warning');
+    addToast('Signed Out', `You have been safely signed out of ` + brandNameOf(user?.company) + `.`, 'warning');
   };
 
   const currentPathLower = window.location.pathname.toLowerCase();
@@ -643,11 +671,15 @@ function AppInner() {
   }
 
   if (isAuthLoading) {
-    return <LoadingScreen fullScreen message="Checking your session…" title="Reamarc" />;
+    return <LoadingScreen fullScreen message="Checking your session…" title={brandNameOf(user?.company)} />;
   }
 
   if (!user) {
     return <AuthScreen />;
+  }
+
+  if (user?.company?.status === 'suspended') {
+    return <CompanySuspensionGate />;
   }
 
   return (
@@ -1003,6 +1035,16 @@ function AppInner() {
               />
             </div>
           )}
+
+          {currentView === 'owner' && (
+            user?.is_super_admin ? (
+              <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden view-enter">
+                <OwnerView onNavigateView={handleSelectView} />
+              </div>
+            ) : (
+              <AccessDenied module="Owner Console" />
+            )
+          )}
         </ErrorBoundary>
       </AppShell>
 
@@ -1071,11 +1113,13 @@ export function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <ModuleLoadGateProvider>
-          <BreadcrumbProvider>
-            <AppInner />
-          </BreadcrumbProvider>
-        </ModuleLoadGateProvider>
+        <BrandingProvider>
+          <ModuleLoadGateProvider>
+            <BreadcrumbProvider>
+              <AppInner />
+            </BreadcrumbProvider>
+          </ModuleLoadGateProvider>
+        </BrandingProvider>
       </AuthProvider>
     </ToastProvider>
   );

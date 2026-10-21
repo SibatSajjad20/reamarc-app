@@ -148,6 +148,23 @@ async def store_notification(
     allowed = await filter_allowed_recipients([user_id], kind, item=item)
     if not allowed:
         return
+
+    payload_data = dict(data or {})
+    cid = payload_data.get("company_id")
+    cname = payload_data.get("company_name")
+    if not cid:
+        from app.core.tenant import get_tenant_context, get_global_db
+        ctx = get_tenant_context()
+        if ctx and ctx.company_id:
+            cid = ctx.company_id
+            payload_data["company_id"] = cid
+            gdb = get_global_db()
+            if gdb is not None and not cname:
+                cdoc = await gdb.companies.find_one({"id": cid})
+                if cdoc:
+                    cname = cdoc.get("name")
+                    payload_data["company_name"] = cname
+
     await db.mobile_notifications.insert_one(
         {
             "id": f"mn_{uuid.uuid4().hex[:12]}",
@@ -158,7 +175,9 @@ async def store_notification(
             "sender_id": sender_id,
             "sender_name": sender_name,
             "sender_role": sender_role,
-            "data": data or {},
+            "data": payload_data,
+            "company_id": cid,
+            "company_name": cname,
             "read": False,
             "created_at": _now_iso(),
         }
@@ -306,6 +325,18 @@ async def dispatch_to_users(
             "web_sent": 0,
             "message": "No recipients.",
         }
+
+    payload_data = dict(data or {})
+    from app.core.tenant import get_tenant_context, get_global_db
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        payload_data.setdefault("company_id", ctx.company_id)
+        gdb = get_global_db()
+        if gdb is not None and "company_name" not in payload_data:
+            cdoc = await gdb.companies.find_one({"id": ctx.company_id})
+            if cdoc:
+                payload_data.setdefault("company_name", cdoc.get("name"))
+    data = payload_data
 
     devices = await active_devices(user_ids)
     tokens = []

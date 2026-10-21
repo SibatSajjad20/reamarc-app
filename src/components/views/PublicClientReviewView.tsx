@@ -198,14 +198,15 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
 
   useEffect(() => {
     const previous = document.title;
+    const agencyName = (item as any)?.company_name || (item as any)?.company?.name || 'Campaign Review';
     if (item?.content_concept && item?.client_name) {
       document.title = `${item.content_concept} · ${item.client_name}`;
     } else if (item?.content_concept) {
-      document.title = `${item.content_concept} · Reamarc`;
+      document.title = `${item.content_concept} · ${agencyName}`;
     } else if (item?.client_name) {
-      document.title = `${item.client_name} campaign review · Reamarc`;
+      document.title = `${item.client_name} campaign review · ${agencyName}`;
     } else {
-      document.title = "Campaign review · Reamarc";
+      document.title = `Campaign review · ${agencyName}`;
     }
     return () => {
       document.title = previous;
@@ -416,9 +417,11 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
       {/* Top Navbar 56px per §13.17 */}
       <header className="sticky top-0 z-40 min-h-14 bg-surface border-b border-border px-3 sm:px-8 flex items-center justify-between gap-2 pt-[max(0.5rem,env(safe-area-inset-top))] pb-2">
         <div className="flex items-center gap-2 sm:gap-3 min-w-0">
-          <BrandMark size={28} />
+          <BrandMark size={28} initial={((item as any)?.company_name || 'C').charAt(0)} />
           <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-            <span className="text-sm font-semibold text-fg tracking-tight shrink-0">Reamarc</span>
+            <span className="text-sm font-semibold text-fg tracking-tight shrink-0">
+              {(item as any)?.company_name || (item as any)?.company?.name || 'Client Portal'}
+            </span>
             <span className="text-fg-faint shrink-0">•</span>
             <ClientAvatar
               name={item.client_name || 'Client'}

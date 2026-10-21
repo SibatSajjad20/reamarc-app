@@ -15,6 +15,9 @@ from app.core.uploads import (
     save_upload_bytes,
     normalize_upload_key,
     get_upload_workspace_id,
+    get_upload_authz,
+    _caller_company_id,
+    _file_company_allowed,
     authorize_upload_key,
     authorize_stored_upload,
 )
@@ -1039,7 +1042,15 @@ async def upload_deliverable(
         key = normalize_upload_key(store_as)
         if not key.startswith("deliverables/"):
             raise HTTPException(status_code=400, detail="store_as must be an /uploads/deliverables/... path.")
-        existing_ws = await get_upload_workspace_id(get_database(), key)
+        db = get_database()
+        authz = await get_upload_authz(db, key)
+        caller_cid = _caller_company_id(current_user)
+        if not _file_company_allowed(caller_cid, authz.company_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Requested file not found.",
+            )
+        existing_ws = authz.workspace_id
         authorize_upload_key(current_user, existing_ws)
     else:
         clean_original = re.sub(r"[^a-zA-Z0-9_.-]", "_", file.filename)
@@ -1047,7 +1058,10 @@ async def upload_deliverable(
         key = f"deliverables/{safe_name}"
         existing_ws = None
 
+    caller_cid = _caller_company_id(current_user)
     extra_metadata = {"uploaded_by": current_user.get("id")}
+    if caller_cid:
+        extra_metadata["company_id"] = caller_cid
     ws_header = (request.headers.get("X-Workspace-ID") or request.headers.get("x-workspace-id") or "").strip()
     if ws_header:
         resolved = assert_workspace_access(current_user, ws_header)

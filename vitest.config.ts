@@ -1,29 +1,19 @@
 import { defineConfig } from 'vitest/config';
 import react from '@vitejs/plugin-react';
-import { fileURLToPath, URL } from 'url';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
   resolve: {
     alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
+      '@': path.resolve(__dirname, './src'),
     },
   },
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
-    include: [
-      'src/utils/fileUrl.test.ts',
-      'src/utils/leaveRequestAccess.test.ts',
-      'src/utils/publicDownload.test.ts',
-      'src/utils/__tests__/**/*.test.ts',
-      'src/components/ui/__tests__/**/*.test.tsx',
-      'src/hooks/__tests__/**/*.test.ts',
-      'src/hooks/__tests__/**/*.test.tsx',
-      'src/components/clients/__tests__/**/*.test.tsx',
-      'src/services/__tests__/**/*.test.ts',
-      'src/components/content-calendar/__tests__/**/*.test.tsx',
-      'src/context/**/*.test.ts',
-    ],
+    include: ['src/**/*.test.{ts,tsx}'],
+    exclude: ['e2e/**', 'mobile/**', 'node_modules/**', 'dist/**'],
+    globals: true,
   },
 });

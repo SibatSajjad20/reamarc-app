@@ -1,5 +1,6 @@
 import React from 'react';
 import { Sheet, SheetContent } from '@/components/ui/sheet';
+import { ImpersonationBanner } from './ImpersonationBanner';
 
 interface AppShellProps {
   sidebar: React.ReactNode;
@@ -66,7 +67,8 @@ export const AppShell: React.FC<AppShellProps> = ({
           />
         )}
 
-        {/* TopBar (§9.1) */}
+        {/* TopBar & Sticky Impersonation Banner */}
+        <ImpersonationBanner />
         {topBar}
 
         {/* Content area: each view manages its own scrolling (§6.1) */}

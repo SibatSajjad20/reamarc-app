@@ -40,14 +40,33 @@ def sanitize_client_logo_url(url: Any) -> Optional[str]:
 def client_logo_folder(workspace_id: str, company_id: Optional[str] = None) -> str:
     if not WORKSPACE_ID_RE.fullmatch(workspace_id or ""):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid workspace id.")
+    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+        cid = company_id
+        if not cid:
+            try:
+                from app.core.tenant import get_tenant_context
+                ctx = get_tenant_context()
+                if ctx and ctx.company_id:
+                    cid = ctx.company_id
+            except Exception:
+                pass
+        if not cid:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Multi-company tenant context required for client logos.",
+            )
+        return f"companies/{cid}/clients/{workspace_id}/logo"
     return f"reamarc/clients/{workspace_id}/logo"
 
 
-def can_destroy_client_logo(public_id: Optional[str], workspace_id: str) -> bool:
+def can_destroy_client_logo(public_id: Optional[str], workspace_id: str, company_id: Optional[str] = None) -> bool:
     if not public_id:
         return False
-    folder = client_logo_folder(workspace_id)
-    return str(public_id).startswith(folder + "/")
+    try:
+        folder = client_logo_folder(workspace_id, company_id=company_id)
+        return str(public_id).startswith(folder + "/")
+    except HTTPException:
+        return False
 
 
 async def record_workspace_audit(

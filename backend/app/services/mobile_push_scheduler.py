@@ -1,5 +1,6 @@
 """Shift-relative mobile punch reminders. Times come from each user's assigned shift."""
 import logging
+from typing import Optional
 from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 
@@ -127,16 +128,16 @@ async def _notify_late_at_grace(user, shift, start, today: str, grace: int) -> N
         )
 
 
-async def run_mobile_reminder_tick() -> None:
-    db = get_database()
+async def _tick_for_active_company(db, company: Optional[dict] = None) -> None:
     if db is None:
         return
-    now = datetime.now(PK_TZ)
+    from app.core.tenant import company_tz
+    tz = ZoneInfo(company_tz(company)) if company else PK_TZ
+    now = datetime.now(tz)
     today = now.strftime("%Y-%m-%d")
     yesterday = (now.date() - timedelta(days=1)).strftime("%Y-%m-%d")
 
     from app.services.attendance_scheduler import is_workday_for_date
-
     from app.services.access import is_tracked
 
     users = await db.users.find(
@@ -154,6 +155,29 @@ async def run_mobile_reminder_tick() -> None:
             await _tick_user(db, user, now, today, yesterday, is_workday_for_date)
         except Exception as err:
             logger.warning("Mobile reminder tick failed for %s: %s", uid, err)
+
+
+async def run_mobile_reminder_tick() -> None:
+    from app.config import settings
+    from app.core.job_locks import job_lease
+    from app.core.tenant import get_tenant_context, for_each_active_company
+
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        db = get_database()
+        if db is not None:
+            await _tick_for_active_company(db)
+        return
+
+    async with job_lease("mobile_reminder_tick", ttl_seconds=60) as acquired:
+        if not acquired:
+            return
+        if getattr(settings, "MULTI_TENANT_ENABLED", False):
+            await for_each_active_company(lambda comp: _tick_for_active_company(get_database(), comp))
+        else:
+            db = get_database()
+            if db is not None:
+                await _tick_for_active_company(db)
 
 
 async def _tick_user(db, user, now, today, yesterday, is_workday_for_date) -> None:

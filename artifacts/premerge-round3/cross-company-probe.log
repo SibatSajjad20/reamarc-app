@@ -1,0 +1,21 @@
+======================================================================
+CROSS-COMPANY 3-TENANT PROBE RESULTS
+======================================================================
+Companies tested: 3 (tnt_probe_6849bd_comp_1, tnt_probe_6849bd_comp_2, tnt_probe_6849bd_comp_3)
+Dual users tested: 2 (dual12, dual23)
+Leaks detected: 0
+Cross-company mutation 2xx: 0 (all DELETEs returned 404)
+5xx server errors: 0
+Unexpected data changes (B): 0
+Probe status: PASS
+======================================================================
+
+{"timestamp": "2026-10-20T15:11:36.058840+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: GET http://test/admin/users \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.066602+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: GET http://test/leaves/requests \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.073093+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: GET http://test/crm/leads \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.081093+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: GET http://test/leaves/requests \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.084097+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: GET http://test/leaves/requests \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.089336+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: DELETE http://test/leaves/requests/tnt_probe_6849bd_leave_c2 \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.096092+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: DELETE http://test/leaves/requests/tnt_probe_6849bd_leave_c3 \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.100992+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: DELETE http://test/admin/users/tnt_probe_6849bd_u_adm2 \"HTTP/1.1 404 Not Found\""}
+{"timestamp": "2026-10-20T15:11:36.105648+00:00", "level": "INFO", "logger": "httpx", "message": "HTTP Request: DELETE http://test/admin/users/tnt_probe_6849bd_u_adm3 \"HTTP/1.1 404 Not Found\""}

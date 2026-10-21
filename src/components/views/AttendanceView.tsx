@@ -10,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { brandNameOf } from '../../utils/branding';
 import { useModuleLoadGate } from '../../context/ModuleLoadGate';
 import { useToast } from '../../context/ToastContext';
 import { attendanceService } from '../../services/attendanceService';
@@ -669,7 +670,8 @@ export const AttendanceView: React.FC<AttendanceViewProps> = ({
         selectedDepartment !== 'All' ? selectedDepartment : undefined
       );
 
-      const filename = `Reamarc_Attendance_Summary_${selectedYear}_${String(selectedMonth).padStart(2, '0')}.xlsx`;
+      const compPrefix = (brandNameOf(user?.company) || 'Company').replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${compPrefix}_Attendance_Summary_${selectedYear}_${String(selectedMonth).padStart(2, '0')}.xlsx`;
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;

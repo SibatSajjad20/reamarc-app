@@ -280,7 +280,7 @@ export const WebsiteClientPortalSection: React.FC = () => {
                 <LayoutGrid className="w-3.5 h-3.5" />
                 <span>Website Pipeline</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-subtle text-fg-muted border border-border font-numeric">
-                  {WEBSITE_STAGES_CONFIG.length}
+                  {projects.length}
                 </span>
               </button>
             </div>

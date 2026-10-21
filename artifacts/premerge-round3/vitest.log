@@ -1,0 +1,129 @@
+
+[1m[30m[46m RUN [49m[39m[22m [36mv5.0.5 [39m[90mC:/Users/coco/Desktop/cagent[39m
+
+[90mstdout[2m | src/utils/crmAccess.test.ts[2m > [22m[2mcrmAccess[2m > [22m[2mruns crmAccess test suite
+[22m[39mAll crmAccess tests passed successfully!
+
+ [32m✓[39m src/utils/crmAccess.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 7[2mms[22m[39m
+[90mstdout[2m | src/utils/leaveRequestAccess.test.ts[2m > [22m[2mleaveRequestAccess[2m > [22m[2mruns leaveRequestAccess test suite
+[22m[39mAll leaveRequestAccess tests passed successfully!
+
+[90mstdout[2m | src/utils/phone.test.ts[2m > [22m[2mphone[2m > [22m[2mruns phone test suite
+[22m[39mAll phone tests passed successfully!
+
+ [32m✓[39m src/utils/leaveRequestAccess.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 13[2mms[22m[39m
+ [32m✓[39m src/utils/phone.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 14[2mms[22m[39m
+[90mstdout[2m | src/utils/leaveClarificationDisplay.test.ts[2m > [22m[2mleaveClarificationDisplay[2m > [22m[2mruns leaveClarificationDisplay test suite
+[22m[39mleaveClarificationDisplay tests passed
+
+ [32m✓[39m src/utils/leaveClarificationDisplay.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 34[2mms[22m[39m
+[90mstdout[2m | src/utils/departments.test.ts[2m > [22m[2mdepartments[2m > [22m[2mruns departments test suite
+[22m[39mAll department and visiblePipelineStages tests passed successfully!
+
+[90mstdout[2m | src/utils/contentCalendarOverview.test.ts[2m > [22m[2mcontentCalendarOverview[2m > [22m[2mruns contentCalendarOverview test suite
+[22m[39mAll contentCalendarOverview unit tests passed successfully!
+
+ [32m✓[39m src/utils/departments.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 11[2mms[22m[39m
+ [32m✓[39m src/lib/utils.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 25[2mms[22m[39m
+ [32m✓[39m src/utils/contentCalendarOverview.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 16[2mms[22m[39m
+[90mstdout[2m | src/utils/contentCalendarAccess.test.ts[2m > [22m[2mcontentCalendarAccess[2m > [22m[2mruns contentCalendarAccess test suite
+[22m[39mAll contentCalendarAccess tests passed successfully!
+
+ [32m✓[39m src/utils/contentCalendarAccess.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 6[2mms[22m[39m
+[90mstdout[2m | src/utils/ownerConsole.test.ts[2m > [22m[2mownerConsole[2m > [22m[2mruns ownerConsole test suite
+[22m[39mRunning Owner Console unit tests...
+✓ All Owner Console unit tests passed successfully!
+
+ [32m✓[39m src/utils/ownerConsole.test.ts [2m([22m[2m1 test[22m[2m)[22m[32m 34[2mms[22m[39m
+ [32m✓[39m src/utils/multiCompanyFrontend.test.tsx [2m([22m[2m5 tests[22m[2m)[22m[33m 754[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m10 passed[39m[22m[90m (10)[39m
+[2m      Tests [22m [1m[32m14 passed[39m[22m[90m (14)[39m
+[2m   Start at [22m 20:15:13
+[2m   Duration [22m 4.95s[2m (environment 71%, transform 14%, import 9%, tests 4%, worker 2%)[22m
+
+
+[90mstderr[2m | src/utils/multiCompanyFrontend.test.tsx[2m > [22m[2mMulti-Company Phase 2 Frontend Verification[2m > [22m[2mR10: needs_setup=true behavior[2m > [22m[2mshows only Dashboard and hides Active clients in Sidebar, renders setup card, and avoids timesheet/dailyLog calls
+[22m[39mAn update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+
+[90mstderr[2m | src/utils/multiCompanyFrontend.test.tsx[2m > [22m[2mMulti-Company Phase 2 Frontend Verification[2m > [22m[2mR10: needs_setup=true behavior[2m > [22m[2mshows only Dashboard and hides Active clients in Sidebar, renders setup card, and avoids timesheet/dailyLog calls
+[22m[39mAn update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+An update to DashboardView inside a test was not wrapped in act(...).
+
+When testing, code that causes React state updates should be wrapped into act(...):
+
+act(() => {
+  /* fire events that update state */
+});
+/* assert on the output */
+
+This ensures that you're testing the behavior the user would see in the browser. Learn more at https://react.dev/link/wrap-tests-with-act
+

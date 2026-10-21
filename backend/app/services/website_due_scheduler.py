@@ -110,10 +110,19 @@ async def run_website_due_tick() -> None:
 
 
 async def start_website_due_scheduler() -> None:
+    from app.core.job_locks import job_lease
+    from app.core.tenant import for_each_active_company
+    from app.config import settings
+
     logger.info("[Website Pipeline] Due/Overdue scheduler started (1 hour tick).")
     while True:
         try:
-            await run_website_due_tick()
+            async with job_lease("website_due_tick", ttl_seconds=3600) as acquired:
+                if acquired:
+                    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                        await for_each_active_company(lambda comp: run_website_due_tick())
+                    else:
+                        await run_website_due_tick()
         except asyncio.CancelledError:
             logger.info("[Website Pipeline] Due scheduler stopped.")
             raise

@@ -14,7 +14,13 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const path = safePath(event.notification.data && event.notification.data.path);
+  const notifData = (event.notification && event.notification.data) || {};
+  let path = safePath(notifData.path);
+  const companyId = notifData.company_id || (notifData.data && notifData.data.company_id);
+  if (companyId) {
+    const separator = path.includes('?') ? '&' : '?';
+    path = `${path}${separator}switch=${encodeURIComponent(companyId)}`;
+  }
   event.waitUntil(openApp(path));
 });
 
@@ -36,12 +42,13 @@ async function handlePush(event) {
   const title = String(payload.title || 'Reamarc').slice(0, 120);
   const body = String(payload.body || '').slice(0, 500);
   const path = safePath(payload.path);
+  const companyId = payload.company_id || (payload.data && payload.data.company_id);
   const tag = payload.kind === 'test' ? `reamarc-test-${Date.now()}` : (payload.tag || `reamarc-${Date.now()}`);
 
   // 1. ALWAYS trigger native OS desktop notification so it pops up outside the tab/browser
   let displayed = false;
   try {
-    await showDesktopNotification(title, body, path, tag);
+    await showDesktopNotification(title, body, path, tag, companyId);
     displayed = true;
   } catch (err) {
     console.warn('[Reamarc SW] Could not show system notification:', err);
@@ -68,7 +75,7 @@ async function handlePush(event) {
   }
 }
 
-async function showDesktopNotification(title, body, path, tag) {
+async function showDesktopNotification(title, body, path, tag, companyId) {
   const iconUrl = new URL('/favicon.png', self.location.origin).href;
   const options = {
     body,
@@ -76,7 +83,7 @@ async function showDesktopNotification(title, body, path, tag) {
     renotify: true,
     requireInteraction: true,
     silent: false,
-    data: { path },
+    data: { path, company_id: companyId },
     icon: iconUrl,
     badge: iconUrl,
   };

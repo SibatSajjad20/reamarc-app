@@ -4,10 +4,12 @@ import re
 from app.models.user import UserRole, EmploymentType
 
 
-def _validate_iso_date(value: Optional[str], field_name: str) -> Optional[str]:
+def _validate_iso_date(value: Any, field_name: str) -> Optional[str]:
     if value is None:
         return None
-    cleaned = value.strip()
+    if hasattr(value, "strftime"):
+        return value.strftime("%Y-%m-%d")
+    cleaned = str(value).strip()
     if not cleaned:
         return None
     if len(cleaned) != 10 or cleaned[4] != "-" or cleaned[7] != "-":
@@ -133,6 +135,7 @@ class MemberUpdate(BaseModel):
     probation_start_date: Optional[str] = None
     probation_end_date: Optional[str] = None
     is_active: Optional[bool] = None
+    deactivation_date: Optional[str] = None
     crm_enabled: Optional[bool] = None
     crm_paused: Optional[bool] = None
     workspace_ids: Optional[List[str]] = None
@@ -201,9 +204,33 @@ class MemberResponse(BaseModel):
     probation_start_date: Optional[str] = None
     probation_end_date: Optional[str] = None
     is_active: bool
+    deactivated_at: Optional[str] = None
+    deactivation_date: Optional[str] = None
     created_at: Optional[str] = None
     workspace_ids: List[str] = Field(default_factory=list)
     avatar_url: Optional[str] = None
+    company_id: Optional[str] = None
+    is_super_admin: Optional[bool] = False
+    needs_setup: Optional[bool] = False
+    login_managed_elsewhere: Optional[bool] = False
+
+    @field_validator("created_at", mode="before")
+    @classmethod
+    def serialize_created_at(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if hasattr(v, "isoformat"):
+            return v.isoformat()
+        return str(v)
+
+    @field_validator("joining_date", "probation_start_date", "probation_end_date", mode="before")
+    @classmethod
+    def serialize_date_fields(cls, v: Any) -> Optional[str]:
+        if v is None:
+            return None
+        if hasattr(v, "strftime"):
+            return v.strftime("%Y-%m-%d")
+        return str(v)
 
 
 class MemberActivityResponse(BaseModel):

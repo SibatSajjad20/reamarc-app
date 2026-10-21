@@ -86,11 +86,12 @@ async def is_workday_for_date(target_date_str: str) -> bool:
     return True
 
 
-async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> Dict[str, Any]:
+async def _run_midnight_attendance_internal(
+    target_date: Optional[str] = None,
+    company: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     """
-    Executes the midnight attendance processing job for a target date (defaults to yesterday in PKT):
-    1. Transitions unclosed sessions to missed_punch with 0 work hours and expected undertime.
-    2. Identifies and records absentees on scheduled workdays.
+    Internal single-tenant runner for midnight attendance processing.
     """
     db = get_database()
     if db is None:
@@ -104,10 +105,16 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
             "is_workday": False,
         }
 
-    # If target_date is not provided, calculate yesterday's date in Asia/Karachi timezone
+    # If target_date is not provided, calculate yesterday's date in company's timezone
     if not target_date:
-        now_pk = datetime.now(PK_TZ)
-        target_date = (now_pk - timedelta(days=1)).strftime("%Y-%m-%d")
+        from app.core.tenant import company_tz
+        tz_str = company_tz(company)
+        try:
+            tz = ZoneInfo(tz_str)
+        except Exception:
+            tz = PK_TZ
+        now_local = datetime.now(tz)
+        target_date = (now_local - timedelta(days=1)).strftime("%Y-%m-%d")
 
     logger.info(f"[Scheduler] Running Midnight Attendance Job for target date: {target_date}...")
 
@@ -343,12 +350,39 @@ async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> 
     return result
 
 
-async def close_elapsed_shifts_now() -> Dict[str, Any]:
+async def run_midnight_attendance_job_now(target_date: Optional[str] = None) -> Dict[str, Any]:
     """
-    Auto-closes elapsed shifts throughout the day:
-    1. Flags unclosed sessions (check_in without check_out) as Missed Punch after shift window closes.
-    2. Marks unpunched employees as Absent after shift end.
-    Runs throughout the day so shift transitions occur promptly rather than only at midnight.
+    Executes the midnight attendance processing job:
+    - If invoked within a tenant context, runs directly for that tenant.
+    - If in multi-tenant mode without context, acquires job_lease and iterates all active companies.
+    - Otherwise runs legacy single-tenant flow.
+    """
+    from app.config import settings
+    from app.core.job_locks import job_lease
+    from app.core.tenant import get_tenant_context, for_each_active_company
+
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        return await _run_midnight_attendance_internal(target_date)
+
+    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+        async with job_lease("midnight_attendance_job", ttl_seconds=300) as acquired:
+            if not acquired:
+                logger.info("[Scheduler] Another worker holds lease for midnight attendance. Skipping.")
+                return {"skipped": True, "reason": "lock_held"}
+            results = {}
+            async def _for_comp(comp):
+                cid = comp.get("id") or str(comp.get("_id"))
+                results[cid] = await _run_midnight_attendance_internal(target_date, company=comp)
+            await for_each_active_company(_for_comp)
+            return {"multi_tenant": True, "results": results}
+    else:
+        return await _run_midnight_attendance_internal(target_date)
+
+
+async def _close_elapsed_shifts_internal(company: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """
+    Internal runner: Auto-closes elapsed shifts throughout the day for the current tenant.
     """
     db = get_database()
     if db is None:
@@ -452,30 +486,59 @@ async def close_elapsed_shifts_now() -> Dict[str, Any]:
     return {"success": True, "closed": closed, "missed_flagged": missed_flagged, "skipped": skipped}
 
 
-async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] = None) -> Dict[str, Any]:
+async def close_elapsed_shifts_now() -> Dict[str, Any]:
     """
-    End-of-month leave & undertime settlement job:
-    1. Evaluates monthly net variance (monthly_overtime - monthly_undertime) for each active internal employee.
-    2. If net variance >= 0:
-       - Overtime is payable for this month.
-       - Closed cleanly: does NOT pay past debt or carry forward.
-    3. If net variance < 0:
-       - Overtime is 0.
-       - Net undertime deficit (|net_variance|) is carried forward into the cumulative deficit tracker.
-       - For every 480 minutes (8h) of accumulated deficit, 1 day is deducted from the annual leave quota.
-    4. Records settlement snapshot in `monthly_leave_settlements`.
+    Auto-closes elapsed shifts throughout the day:
+    - If invoked within a tenant context, runs directly for that tenant.
+    - If in multi-tenant mode without context, acquires job_lease and iterates all active companies.
+    - Otherwise runs legacy single-tenant flow.
+    """
+    from app.config import settings
+    from app.core.job_locks import job_lease
+    from app.core.tenant import get_tenant_context, for_each_active_company
+
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        return await _close_elapsed_shifts_internal()
+
+    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+        async with job_lease("close_elapsed_shifts", ttl_seconds=120) as acquired:
+            if not acquired:
+                return {"skipped": True, "reason": "lock_held"}
+            results = {}
+            async def _for_comp(comp):
+                cid = comp.get("id") or str(comp.get("_id"))
+                results[cid] = await _close_elapsed_shifts_internal(company=comp)
+            await for_each_active_company(_for_comp)
+            return {"multi_tenant": True, "results": results}
+    else:
+        return await _close_elapsed_shifts_internal()
+
+
+async def _run_monthly_settlement_internal(
+    target_year_month: Optional[str] = None,
+    company: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Internal single-tenant runner for monthly leave settlement.
     """
     db = get_database()
     if db is None:
         logger.warning("[Scheduler] Database unavailable for monthly leave settlement.")
         return {"success": False, "error": "Database unavailable"}
 
-    now_pk = datetime.now(PK_TZ)
+    from app.core.tenant import company_tz
+    tz_str = company_tz(company)
+    try:
+        tz = ZoneInfo(tz_str)
+    except Exception:
+        tz = PK_TZ
+    now_local = datetime.now(tz)
     if not target_year_month:
-        if now_pk.day == 1:
-            target_year_month = (now_pk - timedelta(days=1)).strftime("%Y-%m")
+        if now_local.day == 1:
+            target_year_month = (now_local - timedelta(days=1)).strftime("%Y-%m")
         else:
-            target_year_month = now_pk.strftime("%Y-%m")
+            target_year_month = now_local.strftime("%Y-%m")
 
     logger.info(f"[Scheduler] Running Monthly Leave Settlement Job for {target_year_month}...")
 
@@ -540,6 +603,35 @@ async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] 
 
     logger.info(f"[Scheduler] Completed Monthly Leave Settlement for {settled_count} employees for {target_year_month}.")
     return {"success": True, "year_month": target_year_month, "settled_count": settled_count}
+
+
+async def run_monthly_leave_settlement_job_now(target_year_month: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Executes the monthly leave settlement job:
+    - If invoked within a tenant context, runs directly for that tenant.
+    - If in multi-tenant mode without context, acquires job_lease and iterates all active companies.
+    - Otherwise runs legacy single-tenant flow.
+    """
+    from app.config import settings
+    from app.core.job_locks import job_lease
+    from app.core.tenant import get_tenant_context, for_each_active_company
+
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        return await _run_monthly_settlement_internal(target_year_month)
+
+    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+        async with job_lease("monthly_leave_settlement", ttl_seconds=600) as acquired:
+            if not acquired:
+                return {"skipped": True, "reason": "lock_held"}
+            results = {}
+            async def _for_comp(comp):
+                cid = comp.get("id") or str(comp.get("_id"))
+                results[cid] = await _run_monthly_settlement_internal(target_year_month, company=comp)
+            await for_each_active_company(_for_comp)
+            return {"multi_tenant": True, "results": results}
+    else:
+        return await _run_monthly_settlement_internal(target_year_month)
 
 
 def start_attendance_scheduler() -> AsyncIOScheduler:

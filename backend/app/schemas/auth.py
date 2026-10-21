@@ -33,12 +33,25 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     phone: Optional[str] = None
     content_stages: Optional[List[str]] = None
+    company_id: Optional[str] = None
+    is_super_admin: Optional[bool] = False
+    company: Optional[dict] = None
+    impersonating: Optional[bool] = False
+    read_only: Optional[bool] = False
+    needs_setup: Optional[bool] = False
+    membership_id: Optional[str] = None
+    companies: Optional[List[dict]] = None
+    effective_access: Optional[dict] = None
 
 class TokenResponse(BaseModel):
     access_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserResponse
     refresh_token: Optional[str] = None
+    companies: Optional[List[dict]] = None
+
+class SwitchCompanyRequest(BaseModel):
+    company_id: str
 
 
 class RefreshTokenRequest(BaseModel):

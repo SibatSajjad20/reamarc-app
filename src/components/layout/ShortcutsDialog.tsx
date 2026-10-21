@@ -1,3 +1,5 @@
+import { useAuth } from '@/context/AuthContext';
+import { brandNameOf } from '@/utils/branding';
 import React, { useEffect } from 'react';
 import {
   Dialog,
@@ -13,6 +15,7 @@ interface ShortcutsDialogProps {
 }
 
 export const ShortcutsDialog: React.FC<ShortcutsDialogProps> = ({ open, onOpenChange }) => {
+  const { user } = useAuth();
   const isMac =
     typeof window !== 'undefined' &&
     /Mac|iPod|iPhone|iPad/.test(window.navigator.userAgent);
@@ -55,7 +58,7 @@ export const ShortcutsDialog: React.FC<ShortcutsDialogProps> = ({ open, onOpenCh
         <DialogHeader className="px-5 pt-5 pb-3 border-b border-border">
           <DialogTitle className="text-h2 font-semibold text-fg">Keyboard shortcuts</DialogTitle>
           <DialogDescription className="text-xs text-fg-muted mt-1">
-            Global hotkeys available across Reamarc.
+            {`Global hotkeys available across ${brandNameOf(user?.company)}.`}
           </DialogDescription>
         </DialogHeader>
         <div className="p-4 space-y-2">

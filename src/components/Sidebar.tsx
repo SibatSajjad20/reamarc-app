@@ -1,3 +1,4 @@
+import { brandNameOf } from '../utils/branding';
 import React, { useState, useEffect, useCallback } from 'react';
 import type { ViewType, ThemeMode, ThemePreference } from '@/types';
 import { useAuth } from '@/context/AuthContext';
@@ -135,7 +136,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   isMobile = false,
 }) => {
-  const { user } = useAuth();
+  const { user, switchCompany } = useAuth();
   const [internalIsCollapsed, setInternalIsCollapsed] = useState<boolean>(() => {
     try {
       const userKey = user?.id ? `sidebar_collapsed_${user.id}` : 'sidebar_collapsed';
@@ -224,17 +225,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isHR = user?.role === 'hr';
   const isOperations = user?.role === 'operations';
   const isClient = user?.role === 'client';
+  const eff = user?.effective_access;
   const canSeeExceptions = perms.can('exceptions', 'department');
-  const canSeeActiveClients = perms.can('active_clients', 'view');
-  const canSeeCrm = perms.canAccessCrm;
+  const canSeeActiveClients = user?.needs_setup ? false : perms.can('active_clients', 'view');
+  const canSeeCrm = eff ? !!eff.sales : perms.canAccessCrm;
   const canSeeWonDealApprovals = perms.canSeeWonDealApprovals;
-  const canSeeContentCalendar = perms.canAccessContentCalendar;
-  const canSeeWebsitePipeline = perms.canAccessWebsitePipeline;
-  const canSeeAttendance = perms.canAccessAttendance;
-  const canSeeDailyLog = perms.canAccessDailyLog;
+  const canSeeContentCalendar = eff ? !!eff.content_calendar : perms.canAccessContentCalendar;
+  const canSeeWebsitePipeline = eff ? !!eff.website : perms.canAccessWebsitePipeline;
+  const canSeeAttendance = eff ? !!eff.attendance : perms.canAccessAttendance;
+  const canSeeDailyLog = eff ? !!eff.daily_log : perms.canAccessDailyLog;
   const isManagementRole = isAdmin || isHR || isOperations;
 
-  const canSeeMarketing = perms.canAccessAds;
+  const canSeeMarketing = eff ? !!eff.ads : perms.canAccessAds;
 
   const canSeeAdmin = isAdmin || isHR || isOperations;
   const adminLabel = isAdmin ? 'Admin panel' : isHR ? 'HR panel' : 'Operations panel';
@@ -293,7 +295,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }[];
   }
 
-  const groups: NavGroup[] = [
+  const groups: NavGroup[] = user?.needs_setup
+    ? [
+        {
+          id: 'overview',
+          label: 'Overview',
+          items: [
+            {
+              id: 'dashboard' as ViewType,
+              label: 'Dashboard',
+              icon: LayoutDashboard,
+            },
+          ],
+        },
+      ]
+    : [
     {
       id: 'overview',
       label: 'Overview',
@@ -508,6 +524,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
               },
             ]
           : []),
+        ...(user?.is_super_admin && !user?.impersonating
+          ? [
+              {
+                id: 'owner' as ViewType,
+                label: 'Owner Console',
+                icon: Building2,
+              },
+            ]
+          : []),
       ],
     },
   ].filter((group) => group.items.length > 0);
@@ -531,7 +556,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           : 'w-[224px] transition-[width] duration-200 delay-0 ease-[var(--ease-standard,cubic-bezier(0.2,0,0,1))]'
       )}
     >
-      {/* 1. Brand Block (§8.1, §8.5) */}
+      {/* 1. Brand Block (§8.1, §8.5, Multi-Company Switcher) */}
       <div className="relative h-11 mb-4 shrink-0">
         {/* Expanded state logo row */}
         <div
@@ -542,15 +567,123 @@ export const Sidebar: React.FC<SidebarProps> = ({
               : 'opacity-100 duration-100 delay-200 ease-out'
           )}
         >
-          <BrandMark size={28} className="shrink-0" />
-          <div className="min-w-0 flex-1 truncate pr-1 select-none">
-            <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
-              Reamarc
-            </span>
-            <span className="block text-xs text-fg-muted leading-4 truncate">
-              Operations hub
-            </span>
-          </div>
+          {Boolean((user?.companies && user.companies.length > 1) || user?.is_super_admin) ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 min-w-0 flex-1 text-left rounded-md hover:bg-subtle p-0.5 -ml-0.5 transition-colors group/brand"
+                >
+                  {user?.company?.logo_url ? (
+                    <img
+                      src={user.company.logo_url}
+                      alt=""
+                      className="w-7 h-7 rounded-md object-cover border border-border shrink-0"
+                    />
+                  ) : (
+                    <BrandMark size={28} className="shrink-0" />
+                  )}
+                  <div className="min-w-0 flex-1 truncate pr-1 select-none">
+                    <div className="flex items-center gap-1">
+                      <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
+                        {brandNameOf(user?.company)}
+                      </span>
+                      <ChevronsUpDown size={12} className="text-fg-muted shrink-0 opacity-60 group-hover/brand:opacity-100" />
+                    </div>
+                    <span className="block text-xs text-fg-muted leading-4 truncate">
+                      {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
+                    </span>
+                  </div>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56 p-1 z-50">
+                <div className="px-2 py-1 text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
+                  Companies
+                </div>
+                {(user?.companies || [
+                  {
+                    id: user?.company_id || user?.company?.id || '',
+                    name: brandNameOf(user?.company),
+                    role: user?.role,
+                    logo_url: user?.company?.logo_url,
+                  },
+                ]).map((comp) => {
+                  const isCurrent = comp.id === (user?.company_id || user?.company?.id);
+                  return (
+                    <DropdownMenuItem
+                      key={comp.id}
+                      onClick={() => {
+                        if (!isCurrent) {
+                          void switchCompany(comp.id);
+                        }
+                      }}
+                      className={cn(
+                        'flex items-center justify-between gap-2 px-2.5 py-1.5 cursor-pointer rounded-md text-xs',
+                        isCurrent && 'bg-subtle font-medium text-fg'
+                      )}
+                    >
+                      <div className="flex items-center gap-2 min-w-0 truncate">
+                        {comp.logo_url ? (
+                          <img
+                            src={comp.logo_url}
+                            alt=""
+                            className="w-5 h-5 rounded object-cover border border-border shrink-0"
+                          />
+                        ) : (
+                          <div className="w-5 h-5 rounded bg-accent/15 text-accent flex items-center justify-center font-bold text-[10px] shrink-0">
+                            {comp.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
+                        <div className="min-w-0 truncate">
+                          <div className="truncate text-fg font-medium">{comp.name}</div>
+                          <div className="text-[10px] text-fg-muted truncate capitalize">
+                            {comp.role ? getRoleDisplayName(comp.role) : 'Member'}
+                          </div>
+                        </div>
+                      </div>
+                      {isCurrent && <Check size={14} className="text-accent shrink-0" />}
+                    </DropdownMenuItem>
+                  );
+                })}
+
+                {user?.is_super_admin && (
+                  <>
+                    <DropdownMenuSeparator className="my-1" />
+                    {!user?.impersonating && (
+                    <DropdownMenuItem
+                      onClick={() => onSelectView('owner' as ViewType)}
+                      className="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer text-xs font-medium text-fg hover:text-accent rounded-md"
+                    >
+                      <Shield size={14} className="text-accent shrink-0" />
+                      <span>Owner console</span>
+                    </DropdownMenuItem>
+                    )}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : (
+            <>
+              {user?.company?.logo_url ? (
+                <img
+                  src={user.company.logo_url}
+                  alt=""
+                  className="w-7 h-7 rounded-md object-cover border border-border shrink-0"
+                />
+              ) : (
+                <BrandMark size={28} className="shrink-0" />
+              )}
+              <div className="min-w-0 flex-1 truncate pr-1 select-none">
+                <span className="block text-[13px] font-semibold text-fg leading-4 truncate">
+                  {brandNameOf(user?.company)}
+                </span>
+                <span className="block text-xs text-fg-muted leading-4 truncate">
+                  {user?.impersonating ? (user?.read_only !== false ? 'Owner · read-only' : 'Owner · can edit') : user?.role ? getRoleDisplayName(user.role) : brandNameOf(user?.company)}
+                </span>
+              </div>
+            </>
+          )}
+
           {!isMobile && (
             <Tooltip delayDuration={300}>
               <TooltipTrigger asChild>
@@ -576,7 +709,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {/* Collapsed state R logo expand button */}
+        {/* Collapsed state logo expand button */}
         <div
           className={cn(
             'absolute inset-0 h-11 flex items-center justify-center transition-opacity motion-reduce:transition-none',
@@ -598,7 +731,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 style={{ fontSize: '14px' }}
               >
                 <span className="sidebar-expand-r absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-100 motion-reduce:transition-none pointer-events-none">
-                  R
+                  {brandNameOf(user?.company).trim().charAt(0).toUpperCase()}
                 </span>
                 <span className="sidebar-expand-icon absolute inset-0 flex items-center justify-center transition-opacity duration-[120ms] ease-[var(--ease-standard)] opacity-0 motion-reduce:transition-none pointer-events-none">
                   <PanelLeftOpen size={16} strokeWidth={1.5} />
@@ -1060,6 +1193,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
               </div>
 
               <DropdownMenuSeparator />
+
+              {/* Owner Console (Faizan super-admin only) */}
+              {user?.is_super_admin && (
+                <DropdownMenuItem
+                  onClick={() => onSelectView('owner')}
+                  className="text-[13px] gap-2.5 cursor-pointer font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/30"
+                >
+                  <Shield size={16} />
+                  <span>Owner Console</span>
+                </DropdownMenuItem>
+              )}
 
               {/* 2. Settings */}
               <DropdownMenuItem

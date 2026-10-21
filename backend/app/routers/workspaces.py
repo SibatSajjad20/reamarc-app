@@ -13,6 +13,7 @@ from app.core.uploads import open_upload_response, authorize_stored_upload, norm
 from app.core.limiter import limiter
 from app.database import get_database
 from app.models.user import UserRole
+from app.config import settings
 from app.services import cloudinary_service, image_pipeline
 from app.services.client_logo import (
     can_destroy_client_logo,
@@ -366,10 +367,15 @@ async def download_proposal(
     db = get_database()
     candidates = _proposal_url_candidates(file_path)
     lookup = {"proposal_url": {"$in": candidates}}
-
     ws = None
-    if db is not None:
-        ws = await db.workspaces.find_one(lookup)
+    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+        if db is not None:
+            ws = await db.workspaces.find_one(lookup)
+    else:
+        from app.core.tenant import get_global_db
+        gdb = get_global_db()
+        if gdb is not None:
+            ws = await gdb.workspaces.find_one(lookup)
 
     if ws:
         role = current_user.get("role")

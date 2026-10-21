@@ -571,11 +571,12 @@ async def delete_source(source_id: str, user: Dict[str, Any]) -> None:
 
 
 async def resolve_source_by_token(raw_token: str) -> Dict[str, Any]:
-    db = _db()
+    from app.core.tenant import get_global_db
     token = (raw_token or "").strip()
     if not token or len(token) < 16:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown ingest token.")
-    doc = await db.crm_ingest_sources.find_one({"token_hash": hash_ingest_token(token)}, {"_id": 0})
+    gdb = get_global_db()
+    doc = await gdb.crm_ingest_sources.find_one({"token_hash": hash_ingest_token(token)}, {"_id": 0})
     if not doc or not doc.get("enabled", True):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unknown ingest token.")
     return doc
@@ -818,44 +819,47 @@ async def ingest_from_token(raw_token: str, body: Dict[str, Any]) -> Dict[str, A
     if not isinstance(body, dict):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="JSON object required.")
 
-    # Intercept job/career inquiries so they do not pollute the sales CRM pipeline
-    dept = str(body.get("department") or "").strip().lower()
-    campaign = str(body.get("campaign") or "").strip().lower()
-    service = str(body.get("service") or "").strip().lower()
-    if dept == "careers" or campaign.endswith("_careers") or "careers" in service or "jobs" in service:
-        db = _db()
-        now_iso = _now()
-        app_id = f"app_{uuid.uuid4().hex[:12]}"
-        doc = {
-            "id": app_id,
-            "name": str(body.get("name") or "Applicant").strip()[:120],
-            "email": str(body.get("email") or "").strip()[:254],
-            "phone": str(body.get("phone") or body.get("phone_raw") or "").strip()[:40],
-            "role": str(body.get("company") or body.get("role") or "").strip()[:120],
-            "portfolio_url": str(body.get("portfolio_url") or "").strip()[:500],
-            "note": str(body.get("message") or body.get("note") or "").strip()[:2000],
-            "source": "website_chatbot",
-            "created_at": now_iso,
-        }
-        await db.crm_career_applications.insert_one(doc)
-        if source.get("id"):
-            await _touch_source(source["id"])
-        return {
-            "lead": {"id": app_id},
-            "created": False,
-            "duplicate": False,
-        }
+    cid = source.get("company_id") or "company_reamarc"
+    from app.core.tenant import tenant_scope
+    with tenant_scope(company_id=cid):
+        # Intercept job/career inquiries so they do not pollute the sales CRM pipeline
+        dept = str(body.get("department") or "").strip().lower()
+        campaign = str(body.get("campaign") or "").strip().lower()
+        service = str(body.get("service") or "").strip().lower()
+        if dept == "careers" or campaign.endswith("_careers") or "careers" in service or "jobs" in service:
+            db = _db()
+            now_iso = _now()
+            app_id = f"app_{uuid.uuid4().hex[:12]}"
+            doc = {
+                "id": app_id,
+                "name": str(body.get("name") or "Applicant").strip()[:120],
+                "email": str(body.get("email") or "").strip()[:254],
+                "phone": str(body.get("phone") or body.get("phone_raw") or "").strip()[:40],
+                "role": str(body.get("company") or body.get("role") or "").strip()[:120],
+                "portfolio_url": str(body.get("portfolio_url") or "").strip()[:500],
+                "note": str(body.get("message") or body.get("note") or "").strip()[:2000],
+                "source": "website_chatbot",
+                "created_at": now_iso,
+            }
+            await db.crm_career_applications.insert_one(doc)
+            if source.get("id"):
+                await _touch_source(source["id"])
+            return {
+                "lead": {"id": app_id},
+                "created": False,
+                "duplicate": False,
+            }
 
-    source_lbl = str(body.get("source") or source.get("default_source") or "website")
-    return await ingest_lead(
-        fields=body,
-        source_label=source_lbl,
-        campaign=body.get("campaign") or source.get("default_campaign"),
-        external_id=body.get("external_id") or body.get("id"),
-        raw_payload=body,
-        ingest_source_id=source.get("id"),
-        attribution=extract_attribution(body, default_platform=source_lbl),
-    )
+        source_lbl = str(body.get("source") or source.get("default_source") or "website")
+        return await ingest_lead(
+            fields=body,
+            source_label=source_lbl,
+            campaign=body.get("campaign") or source.get("default_campaign"),
+            external_id=body.get("external_id") or body.get("id"),
+            raw_payload=body,
+            ingest_source_id=source.get("id"),
+            attribution=extract_attribution(body, default_platform=source_lbl),
+        )
 
 
 def meta_field_data_to_dict(field_data: Any) -> Dict[str, Any]:
@@ -1283,14 +1287,31 @@ async def poll_configured_meta_forms() -> Dict[str, Any]:
 
 async def start_meta_form_poll_scheduler() -> None:
     """Catch leads Meta never pushed. First pass shortly after boot, then every 10 minutes."""
+    from app.core.job_locks import job_lease
+    from app.core.tenant import for_each_active_company
+    from app.config import settings
+
     logger.info("[CRM Meta] Form poll scheduler started (%ss interval).", META_POLL_INTERVAL_SECONDS)
     await asyncio.sleep(20)
     while True:
         try:
-            summary = await poll_connected_meta_pages()
-            created = sum(int(row.get("created") or 0) for row in summary.get("forms") or [])
-            if created or summary.get("errors"):
-                logger.info("[CRM Meta] Form poll created=%s errors=%s", created, summary.get("errors"))
+            async with job_lease("crm_meta_poll_tick", ttl_seconds=600) as acquired:
+                if acquired:
+                    if getattr(settings, "MULTI_TENANT_ENABLED", False):
+                        async def _poll_for_comp(comp: dict):
+                            try:
+                                summary = await poll_connected_meta_pages()
+                                created = sum(int(row.get("created") or 0) for row in summary.get("forms") or [])
+                                if created or summary.get("errors"):
+                                    logger.info("[CRM Meta] Form poll [%s] created=%s errors=%s", comp.get("id"), created, summary.get("errors"))
+                            except HTTPException:
+                                pass
+                        await for_each_active_company(_poll_for_comp)
+                    else:
+                        summary = await poll_connected_meta_pages()
+                        created = sum(int(row.get("created") or 0) for row in summary.get("forms") or [])
+                        if created or summary.get("errors"):
+                            logger.info("[CRM Meta] Form poll created=%s errors=%s", created, summary.get("errors"))
         except asyncio.CancelledError:
             raise
         except Exception as err:

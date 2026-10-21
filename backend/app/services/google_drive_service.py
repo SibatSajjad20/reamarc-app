@@ -668,12 +668,18 @@ def _ingest_picked_file_sync(file_id: str, dest_folder_id: Optional[str] = None)
         if code in (403, 404):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="This Drive file is not accessible to Reamarc. Share it with the workspace Drive account, or pick a file already in the client folder.",
+                detail="This Drive file is not accessible. Share it with the workspace Drive account, or pick a file already in the client folder.",
             ) from exc
         raise _drive_http_error(exc, "read picked file") from exc
 
+    if not dest_folder_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Destination company folder is required to ingest Drive files.",
+        )
+
     parents = meta.get("parents") or []
-    if dest_folder_id and dest_folder_id not in parents:
+    if dest_folder_id not in parents:
         try:
             copied = (
                 _service()

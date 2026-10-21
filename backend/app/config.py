@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     IS_PRODUCTION: bool = False
     # Dedicated Fernet key for ad credentials. Independent of JWT SECRET_KEY.
     ENCRYPTION_KEY: str = ""
+    # Multi-tenant Companies feature flags and secrets
+    MULTI_TENANT_ENABLED: bool = False
+    MULTI_COMPANY_ENABLED: bool = False
+    TENANT_SECRETS_KEYS: str = ""
 
     # MongoDB
     MONGODB_URL: str = "mongodb://localhost:27017"
@@ -73,6 +77,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = ""
     SMTP_FROM_NAME: str = "Reamarc Workspace"
     SMTP_TLS: bool = True
+    EMAILS_ENABLED: bool = True
     APP_FRONTEND_URL: str = "http://localhost:5173"
 
     # Office geofence / attendance security (WAN IPs from env only — no hardcoded allow-list)

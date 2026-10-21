@@ -300,6 +300,71 @@ async def _create_indexes_background():
         except Exception as e:
             logger.warning(f"Could not create Website Project Pipeline indexes: {e}")
 
+        # Multi-Tenant compound indexes (with company_id first) alongside existing indexes
+        try:
+            # Global collections indexes
+            await db_instance.db.companies.create_index("id", unique=True, name="uniq_company_id")
+            await db_instance.db.companies.create_index("slug", unique=True, name="uniq_company_slug")
+            await db_instance.db.company_memberships.create_index(
+                [("user_id", 1), ("company_id", 1)], unique=True, name="uniq_user_company_membership"
+            )
+            await db_instance.db.company_memberships.create_index(
+                [("company_id", 1), ("status", 1)], name="idx_company_memberships_company_status"
+            )
+            await db_instance.db.company_memberships.create_index(
+                [("user_id", 1), ("status", 1)], name="idx_company_memberships_user_status"
+            )
+            await db_instance.db.company_integrations.create_index(
+                [("company_id", 1), ("integration_type", 1)], unique=True, name="uniq_company_integration"
+            )
+            await db_instance.db.owner_sessions.create_index("token_hash", unique=True, name="uniq_owner_session_token")
+            await db_instance.db.owner_audit.create_index([("created_at", -1)], name="idx_owner_audit_created")
+            await db_instance.db.owner_audit.create_index("hash", unique=True, name="uniq_owner_audit_hash")
+            await db_instance.db.security_events.create_index([("timestamp", -1)], name="idx_security_events_time")
+
+            # Per-company unique and compound tenant indexes
+            await db_instance.db.daily_log_columns.create_index(
+                [("company_id", 1), ("workspace_id", 1)], unique=True, name="uniq_company_workspace_columns"
+            )
+            await db_instance.db.daily_log_entries.create_index(
+                [("company_id", 1), ("id", 1), ("workspace_id", 1)], unique=True, name="uniq_company_id_workspace_entry"
+            )
+            await db_instance.db.sync_jobs.create_index(
+                [("company_id", 1), ("job_key", 1)], unique=True, name="uniq_company_sync_job"
+            )
+            await db_instance.db.ad_account_credentials.create_index(
+                [("company_id", 1), ("workspace_id", 1), ("platform", 1), ("account_id", 1)],
+                unique=True,
+                sparse=True,
+                name="uniq_company_ad_creds"
+            )
+            await db_instance.db.posts.create_index(
+                [("company_id", 1), ("campaign_id", 1), ("target_date", 1)],
+                unique=True,
+                sparse=True,
+                name="uniq_company_posts"
+            )
+            await db_instance.db.crm_scheduler_settings.create_index(
+                [("company_id", 1)], unique=True, name="uniq_company_crm_scheduler"
+            )
+            await db_instance.db.users.create_index([("company_id", 1), ("id", 1)], name="idx_company_user_id")
+            await db_instance.db.attendance_records.create_index(
+                [("company_id", 1), ("user_id", 1), ("date", 1)], name="idx_company_att_user_date"
+            )
+            await db_instance.db.leave_requests.create_index(
+                [("company_id", 1), ("user_id", 1), ("status", 1)], name="idx_company_leave_user"
+            )
+            await db_instance.db.crm_leads.create_index(
+                [("company_id", 1), ("stage", 1), ("created_at", -1)], name="idx_company_crm_leads"
+            )
+            await db_instance.db.workspaces.create_index(
+                [("company_id", 1), ("id", 1)], name="idx_company_workspace"
+            )
+            await db_instance.db.website_projects.create_index(
+                [("company_id", 1), ("status", 1)], name="idx_company_web_projects"
+            )
+        except Exception as e:
+            logger.warning(f"Could not initialize multi-tenant indexes: {e}")
 
         logger.info("MongoDB background index initialization completed.")
     except Exception as e:
@@ -327,4 +392,7 @@ async def close_mongo_connection():
         logger.info("MongoDB connection closed.")
 
 def get_database():
-    return db_instance.db
+    if db_instance.db is None:
+        return None
+    from app.core.tenant import TenantDB
+    return TenantDB(db_instance.db)

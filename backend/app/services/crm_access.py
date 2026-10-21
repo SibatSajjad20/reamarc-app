@@ -34,6 +34,8 @@ def is_crm_user(user: Dict[str, Any]) -> bool:
         return False
     from app.services.permissions import load_ctx, resolve, level_gte
     ctx = load_ctx(user)
+    if ctx.role == "operations":
+        return True
     lvl = resolve(ctx, "sales")
     return level_gte("sales", lvl, "own")
 
@@ -44,6 +46,8 @@ def can_view_all_leads(user: Dict[str, Any]) -> bool:
         return False
     from app.services.permissions import load_ctx, resolve
     ctx = load_ctx(user)
+    if ctx.role == "operations":
+        return True
     return resolve(ctx, "sales") == "all"
 
 

@@ -33,6 +33,7 @@ VIEWABLE_EXTENSIONS = {
 class UploadAuthz:
     workspace_id: Optional[str] = None
     uploaded_by: Optional[str] = None
+    company_id: Optional[str] = None
 
 
 def sanitize_svg(content: bytes) -> bytes:
@@ -165,7 +166,10 @@ def content_disposition_header(display: str, *, inline: bool) -> str:
 
 
 def _gridfs_bucket(db) -> AsyncIOMotorGridFSBucket:
-    return AsyncIOMotorGridFSBucket(db, bucket_name=_GRIDFS_BUCKET)
+    raw_db = db
+    if hasattr(type(db), "raw") and callable(getattr(db, "raw", None)):
+        raw_db = db.raw()
+    return AsyncIOMotorGridFSBucket(raw_db, bucket_name=_GRIDFS_BUCKET)
 
 
 async def _delete_gridfs_by_name(bucket: AsyncIOMotorGridFSBucket, key: str) -> None:
@@ -214,15 +218,22 @@ async def save_upload_bytes(
     try:
         bucket = _gridfs_bucket(db)
         await _delete_gridfs_by_name(bucket, key)
+        meta = {
+            "original_name": original_name,
+            "content_type": content_type or "application/octet-stream",
+            "stored_path": stored_path,
+            **{k: v for k, v in (extra_metadata or {}).items() if v},
+        }
+        if not meta.get("company_id"):
+            from app.core.tenant import get_tenant_context
+
+            ctx = get_tenant_context()
+            if ctx and ctx.company_id:
+                meta["company_id"] = ctx.company_id
         await bucket.upload_from_stream(
             key,
             io.BytesIO(content),
-            metadata={
-                "original_name": original_name,
-                "content_type": content_type or "application/octet-stream",
-                "stored_path": stored_path,
-                **{k: v for k, v in (extra_metadata or {}).items() if v},
-            },
+            metadata=meta,
         )
         # Verify bytes are readable before telling the client the upload succeeded.
         probe = await bucket.open_download_stream_by_name(key)
@@ -418,9 +429,11 @@ async def get_upload_authz(db, file_path: str) -> UploadAuthz:
                 return UploadAuthz()
             ws = meta.get("workspace_id")
             uploader = meta.get("uploaded_by")
+            cid = meta.get("company_id")
             return UploadAuthz(
                 workspace_id=str(ws).strip() if ws else None,
                 uploaded_by=str(uploader).strip() if uploader else None,
+                company_id=str(cid).strip() if cid else None,
             )
         finally:
             try:
@@ -462,14 +475,28 @@ def authorize_upload_key(
     )
 
 
+def _caller_company_id(current_user: dict) -> Optional[str]:
+    from app.core.tenant import get_tenant_context
+
+    ctx = get_tenant_context()
+    if ctx and ctx.company_id:
+        return ctx.company_id
+    return current_user.get("company_id")
+
+
+def _file_company_allowed(caller_cid: Optional[str], file_cid: Optional[str]) -> bool:
+    if file_cid:
+        return bool(caller_cid and file_cid == caller_cid)
+    return caller_cid == "company_reamarc"
+
+
 async def authorize_stored_upload(db, current_user: dict, file_path: str) -> None:
     relative = normalize_upload_key(file_path)
-    if relative.startswith("gdrive/"):
-        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
-        from app.services.google_drive_service import file_id_from_path
+    caller_cid = _caller_company_id(current_user)
 
-        if is_admin(current_user) or is_operations(current_user):
-            return
+    if relative.startswith("gdrive/"):
+        from app.services.content_calendar_workflow import can_view_item
+        from app.services.google_drive_service import file_id_from_path
 
         file_id = file_id_from_path(relative)
         item = None
@@ -484,29 +511,36 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
             )
         if item and can_view_item(current_user, item):
             return
+        if item:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this file.",
+            )
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this file.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
         )
 
     if relative.startswith("content_calendar/"):
-        from app.services.content_calendar_workflow import can_view_item, is_admin, is_operations
-
-        if is_admin(current_user) or is_operations(current_user):
-            return
+        from app.services.content_calendar_workflow import can_view_item
 
         parts = relative.split("/")
+        item = None
         if len(parts) >= 2 and db is not None:
             item_id = parts[1]
             item = await db.content_calendar_items.find_one(
                 {"$or": [{"id": item_id}, {"serial": item_id}]}
             )
-            if item and can_view_item(current_user, item):
-                return
-
+        if item and can_view_item(current_user, item):
+            return
+        if item:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to access this file.",
+            )
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this file.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
         )
 
     if relative.startswith("website_projects/"):
@@ -517,27 +551,44 @@ async def authorize_stored_upload(db, current_user: dict, file_path: str) -> Non
             can_view_project,
         )
 
-        if is_admin_or_ops(current_user) or is_website_lead(current_user):
-            return
-
         parts = relative.split("/")
         project_id = parts[1] if len(parts) >= 2 else None
+        project = None
         if project_id and db is not None:
             project = await db.website_projects.find_one({"id": project_id})
-            if project:
-                if is_client(current_user):
-                    client_workspaces = [str(w) for w in (current_user.get("workspace_ids") or [])]
-                    if str(project.get("workspace_id")) in client_workspaces:
-                        return
-                elif can_view_project(current_user, project):
+        if project and (is_admin_or_ops(current_user) or is_website_lead(current_user)):
+            return
+        if project:
+            if is_client(current_user):
+                client_workspaces = [str(w) for w in (current_user.get("workspace_ids") or [])]
+                if str(project.get("workspace_id")) in client_workspaces:
                     return
-
+            elif can_view_project(current_user, project):
+                return
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not authorized to access this website project file.",
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
         )
 
     meta = await get_upload_authz(db, file_path)
+    if relative.startswith("deliverables/") or relative.startswith("proposals/"):
+        if not _file_company_allowed(caller_cid, meta.company_id):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Requested file not found.",
+            )
+    elif meta.company_id and not _file_company_allowed(caller_cid, meta.company_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
+        )
+    from app.core.security import _MANAGEMENT_ROLES
+
+    if current_user.get("role") in _MANAGEMENT_ROLES and not _file_company_allowed(caller_cid, meta.company_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Requested file not found.",
+        )
     authorize_upload_key(current_user, meta.workspace_id, meta.uploaded_by)
 
 
@@ -660,6 +711,8 @@ async def open_upload_response(
                 media_type=media_type,
                 headers=headers,
             )
+        except HTTPException:
+            raise
         except Exception:
             logger.info("GridFS miss for %s", relative)
 
