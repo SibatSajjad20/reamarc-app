@@ -26,6 +26,7 @@ def _db():
 def build_meeting_reminder_10m_html(
     attendee_name: str,
     meeting_info: Dict[str, Any],
+    identity: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Render a responsive, high-converting HTML reminder email for the upcoming meeting."""
     event_name = html_escape.escape(str(meeting_info.get("event_name") or "Digital Services Consultancy Session"))
@@ -40,6 +41,21 @@ def build_meeting_reminder_10m_html(
     mode_label = html_escape.escape(str(meeting_info.get("location_label") or "Google Meet"))
     office_address = html_escape.escape(str(meeting_info.get("office_address") or "Reamarc Office, Rawalpindi HQ, Pakistan"))
     office_map_url = html_escape.escape(str(meeting_info.get("office_map_url") or "https://maps.app.goo.gl/8SAkMGdkjXnDgbYNA"))
+
+    branded = bool(identity and not identity.get("_reamarc"))
+    brand_footer = "Reamarc AI &bull; Strategy &amp; Digital Solutions"
+    header_bg = "linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%)"
+    logo_html = ""
+    if branded:
+        brand_footer = html_escape.escape(str(identity.get("company_name") or "Notifications"))
+        accent = html_escape.escape(str(identity.get("accent_color") or "#1e3a8a"))
+        header_bg = f"linear-gradient(135deg, {accent} 0%, {accent} 100%)"
+        logo_url = identity.get("logo_url")
+        if logo_url and str(logo_url).startswith("https://"):
+            logo_html = (
+                f'<img src="{html_escape.escape(str(logo_url), quote=True)}" alt="{brand_footer}" '
+                'style="max-height: 36px; max-width: 160px; display: block; margin-bottom: 8px;" />'
+            )
 
     if meeting_mode == "in_person":
         body_intro = "This is a quick reminder that your in-person session is starting in approximately <strong>10 minutes</strong>."
@@ -75,8 +91,8 @@ def build_meeting_reminder_10m_html(
   <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
 
     <!-- Header Banner -->
-    <div style="background: linear-gradient(135deg, #1e3a8a 0%, #2563eb 60%, #3b82f6 100%); padding: 28px 24px; text-align: left;">
-      <span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 20px; margin-bottom: 10px;">
+    <div style="background: {header_bg}; padding: 28px 24px; text-align: left;">
+      {logo_html}<span style="display: inline-block; background-color: rgba(255, 255, 255, 0.2); color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; padding: 4px 10px; border-radius: 20px; margin-bottom: 10px;">
         Starting in 10 Minutes
       </span>
       <h1 style="color: #ffffff; margin: 0; font-size: 22px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.3;">
@@ -124,7 +140,7 @@ def build_meeting_reminder_10m_html(
 
     <!-- Footer -->
     <div style="background-color: #f1f5f9; padding: 16px 24px; text-align: center; border-top: 1px solid #e2e8f0; font-size: 11px; color: #64748b;">
-      <p style="margin: 0;">Reamarc AI &bull; Strategy &amp; Digital Solutions</p>
+      <p style="margin: 0;">{brand_footer}</p>
       <p style="margin: 4px 0 0 0; color: #94a3b8;">If you are unable to attend, please reply to this email to inform your host.</p>
     </div>
 
@@ -189,9 +205,12 @@ async def run_meeting_reminder_tick() -> int:
             event_name = meeting.get("event_name", "Consultancy Session")
             host_name = meeting.get("host_name", "Muhammad Faizan Khan")
 
+            from app.services.email_service import resolve_sender_identity
+            identity = await resolve_sender_identity()
             html_body = build_meeting_reminder_10m_html(
                 attendee_name=attendee_name,
                 meeting_info=meeting,
+                identity=identity,
             )
             subject = f"Starting in 10 minutes: {event_name} with {host_name}"
 

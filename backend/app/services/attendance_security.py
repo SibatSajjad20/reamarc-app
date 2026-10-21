@@ -108,11 +108,14 @@ def trusted_proxy_client_ip(socket_ip: Optional[str], x_forwarded_for: Optional[
 
 def collect_whitelist_entries(settings: SecuritySettingsSchema) -> List[str]:
     """Merge every configured IP / CIDR field into a single allow-list."""
+    from app.core.integrations import current_company_id, is_reamarc_company
+
     entries: List[str] = []
     seen = set()
     extra_whitelist = getattr(settings, "office_ip_whitelist", None) or []
+    builtin = list(get_built_in_office_ips()) if is_reamarc_company(current_company_id()) else []
     for item in (
-        list(get_built_in_office_ips())
+        builtin
         + list(settings.office_public_ips or [])
         + list(settings.office_subnets or [])
         + list(extra_whitelist)
@@ -339,7 +342,9 @@ def validate_punch_security(
     gps_unusable_reason: Optional[str] = None
 
     if settings.enforce_gps_geofence:
-        if user_lat is None or user_lon is None:
+        if settings.office_latitude is None or settings.office_longitude is None:
+            gps_unusable_reason = "office location is not configured"
+        elif user_lat is None or user_lon is None:
             gps_unusable_reason = "browser did not provide GPS coordinates"
         else:
             freshness_error = validate_gps_freshness(

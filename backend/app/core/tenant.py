@@ -179,6 +179,8 @@ TENANT_COLLECTIONS: Set[str] = frozenset({
     "knowledge_sources",
     "knowledge_chunks",
     "workspace_audit",
+    "google_drive_folders",
+    "drive_picker_grants",
 })
 
 
@@ -589,6 +591,29 @@ def company_tz(company: Optional[Dict[str, Any]] = None) -> str:
     return getattr(settings, "TIMEZONE", "Asia/Karachi")
 
 
-def resolve_company_from_host(request: Request) -> Optional[str]:
-    """Resolves company from request host header (stub, returns None for now)."""
+async def resolve_company_from_host(request: Request) -> Optional[str]:
+    """Resolve an active company id from Host / custom_domain / slug subdomain."""
+    host = (request.headers.get("host") or "").split(":")[0].strip().lower()
+    if not host:
+        return None
+    gdb = get_global_db()
+    if gdb is None:
+        return None
+    try:
+        by_domain = await gdb.companies.find_one(
+            {"custom_domain": host, "status": {"$ne": "suspended"}},
+            {"id": 1},
+        )
+        if by_domain and by_domain.get("id"):
+            return str(by_domain["id"])
+        slug = host.split(".")[0].strip()
+        if slug:
+            by_slug = await gdb.companies.find_one(
+                {"slug": slug, "status": {"$ne": "suspended"}},
+                {"id": 1},
+            )
+            if by_slug and by_slug.get("id"):
+                return str(by_slug["id"])
+    except Exception as exc:
+        logger.warning("resolve_company_from_host failed: %s", exc)
     return None

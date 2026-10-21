@@ -5,8 +5,6 @@ from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 from app.constants.office_location import (
     GEOFENCE_RADIUS_METERS,
-    OFFICE_LATITUDE,
-    OFFICE_LONGITUDE,
 )
 from app.models.attendance import AttendanceStatus, BonusRecommendation
 from app.schemas.shift import ShiftResponse
@@ -353,12 +351,12 @@ class PublicSecuritySettingsSchema(BaseModel):
 
 
 class SecuritySettingsSchema(PublicSecuritySettingsSchema):
-    office_latitude: float = Field(
-        default=OFFICE_LATITUDE,
+    office_latitude: Optional[float] = Field(
+        default=None,
         description="Office geographic latitude",
     )
-    office_longitude: float = Field(
-        default=OFFICE_LONGITUDE,
+    office_longitude: Optional[float] = Field(
+        default=None,
         description="Office geographic longitude",
     )
     geofence_radius_meters: float = Field(

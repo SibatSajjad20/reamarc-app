@@ -365,8 +365,8 @@ export interface SecuritySettings {
   office_subnets?: string[];
   office_ip_whitelist?: string[];
   locked_office_ips?: string[];
-  office_latitude: number;
-  office_longitude: number;
+  office_latitude?: number | null;
+  office_longitude?: number | null;
   geofence_radius_meters: number;
   grace_period_minutes?: number;
   late_threshold_minutes?: number;

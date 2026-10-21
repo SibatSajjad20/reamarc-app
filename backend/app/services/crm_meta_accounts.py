@@ -10,6 +10,8 @@ from fastapi import HTTPException, status
 
 from app.config import settings
 from app.core.encryption import decrypt_string, encrypt_string
+from app.core.integrations import current_company_id, is_reamarc_company
+from app.core.tenant import get_tenant_context
 from app.database import get_database
 
 logger = logging.getLogger("app.crm.meta")
@@ -26,21 +28,52 @@ def _db():
     return db
 
 
-async def get_page_credentials(page_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
+def _env_page_credentials() -> Optional[Dict[str, Any]]:
+    env_page = (settings.CRM_META_PAGE_ID or "").strip()
+    env_token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
+    env_secret = (settings.CRM_META_APP_SECRET or "").strip()
+    if not env_token:
+        return None
+    return {
+        "page_id": env_page,
+        "page_name": "Default Environment Page",
+        "access_token": env_token,
+        "app_secret": env_secret,
+        "workspace_id": None,
+        "default_campaign": None,
+        "company_id": "company_reamarc",
+        "is_env": True,
+    }
+
+
+async def get_page_credentials(
+    page_id: Optional[str] = None,
+    *,
+    company_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
     """Resolve Meta credentials for a specific Page ID.
 
     1. Checks MongoDB `crm_meta_pages` for dynamic multi-page configurations.
-    2. Falls back to static environment variables (CRM_META_PAGE_ID, CRM_META_PAGE_ACCESS_TOKEN).
+    2. Falls back to static environment variables only for Reamarc.
     """
     from app.core.tenant import get_global_db
     gdb = get_global_db()
     pid = str(page_id).strip() if page_id else ""
+    cid = company_id if company_id is not None else current_company_id()
+    tenant_ctx = get_tenant_context()
 
     if pid and gdb is not None:
         doc = await gdb.crm_meta_pages.find_one({"page_id": pid, "is_active": {"$ne": False}}, {"_id": 0})
         if doc:
+            doc_cid = doc.get("company_id") or "company_reamarc"
+            if tenant_ctx is not None and tenant_ctx.company_id and doc_cid != tenant_ctx.company_id:
+                return None
+            if cid and doc_cid != cid:
+                return None
             token = decrypt_string(doc.get("access_token_encrypted") or "")
-            secret = decrypt_string(doc.get("app_secret_encrypted") or "") or settings.CRM_META_APP_SECRET
+            secret = decrypt_string(doc.get("app_secret_encrypted") or "")
+            if not secret and is_reamarc_company(doc_cid):
+                secret = settings.CRM_META_APP_SECRET
             return {
                 "page_id": doc.get("page_id"),
                 "page_name": doc.get("page_name") or "Connected Page",
@@ -48,35 +81,35 @@ async def get_page_credentials(page_id: Optional[str] = None) -> Optional[Dict[s
                 "app_secret": secret,
                 "workspace_id": doc.get("workspace_id"),
                 "default_campaign": doc.get("default_campaign"),
-                "company_id": doc.get("company_id") or "company_reamarc",
+                "company_id": doc_cid,
                 "is_env": False,
             }
 
-    # Fallback to .env configuration
-    env_page = (settings.CRM_META_PAGE_ID or "").strip()
-    env_token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
-    env_secret = (settings.CRM_META_APP_SECRET or "").strip()
+    if not is_reamarc_company(cid):
+        return None
 
-    if env_token and (not pid or pid == env_page):
-        return {
-            "page_id": env_page or pid,
-            "page_name": "Default Environment Page",
-            "access_token": env_token,
-            "app_secret": env_secret,
-            "workspace_id": None,
-            "default_campaign": None,
-            "is_env": True,
-        }
-
-    return None
+    env = _env_page_credentials()
+    if not env:
+        return None
+    env_page = env["page_id"]
+    if pid and env_page and pid != env_page:
+        return None
+    if pid and not env_page:
+        env = dict(env)
+        env["page_id"] = pid
+    return env
 
 
 async def active_page_credentials() -> List[Dict[str, Any]]:
     """Active page tokens for lead polling. Tokens stay server-side."""
     db = _db()
+    cid = current_company_id()
     pages: List[Dict[str, Any]] = []
     cursor = db.crm_meta_pages.find({"is_active": {"$ne": False}}, {"_id": 0})
     async for doc in cursor:
+        doc_cid = doc.get("company_id") or "company_reamarc"
+        if cid and doc_cid != cid:
+            continue
         token = decrypt_string(doc.get("access_token_encrypted") or "")
         page_id = str(doc.get("page_id") or "").strip()
         if not page_id or not token:
@@ -85,27 +118,29 @@ async def active_page_credentials() -> List[Dict[str, Any]]:
             "page_id": page_id,
             "page_name": doc.get("page_name") or "Connected Page",
             "access_token": token,
+            "app_secret": decrypt_string(doc.get("app_secret_encrypted") or ""),
             "default_campaign": doc.get("default_campaign"),
+            "company_id": doc_cid,
+            "is_env": False,
         })
 
-    env_page = (settings.CRM_META_PAGE_ID or "").strip()
-    env_token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
-    if env_token and not any(p["page_id"] == env_page for p in pages):
-        pages.append({
-            "page_id": env_page,
-            "page_name": "Default Environment Page",
-            "access_token": env_token,
-            "default_campaign": None,
-        })
+    if is_reamarc_company(cid):
+        env = _env_page_credentials()
+        if env and env.get("page_id") and not any(p["page_id"] == env["page_id"] for p in pages):
+            pages.append(env)
     return pages
 
 
 async def list_connected_pages() -> List[Dict[str, Any]]:
     """List all connected Meta pages (database and .env), with tokens masked."""
     db = _db()
+    cid = current_company_id()
     cursor = db.crm_meta_pages.find({}, {"_id": 0}).sort("created_at", -1)
     pages: List[Dict[str, Any]] = []
     async for doc in cursor:
+        doc_cid = doc.get("company_id") or "company_reamarc"
+        if cid and doc_cid != cid:
+            continue
         token = decrypt_string(doc.get("access_token_encrypted") or "")
         token_preview = f"{token[:8]}…{token[-4:]}" if len(token) > 12 else "configured"
         pages.append({
@@ -118,26 +153,29 @@ async def list_connected_pages() -> List[Dict[str, Any]]:
             "token_preview": token_preview,
             "created_at": doc.get("created_at"),
             "updated_at": doc.get("updated_at"),
+            "company_id": doc_cid,
             "is_env": False,
         })
 
-    env_page = (settings.CRM_META_PAGE_ID or "").strip()
-    env_token = (settings.CRM_META_PAGE_ACCESS_TOKEN or "").strip()
-    if env_page or env_token:
-        # Check if already present in database records
-        if not any(p["page_id"] == env_page for p in pages):
-            pages.insert(0, {
-                "id": "env_page",
-                "page_id": env_page,
-                "page_name": "Default Page (.env)",
-                "workspace_id": None,
-                "default_campaign": None,
-                "is_active": bool(env_page and env_token),
-                "token_preview": f"{env_token[:8]}…{env_token[-4:]}" if len(env_token) > 12 else "configured",
-                "created_at": "",
-                "updated_at": "",
-                "is_env": True,
-            })
+    if is_reamarc_company(cid):
+        env = _env_page_credentials()
+        env_page = (env or {}).get("page_id") or (settings.CRM_META_PAGE_ID or "").strip()
+        env_token = (env or {}).get("access_token") or ""
+        if env_page or env_token:
+            if not any(p["page_id"] == env_page for p in pages):
+                pages.insert(0, {
+                    "id": "env_page",
+                    "page_id": env_page,
+                    "page_name": "Default Page (.env)",
+                    "workspace_id": None,
+                    "default_campaign": None,
+                    "is_active": bool(env_page and env_token),
+                    "token_preview": f"{env_token[:8]}…{env_token[-4:]}" if len(env_token) > 12 else "configured",
+                    "created_at": "",
+                    "updated_at": "",
+                    "company_id": "company_reamarc",
+                    "is_env": True,
+                })
     return pages
 
 

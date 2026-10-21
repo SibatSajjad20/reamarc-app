@@ -1509,7 +1509,17 @@ async def attach_drive_assets(
         role = f.get("role") or default_role
 
         if gdrive.configured():
-            meta = await gdrive.ingest_picked_file(drive_file_id, dest_folder_id)
+            company_root = None
+            try:
+                company_root = await gdrive._ensure_root(db)
+            except Exception:
+                company_root = dest_folder_id
+            meta = await gdrive.ingest_picked_file(
+                drive_file_id,
+                dest_folder_id,
+                actor=viewer,
+                company_root_folder_id=company_root,
+            )
             if meta:
                 drive_file_id = str(meta.get("id") or drive_file_id)
                 filename = meta.get("name") or filename

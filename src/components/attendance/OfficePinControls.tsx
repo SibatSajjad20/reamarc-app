@@ -11,8 +11,8 @@ import {
 import { geoErrorMessage, getBrowserLocation, isLikelyMobile } from '../../utils/geolocation';
 
 type OfficePinValue = {
-  office_latitude: number;
-  office_longitude: number;
+  office_latitude?: number | null;
+  office_longitude?: number | null;
   geofence_radius_meters: number;
 };
 
@@ -60,8 +60,16 @@ export const OfficePinControls: React.FC<OfficePinControlsProps> = ({ value, onC
     return classifyGpsFix(preview.distance, preview.accuracy, value.geofence_radius_meters);
   }, [preview, value.geofence_radius_meters]);
 
+  const locationSet = value.office_latitude != null && value.office_longitude != null;
+
   return (
     <div className="space-y-3">
+      {!locationSet ? (
+        <div className="flex items-center gap-2 p-3 rounded-xl bg-subtle border border-border text-fg-muted text-xs">
+          <MapPin className="w-4 h-4 shrink-0" />
+          <span className="font-semibold">Office location not set</span>
+        </div>
+      ) : null}
       <div className="flex items-center justify-between p-3 rounded-xl bg-warning-bg border border-warning-bd text-warning-fg text-xs">
         <div className="flex items-center gap-2">
           <Lock className="w-4 h-4 text-warning-fg shrink-0" />

@@ -15,7 +15,8 @@ import os
 import re
 import tempfile
 import threading
-from typing import Any, Dict, Optional, List
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional, List, Tuple
 
 import httpx
 from fastapi import HTTPException, status
@@ -34,6 +35,10 @@ _ITEMS = "content_calendar_items"
 
 _creds = None
 _creds_lock = threading.Lock()
+_parent_cache: Dict[str, Tuple[List[str], Optional[str]]] = {}
+_PARENT_CACHE_LOCK = threading.Lock()
+_PICKER_GRANT_TTL = timedelta(hours=1)
+FILE_NOT_IN_COMPANY_FOLDER = "This file isn't in your company's Drive folder."
 
 
 def configured() -> bool:
@@ -323,7 +328,7 @@ def _file_meta(file_id: str) -> Dict[str, Any]:
         .files()
         .get(
             fileId=file_id,
-            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,parents,videoMediaMetadata,imageMediaMetadata",
+            fields="id,name,mimeType,size,webViewLink,thumbnailLink,hasThumbnail,parents,driveId,videoMediaMetadata,imageMediaMetadata",
             supportsAllDrives=True,
         )
         .execute()
@@ -364,10 +369,13 @@ def list_drive_folders(max_results: int = 50) -> List[Dict[str, Any]]:
 
 async def _ensure_root(db) -> str:
     from app.config import settings
+    from app.core.integrations import current_company_id, is_reamarc_company
 
-    # 1. Explicit folder ID configured in .env takes priority
+    cid = current_company_id()
     configured_folder = (settings.GOOGLE_DRIVE_FOLDER_ID or "").strip()
-    if configured_folder:
+
+    # Shared env folder is Reamarc's root only. Other companies get a subfolder.
+    if is_reamarc_company(cid) and configured_folder:
         if await asyncio.to_thread(_folder_alive, configured_folder):
             return configured_folder
         logger.warning(
@@ -378,8 +386,25 @@ async def _ensure_root(db) -> str:
     # 2. Check MongoDB indexed root folder
     coll = db[_INDEX]
     existing = await coll.find_one({"_id": "root"})
-    if existing and existing.get("folder_id") and await asyncio.to_thread(_folder_alive, existing["folder_id"]):
-        return existing["folder_id"]
+    existing_id = (existing or {}).get("folder_id")
+    if existing_id and not (
+        not is_reamarc_company(cid) and configured_folder and existing_id == configured_folder
+    ):
+        if await asyncio.to_thread(_folder_alive, existing_id):
+            return existing_id
+
+    if not is_reamarc_company(cid):
+        parent = configured_folder if configured_folder else None
+        company_folder_name = _folder_name(cid, "company")
+        found = await asyncio.to_thread(_find_folder_by_name, company_folder_name, parent)
+        if not found:
+            found = await asyncio.to_thread(_create_folder, company_folder_name, parent)
+        await coll.update_one(
+            {"_id": "root"},
+            {"$set": {"folder_id": found, "name": company_folder_name}},
+            upsert=True,
+        )
+        return found
 
     # 3. Check if a folder named _ROOT_NAME already exists in Drive
     found = await asyncio.to_thread(_find_folder_by_name, _ROOT_NAME, None)
@@ -657,6 +682,126 @@ def get_access_token() -> str:
     return creds.token
 
 
+def _cached_parents(file_id: str) -> Tuple[List[str], Optional[str]]:
+    with _PARENT_CACHE_LOCK:
+        cached = _parent_cache.get(file_id)
+        if cached is not None:
+            return cached
+    meta = _file_meta(file_id)
+    parents = [str(p) for p in (meta.get("parents") or []) if p]
+    drive_id = str(meta.get("driveId") or "") or None
+    with _PARENT_CACHE_LOCK:
+        _parent_cache[file_id] = (parents, drive_id)
+    return parents, drive_id
+
+
+def _walks_to_company_folder(file_id: str, company_root: str, max_hops: int = 10) -> bool:
+    if not file_id or not company_root:
+        return False
+    current = str(file_id)
+    seen = set()
+    for _ in range(max(1, max_hops)):
+        if current == company_root:
+            return True
+        if current in seen:
+            return False
+        seen.add(current)
+        try:
+            parents, drive_id = _cached_parents(current)
+        except Exception:
+            return False
+        if company_root in parents or drive_id == company_root:
+            return True
+        if not parents:
+            return False
+        current = parents[0]
+    return False
+
+
+async def record_picker_grants(
+    file_ids: List[str],
+    actor: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Record picker-issued file ids for this user and company (1 hour TTL)."""
+    from app.core.integrations import current_company_id
+    from app.database import get_database
+
+    db = get_database()
+    if db is None:
+        return 0
+    user_id = str((actor or {}).get("id") or "").strip()
+    cid = current_company_id()
+    now = datetime.now(timezone.utc)
+    expires = now + _PICKER_GRANT_TTL
+    count = 0
+    for raw_id in file_ids or []:
+        file_id = str(raw_id or "").strip()
+        if not file_id or not user_id:
+            continue
+        await db.drive_picker_grants.update_one(
+            {"file_id": file_id, "user_id": user_id},
+            {
+                "$set": {
+                    "file_id": file_id,
+                    "user_id": user_id,
+                    "company_id": cid,
+                    "expires_at": expires,
+                    "updated_at": now,
+                },
+                "$setOnInsert": {"created_at": now},
+            },
+            upsert=True,
+        )
+        count += 1
+    return count
+
+
+async def _has_valid_picker_grant(file_id: str, actor: Optional[Dict[str, Any]]) -> bool:
+    from app.database import get_database
+
+    db = get_database()
+    if db is None:
+        return False
+    user_id = str((actor or {}).get("id") or "").strip()
+    if not user_id or not file_id:
+        return False
+    now = datetime.now(timezone.utc)
+    doc = await db.drive_picker_grants.find_one(
+        {"file_id": file_id, "user_id": user_id, "expires_at": {"$gt": now}},
+        {"_id": 0, "file_id": 1},
+    )
+    return bool(doc)
+
+
+async def _assert_picked_file_allowed(
+    file_id: str,
+    actor: Optional[Dict[str, Any]],
+    company_root: Optional[str],
+) -> None:
+    from app.core.integrations import current_company_id, is_reamarc_company
+    from app.core.tenant import log_security_event
+
+    cid = current_company_id()
+    if is_reamarc_company(cid):
+        return
+    in_folder = False
+    if company_root:
+        in_folder = await asyncio.to_thread(_walks_to_company_folder, file_id, company_root)
+    if in_folder:
+        return
+    if await _has_valid_picker_grant(file_id, actor):
+        return
+    await log_security_event(
+        "drive_picked_file_rejected",
+        {
+            "company_id": cid,
+            "user_id": str((actor or {}).get("id") or ""),
+            "file_id": file_id,
+        },
+    )
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=FILE_NOT_IN_COMPANY_FOLDER)
+
+
 def _ingest_picked_file_sync(file_id: str, dest_folder_id: Optional[str] = None) -> Dict[str, Any]:
     """Verify the org Drive user can see the file, then copy it into the client folder."""
     from googleapiclient.errors import HttpError
@@ -704,7 +849,13 @@ def _ingest_picked_file_sync(file_id: str, dest_folder_id: Optional[str] = None)
     return meta
 
 
-async def ingest_picked_file(file_id: str, dest_folder_id: Optional[str] = None) -> Dict[str, Any]:
+async def ingest_picked_file(
+    file_id: str,
+    dest_folder_id: Optional[str] = None,
+    actor: Optional[Dict[str, Any]] = None,
+    company_root_folder_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    await _assert_picked_file_allowed(file_id, actor, company_root_folder_id)
     return await asyncio.to_thread(_ingest_picked_file_sync, file_id, dest_folder_id)
 
 

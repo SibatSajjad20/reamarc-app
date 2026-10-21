@@ -19,6 +19,20 @@ logger = logging.getLogger("app.integrations")
 REAMARC_TENANT_IDS = {"company_reamarc", "tnt_comp_a"}
 
 
+def is_reamarc_company(cid: Optional[str]) -> bool:
+    """True for Reamarc tenant ids, or when cid is missing and multi-tenant is off."""
+    if cid is not None and str(cid).strip() in REAMARC_TENANT_IDS:
+        return True
+    if cid is None and not getattr(settings, "MULTI_TENANT_ENABLED", False):
+        return True
+    return False
+
+
+def current_company_id() -> Optional[str]:
+    ctx = get_tenant_context()
+    return ctx.company_id if ctx else None
+
+
 async def get_integration(
     company: Optional[Dict[str, Any]] = None,
     kind: str = "smtp",
@@ -40,11 +54,7 @@ async def get_integration(
         if ctx:
             cid = ctx.company_id
 
-    # If single-tenant or Reamarc, return system env defaults
-    multi_tenant_enabled = getattr(settings, "MULTI_TENANT_ENABLED", False)
-    is_reamarc = (not multi_tenant_enabled) or (cid is None) or (cid in REAMARC_TENANT_IDS)
-
-    if is_reamarc:
+    if is_reamarc_company(cid):
         return _get_reamarc_env_integration(kind)
 
     # Scoped non-Reamarc tenant lookup

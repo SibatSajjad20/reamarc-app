@@ -4,6 +4,7 @@
  * Org Drive credentials never leave the server.
  */
 import type { DrivePickerConfig, DrivePickedFile } from '../types/contentCalendar';
+import { apiClient } from './apiClient';
 
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 const GIS_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
@@ -196,7 +197,12 @@ export async function openGoogleDrivePicker(
                 doc[google.picker.Document.THUMBNAILS]?.[0]?.url ||
                 undefined,
             }));
-            resolve(files);
+            const fileIds = files.map((f) => f.id).filter(Boolean);
+            apiClient
+              .post('/drive/picker-grants', { file_ids: fileIds })
+              .catch(() => undefined)
+              .finally(() => resolve(files));
+            return;
           } else if (data.action === google.picker.Action.CANCEL) {
             resolve(null);
           }
