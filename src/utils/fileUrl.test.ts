@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { API_BASE_URL } from '../services/apiClient';
 import { notifyFileUrl } from '../lib/notify';
-import { downloadFileAttachment, openFileAttachment } from './fileUrl';
+import { downloadFileAttachment, extractUploadsPath, getBackendFileUrl, openFileAttachment } from './fileUrl';
 
 vi.mock('../lib/notify', () => ({
   notifyFileUrl: vi.fn(),
@@ -97,5 +97,27 @@ describe('fileUrl attachment fetch order', () => {
       expect(url.startsWith('/uploads/')).toBe(false);
       expect(url.startsWith('/uploads')).toBe(false);
     }
+  });
+
+  it('rewrites stored onrender upload URLs onto same-origin API_BASE_URL', () => {
+    expect(API_BASE_URL).toBe('/api/v1');
+    const stored = 'https://reamarc-app.onrender.com/api/v1/uploads/abc123/clip.mp4';
+    expect(extractUploadsPath(stored)).toBe('/uploads/abc123/clip.mp4');
+    expect(getBackendFileUrl(stored)).toBe('/api/v1/uploads/abc123/clip.mp4');
+    expect(getBackendFileUrl('/api/v1/uploads/abc123/clip.mp4')).toBe(
+      '/api/v1/uploads/abc123/clip.mp4',
+    );
+  });
+
+  it('opens videos at the same-origin uploads URL instead of fetching a blob', async () => {
+    const stored = 'https://reamarc-app.onrender.com/api/v1/uploads/abc123/clip.mp4';
+    await openFileAttachment(stored, 'clip.mp4');
+
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    expect(window.open).toHaveBeenCalledWith(
+      '/api/v1/uploads/abc123/clip.mp4',
+      '_blank',
+      'noopener,noreferrer',
+    );
   });
 });

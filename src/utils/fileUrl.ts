@@ -38,7 +38,12 @@ const isVideoFilename = (filename?: string, mime?: string) => {
   );
 };
 
-/** Fetch an authenticated upload into a blob URL so <video> can play without CORS Range. */
+/**
+ * Fetch an authenticated upload into a blob URL.
+ * Downloads the whole file first — acceptable for small media, but large videos
+ * should use a same-origin `<video src="/api/v1/uploads/...">` so Range/206 works
+ * and Vercel does not proxy the entire file as one request.
+ */
 export const fetchAuthenticatedMediaObjectUrl = async (
   url: string,
   filename?: string,
@@ -79,6 +84,11 @@ export const extractUploadsPath = (url: string): string | null => {
     }
   }
 
+  const relativeIdx = raw.indexOf('/uploads/');
+  if (relativeIdx !== -1) {
+    return raw.slice(relativeIdx).split(/[?#]/)[0];
+  }
+
   return null;
 };
 
@@ -117,6 +127,15 @@ export const openFileAttachment = async (url: string, filename?: string) => {
   if (!uploadsPath) {
     console.error('Refusing to open non-upload URL:', url);
     return;
+  }
+
+  // Same-origin /api/v1 rewrite: cookies are first-party, so <video> can stream with Range.
+  if (isVideoFilename(filename || url)) {
+    const playUrl = getBackendFileUrl(url);
+    if (playUrl) {
+      window.open(playUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
   }
 
   // Pre-open window synchronously during user gesture to avoid popup blockers.
@@ -284,7 +303,7 @@ export const openFileAttachment = async (url: string, filename?: string) => {
         }
 
         if (newTab && !newTab.closed && isVideoFilename(filename || url, finalBlob.type)) {
-          const playUrl = window.URL.createObjectURL(finalBlob);
+          const playUrl = getBackendFileUrl(url) || targetUrl;
           const safeTitle = (filename || 'Video').replace(/[<>&"]/g, '');
           try {
             newTab.document.title = safeTitle;
@@ -302,7 +321,6 @@ export const openFileAttachment = async (url: string, filename?: string) => {
               // Ignore fallback error
             }
           }
-          setTimeout(() => window.URL.revokeObjectURL(playUrl), 120_000);
           return;
         }
 
