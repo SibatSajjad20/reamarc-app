@@ -194,9 +194,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Re-apply accent color if present
       try {
-        const activeComp = res.user?.companies?.find((c) => c.id === companyId);
-        if (activeComp?.accent_color) {
-          document.documentElement.style.setProperty('--accent', activeComp.accent_color);
+        const accent =
+          res.user?.company?.accent_color ||
+          res.user?.companies?.find((c) => c.id === companyId)?.accent_color;
+        if (accent) {
+          document.documentElement.style.setProperty('--accent', accent);
         }
       } catch {}
 

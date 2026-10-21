@@ -133,6 +133,13 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
     });
   }, [members, searchQuery, selectedCompanyId, segmentFilter, showRemoved]);
 
+  const removableMemberships = (member: OwnerMember, isOwnerRow: boolean) =>
+    (member.memberships || []).filter((mem) => {
+      if (mem.status !== 'active') return false;
+      if (!isOwnerRow) return true;
+      return mem.company_id !== (member.company_id || ownerHomeCompanyId);
+    });
+
   const handleRemoveAccess = async (user: OwnerMember, membership: OwnerMemberMembership) => {
     const activeMems = (user.memberships || []).filter(
       (m) => m.status === 'active' && m.company_id !== membership.company_id
@@ -419,16 +426,14 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                       {/* Actions */}
                       <TD align="right">
                         <div className="inline-flex items-center gap-1.5 justify-end">
-                          {!isOwner && (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              icon={Plus}
-                              onClick={() => onOpenGiveAccess(m)}
-                            >
-                              Give access
-                            </Button>
-                          )}
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            icon={Plus}
+                            onClick={() => onOpenGiveAccess(m)}
+                          >
+                            Give access
+                          </Button>
 
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -452,23 +457,18 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                                 </DropdownMenuItem>
                               )}
 
-                              {!isOwner && (
-                                <DropdownMenuItem onClick={() => onOpenGiveAccess(m)}>
-                                  <Plus size={14} className="mr-2 text-fg-muted" />
-                                  <span>Give access to a company</span>
-                                </DropdownMenuItem>
-                              )}
+                              <DropdownMenuItem onClick={() => onOpenGiveAccess(m)}>
+                                <Plus size={14} className="mr-2 text-fg-muted" />
+                                <span>Give access to a company</span>
+                              </DropdownMenuItem>
 
-                              {/* Remove access group */}
-                              {m.memberships?.some((mem) => mem.status === 'active') && !isOwner && (
+                              {removableMemberships(m, isOwner).length > 0 && (
                                 <>
                                   <DropdownMenuSeparator />
                                   <div className="px-2 py-1.5 text-caption font-semibold text-fg-muted">
                                     Remove access
                                   </div>
-                                  {m.memberships
-                                    .filter((mem) => mem.status === 'active')
-                                    .map((mem) => (
+                                  {removableMemberships(m, isOwner).map((mem) => (
                                       <DropdownMenuItem
                                         key={mem.id || mem.company_id}
                                         className="text-danger-fg focus:text-danger-fg"
@@ -532,12 +532,10 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                         </DropdownMenuLabel>
                         <DropdownMenuSeparator />
 
-                        {!isOwner && (
-                          <DropdownMenuItem onClick={() => onOpenGiveAccess(m)}>
-                            <Plus size={14} className="mr-2 text-fg-muted" />
-                            <span>Give access to a company</span>
-                          </DropdownMenuItem>
-                        )}
+                        <DropdownMenuItem onClick={() => onOpenGiveAccess(m)}>
+                          <Plus size={14} className="mr-2 text-fg-muted" />
+                          <span>Give access to a company</span>
+                        </DropdownMenuItem>
 
                         {!isOwner && (
                           <DropdownMenuItem onClick={() => onOpenSetPassword(m)}>
@@ -546,13 +544,13 @@ export const OwnerMembersTab: React.FC<OwnerMembersTabProps> = ({
                           </DropdownMenuItem>
                         )}
 
-                        {activeMems.length > 0 && !isOwner && (
+                        {removableMemberships(m, isOwner).length > 0 && (
                           <>
                             <DropdownMenuSeparator />
                             <div className="px-2 py-1 text-caption font-semibold text-fg-muted">
                               Remove access
                             </div>
-                            {activeMems.map((mem) => (
+                            {removableMemberships(m, isOwner).map((mem) => (
                               <DropdownMenuItem
                                 key={mem.id || mem.company_id}
                                 className="text-danger-fg focus:text-danger-fg"

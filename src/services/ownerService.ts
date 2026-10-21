@@ -121,7 +121,7 @@ export const ownerService = {
     return apiClient.get<OwnerMember[]>(`/owner/members${q}`);
   },
 
-  async grantCompanyAccess(userId: string, companyId: string) {
+  async grantCompanyAccess(userId: string, companyId: string, role?: string) {
     return apiClient.post<{
       ok: boolean;
       membership_id: string;
@@ -131,7 +131,7 @@ export const ownerService = {
       needs_setup: boolean;
       role: string;
       note?: string;
-    }>(`/owner/members/${userId}/companies`, { company_id: companyId });
+    }>(`/owner/members/${userId}/companies`, { company_id: companyId, role: role || 'team_member' });
   },
 
   async removeCompanyAccess(userId: string, companyId: string) {

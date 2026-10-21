@@ -340,4 +340,43 @@ describe('Multi-Company Phase 2 Frontend Verification', () => {
       expect(sidebarContainer.textContent).not.toContain('Reamarc');
     });
   });
+
+  describe('company switcher for 2+ memberships', () => {
+    it('renders the switcher listing both companies', async () => {
+      currentUserState = {
+        ...mockUser,
+        role: 'admin',
+        company_id: 'comp_reamarc',
+        company: {
+          id: 'comp_reamarc',
+          name: 'Reamarc',
+          slug: 'reamarc',
+          accent_color: '#6847E0',
+        },
+        companies: [
+          { id: 'comp_reamarc', name: 'Reamarc', role: 'admin', accent_color: '#6847E0' },
+          { id: 'comp_dataviz', name: 'DataViz', role: 'admin', accent_color: '#00AA66' },
+        ],
+      };
+
+      renderWithProviders(
+        <Sidebar
+          currentView="dashboard"
+          onSelectView={vi.fn()}
+          onSignOut={vi.fn()}
+          theme="light"
+          onToggleTheme={vi.fn()}
+        />
+      );
+
+      const trigger = screen.getByRole('button', { name: /Reamarc/i });
+      fireEvent.pointerDown(trigger, { button: 0 });
+      fireEvent.click(trigger);
+
+      await waitFor(() => {
+        expect(screen.getByText('DataViz')).toBeDefined();
+      });
+      expect(screen.getAllByText('Admin').length).toBeGreaterThan(0);
+    });
+  });
 });

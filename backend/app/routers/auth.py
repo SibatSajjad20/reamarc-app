@@ -241,6 +241,7 @@ async def login(request: Request, user_in: UserLogin, response: Response):
                 "brand_name": c_brand,
                 "logo_url": c_logo,
                 "role": m.get("role", "team_member"),
+                "accent_color": c.get("accent_color", "#6847E0"),
             })
 
         await gdb.users.update_one({"id": user_id}, {"$set": {"last_company_id": cid}})
@@ -557,6 +558,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
                     "brand_name": c_brand,
                     "logo_url": c_logo,
                     "role": m.get("role", "team_member"),
+                    "accent_color": c.get("accent_color", "#6847E0"),
                 })
         resp["companies"] = user_companies
 
@@ -815,6 +817,7 @@ async def switch_company(
                 "brand_name": c_brand,
                 "logo_url": c_logo,
                 "role": m.get("role", "team_member"),
+                "accent_color": c.get("accent_color", "#6847E0"),
             })
 
     c_brand = company_doc.get("display_name") or company_doc.get("brand_name") or company_doc.get("name")
