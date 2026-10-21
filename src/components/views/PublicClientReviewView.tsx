@@ -12,7 +12,9 @@ import {
   Play,
   CheckCircle2,
   Download,
+  Loader2,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import type { ContentCalendarItem } from '../../types/contentCalendar';
 import { BrandMark } from '../ui/BrandMark';
 import { ClientAvatar } from '../ui/ClientAvatar';
@@ -122,6 +124,23 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const [activeAssetIndex, setActiveAssetIndex] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [downloadingKeys, setDownloadingKeys] = useState<Set<string>>(() => new Set());
+  const [successKeys, setSuccessKeys] = useState<Set<string>>(() => new Set());
+  const inFlightDownloadsRef = useRef<Set<string>>(new Set());
+  const inFlightDownloadAllRef = useRef<boolean>(false);
+  const [downloadAllProgress, setDownloadAllProgress] = useState<{ current: number; total: number } | null>(null);
+  const [downloadAllSuccess, setDownloadAllSuccess] = useState(false);
+  const timeoutIdsRef = useRef<Set<number>>(new Set());
+  const isMountedRef = useRef(true);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+      timeoutIdsRef.current.forEach((id) => window.clearTimeout(id));
+      timeoutIdsRef.current.clear();
+    };
+  }, []);
   const approvalCardRef = useRef<HTMLDivElement>(null);
 
   const openRevisionForm = () => {
@@ -373,6 +392,7 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
   const downloadableAssets: PublicDownloadAsset[] = assets
     .filter((asset) => asset.kind !== 'link' && (asset.download_url || asset.url))
     .map((asset) => ({
+      id: asset.id,
       downloadUrl: asset.download_url || `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
       filename: asset.filename || 'download',
       contentType: asset.content_type,
@@ -381,9 +401,12 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     }));
   const activeAsset = assets[activeAssetIndex];
   const activeDownload = activeAsset
-    ? downloadableAssets.find((row) => row.downloadUrl.includes(`/assets/${activeAsset.id}`)) ||
+    ? downloadableAssets.find(
+        (row) => (activeAsset.id != null && row.id === activeAsset.id) || row.downloadUrl.includes(`/assets/${activeAsset.id}`),
+      ) ||
       (activeAsset.kind !== 'link'
         ? {
+            id: activeAsset.id,
             downloadUrl:
               activeAsset.download_url ||
               `${activeAsset.url}${activeAsset.url.includes('?') ? '&' : '?'}download=1`,
@@ -396,18 +419,110 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
     : null;
   const hookLines = parseHookLines(item.headlines_hooks);
 
-  const handleDownloadAsset = (asset: PublicDownloadAsset, event?: React.MouseEvent) => {
+  const getAssetKey = (asset: { id?: string | number; downloadUrl?: string; download_url?: string; url?: string }) => {
+    return (asset.id != null ? String(asset.id) : null) || asset.downloadUrl || asset.download_url || asset.url || '';
+  };
+
+  const handleDownloadAsset = async (asset: PublicDownloadAsset, event?: React.MouseEvent) => {
     event?.stopPropagation();
-    void downloadPublicAsset(asset);
+    const key = getAssetKey(asset);
+    if (!key) return;
+
+    if (inFlightDownloadsRef.current.has(key) || inFlightDownloadAllRef.current || isDownloadingAll) {
+      return;
+    }
+    inFlightDownloadsRef.current.add(key);
+    if (isMountedRef.current) {
+      setDownloadingKeys((prev) => new Set(prev).add(key));
+    }
+
+    try {
+      await downloadPublicAsset(asset);
+
+      toast.success('Download started');
+      if (isMountedRef.current) {
+        setDownloadingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        setSuccessKeys((prev) => new Set(prev).add(key));
+      }
+
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(() => {
+          timeoutIdsRef.current.delete(timer);
+          resolve();
+        }, 2000);
+        timeoutIdsRef.current.add(timer);
+      });
+    } catch (_err) {
+      toast.error('Download failed, try again');
+    } finally {
+      if (isMountedRef.current) {
+        setDownloadingKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        setSuccessKeys((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+      }
+      inFlightDownloadsRef.current.delete(key);
+    }
   };
 
   const handleDownloadAll = async () => {
-    if (downloadableAssets.length < 2 || isMobile) return;
+    if (
+      inFlightDownloadAllRef.current ||
+      inFlightDownloadsRef.current.size > 0 ||
+      isDownloadingAll ||
+      downloadableAssets.length < 2 ||
+      isMobile
+    ) {
+      return;
+    }
+    inFlightDownloadAllRef.current = true;
     setIsDownloadingAll(true);
+    setDownloadAllProgress({ current: 1, total: downloadableAssets.length });
+
     try {
-      await downloadAllPublicAssets(downloadableAssets);
+      await downloadAllPublicAssets(
+        downloadableAssets,
+        400,
+        undefined,
+        (current, total) => {
+          if (isMountedRef.current) {
+            setDownloadAllProgress({ current, total });
+          }
+        },
+      );
+
+      toast.success('Download started');
+      if (isMountedRef.current) {
+        setDownloadAllSuccess(true);
+        setDownloadAllProgress(null);
+      }
+
+      await new Promise<void>((resolve) => {
+        const timer = window.setTimeout(() => {
+          timeoutIdsRef.current.delete(timer);
+          resolve();
+        }, 2000);
+        timeoutIdsRef.current.add(timer);
+      });
+    } catch (_err) {
+      toast.error('Download failed, try again');
     } finally {
-      setIsDownloadingAll(false);
+      if (isMountedRef.current) {
+        setIsDownloadingAll(false);
+        setDownloadAllSuccess(false);
+        setDownloadAllProgress(null);
+      }
+      inFlightDownloadAllRef.current = false;
     }
   };
 
@@ -473,11 +588,25 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                       <button
                         type="button"
                         onClick={() => void handleDownloadAll()}
-                        disabled={isDownloadingAll}
-                        className="inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-50"
+                        disabled={isDownloadingAll || downloadAllSuccess || downloadingKeys.size > 0}
+                        className="inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-50 disabled:cursor-not-allowed"
                       >
-                        <Download className="w-3.5 h-3.5" />
-                        Download all ({downloadableAssets.length})
+                        {isDownloadingAll && downloadAllProgress ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                            <span>Downloading {downloadAllProgress.current} of {downloadAllProgress.total}…</span>
+                          </>
+                        ) : downloadAllSuccess ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-success-fg" aria-hidden="true" />
+                            <span>Downloaded ✓</span>
+                          </>
+                        ) : (
+                          <>
+                            <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                            <span>Download all ({downloadableAssets.length})</span>
+                          </>
+                        )}
                       </button>
                     )}
                     {item.creative_type && (
@@ -535,21 +664,47 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         )}
                       />
                     )}
-                    {downloadsEnabled && activeDownload && (
-                      <button
-                        type="button"
-                        onClick={(e) => handleDownloadAsset(activeDownload, e)}
-                        aria-label={
-                          downloadableAssets.length > 1
-                            ? `Download slide ${activeAssetIndex + 1} of ${downloadableAssets.length}`
-                            : `Download ${activeDownload.filename}`
-                        }
-                        className="absolute top-2 right-2 z-20 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
-                      >
-                        <Download className="w-4 h-4" />
-                        Download
-                      </button>
-                    )}
+                    {downloadsEnabled && activeDownload && (() => {
+                      const pillKey = getAssetKey(activeDownload);
+                      const isPillDownloading = downloadingKeys.has(pillKey);
+                      const isPillSuccess = successKeys.has(pillKey);
+                      const isPillDisabled = isDownloadingAll || isPillDownloading || isPillSuccess;
+
+                      return (
+                        <button
+                          type="button"
+                          onClick={(e) => void handleDownloadAsset(activeDownload, e)}
+                          disabled={isPillDisabled}
+                          aria-label={
+                            isPillDownloading
+                              ? 'Downloading…'
+                              : isPillSuccess
+                              ? 'Downloaded ✓'
+                              : downloadableAssets.length > 1
+                              ? `Download slide ${activeAssetIndex + 1} of ${downloadableAssets.length}`
+                              : `Download ${activeDownload.filename}`
+                          }
+                          className="absolute top-2 right-2 z-20 inline-flex items-center justify-center gap-1.5 min-h-11 px-3 rounded-full text-xs font-medium bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                        >
+                          {isPillDownloading ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                              <span>Downloading…</span>
+                            </>
+                          ) : isPillSuccess ? (
+                            <>
+                              <Check className="w-4 h-4 text-success-fg" aria-hidden="true" />
+                              <span>Downloaded ✓</span>
+                            </>
+                          ) : (
+                            <>
+                              <Download className="w-4 h-4" aria-hidden="true" />
+                              <span>Download</span>
+                            </>
+                          )}
+                        </button>
+                      );
+                    })()}
                   </div>
                 ) : activeAsset ? (
                   <div className="rounded-lg border border-border bg-subtle p-5 sm:p-6 text-center text-fg-muted space-y-3">
@@ -567,17 +722,45 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                         <span>Open file</span>
                         <ExternalLink className="w-3.5 h-3.5" />
                       </a>
-                      {downloadsEnabled && activeDownload && (
-                        <button
-                          type="button"
-                          onClick={(e) => handleDownloadAsset(activeDownload, e)}
-                          aria-label={`Download ${activeDownload.filename}`}
-                          className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Download
-                        </button>
-                      )}
+                      {downloadsEnabled && activeDownload && (() => {
+                        const pillKey = getAssetKey(activeDownload);
+                        const isPillDownloading = downloadingKeys.has(pillKey);
+                        const isPillSuccess = successKeys.has(pillKey);
+                        const isPillDisabled = isDownloadingAll || isPillDownloading || isPillSuccess;
+
+                        return (
+                          <button
+                            type="button"
+                            onClick={(e) => void handleDownloadAsset(activeDownload, e)}
+                            disabled={isPillDisabled}
+                            aria-label={
+                              isPillDownloading
+                                ? 'Downloading…'
+                                : isPillSuccess
+                                ? 'Downloaded ✓'
+                                : `Download ${activeDownload.filename}`
+                            }
+                            className="inline-flex items-center justify-center gap-1.5 min-h-11 px-4 py-2 rounded-md text-xs font-medium bg-surface text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            {isPillDownloading ? (
+                              <>
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
+                                <span>Downloading…</span>
+                              </>
+                            ) : isPillSuccess ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-success-fg" aria-hidden="true" />
+                                <span>Downloaded ✓</span>
+                              </>
+                            ) : (
+                              <>
+                                <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                                <span>Download</span>
+                              </>
+                            )}
+                          </button>
+                        );
+                      })()}
                     </div>
                   </div>
                 ) : null}
@@ -636,33 +819,55 @@ export const PublicClientReviewView: React.FC<Props> = ({ theme: _theme = 'light
                             </div>
                           )}
                         </button>
-                        {downloadsEnabled && asset.kind !== 'link' && (asset.download_url || asset.url) && (
-                          <button
-                            type="button"
-                            aria-label={
-                              downloadableAssets.length > 1
-                                ? `Download slide ${idx + 1} of ${downloadableAssets.length}`
-                                : `Download ${asset.filename || 'file'}`
-                            }
-                            onClick={(e) =>
-                              handleDownloadAsset(
-                                {
-                                  downloadUrl:
-                                    asset.download_url ||
-                                    `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
-                                  filename: asset.filename || 'download',
-                                  contentType: asset.content_type,
-                                  sizeBytes: asset.size_bytes,
-                                  kind: asset.kind,
-                                },
-                                e,
-                              )
-                            }
-                            className="absolute bottom-0.5 right-0.5 z-10 inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface/95 text-fg border border-border shadow-xs hover:bg-hover focus-visible:focus-ring"
-                          >
-                            <Download className="w-3 h-3" />
-                          </button>
-                        )}
+                        {downloadsEnabled && asset.kind !== 'link' && (asset.download_url || asset.url) && (() => {
+                          const downloadAsset: PublicDownloadAsset = {
+                            id: asset.id,
+                            downloadUrl:
+                              asset.download_url ||
+                              `${asset.url}${asset.url.includes('?') ? '&' : '?'}download=1`,
+                            filename: asset.filename || 'download',
+                            contentType: asset.content_type,
+                            sizeBytes: asset.size_bytes,
+                            kind: asset.kind,
+                          };
+                          const badgeKey = getAssetKey(downloadAsset);
+                          const isBadgeDownloading = downloadingKeys.has(badgeKey);
+                          const isBadgeSuccess = successKeys.has(badgeKey);
+                          const isBadgeDisabled = isDownloadingAll || isBadgeDownloading || isBadgeSuccess;
+
+                          const badgeAriaLabel = isBadgeDownloading
+                            ? 'Downloading…'
+                            : isBadgeSuccess
+                            ? 'Downloaded ✓'
+                            : downloadableAssets.length > 1
+                            ? `Download slide ${idx + 1} of ${downloadableAssets.length}`
+                            : `Download ${asset.filename || 'file'}`;
+
+                          return (
+                            <button
+                              type="button"
+                              aria-label={badgeAriaLabel}
+                              disabled={isBadgeDisabled}
+                              onClick={(e) => void handleDownloadAsset(downloadAsset, e)}
+                              className="absolute bottom-0 right-0 z-10 w-[44px] h-[44px] flex items-end justify-end p-1 cursor-pointer disabled:cursor-not-allowed group/dl-badge focus:outline-none"
+                            >
+                              <span
+                                className={cn(
+                                  'inline-flex items-center justify-center w-6 h-6 rounded-full bg-surface/95 text-fg border border-border shadow-xs group-hover/dl-badge:bg-hover group-focus-visible/dl-badge:focus-ring',
+                                  isBadgeDisabled && 'opacity-60',
+                                )}
+                              >
+                                {isBadgeDownloading ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" aria-hidden="true" />
+                                ) : isBadgeSuccess ? (
+                                  <Check className="w-3 h-3 text-success-fg" aria-hidden="true" />
+                                ) : (
+                                  <Download className="w-3 h-3" aria-hidden="true" />
+                                )}
+                              </span>
+                            </button>
+                          );
+                        })()}
                       </div>
                     ))}
                   </div>

@@ -20,6 +20,7 @@ export default defineConfig({
       'src/hooks/__tests__/**/*.test.ts',
       'src/hooks/__tests__/**/*.test.tsx',
       'src/components/clients/__tests__/**/*.test.tsx',
+      'src/components/views/__tests__/**/*.test.tsx',
       'src/services/__tests__/**/*.test.ts',
     ],
   },

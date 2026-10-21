@@ -1,6 +1,7 @@
 export const IOS_IMAGE_SHARE_MAX_BYTES = 15 * 1024 * 1024;
 
 export type PublicDownloadAsset = {
+  id?: string | number;
   downloadUrl: string;
   filename: string;
   contentType?: string;
@@ -112,9 +113,11 @@ export async function downloadAllPublicAssets(
   assets: PublicDownloadAsset[],
   gapMs = 400,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  onProgress?: (current: number, total: number) => void,
 ): Promise<void> {
   for (let i = 0; i < assets.length; i += 1) {
     const asset = assets[i];
+    onProgress?.(i + 1, assets.length);
     triggerAnchorDownload(asset.downloadUrl, asset.filename);
     if (i < assets.length - 1) {
       await sleep(gapMs);
