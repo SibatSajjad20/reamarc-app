@@ -85,6 +85,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const loginManagedElsewhere = Boolean(member?.login_managed_elsewhere);
+  const canEditIdentity =
+    member?.can_edit_identity != null ? Boolean(member.can_edit_identity) : !loginManagedElsewhere;
+  const canEditRole = member?.can_edit_role !== false;
   const formRef = useRef<HTMLFormElement>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [serverError, setServerError] = useState<string | null>(null);
@@ -143,7 +146,7 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
       errs.fullName = 'Full name is required';
     }
     const normalizedEmail = email.trim().toLowerCase();
-    if (!loginManagedElsewhere && (!normalizedEmail || !looksLikeEmail(normalizedEmail))) {
+    if (canEditIdentity && (!normalizedEmail || !looksLikeEmail(normalizedEmail))) {
       errs.email = 'A valid work email is required';
     }
     const normalizedPhone = phone.trim() ? normalizePhoneForSave(phone) : undefined;
@@ -197,9 +200,9 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
     try {
       setIsSubmitting(true);
-      if (loginManagedElsewhere) {
+      if (loginManagedElsewhere || !canEditIdentity) {
         const payload: UpdateMemberPayload = {};
-        if (role !== member.role) {
+        if (canEditRole && role !== member.role) {
           payload.role = role;
         }
         const newPrimary = role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment));
@@ -228,7 +231,6 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
         await onSubmit(member.id, payload);
       } else {
         const payload: UpdateMemberPayload = {
-          role,
           department: deptValue,
           departments: deptsList,
           primary_department: role === 'client' ? undefined : (role === 'operations' || role === 'admin' ? 'All' : (role === 'hr' ? 'HR' : primaryDepartment)),
@@ -237,10 +239,15 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           is_active: isActive,
           workspace_ids: role === 'client' ? (selectedWorkspaceId ? [selectedWorkspaceId] : []) : [],
           full_name: fullName.trim(),
-          email: normalizedEmail,
           phone: normalizedPhone,
         };
-        if (password.trim()) {
+        if (canEditRole && role !== member.role) {
+          payload.role = role;
+        }
+        if (canEditIdentity && normalizedEmail !== (member.email || '').toLowerCase()) {
+          payload.email = normalizedEmail;
+        }
+        if (canEditIdentity && password.trim()) {
           payload.password = password.trim();
         }
         await onSubmit(member.id, payload);
@@ -305,12 +312,17 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
             <div>
               <label className="block text-ui font-medium text-fg mb-1.5">
-                Work email {!loginManagedElsewhere && <span className="text-danger-fg">*</span>}
+                Work email {canEditIdentity && <span className="text-danger-fg">*</span>}
               </label>
-              {loginManagedElsewhere ? (
-                <p className="h-9 px-3 flex items-center text-ui text-fg-muted bg-subtle border border-border rounded-md">
-                  {email}
-                </p>
+              {!canEditIdentity ? (
+                <>
+                  <p className="h-9 px-3 flex items-center text-ui text-fg-muted bg-subtle border border-border rounded-md">
+                    {email}
+                  </p>
+                  <p className="text-caption text-fg-muted mt-1.5">
+                    Only the platform owner can change this login.
+                  </p>
+                </>
               ) : (
                 <input
                   type="email"
@@ -398,14 +410,19 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
           {/* Row 3: Role (2-column RadioCards) */}
           <div>
             <label className="block text-ui font-medium text-fg mb-2">Role</label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className={`grid grid-cols-1 sm:grid-cols-2 gap-2.5 ${!canEditRole ? 'opacity-60' : ''}`}>
               {ROLES.filter((r) => r.id !== 'operations' || user?.role === 'admin').map((r) => {
                 const isSelected = role === r.id;
                 return (
                   <div
                     key={r.id}
-                    onClick={() => setRole(r.id)}
-                    className={`p-3 rounded-lg border text-left cursor-pointer transition-all flex items-start gap-3 ${
+                    onClick={() => {
+                      if (canEditRole) setRole(r.id);
+                    }}
+                    aria-disabled={!canEditRole}
+                    className={`p-3 rounded-lg border text-left transition-all flex items-start gap-3 ${
+                      canEditRole ? 'cursor-pointer' : 'cursor-not-allowed'
+                    } ${
                       isSelected
                         ? 'border-accent bg-accent-soft text-fg ring-1 ring-accent'
                         : 'border-border bg-surface hover:bg-hover text-fg'
@@ -598,10 +615,12 @@ export const EditMemberModal: React.FC<EditMemberModalProps> = ({
 
           {/* Row 7: Reset password (optional) */}
           <div className="pt-2 border-t border-border">
-            {loginManagedElsewhere ? (
+            {!canEditIdentity ? (
+              loginManagedElsewhere ? (
               <p className="text-ui text-fg-muted">
                 This person manages their own login.
               </p>
+              ) : null
             ) : (
               <>
             <label className="block text-ui font-medium text-fg mb-1">

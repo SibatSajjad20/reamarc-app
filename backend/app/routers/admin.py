@@ -143,7 +143,41 @@ def _format_member_resp(doc: dict) -> dict:
         "is_super_admin": doc.get("is_super_admin", False),
         "needs_setup": bool(doc.get("needs_setup", False)),
         "login_managed_elsewhere": bool(doc.get("login_managed_elsewhere", False)),
+        "can_edit": bool(doc.get("can_edit", True)),
+        "can_edit_identity": bool(doc.get("can_edit_identity", True)),
+        "can_edit_role": bool(doc.get("can_edit_role", True)),
     }
+
+
+MEMBERSHIP_ONLY_USER_KEYS = {
+    "role",
+    "department",
+    "departments",
+    "primary_department",
+    "needs_setup",
+}
+
+
+async def _attach_member_edit_flags(
+    resp: dict,
+    caller: dict,
+    target_user: dict,
+    target_role: Any,
+    *,
+    extra_active_memberships: Optional[int] = None,
+) -> dict:
+    from app.services.identity_guard import member_edit_flags
+
+    flags = await member_edit_flags(
+        caller,
+        target_user,
+        target_role,
+        extra_active_memberships=extra_active_memberships,
+    )
+    resp["can_edit"] = flags.can_edit
+    resp["can_edit_identity"] = flags.can_edit_identity
+    resp["can_edit_role"] = flags.can_edit_role
+    return resp
 
 
 async def _client_workspace_ids(db, raw_ids: list) -> list:
@@ -300,7 +334,16 @@ async def list_members(
                 if s_lower not in full_name and s_lower not in email:
                     continue
 
-            results.append(_format_member_resp(merged))
+            extras_count = 1 if m["user_id"] in extra_ids else 0
+            formatted = _format_member_resp(merged)
+            await _attach_member_edit_flags(
+                formatted,
+                current_user,
+                merged,
+                merged.get("role"),
+                extra_active_memberships=extras_count,
+            )
+            results.append(formatted)
 
         return results
 
@@ -324,7 +367,12 @@ async def list_members(
 
     cursor = db.users.find(query).sort("created_at", -1)
     members = await cursor.to_list(200)
-    return [_format_member_resp(m) for m in members]
+    results = []
+    for m in members:
+        formatted = _format_member_resp(m)
+        await _attach_member_edit_flags(formatted, current_user, m, m.get("role"))
+        results.append(formatted)
+    return results
 
 
 @router.get("/members/activity", response_model=List[MemberActivityResponse])
@@ -753,21 +801,33 @@ async def update_member(
             raise HTTPException(status_code=404, detail="Member not found.")
         target_role = target_mem.get("role", "team_member")
         is_target_admin = target_role in (UserRole.ADMIN.value, "admin")
+        caller_mem = await gdb.company_memberships.find_one({
+            "user_id": current_user.get("id"),
+            "company_id": current_user.get("company_id"),
+            "status": "active",
+        })
+        if caller_mem and caller_mem.get("role"):
+            current_user = {**current_user, "role": caller_mem.get("role")}
     else:
         existing_user = await db.users.find_one({"$or": [{"id": user_id}, {"_id": user_id}]})
         if not existing_user:
             raise HTTPException(status_code=404, detail="Member not found.")
-        is_target_admin = existing_user.get("role") in (UserRole.ADMIN.value, "admin")
+        target_role = existing_user.get("role", "team_member")
+        is_target_admin = target_role in (UserRole.ADMIN.value, "admin")
     is_caller_admin = current_user.get("role") in (UserRole.ADMIN.value, "admin")
 
     from app.services.identity_guard import (
+        assert_can_edit_member,
         assert_super_admin_protected,
         can_edit_global_identity,
         identity_keys_in_update,
         invalidate_global_login,
+        is_owner_actor,
         remove_company_membership,
         HOME_LOGIN_MSG,
     )
+    payload_fields = member_in.model_dump(exclude_unset=True)
+    await assert_can_edit_member(current_user, existing_user, target_role, payload_fields)
     assert_super_admin_protected(current_user, existing_user)
     may_edit_identity = await can_edit_global_identity(current_user, existing_user)
 
@@ -796,8 +856,8 @@ async def update_member(
         if deactivating:
             raise HTTPException(status_code=400, detail="Cannot deactivate an Admin account.")
 
-    # Prevent promoting any non-admin to admin
-    if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin"):
+    # Prevent promoting any non-admin to admin (owner may still do this)
+    if not is_target_admin and member_in.role in (UserRole.ADMIN, "admin") and not is_owner_actor(current_user):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Promoting accounts to Super Admin is not permitted.",
@@ -934,7 +994,9 @@ async def update_member(
             )
 
     if not update_fields:
-        return _format_member_resp(existing_user)
+        formatted = _format_member_resp(existing_user)
+        await _attach_member_edit_flags(formatted, current_user, existing_user, target_role)
+        return formatted
 
     new_primary = update_fields.get("primary_department", existing_user.get("primary_department"))
     new_primary_stage = get_primary_stage(new_primary)
@@ -1009,16 +1071,19 @@ async def update_member(
         await gdb.company_memberships.update_one({"id": target_mem["id"]}, {"$set": mem_set})
         invalidate_auth_cache(user_id=user_id, membership_id=target_mem["id"])
 
-        if may_edit_identity:
-            update_fields["updated_at"] = now_iso
+        user_set = {
+            k: v for k, v in update_fields.items() if k not in MEMBERSHIP_ONLY_USER_KEYS
+        }
+        if may_edit_identity and user_set:
+            user_set["updated_at"] = now_iso
             updated_user = await gdb.users.find_one_and_update(
                 {"$or": [{"id": user_id}, {"_id": user_id}]},
-                {"$set": update_fields},
+                {"$set": user_set},
                 return_document=True,
             )
             if not updated_user:
                 updated_user = dict(existing_user)
-                updated_user.update(update_fields)
+                updated_user.update(user_set)
         else:
             updated_user = dict(existing_user)
 
@@ -1045,7 +1110,14 @@ async def update_member(
     if new_joining and new_joining != existing_user.get("joining_date"):
         await purge_pre_joining_attendance(user_id, new_joining)
 
-    return _format_member_resp(updated_user)
+    formatted = _format_member_resp(updated_user)
+    await _attach_member_edit_flags(
+        formatted,
+        current_user,
+        updated_user,
+        updated_user.get("role"),
+    )
+    return formatted
 
 
 @router.delete("/members/{user_id}")
@@ -1080,7 +1152,31 @@ async def delete_member(
     if not existing_user:
         raise HTTPException(status_code=404, detail="Member not found.")
 
-    if existing_user.get("is_super_admin") or existing_user.get("role") in (UserRole.ADMIN.value, "admin"):
+    target_role = existing_user.get("role", "team_member")
+    if multi_enabled and gdb is not None:
+        target_mem = await gdb.company_memberships.find_one({
+            "user_id": user_id,
+            "company_id": caller_cid,
+        })
+        if target_mem and target_mem.get("role"):
+            target_role = target_mem.get("role")
+        caller_mem = await gdb.company_memberships.find_one({
+            "user_id": current_user.get("id"),
+            "company_id": caller_cid,
+            "status": "active",
+        })
+        if caller_mem and caller_mem.get("role"):
+            current_user = {**current_user, "role": caller_mem.get("role")}
+
+    from app.services.identity_guard import assert_can_edit_member
+    await assert_can_edit_member(
+        current_user,
+        existing_user,
+        target_role,
+        {"_action": "delete", "is_active": False},
+    )
+
+    if existing_user.get("is_super_admin") or target_role in (UserRole.ADMIN.value, "admin"):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The Super Admin account cannot be deleted.",

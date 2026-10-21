@@ -23,6 +23,9 @@ export interface AdminMember {
   company_id?: string | null;
   is_super_admin?: boolean;
   login_managed_elsewhere?: boolean;
+  can_edit?: boolean;
+  can_edit_identity?: boolean;
+  can_edit_role?: boolean;
 }
 
 export type AdminUser = AdminMember;

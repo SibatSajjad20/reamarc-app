@@ -622,6 +622,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                     {/* Actions Menu */}
                     {canManageMembers && (
                       <TD align="right" className="w-12">
+                        {m.can_edit !== false && (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <IconButton
@@ -689,6 +690,7 @@ export const UserManagementSection: React.FC<UserManagementSectionProps> = ({
                             )}
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </TD>
                     )}
                   </TR>
